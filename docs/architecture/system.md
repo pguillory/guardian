@@ -969,7 +969,7 @@ cookie.
 
 ### 10.1 Build
 
-The `Dockerfile` is a two-stage build. The builder (hexpm Elixir 1.19.3 on OTP 28.2,
+The `Dockerfile` is a two-stage build. The builder (hexpm Elixir 1.19.6 on OTP 28.5.0.8,
 Debian trixie) installs a C toolchain plus Hyperscan and libjq headers, fetches and
 compiles production dependencies (cached separately from source), writes the git
 commit into `priv/commit` for `Build.commit/0`, and builds the release. The runner
@@ -1045,7 +1045,7 @@ operational decisions:
 5. `jq()` links the system libjq (Debian trixie `libjq1` 1.7.1 in the image, Homebrew
    jq locally), not a Hex package, through Guardian's own sandboxed worker.
 
-The image and local development use Elixir 1.19.3 on OTP 28.2.
+The image and local development use Elixir 1.19.6 on OTP 28.5.0.8.
 
 ## 11. Testing
 

@@ -9,9 +9,9 @@
 # JIT miscompiles Mix projects. Add --build-arg ERL_FLAGS="+JMsingle true" there, and
 # pass -e ERL_FLAGS="+JMsingle true" to docker run. Fly's builders are native amd64.
 
-ARG ELIXIR_VERSION=1.19.3
-ARG OTP_VERSION=28.2
-ARG DEBIAN_VERSION=trixie-20260610-slim
+ARG ELIXIR_VERSION=1.19.6
+ARG OTP_VERSION=28.5.0.8
+ARG DEBIAN_VERSION=trixie-20261020-slim
 
 ARG BUILDER_IMAGE="hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION}"
 ARG RUNNER_IMAGE="debian:${DEBIAN_VERSION}"

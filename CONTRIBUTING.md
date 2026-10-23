@@ -6,7 +6,7 @@ Thanks for your interest in Guardian.
 
 Install the prerequisites listed under "Development" in [README.md](README.md):
 
-- Elixir 1.19.3 on Erlang/OTP 28.2
+- Elixir 1.19.6 on Erlang/OTP 28.5.0.8
 - a C toolchain
 - Hyperscan (or vectorscan on macOS)
 - libjq

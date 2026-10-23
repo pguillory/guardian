@@ -15,8 +15,8 @@ jobs:
     timeout-minutes: 30
     env:
       # The versions the Dockerfile builds with.
-      OTP_VERSION: "28.2"
-      ELIXIR_VERSION: "1.19.3"
+      OTP_VERSION: "28.5.0.8"
+      ELIXIR_VERSION: "1.19.6"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

@@ -331,7 +331,7 @@ serves as the resource `guardian://query-language`.
 
 Prerequisites:
 
-- Elixir 1.19.3 on Erlang/OTP 28.2 (the versions the image uses)
+- Elixir 1.19.6 on Erlang/OTP 28.5.0.8 (the versions the image uses)
 - a C toolchain
 - Hyperscan headers and library: `libhyperscan-dev` on Debian/Ubuntu, or Homebrew
   `vectorscan` on macOS
