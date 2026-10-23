@@ -644,9 +644,23 @@ with the group count, so the cap and the depth limit together bound a run's memo
 `replace` takes the offsets of every non-overlapping match (`:global`, with PCRE's
 empty-match rules), refuses a match that starts or ends inside a UTF-8 character
 (only `\C` can do that), computes the exact result size for the 16 MiB string limit,
-and then splices the untouched slices and the literal replacement together. The
-offset list itself is bounded only by the per-process heap limit (TODO.md
-replace-offset-memory).
+and then appends the untouched slices and the literal replacement to one binary.
+`:re` builds the whole offset list on the calling process's heap, about two matches
+per character at worst. A value up to 16 KiB is replaced in the calling process (at
+most about 33,000 matches, measured at 10 to 20 MB of process memory). A larger value
+is replaced in a helper process spawned with its own `max_heap_size`: the query heap
+limit, or 256 MiB when that is 0, so the offsets are bounded even with the limit off.
+A helper killed by its cap becomes a `Query.Error` saying the value matched too many
+times; anything the helper raises is raised again in the caller. Measured with `x*`,
+256 MiB allows about 600,000 matches on one value and 64 MiB about 200,000. The
+helper is monitored, not linked, since a link would carry its heap kill to the
+caller; its first act is to start a watcher that kills it when the caller dies (a
+query stopped at its time limit), so no helper outlives its query. The helper's heap
+is on top of its caller's, so a worker's peak can roughly double during a replace.
+
+Streaming the matches instead (one `:re.run` per match, from an offset) keeps no list
+but is quadratic: PCRE checks the subject's UTF-8 from the offset to the end on every
+call, and `:re` cannot skip the check (40 KB of empty matches took a second).
 
 Guardian used Hyperscan until the hyperscan 0.1.5 NIF's `replace` was found to abort
 the VM whenever a pattern's matches grew or overlapped, as `[0-9]+` on "123" does (it

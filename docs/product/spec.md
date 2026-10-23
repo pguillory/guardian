@@ -354,7 +354,10 @@ the shipped surface:
    first, with its replacement taken literally. A value that is not valid UTF-8 gives
    null. A pattern may have at most 32 capturing groups, and one that backtracks past
    a fixed limit on some value fails the query with a message saying the regular
-   expression is too complex.
+   expression is too complex. A `replace` whose pattern matches one value too many
+   times (hundreds of thousands at the default heap limit, as an empty-matching pattern
+   can on a large value; fewer with a lower limit)
+   fails the query with a message saying so.
    Most functions return null on wrong-type arguments rather than failing the query;
    exceptions (such as `concat` and `||`, which coerce numbers and booleans to strings
    and can fail or give meaningless results on lists) are noted in the reference.
@@ -376,7 +379,9 @@ the shipped surface:
    exceeded its heap limit (GUARDIAN_QUERY_MAX_HEAP_MB); narrow the query with WHERE,
    LIMIT or fewer groups". The message hedges because Guardian cannot tell a heap kill
    from another kill. The limit is per process, not a bound on the query's total
-   memory. A query may run for at most 30 seconds; then it is stopped on every machine and
+   memory. `replace` on a value over 16 KiB runs in a helper process with the same
+   limit, or 256 MiB when it is `0`, so one value's matches stay bounded even with the
+   limit off. A query may run for at most 30 seconds; then it is stopped on every machine and
    fails with an error saying it exceeded its time limit. An expression that fails
    while being evaluated on any machine fails the whole query with an error, rather
    than dropping that machine's rows. So does any other failure while the query runs:

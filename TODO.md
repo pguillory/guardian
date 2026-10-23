@@ -56,9 +56,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       `error_kind = 'parse'`, without the hourly cap); drop `query_parse_errors` and
       its recorder, moving `truncate/2` to `Utils` and the caller helpers to a small
       `Web.Caller` module
-- [ ] replace-offset-memory: `replace` collects every match offset of a value before
-      its exact-size check, so millions of empty matches on one value take hundreds of
-      MB, unbounded when `GUARDIAN_QUERY_MAX_HEAP_MB=0`; check size as matches stream
+- [x] replace-offset-memory: `replace` held every match offset of a value with no
+      bound when `GUARDIAN_QUERY_MAX_HEAP_MB=0`; a value over 16 KiB is now replaced in
+      a helper process with its own heap cap (`docs/changes/replace-offset-memory.md`)
 - [ ] ci-arm64-image: CI builds only the amd64 image; build linux/arm64 too, which
       should work now that Hyperscan is gone but has never been built
 - [ ] query-memory-bound: result sizes, string sizes, run time and each query

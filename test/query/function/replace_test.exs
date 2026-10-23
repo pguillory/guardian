@@ -98,4 +98,40 @@ defmodule Query.Function.ReplaceTest do
     assert error.message =~ "regular expression too complex"
     assert error.message =~ "backtracking limit"
   end
+
+  describe "a value over 16 KiB, replaced in a capped helper process" do
+    # The same `:re` scan, as the oracle: `:re.replace` with a replacement free of
+    # `&` and `\`.
+    defp oracle(subject, pattern, replacement) do
+      {:ok, regex} = Query.Regex.compile(pattern)
+      :re.replace(subject, regex, replacement, [:global, {:return, :binary}])
+    end
+
+    test "gives the same result as a small value" do
+      s = String.duplicate("ab 12 é😀 345 ", 2_000)
+      assert byte_size(s) > 16 * 1024
+
+      for pattern <- ["[0-9]+", "x*", "(?:|a)", "a|ab", "é+", "."] do
+        assert eval("replace(s, '#{pattern}', '-')", s: s) === oracle(s, pattern, "-"),
+               pattern
+      end
+
+      assert eval("replace(s, '[0-9]+', '')", s: s) === String.duplicate("ab  é😀  ", 2_000)
+    end
+
+    test "errors and nulls are the same as for a small value" do
+      s = String.duplicate("é", 10_000)
+      assert query_error(~S"replace(s, '\\C', 'X')", s: s).message =~ "part of a character"
+      assert eval("replace(s, 'a', 'x')", s: String.duplicate("a", 20_000) <> <<255>>) === nil
+
+      # 10,000 matches of 2 KB each make 20 MB.
+      error =
+        query_error("replace(s, 'a', r)",
+          s: String.duplicate("ab", 10_000),
+          r: String.duplicate("x", 2_048)
+        )
+
+      assert error.message =~ "over the 16777216-byte limit"
+    end
+  end
 end

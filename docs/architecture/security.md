@@ -353,10 +353,19 @@ and no single request that takes the service down or destroys stored data.
      under PCRE2, which together keep a run to a few MB. Without them, a pattern with
      hundreds of empty groups took over 1 GB on one value, enough to kill a 1 GB
      machine.
-   - Residual: `replace` keeps every match offset of a value in memory before its
-     exact-size check. That is bounded by the per-process heap limit, not the 16 MiB
-     string cap, and with the heap limit off (`GUARDIAN_QUERY_MAX_HEAP_MB=0`) a value
-     of millions of empty matches can take hundreds of MB.
+   - Match lists: `:re` returns every match offset of a value at once, about two per
+     character at worst, which for millions of empty matches took hundreds of MB.
+     Values up to 16 KiB are replaced in the calling process (at most about 33,000
+     matches); a larger value is replaced in a helper process whose heap is capped at
+     the query heap limit, or 256 MiB when that is off (`GUARDIAN_QUERY_MAX_HEAP_MB=0`),
+     so the list stays bounded either way. A value that needs more (about 600,000
+     matches at 256 MiB) fails the query with an error. The cap is a heap budget
+     checked at garbage collection, so it can overshoot somewhat, and it counts
+     neither PCRE's native frames (bounded above) nor the result binary (bounded by
+     the 16 MiB string cap). The helper's heap is on top of its caller's, so a worker's
+     peak can roughly double during a replace, and with the setting at 0 many workers
+     can each have a 256 MiB helper at once. The per-value match bound scales with the
+     setting.
 2. Per-query resource bounds are partial. A query may return at most 100,000 rows and
    about 64 MiB, counted where rows collect on the machine running the query (the
    result, the input of an in-memory ORDER BY, the merge of ORDER BY ... LIMIT);

@@ -24,6 +24,11 @@ defmodule Query.Limits do
     was killed and may have exceeded its heap limit (an exit reason of `:killed` does
     not prove which limit was hit).
 
+    `replace` on a value over 16 KiB runs in its own helper process with the same cap
+    (256 MiB when the limit is off), so a value's match offsets stay bounded even with
+    the limit off; a helper killed by it fails the query with an error saying the
+    value matched too many times (`Query.Regex.replace/3`).
+
   Exceeding a bound raises `Query.Error` with what to change. These cover the common
   accidental cases, not total query memory: the heap limit is per process and checked
   at garbage collection, so it can overshoot, and it does not count GROUP BY state

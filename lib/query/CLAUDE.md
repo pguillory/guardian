@@ -45,7 +45,12 @@ worker but not routers; each node reads its own setting. A `:killed` exit, from 
 pipeline or the query process, becomes `Query.Limits.heap_kill_message/0`, which hedges
 because the reason cannot prove a heap kill. The limit does not bound total query
 memory: GROUP BY state (ETS), column data (NIF native memory) and shared binaries are
-not counted, GC checks can overshoot, and many processes can each reach it. Query code reads stored segments only by ID, and only in `Query.Evaluation`:
+not counted, GC checks can overshoot, and many processes can each reach it.
+`Query.Regex.replace/3` on a value over 16 KiB runs in its own unlinked helper with
+the same cap, or 256 MiB when the setting is 0, so a worker's peak can roughly double
+during a replace; a helper heap kill becomes a `Query.Error` in the caller, not a
+`:killed` exit.
+Query code reads stored segments only by ID, and only in `Query.Evaluation`:
 `snapshot!/1` calls `Storage.segment_row_count/1` and `read_column/2` calls
 `Storage.get_column/2` (no timeout). Both turn
 `{:error, {:segment_unavailable, reason}}` into a `Query.Error` naming the segment.
