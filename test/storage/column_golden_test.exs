@@ -5,6 +5,8 @@ defmodule Storage.ColumnGoldenTest do
   # test/fixtures/column_nif_outputs.etf holds these outputs as produced by the column
   # NIF before its arithmetic moved to 64-bit types (column-64bit-arithmetic). Packed
   # columns are the segment file format, so they must stay byte-for-byte identical.
+  # `add` and `multiply` were regenerated when a non-number on the left stopped
+  # shifting the right side's later values (their old outputs paired wrong rows).
   @fixture Path.expand("../fixtures/column_nif_outputs.etf", __DIR__)
 
   test "column NIF outputs match the checked-in fixture" do

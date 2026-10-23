@@ -190,6 +190,35 @@ defmodule ColumnTest do
     assert divide(column1, column2) |> to_list() === [nil, nil, nil, 1.0]
   end
 
+  test "a non-number on the left doesn't shift the right side's later values" do
+    left = from_list([nil, 1, "x", 2.5, true, 3])
+    right = from_list([10, 20, 30.5, 40, 50, 60])
+    assert add(left, right) |> to_list() === [nil, 21, nil, 42.5, nil, 63]
+    assert subtract(left, right) |> to_list() === [nil, -19, nil, -37.5, nil, -57]
+    assert multiply(left, right) |> to_list() === [nil, 20, nil, 100.0, nil, 180]
+    assert divide(left, right) |> to_list() === [nil, 0.05, nil, 0.0625, nil, 0.05]
+  end
+
+  test "arithmetic results that aren't finite are null, never stored" do
+    assert divide(from_list([1, 0, -1, 1.5, 0.0]), from_list([0, 0, 0, 0.0, 0])) |> to_list() ===
+             [nil, nil, nil, nil, nil]
+
+    assert add(from_list([1.0e308, 1, 2]), from_list([1.0e308, 1, 3])) |> to_list() === [
+             nil,
+             2,
+             5,
+           ]
+
+    assert subtract(from_list([-1.0e308, 5]), from_list([1.0e308, 2])) |> to_list() === [nil, 3]
+
+    assert multiply(from_list([1.0e200, 2.5]), from_list([1.0e200, 2])) |> to_list() === [
+             nil,
+             5.0,
+           ]
+
+    assert divide(from_list([1.0e308, 6]), from_list([1.0e-308, 3])) |> to_list() === [nil, 2.0]
+  end
+
   test "min_max_number" do
     assert from_list([1, 2, 3]) |> min_max_number() === {1, 3}
     assert from_list([nil, 2, 3]) |> min_max_number() === {2, 3}
