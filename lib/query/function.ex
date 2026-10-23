@@ -35,7 +35,6 @@ defmodule Query.Function do
     {"if", 3, Query.Function.If},
     {"interval", 1, Query.Function.Interval},
     {"ip_to_integer", 1, Query.Function.IpToInteger},
-    {"jq", 2, Query.Function.Jq},
     {"length", 1, Query.Function.Length},
     {"log", 1, Query.Function.Log},
     {"log10", 1, Query.Function.Log10},

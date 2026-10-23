@@ -29,6 +29,5 @@ guardian-*.tar
 
 /priv/commit
 /priv/*.so
-/priv/jq_worker
 
 /data

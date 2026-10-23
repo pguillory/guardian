@@ -21,7 +21,7 @@ endif
 console: nifs
 	iex --erl "-kernel shell_history enabled" -S mix
 
-nifs: priv/column.so priv/mmap.so priv/jq_worker
+nifs: priv/column.so priv/mmap.so
 
 priv:
 	mkdir -p priv
@@ -32,15 +32,5 @@ priv/column.so: priv src/column.c Makefile
 priv/mmap.so: priv src/mmap.c Makefile
 	gcc -o priv/mmap.so src/mmap.c $(CFLAGS)
 
-# The jq() query function's sandboxed worker: a separate executable, linked to the
-# system libjq (Debian libjq-dev in the Dockerfile, Homebrew jq on macOS).
-JQ_CFLAGS := -O2 -Wall -Wextra
-ifeq ($(UNAME_SYS), Darwin)
-	JQ_CFLAGS += -I /opt/homebrew/include -L /opt/homebrew/lib
-endif
-
-priv/jq_worker: priv src/jq_worker.c Makefile
-	gcc -o priv/jq_worker src/jq_worker.c $(JQ_CFLAGS) -ljq
-
 clean:
-	rm -f priv/column.so priv/mmap.so priv/jq_worker
+	rm -f priv/column.so priv/mmap.so

@@ -1,27 +1,51 @@
 # syntax=docker/dockerfile:1
 # ADD --checksum needs Dockerfile frontend 1.6 or later; the line above selects it.
-# Guardian release image for Fly.io. See the "Fly.io" section of README.md.
+# Guardian release image. See the "Fly.io" section of README.md. CI builds
+# linux/amd64; linux/arm64 has a cloudflared stage and no x86-only dependency, but is
+# not yet tested.
 #
-# Build locally with:
-#   docker build --platform linux/amd64 --build-arg GIT_COMMIT=$(git rev-parse HEAD) .
+# Build locally, for the host's own architecture, with:
+#   docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) .
 #
-# On an arm64 host (Apple Silicon), amd64 builds run under emulation, where the BEAM
-# JIT miscompiles Mix projects. Add --build-arg ERL_FLAGS="+JMsingle true" there, and
-# pass -e ERL_FLAGS="+JMsingle true" to docker run. Fly's builders are native amd64.
+# Cross-building amd64 on an arm64 host (Apple Silicon, with --platform linux/amd64)
+# runs under emulation, where the BEAM JIT miscompiles Mix projects. Add
+# --build-arg ERL_FLAGS="+JMsingle true" there, and pass -e ERL_FLAGS="+JMsingle true"
+# to docker run. Fly's builders are native amd64.
 
 ARG ELIXIR_VERSION=1.19.6
 ARG OTP_VERSION=28.5.0.8
 ARG DEBIAN_VERSION=trixie-20261020-slim
 
+# Set by BuildKit for the target platform: selects the cloudflared stage below.
+ARG TARGETARCH
 ARG BUILDER_IMAGE="hexpm/elixir:${ELIXIR_VERSION}-erlang-${OTP_VERSION}-debian-${DEBIAN_VERSION}"
 ARG RUNNER_IMAGE="debian:${DEBIAN_VERSION}"
 
+# cloudflared, for the optional outbound Cloudflare Tunnel connector (bin/fly-start)
+# that lets Cloudflare Workers reach Guardian through Workers VPC. One stage per
+# architecture, each pinned and checksummed: the build fails if a download doesn't
+# match, and an architecture without a stage fails to build. ADD checks the hash and
+# sets the mode itself. The version and hashes are written here, not as build args, so
+# they change together: a bump edits all of these lines.
+FROM scratch AS cloudflared-amd64
+ADD --checksum=sha256:3bfc539f45d2620c71debb7a86be0efa737ed5ccbad9eb85c787116900e5c586 \
+  --chmod=0755 \
+  https://github.com/cloudflare/cloudflared/releases/download/2026.10.1/cloudflared-linux-amd64 \
+  /cloudflared
+
+FROM scratch AS cloudflared-arm64
+ADD --checksum=sha256:2c65dfabf616c40efc7545d107d7a57ad5e21377e2964b7e88af19a238074a46 \
+  --chmod=0755 \
+  https://github.com/cloudflare/cloudflared/releases/download/2026.10.1/cloudflared-linux-arm64 \
+  /cloudflared
+
+FROM cloudflared-${TARGETARCH} AS cloudflared
+
 FROM ${BUILDER_IMAGE} AS builder
 
-# build-essential for the NIFs (src/column.c, src/mmap.c) and the jq worker
-# (src/jq_worker.c); headers and libraries for the hyperscan NIF and the jq worker.
+# build-essential for the NIFs (src/column.c, src/mmap.c).
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends build-essential git libhyperscan-dev libjq-dev \
+  && apt-get install -y --no-install-recommends build-essential git \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
@@ -55,18 +79,10 @@ FROM ${RUNNER_IMAGE}
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
-    ca-certificates libhyperscan5 libjq1 libssl3t64 libstdc++6 \
+    ca-certificates libssl3t64 libstdc++6 \
   && rm -rf /var/lib/apt/lists/*
 
-# cloudflared, for the optional outbound Cloudflare Tunnel connector (bin/fly-start)
-# that lets Cloudflare Workers reach Guardian through Workers VPC. Pinned and checksummed: the build
-# fails if the download doesn't match. ADD checks the hash and sets the mode itself, so
-# the binary lands in one layer. The version and hash are written here, not as build
-# args, so they change together: a bump edits both lines.
-ADD --checksum=sha256:3bfc539f45d2620c71debb7a86be0efa737ed5ccbad9eb85c787116900e5c586 \
-  --chmod=0755 \
-  https://github.com/cloudflare/cloudflared/releases/download/2026.10.1/cloudflared-linux-amd64 \
-  /usr/local/bin/cloudflared
+COPY --from=cloudflared /cloudflared /usr/local/bin/cloudflared
 RUN /usr/local/bin/cloudflared --version
 
 ENV LANG=C.UTF-8
@@ -77,11 +93,6 @@ ENV GUARDIAN_DATA_DIR=/data
 WORKDIR /app
 COPY --from=builder /app/_build/prod/rel/guardian ./
 COPY bin/fly-start /app/fly-start
-
-# Prove the jq() sandbox on this exact image (kernel features, glibc, libjq,
-# oniguruma): empty environment, seccomp denying files, jq builtins working under the
-# filter, and the memory limit ending the worker. The build fails otherwise.
-RUN env -i /app/lib/guardian-0.1.0/priv/jq_worker --self-test
 
 # Runs as root: Fly volumes mount root-owned, and each Fly Machine is its own VM whose
 # only workload is Guardian.

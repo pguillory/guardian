@@ -458,6 +458,12 @@ defmodule AST.Parser do
         expr = %AST.Node.AggregateFunctionCall{name: name, args: exprs}
         {expr, tokens}
 
+      [{:identifier, "jq"}, {:punctuation, "("} | _tokens] ->
+        throw {:parse_error,
+               "jq() was removed from Guardian. For ingested JSON objects, nested " <>
+                 "fields are already columns: query them by dotted name, for example " <>
+                 "payload.user.id", tokens_at_function}
+
       [{:identifier, "replace"}, {:punctuation, "("} | tokens] ->
         {arg1, tokens} = parse_expression!(tokens)
         tokens = parse_punctuation!(tokens, ",")
@@ -741,14 +747,14 @@ defmodule AST.Parser do
   defp validate_regex!(expr, tokens) do
     case expr do
       %Literal{value: value} when is_binary(value) ->
-        try do
-          Hyperscan.compile(value, 0, Hyperscan.mode("HS_MODE_BLOCK"))
-        catch
-          :error, :badarg ->
-            throw {:parse_error, "Invalid regular expression", tokens}
-        else
+        case Query.Regex.compile(value) do
           {:ok, _} ->
             expr
+
+          {:error, :too_many_groups} ->
+            throw {:parse_error,
+                   "Regular expression has more than #{Query.Regex.max_groups()} " <>
+                     "capturing groups; use (?:...) for groups you don't capture", tokens}
 
           {:error, _} ->
             throw {:parse_error, "Invalid regular expression", tokens}

@@ -58,8 +58,8 @@ defmodule Query do
   Returns `{:ok, labels, rows}`, with the column labels taken from the statement
   before LET substitution (column names in their stored spelling). Returns
   `{:error, message}` for a failure of the query itself: zero or several statements,
-  or a `Query.Error` from `run/1` (a resource limit, an invalid jq program). Only
-  running is covered by that rescue; anything raised while resolving (an
+  or a `Query.Error` from `run/1` (a resource limit, a regular expression over its
+  backtracking limit). Only running is covered by that rescue; anything raised while resolving (an
   `AST.ParseError`, an ambiguous column, a failed schema lookup) propagates.
 
   Options:

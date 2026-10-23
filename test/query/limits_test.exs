@@ -91,9 +91,25 @@ defmodule Query.LimitsTest do
       assert error("SELECT '123456' || '78901'") =~ "concat would build"
       assert error("SELECT concat('1234', '5678', '90', '1')") =~ "concat"
       assert run_sql("SELECT concat('12345', '67890')") == [["1234567890"]]
-      assert error("SELECT replace(s, 'r', 'xxxx') FROM #{table}") =~ "replace (worst case)"
+
+      assert error("SELECT replace(s, 'o', 'xxxxxxxx') FROM #{table}") =~
+               "replace would build a string of 12 bytes"
+
       assert run_sql("SELECT replace('ab', 'a', 'c')") == [["cb"]]
+      # The exact size counts: "xxxxow 1" is 8 bytes, though a match at every
+      # position could have reached 41.
+      assert run_sql("SELECT replace('row 1', 'r', 'xxxx')") == [["xxxxow 1"]]
+      # Empty matches count too: 2n + 1 replacements for n characters.
+      assert error("SELECT replace('aaa', '(?:|a)', 'xx')") =~
+               "replace would build a string of 14 bytes"
     end
+  end
+
+  test "replace and RLIKE run over a stored table", %{table: table} do
+    assert run_sql("SELECT replace(s, '[0-9]+', ':n') FROM #{table} WHERE v <= 2") ==
+             [["row :n"], ["row :n"]]
+
+    assert run_sql("SELECT count() FROM #{table} WHERE s RLIKE '^row [0-9]{2}$'") == [[21]]
   end
 
   test "factorial refuses results that do not fit in 64 bits" do

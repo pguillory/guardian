@@ -10,8 +10,7 @@ How this fits with the other docs:
 1. What Guardian does, as a caller sees it, is the [product spec](../product/spec.md),
    which extends the [overview](../product/overview.md). This document assumes it and
    cites its sections instead of repeating behavior.
-2. Trust boundaries, the API key, the jq sandbox's security argument, secrets, and
-   logging exposure are the [security architecture](security.md). This document links
+2. Trust boundaries, the API key, secrets, and logging exposure are the [security architecture](security.md). This document links
    to it rather than restating it.
 3. Rules for editing a subsystem are in the `CLAUDE.md` file in each `lib/` directory.
    Those files are the working notes for agents changing that code; this document is
@@ -85,7 +84,6 @@ Main (one_for_one)
 │   └── Storage.SegmentExpiration    deletes segments older than 15 days, every 10 minutes
 ├── SystemStats                      one system_stats row per second
 ├── Web.QueryParseErrors             records query parse failures, asynchronously
-├── Query.Jq.Slots                   at most 2 concurrent jq workers per machine
 ├── Web (supervisor, rest_for_one)
 │   ├── Anubis.Server.Registry       MCP session registry
 │   ├── Web.MCP.Server               the Anubis MCP server process
@@ -138,7 +136,7 @@ deployment's supervisor restarts it (on Fly, `[[restart]] policy = "always"`).
 
 ### 2.2 Native code
 
-Three C components live in `src/` and are built by the Makefile through
+Two C components live in `src/` and are built by the Makefile through
 `elixir_make`:
 
 1. `column.c` (`priv/column.so`): the column NIF. It implements typed, packed columns
@@ -147,19 +145,15 @@ Three C components live in `src/` and are built by the Makefile through
 2. `mmap.c` (`priv/mmap.so`): maps a segment file read-only and returns it as a
    binary. The descriptor is closed at once, and the mapping is removed when the last
    binary referring to it is garbage collected, so deleting a mapped file is safe.
-3. `jq_worker.c` (`priv/jq_worker`): a separate executable, not a NIF, that runs jq
-   programs in a sandbox (section 5.6).
 
 Native code is used where it pays: columns because evaluation runs over every value of
-a column, and jq because libjq is a C library. A NIF runs inside the VM, so a NIF bug
-can abort the whole node; the column NIF validates every value before it can reach a
-C `assert` (`lib/storage/column/CLAUDE.md`), but packed binaries it is handed are
-trusted. That is the main reason jq was moved out of
-the VM into its own process.
-
-One dependency also brings native code: `hyperscan` (Intel's regex engine, used for
-`RLIKE` and `replace`; `LIKE` is matched in Elixir). `count_distinct` uses `hypex`, a
-HyperLogLog written in Elixir.
+a column. A NIF runs inside the VM, so a NIF bug can abort the whole node; the column
+NIF validates every value before it can reach a C `assert`
+(`lib/storage/column/CLAUDE.md`), but packed binaries it is handed are trusted. No
+dependency brings native code of its own and no system library is linked, so the
+build needs only a C toolchain and nothing in it is x86-only. Regular expressions
+(`RLIKE`, `replace`) run on Erlang's built-in `:re` (section 5.6; `LIKE` is matched in
+Elixir), and `count_distinct` uses `hypex`, a HyperLogLog written in Elixir.
 
 ## 3. Ingest path
 
@@ -625,32 +619,38 @@ key to packed binary, with no process behind it, freed when the last stage drops
    define their own columnar `eval2/2`. Most return null on wrong-type input instead
    of failing (`lib/query/function/CLAUDE.md`).
 3. Aggregates are registered in `Aggregation` and planned, not evaluated as functions.
-4. Regular expressions compile with Hyperscan once per evaluation (per segment),
-   not per row, when the pattern is a literal.
+4. Regular expressions compile once per evaluation (per segment), not per row, when
+   the pattern is a literal (section 5.6).
 5. Column metadata enables short cuts: an all-true or all-false WHERE column skips
    filtering, and `if` and `coalesce` skip branches that cannot be taken.
 
-### 5.6 The jq worker
+### 5.6 Regular expressions
 
-`jq(program, json)` runs in a separate OS process, `priv/jq_worker`, one per
-evaluation (one `jq()` call over one segment), started through `/usr/bin/env -i` with
-its limits as arguments and spoken to over stdin and stdout in length-prefixed frames.
-`Query.Jq` compiles the program once per contiguous run of rows that share it (once
-per segment when the program is a constant), sends inputs in batches,
-and closes the worker afterwards. `Query.Jq.Slots` admits at most 2 workers per
-machine at a time; a caller waits up to the time limit for a slot, then fails with
-"jq is busy".
+`Query.Regex` is the one place patterns are compiled and run, on Erlang's `:re`
+(PCRE2): the parser validates `RLIKE` and `replace` patterns with it, and evaluation
+compiles them again, once per evaluation. Compiled patterns are never put in the AST,
+which travels between nodes. Patterns compile in UTF-8 mode without `ucp`, so values
+match by character while `\w`, `\d` and `\b` stay ASCII by default (inline `(*UCP)`
+changes that). A value that is not valid UTF-8 makes `:re.run` raise; only that call
+is rescued, and the value gives null. Every run passes `match_limit` (1,000,000, per
+start position) and `match_limit_recursion` (10,000, a depth limit under PCRE2), and
+hitting either raises `Query.Error`. A pattern may have at most 32 capturing groups:
+PCRE2's backtracking frames live in native memory, outside the heap limit, and grow
+with the group count, so the cap and the depth limit together bound a run's memory
+(security.md 5.2 item 1). `:re` yields to the scheduler during long matches, and the
+30-second query limit bounds total CPU.
 
-Why a process and not the libjq NIF it replaced: libjq has no interrupt hook, so only
-a process can be stopped on time, given a hard memory cap, an empty environment, and
-an OS sandbox. The security argument (seccomp on Linux, sandbox_init on macOS, the
-self-check, the limits) is in [security.md section 5.2](security.md#52-gaps). The
-Docker image runs the
-worker's self-test at build time, so an image whose kernel or libraries break the
-sandbox fails to build.
+`replace` takes the offsets of every non-overlapping match (`:global`, with PCRE's
+empty-match rules), refuses a match that starts or ends inside a UTF-8 character
+(only `\C` can do that), computes the exact result size for the 16 MiB string limit,
+and then splices the untouched slices and the literal replacement together. The
+offset list itself is bounded only by the per-process heap limit (TODO.md
+replace-offset-memory).
 
-Cost: a process start per segment evaluated. jq over a large table is slow, and its
-2-second wall clock per evaluation does not bound a whole query.
+Guardian used Hyperscan until the hyperscan 0.1.5 NIF's `replace` was found to abort
+the VM whenever a pattern's matches grew or overlapped, as `[0-9]+` on "123" does (it
+asserted on Hyperscan reporting every match end). `:re` is about 3 to 10 times slower
+for `RLIKE`: roughly 2.5 to 10 µs a row for an 89-byte string, against under 1.2 µs.
 
 ### 5.7 Query limits
 
@@ -941,10 +941,6 @@ these except through the variables above:
 | `query_max_result_bytes` | 64 MiB | `Query.Limits` |
 | `query_max_string_bytes` | 16 MiB | `Query.Limits` |
 | `query_time_limit_ms` | 30,000 | `Query.run/1` (`Query.Limits`) |
-| `jq_time_limit_ms` | 2,000 | `Query.Jq` |
-| `jq_max_row_output_bytes`, `jq_max_output_bytes` | 1 MiB, 16 MiB | `Query.Jq` |
-| `jq_memory_limit_bytes` | 256 MiB | `Query.Jq` (enforced on Linux only) |
-| `jq_max_workers` | 2 | `Query.Jq.Slots` |
 | `query_parse_errors_per_hour` | 60 | `Web.QueryParseErrors` (tests raise it) |
 | `persisted_segment_cache_ms` | 600,000 | `Storage.PersistedSegments`: how long a written segment's in-memory copy serves before it is stopped (tests shorten it); a value that is not a positive integer stops Storage from starting |
 
@@ -953,7 +949,8 @@ budget (`Storage.Segment`), 15-day retention (`Storage.SegmentExpiration`), 60-s
 rescan (`LoadedSegments`), shutdown
 budgets (`Storage`), the 64-byte table name and 250-byte key limits (`Engine`,
 `Storage.Value`), the 32-byte key minimum (`config/runtime.exs`), the once-a-minute
-query-key log line (`Web.Auth`), and DistributedStream's 1,000-byte chunks.
+query-key log line (`Web.Auth`), the regular expression match and depth limits
+(`Query.Regex`), and DistributedStream's 1,000-byte chunks.
 
 Logging: production logs at `info`, set in `config/config.exs` because that file is
 compiled into the release (security.md section 8 explains why the level matters).
@@ -970,11 +967,12 @@ cookie.
 ### 10.1 Build
 
 The `Dockerfile` is a two-stage build. The builder (hexpm Elixir 1.19.6 on OTP 28.5.0.8,
-Debian trixie) installs a C toolchain plus Hyperscan and libjq headers, fetches and
+Debian trixie) installs a C toolchain, fetches and
 compiles production dependencies (cached separately from source), writes the git
 commit into `priv/commit` for `Build.commit/0`, and builds the release. The runner
-image is plain Debian with only the runtime libraries, the release, a pinned and
-checksummed cloudflared binary, and a build-time run of `jq_worker --self-test`. Its
+image is plain Debian with only the runtime libraries, the release, and a pinned and
+checksummed cloudflared binary for the target architecture (one `FROM scratch` stage
+per architecture, selected by `TARGETARCH`). Its
 CMD is `bin/fly-start`, which starts Guardian (it works the same off Fly). When
 `TUNNEL_TOKEN` is set, it also starts a cloudflared connector beside Guardian: an
 outbound Cloudflare Tunnel, so the operator's Cloudflare Workers can reach Guardian
@@ -982,8 +980,9 @@ through a Workers VPC binding instead of the public edge (security.md B1b). It u
 the token before starting Guardian, and the connector stays in that script rather than
 `rel/env.sh.eex`, which runs for every `bin/guardian` command (`remote`, `rpc`) and
 would start more connectors. The image runs as root, because Fly volumes mount
-root-owned and each Fly Machine is a VM whose only workload is Guardian. It targets
-linux/amd64 only.
+root-owned and each Fly Machine is a VM whose only workload is Guardian. CI and Fly
+build linux/amd64; linux/arm64 has its cloudflared stage but has not been built yet
+(TODO.md ci-arm64-image).
 
 ### 10.2 Fly configuration
 
@@ -1042,8 +1041,9 @@ operational decisions:
 4. The mmap NIF (`src/mmap.c`, `Storage.Mmap`) and DistributedStream
    (`Query.DistributedStream`) are vendored, with Guardian's own fixes, and are outside
    Hex updates. Do not reintroduce the `mmap` or `distributed_stream` Hex packages.
-5. `jq()` links the system libjq (Debian trixie `libjq1` 1.7.1 in the image, Homebrew
-   jq locally), not a Hex package, through Guardian's own sandboxed worker.
+5. No system library is linked. Hyperscan and libjq were dropped so the build needs
+   only a C toolchain; don't add a dependency that needs a system library without
+   weighing the install cost.
 
 The image and local development use Elixir 1.19.6 on OTP 28.5.0.8.
 
@@ -1056,8 +1056,9 @@ formatting and compiles with warnings as errors). About 150 test files cover:
    and aggregation, the column NIF (including golden outputs in
    `test/fixtures/column_nif_outputs.etf`), the segment file format (golden file
    `test/fixtures/segment_file.seg`), flattening, segments, each lifecycle
-   manager, mmap, the jq worker's sandbox and limits, query limits (including the heap
-   limit, on one node and on a peer that follows its own setting), and worker errors.
+   manager, mmap, regular expressions (semantics, UTF-8, the backtracking limit),
+   query limits (including the heap limit, on one node and on a peer that follows its
+   own setting), and worker errors.
 2. Concurrency and lifecycle races: handoff visibility, persistence scheduling,
    column release, and a segment column race run in a child VM
    (`test/fixtures/segment_column_race.exs`).
@@ -1086,8 +1087,7 @@ formatting and compiles with warnings as errors). About 150 test files cover:
 Rules: tests use no external services; each `mix test` run stores segments in a fresh
 directory under the system temp directory (set in `config/config.exs`, removed when
 the run's VM exits, once Guardian has stopped), so no run sees tables an earlier run
-left; `:large` tests (gigabytes of memory) are excluded by default, and `:linux` tests (the jq memory limit, which only Linux
-enforces) run only on Linux. `Query.EvaluationTestCase` is the helper for function
+left; `:large` tests (gigabytes of memory) are excluded by default. `Query.EvaluationTestCase` is the helper for function
 tests; `TestHelpers` (in `libtest/`) resolves and runs SQL (`resolve_sql/1`,
 `run_sql/1`), holds shared polling (`eventually/2`, and `eventually_after_gc/1` for
 released NIF resources), waits for a call queued at a suspended process
@@ -1107,7 +1107,7 @@ Gaps: there is no load or soak test, no automated test of a multi-machine query
 against a real deployment (Fly's has been checked by hand, section 7), no test that
 runs a cluster from the release with DNS discovery outside Fly, no crash-recovery test
 (VM killed with unpersisted data), and peers in multi-node tests run no Web or
-SystemStats. `benches/` has one Hyperscan benchmark.
+SystemStats. There are no benchmarks in the tree.
 
 ## 12. Known limits
 
@@ -1135,8 +1135,7 @@ synchronous request logging (3.3).
 
 Written from the code: `lib/main.ex`, every module under `lib/storage/`,
 `lib/engine.ex`, `lib/query.ex` and `lib/query/`, `lib/web/` and `lib/web/mcp/`,
-`lib/cluster.ex` and `lib/cluster/`, `src/*.c` (headers and setup paths of
-`jq_worker.c` and `mmap.c`), `config/`, `rel/`, `bin/fly-start`, `Dockerfile`,
+`lib/cluster.ex` and `lib/cluster/`, `src/*.c` (headers and setup paths of `mmap.c`), `config/`, `rel/`, `bin/fly-start`, `Dockerfile`,
 `fly.toml`, `Makefile`, and the test helpers.
 
 When a change alters a structure described here (the supervision tree, the segment

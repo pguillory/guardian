@@ -21,16 +21,16 @@ one page) and the full [product spec](docs/product/spec.md). How it's built:
 
 ## Quickstart (Docker, single node)
 
-The image targets linux/amd64. Guardian uses Hyperscan, the regex engine behind `RLIKE`
-and `replace()`, and the image downloads the amd64 cloudflared, so there's no native
-arm64 image.
+`docker build` targets the host's own architecture. CI builds linux/amd64; nothing in
+the build is x86-only any more, so linux/arm64 should build too, but it hasn't been
+tested yet.
 
 ```sh
-docker build --platform linux/amd64 -t guardian .
+docker build -t guardian .
 
 export GUARDIAN_API_KEY="$(openssl rand -hex 32)"
 
-docker run -d --name guardian --platform linux/amd64 \
+docker run -d --name guardian \
   --stop-timeout 120 \
   -p 127.0.0.1:8080:8080 \
   -v guardian_data:/data \
@@ -38,8 +38,9 @@ docker run -d --name guardian --platform linux/amd64 \
   guardian
 ```
 
-On Apple Silicon, amd64 runs under emulation, where the BEAM JIT miscompiles Mix
-projects. Add `--build-arg ERL_FLAGS="+JMsingle true"` to `docker build` and
+To build an amd64 image on Apple Silicon (`--platform linux/amd64`), note that amd64
+runs under emulation there, where the BEAM JIT miscompiles Mix projects. Add
+`--build-arg ERL_FLAGS="+JMsingle true"` to `docker build` and
 `-e ERL_FLAGS="+JMsingle true"` to `docker run`.
 
 `--stop-timeout 120` gives Guardian time to persist its in-memory segments when the
@@ -139,7 +140,7 @@ all interfaces, so it needs the cookie and the same firewalling as a cluster mem
 Fly is a preset of the cluster above. On a Fly machine the node host defaults to its
 private IPv6 address and `DNS_CLUSTER_QUERY` to `<app>.internal`, so a cluster needs
 no configuration beyond the cookie. The `Dockerfile` builds the release (including
-the column, mmap and Hyperscan NIFs and the sandboxed jq worker), and `fly.toml` runs
+the column and mmap NIFs), and `fly.toml` runs
 it with:
 
 - a volume at `/data`
@@ -294,7 +295,7 @@ Guardian writes some tables of its own:
 
 Guardian supports `SELECT`, `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT`,
 `SHOW TABLES` and `DESC`, along with query-time aggregations and scalar functions
-(including a sandboxed `jq()`). Queries are read-only: there's no `INSERT` or
+(including `RLIKE` and `replace()` with Perl-compatible regular expressions). Queries are read-only: there's no `INSERT` or
 `DELETE`. The full reference is
 [`lib/web/mcp/query_language.md`](lib/web/mcp/query_language.md), which MCP also
 serves as the resource `guardian://query-language`.
@@ -333,12 +334,6 @@ Prerequisites:
 
 - Elixir 1.19.6 on Erlang/OTP 28.5.0.8 (the versions the image uses)
 - a C toolchain
-- Hyperscan headers and library: `libhyperscan-dev` on Debian/Ubuntu, or Homebrew
-  `vectorscan` on macOS
-- libjq: `libjq-dev`, or Homebrew `jq`
-- on Linux, an x86-64 machine: `libhyperscan-dev` is x86-64 only
-- on macOS, Homebrew at `/opt/homebrew` (Apple Silicon): the Hyperscan dependency and
-  the jq worker build look for headers and libraries there
 - `epmd`, which ships with Erlang, for the multi-node tests
 
 ```sh

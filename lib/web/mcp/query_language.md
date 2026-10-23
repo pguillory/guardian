@@ -92,7 +92,8 @@ SELECT path, count() FROM web_requests WHERE timestamp > date_sub(now(), INTERVA
 - `x BETWEEN a AND b`.
 - `x IN [a, b, c]`. The list uses square brackets; parentheses are not a list.
 - `LIKE` and `ILIKE` (case-insensitive), with `%` as the wildcard. `RLIKE` takes a
-  regular expression string literal. Each has a `NOT` form.
+  regular expression string literal and is true when it matches anywhere in the
+  value. Each has a `NOT` form. See "Regular expressions" below.
 - `CASE WHEN cond THEN x [WHEN ...] [ELSE y] END` and `CASE x WHEN v THEN y ... END`.
 - `INTERVAL n SECOND|MINUTE|HOUR|DAY|WEEK` is a number of seconds.
 - `current_date` and `current_timestamp` work without parentheses.
@@ -142,7 +143,7 @@ an error or a meaningless result.
   `reverse(s)`, `substr(s, start)`, `substr(s, start, count)` (start is 1-based),
   `replace(s, 'regex', replacement)`, `normalize(s)`, `normalize(s, 'NFC')` (also
   NFD, NFKC, NFKD). `lpad`, `rpad`, `concat`, `||`, and `replace` fail the query
-  rather than build a string over 16 MiB (`replace` counts its worst case).
+  rather than build a string over 16 MiB.
 - Conditionals: `if(cond, x)`, `if(cond, x, y)`, `coalesce(a, ...)` (1 to 4 arguments)
 - Types: `type(x)`; `to_string(x)` and `to_boolean(x)` return x when it already is a
   string or boolean, else null (they don't convert). To turn a value into a string,
@@ -157,9 +158,35 @@ an error or a meaningless result.
 - Hashes and IDs: `md5(s)`, `sha1(s)`, `sha256(s)`, `sha512(s)`, `generate_uuid()`
 - URLs and email: `url_scheme(u)`, `url_host(u)`, `url_port(u)`, `url_path(u)`,
   `url_fragment(u)`, `email_username(e)`, `email_domain(e)`, `ip_to_integer(ip)`
-- Other: `jq('program', json_string)` runs a jq program over a JSON string and
-  returns the list of its outputs (an object output comes back as JSON text; null if
-  the input is not valid JSON). It runs sandboxed: `$ENV` and `env` are empty, modules
-  and files cannot be imported, and each evaluation is limited to 2 seconds, 1 MiB of
-  output per row, and 16 MiB in total; exceeding a limit or a jq syntax error fails
-  the query. `cosine_similarity(a, b)` compares two numeric lists
+- Other: `cosine_similarity(a, b)` compares two numeric lists
+- There is no `jq()`: calling it is a parse error. Nested fields of ingested JSON
+  objects are already columns (`payload.user.id`; see "Data model").
+
+### Regular expressions
+
+`RLIKE` and `replace` take Perl-compatible regular expressions (PCRE, through Erlang's
+`:re`) as string literals; an invalid pattern is a parse error.
+
+- In a string literal a backslash is itself an escape, so write the regex `\d+` as
+  `'\\d+'`.
+- Values match by character, not byte: `.` matches `é` whole. `\w`, `\d`, `\s`, `\b`
+  and POSIX classes such as `[[:alpha:]]` are ASCII-only unless the pattern starts
+  with `(*UCP)`. A value that is not valid
+  UTF-8 gives null.
+- Matching is case-sensitive; `(?i)` makes it case-insensitive, including for
+  non-ASCII letters. `^` and `$` match at the start and end of the value (`$` also
+  before a final newline); `(?m)` makes them match at every line. `(?s)` lets `.`
+  match a newline.
+- `replace(s, 'regex', replacement)` replaces every non-overlapping match, scanning
+  left to right. At each position the first alternative that matches wins, and
+  quantifiers are greedy unless written lazy (`+?`): `replace('ab', 'a|ab', 'X')` is
+  `'Xb'`. The replacement is inserted literally: `&`, `\1` and `$1` have no special
+  meaning. A pattern that can match the empty string inserts the replacement at each
+  empty match, as Perl does: `replace('abc', 'x*', '-')` is `'-a-b-c-'`.
+- `replace` fails the query if a match would split a character, which only `\C`
+  can do.
+- A pattern may have at most 32 capturing groups; use `(?:...)` for the rest.
+- A pattern that backtracks too much on some value, such as `(a+)+$` against a long
+  run of `a`s, or a repeated group over a very long value (`^(?:\w+\s)*$` over
+  20,000 words), fails the query with "regular expression too complex". Simplify the
+  pattern, for example by removing nested quantifiers.

@@ -18,7 +18,7 @@ holders are trusted. Reports that matter most:
 1. Reading or writing event data without the key.
 2. Recovering the key from Guardian's responses, logs or stored tables.
 3. A key holder causing harm beyond the event store: code execution, file access or
-   network access from a query (for example through `jq()`).
+   network access from a query.
 4. A way in through Erlang distribution on a single node, which listens only on
    loopback.
 

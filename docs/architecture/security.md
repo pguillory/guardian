@@ -330,30 +330,34 @@ and no single request that takes the service down or destroys stored data.
 
 ### 5.2 Gaps
 
-1. jq is sandboxed. `jq()` runs caller programs in a separate worker process
-   (`src/jq_worker.c`), not in the VM. The worker starts with an empty environment
-   and refuses to run otherwise, so `$ENV`, `env`, and anything built on them see
-   `{}`. Before reading any caller data it installs an OS sandbox (seccomp allowlist
-   on Linux: no open, stat, exec, fork, signals to other processes, or changes to its
-   timer, signal mask, or limits) and checks that files cannot be opened or inspected,
-   so jq's module system (`import`, `include`, `modulemeta`, which accept absolute
-   search paths) cannot read or probe files. Each evaluation is bounded: 2 seconds of
-   wall clock (a timer set before the sandbox, with `RLIMIT_CPU` as an unblockable
-   backstop), 256 MiB of address space, 1 MiB of output per row and 16 MiB in total,
-   and at most 2 workers per machine; exceeding a limit fails the query with an error.
-   The worker's stderr goes to /dev/null, so nothing from jq reaches the server log.
-   Tests cover 32 environment spellings with a dummy variable, planted module and
-   data files, endless programs, and output limits; the Docker image runs the worker's
-   self-test (sandbox, jq builtins under the filter, memory limit) at build time.
-   Residual: a memory-corruption bug in libjq or oniguruma would run inside that
-   sandbox, which still allows reading and writing its own pipes and allocating
-   memory up to its cap.
+1. Regular expressions run in the VM, bounded but not cheap. `RLIKE` and `replace`
+   run caller patterns on Erlang's `:re` (PCRE2, part of OTP), not in a NIF of
+   Guardian's or a dependency's. That removes the confirmed crash path: the
+   Hyperscan NIF used before aborted the node from `replace` whenever a pattern's
+   reported matches grew or overlapped (`[0-9]+` on "123"). PCRE accepts
+   backreferences and lookaround, which make heavy backtracking easy to write, so:
+   - CPU: every run carries `match_limit` 1,000,000, hitting which fails the query
+     with an error. The limit counts per start position, so a value can still cost
+     seconds (`a*[^a]` on 40 KB of `a` took 2.7 s without tripping it); the 30-second
+     query time limit is the real bound. `:re` yields to the scheduler, so a long
+     match does not block one.
+   - Native memory: PCRE2 keeps backtracking frames in malloc'd memory that the
+     per-process heap limit does not see, and a frame grows with the pattern's
+     capturing groups. Patterns may have at most 32 capturing groups (a parse error
+     otherwise) and every run carries `match_limit_recursion` 10,000, a depth limit
+     under PCRE2, which together keep a run to a few MB. Without them, a pattern with
+     hundreds of empty groups took over 1 GB on one value, enough to kill a 1 GB
+     machine.
+   - Residual: `replace` keeps every match offset of a value in memory before its
+     exact-size check. That is bounded by the per-process heap limit, not the 16 MiB
+     string cap, and with the heap limit off (`GUARDIAN_QUERY_MAX_HEAP_MB=0`) a value
+     of millions of empty matches can take hundreds of MB.
 2. Per-query resource bounds are partial. A query may return at most 100,000 rows and
    about 64 MiB, counted where rows collect on the machine running the query (the
    result, the input of an in-memory ORDER BY, the merge of ORDER BY ... LIMIT);
    ORDER BY with a LIMIT above the cap is refused; `lpad`, `rpad`, `concat`, `||`, and
-   `replace` refuse strings over 16 MiB; `factorial` takes at most 20; `jq()` has its
-   own bounds (5.2.1). A query is stopped on every machine after 30 seconds
+   `replace` refuse strings over 16 MiB; `factorial` takes at most 20; regular expressions
+   have a backtracking limit (5.2.1). A query is stopped on every machine after 30 seconds
    (`query_time_limit_ms`), which bounds how long it holds memory and CPU but not how
    much memory it takes first. Exceeding one fails the query with an error. These
    cover the common accidental cases (a SELECT without LIMIT over a big table,
@@ -680,8 +684,8 @@ Open gaps named above, by boundary:
 Written from the code: the routers, `Web.Auth`, `Web.Logger`, `Web.QueryParseErrors`,
 `Engine`, `Cluster`, `Query.Limits`, `config/runtime.exs`, `rel/env.sh.eex`,
 `bin/fly-start`, `Dockerfile`, and `fly.toml` in this repository, and the pinned
-dependencies `cors_plug` 3.0.3 and `anubis_mcp` 0.16.0. `jq()` runs the system jq 1.7.1
-(Debian trixie `libjq1` in the image) in `src/jq_worker.c`. Statements about Fly's
+dependencies `cors_plug` 3.0.3 and `anubis_mcp` 0.16.0. Regular expressions run on
+OTP's `:re` through `Query.Regex`. Statements about Fly's
 platform (volume encryption, private network membership, edge behavior) come from
 Fly's tooling and documentation, not from Guardian's code. Where something was read
 from a dependency's source rather than tested, the text says so.

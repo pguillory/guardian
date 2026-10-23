@@ -19,5 +19,6 @@ equal to row-by-row ones (the comparison tests check this with
 `Query.EvaluationTestCase.eval_segment_and_rows/2`).
 
 Preserve SQL null semantics and type handling when changing an operator. Regex patterns
-are validated and executed with Hyperscan. Add scalar, columnar, null, and mixed-type
+are validated and executed only through `Query.Regex` (`:re`, with mandatory backtracking
+limits; `docs/architecture/system.md` 5.6). Add scalar, columnar, null, and mixed-type
 tests for behavior changes.

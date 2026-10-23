@@ -53,7 +53,7 @@ When a query is evaluated:
    - Define it only when the default per-row evaluation is not enough: short
      circuits (`if`, `coalesce`), compiling a literal argument once (`replace`), a
      NIF fast path (`to_boolean`, `to_string` with `ColumnOrConstant.map_or_nif`),
-     batch work (`jq`), rewrites (`concat`), or a constant (`pi`)
+     rewrites (`concat`), or a constant (`pi`)
    - Takes: evaluation context (SegmentSnapshot or event map) and function call AST
    - Returns: `%Column{}` or `%Constant{}` (from `Query.ColumnOrConstant`)
    - Evaluates arguments using `Query.Eval.eval/2`
@@ -195,12 +195,16 @@ defmodule Query.Function.Replace do
   # If pattern is a literal string, compile regex once
   def eval2(context, %AST.Node.FunctionCall{args: [expr1, expr2, expr3]}) do
     with %AST.Node.Literal{value: pattern} when is_binary(pattern) <- expr2,
-         {:ok, db} <- Hyperscan.compile(pattern, flags, mode) do
+         {:ok, regex} <- Query.Regex.compile(pattern) do
       # Use compiled pattern for all rows
       column1 = Query.Eval.eval(expr1, context)
       column3 = Query.Eval.eval(expr3, context)
-      ColumnOrConstant.map(column1, column3, fn string, replacement ->
-        Hyperscan.replace(db, string, replacement, scratch)
+      ColumnOrConstant.map(column1, column3, fn
+        string, replacement when is_binary(string) and is_binary(replacement) ->
+          Query.Regex.replace(regex, string, replacement)
+
+        _, _ ->
+          nil
       end)
     else
       _ ->
@@ -339,18 +343,17 @@ def eval(value), do: abs(value)
 `if`, `coalesce`
 
 ### Utility Functions
-`random`, `generate_uuid`, `ip_to_integer`, `jq`, `cosine_similarity`
+`random`, `generate_uuid`, `ip_to_integer`, `cosine_similarity`
 
 ## Special Functions
 
-### jq - JSON query language
+### replace - Regular expression replacement
 
-Runs jq programs on JSON strings in a sandboxed OS worker process (`Query.Jq`,
-`src/jq_worker.c`): empty environment, no file access, time, output, and memory
-limits, and at most 2 workers per machine. Limit violations and compile errors raise
-`Query.Error`. Read the jq section of `docs/architecture/security.md` before changing
-it, and keep its
-environment and file tests in `test/query/function/jq_test.exs` passing.
+Runs through `Query.Regex`, the only place patterns are compiled and run (`:re` with
+mandatory `match_limit` and `match_limit_recursion`). Never call `:re` directly from a
+function, and never reintroduce a regex NIF: the Hyperscan NIF this replaced aborted
+the VM on growing or overlapping matches. There is no `jq()`; the parser rejects it with a
+message.
 
 ### cosine_similarity - Vector similarity
 

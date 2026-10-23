@@ -75,9 +75,8 @@ queries.
 
 ### How it runs
 
-Guardian is an Elixir application with C native code for columns, memory-mapped
-segment files, Hyperscan regular expressions, and jq, shipped as one Docker image. It
-runs as a single node, or as a cluster on any set of machines that share a secret
+Guardian is an Elixir application with C native code for columns and memory-mapped
+segment files, shipped as one Docker image. It runs as a single node, or as a cluster on any set of machines that share a secret
 cookie and find each other through DNS; on Fly.io that needs no configuration beyond
 the cookie. Each machine keeps its events on its own disk, and every query and schema
 lookup covers all connected machines. There is no replication, and a machine that is

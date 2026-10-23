@@ -106,7 +106,7 @@ defmodule Web.JsonApi do
   ```
 
   **400 Bad Request** (`query` fails with a `Query.Error`, such as a resource limit or
-  an invalid jq program; `info` says what to change):
+  a regular expression over its backtracking limit; `info` says what to change):
   ```json
   {"status": 400, "info": "..."}
   ```

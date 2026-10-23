@@ -104,6 +104,21 @@ defmodule ParserTest do
     )
   end
 
+  test "patterns that can match empty are valid" do
+    assert %RlikeOperator{} = parse("msg rlike 'x*'")
+  end
+
+  test "jq() is gone, with a message saying so" do
+    assert_parse_error(
+      "jq('.a', payload)",
+      "^",
+      "jq() was removed from Guardian. For ingested JSON objects, nested fields are " <>
+        "already columns: query them by dotted name, for example payload.user.id"
+    )
+
+    assert parse("jq") == %AST.Node.Identifier{name: "jq"}
+  end
+
   test "an RLIKE pattern ends at AND" do
     assert parse("msg rlike 'a' and x = 1") == %AndOperator{
              left: %RlikeOperator{

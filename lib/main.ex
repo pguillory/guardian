@@ -8,7 +8,6 @@ defmodule Main do
       Storage,
       SystemStats,
       Web.QueryParseErrors,
-      Query.Jq.Slots,
       Web,
       Cluster.discovery_child_spec(),
     ]

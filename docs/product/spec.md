@@ -324,8 +324,8 @@ the shipped surface:
    (repeatable, ANDed), `GROUP BY`, `HAVING`, `ORDER BY ... ASC|DESC`, `LIMIT` (integer
    literal only). `SELECT *` expands to every column of the table across all machines.
 3. Expressions: arithmetic, `||`, comparisons including null-safe `<=>`, `IS [NOT]`,
-   `AND/OR/NOT`, `BETWEEN`, `IN [list]`, `LIKE`, `ILIKE`, `RLIKE` (Hyperscan regular
-   expressions), `CASE`, `INTERVAL n UNIT`, list literals.
+   `AND/OR/NOT`, `BETWEEN`, `IN [list]`, `LIKE`, `ILIKE`, `RLIKE` (Perl-compatible
+   regular expressions), `CASE`, `INTERVAL n UNIT`, list literals.
    Precedence, tightest first: `* /`; `+ - ||`; comparisons, `IS [NOT]`,
    `[NOT] LIKE|ILIKE|RLIKE`, `IN`; `BETWEEN`; `NOT`; `AND`; `OR`. So `NOT a = b` is
    `NOT (a = b)`, as in standard SQL.
@@ -337,14 +337,16 @@ the shipped surface:
    `min_n` and `max_n` skip nulls, and `min_by`, `max_by` and the `_n_by` forms skip
    rows whose ordering key is null. The n of `min_n`, `max_n` and the `_n_by` forms must
    be a non-negative integer, the same for every row of a group.
-5. Scalar functions (61 names): math, strings, conditionals, types, time, hashes,
-   UUIDs, URL and email parsing, `ip_to_integer`, `jq`, and `cosine_similarity`.
-   `jq(program, json)` runs jq 1.7 in a sandboxed process: it sees an empty
-   environment, cannot read files or import modules, and is limited per evaluation
-   (one call over one segment) to 2 seconds, 1 MiB of output per row and 16 MiB in
-   total, and 256 MiB of memory; a limit or a jq compile error fails the query with a
-   message. It returns the list of outputs (objects as JSON text), or null for input
-   that is not valid JSON.
+5. Scalar functions (60 names): math, strings, conditionals, types, time, hashes,
+   UUIDs, URL and email parsing, `ip_to_integer`, and `cosine_similarity`. There is
+   no `jq()`; a query calling it gets a parse error saying so, since nested fields of
+   ingested JSON objects are already columns.
+   Regular expressions (`RLIKE`, `replace`) are Perl-compatible and match UTF-8
+   strings by character. `replace` replaces every non-overlapping match, leftmost
+   first, with its replacement taken literally. A value that is not valid UTF-8 gives
+   null. A pattern may have at most 32 capturing groups, and one that backtracks past
+   a fixed limit on some value fails the query with a message saying the regular
+   expression is too complex.
    Most functions return null on wrong-type arguments rather than failing the query;
    exceptions (such as `concat` and `||`, which coerce numbers and booleans to strings
    and can fail or give meaningless results on lists) are noted in the reference.

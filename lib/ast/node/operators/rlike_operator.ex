@@ -8,14 +8,12 @@ defmodule AST.Node.Operators.RlikeOperator do
   defimpl Query.Eval do
     def eval(%@for{left: left, right: right}, context) do
       with %AST.Node.Literal{value: value} when is_binary(value) <- right,
-           {:ok, db} <- Hyperscan.compile(value, 0, Hyperscan.mode("HS_MODE_BLOCK")),
-           {:ok, scratch} <- Hyperscan.alloc_scratch(db) do
+           {:ok, regex} <- Query.Regex.compile(value) do
         column1 = Query.Eval.eval(left, context)
 
         ColumnOrConstant.map(column1, fn
           string when is_binary(string) ->
-            {:ok, value} = Hyperscan.match(db, string, scratch)
-            value
+            Query.Regex.matches(regex, string)
 
           _ ->
             nil

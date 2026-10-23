@@ -18,7 +18,6 @@ the release. Licenses are as each package declares them on Hex.
 | elixir_make | 0.10.0 | Apache-2.0 | build |
 | finch | 0.24.0 | MIT | release |
 | hpax | 1.1.0 | Apache-2.0 | release |
-| hyperscan | 0.1.5 | MIT | release |
 | hypex | 1.1.1 | MIT | release |
 | jason | 1.4.5 | Apache-2.0 | release |
 | mime | 2.0.7 | Apache-2.0 | release |
@@ -33,7 +32,6 @@ the release. Licenses are as each package declares them on Hex.
 | thousand_island | 1.6.0 | MIT | release |
 | uuid | 1.1.8 | Apache-2.0 | release |
 | websock | 0.5.3 | MIT | release |
-| benchee, deep_merge, statistex | 1.5.1, 1.0.2, 1.1.1 | MIT | development only |
 | exsync, file_system | 0.4.1, 1.1.1 | BSD-3-Clause, Apache-2.0 | development only |
 | freedom_formatter | 2.1.3 | Apache-2.0 | development only |
 
@@ -64,8 +62,6 @@ release image (or from your OS for development) and linked at build time:
 
 | Component | License | Used by |
 | --- | --- | --- |
-| Hyperscan (`libhyperscan5`) | BSD-3-Clause | the hyperscan NIF (regular expressions) |
-| jq (`libjq1`) with Oniguruma (`libonig5`) | MIT, BSD-2-Clause | the sandboxed jq worker (`src/jq_worker.c`) |
 | Erlang/OTP | Apache-2.0 | the runtime, bundled into the release |
 | Elixir | Apache-2.0 | the standard library, bundled into the release |
 | OpenSSL (`libssl3t64`) | Apache-2.0 | the runtime's crypto |

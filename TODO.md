@@ -46,6 +46,15 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Queries
 
+- [x] regex-on-re-drop-jq: `replace()` with growing or overlapping matches aborted the
+      VM in the Hyperscan NIF; regular expressions now run on `:re` with backtracking
+      limits, and jq() and the Hyperscan and libjq dependencies are gone
+      (`docs/changes/regex-on-re-drop-jq.md`)
+- [ ] replace-offset-memory: `replace` collects every match offset of a value before
+      its exact-size check, so millions of empty matches on one value take hundreds of
+      MB, unbounded when `GUARDIAN_QUERY_MAX_HEAP_MB=0`; check size as matches stream
+- [ ] ci-arm64-image: CI builds only the amd64 image; build linux/arm64 too, which
+      should work now that Hyperscan is gone but has never been built
 - [ ] query-memory-bound: result sizes, string sizes, run time and each query
       process's heap are bounded, but a query's total memory is not (GROUP BY state in
       ETS, column data in native memory, many processes); a deliberate or exotic query

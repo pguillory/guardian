@@ -5,7 +5,7 @@ so there is one place for each topic.
 
 1. [docs/architecture/system.md](docs/architecture/system.md): how the system is built.
    Supervision tree, ingest path, storage engine (segments, persistence, mmap,
-   retention), query engine (parsing, planning, distributed execution, the jq worker),
+   retention), query engine (parsing, planning, distributed execution, regular expressions),
    the JSON and MCP interfaces, clustering, configuration, deployment, testing, and
    known limits.
 2. [docs/architecture/security.md](docs/architecture/security.md): trust boundaries,

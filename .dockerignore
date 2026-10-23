@@ -4,11 +4,9 @@ _build
 deps
 data
 tmp
-benches
 test
 libtest
 priv/*.so
-priv/jq_worker
 priv/commit
 erl_crash.dump
 fly.toml

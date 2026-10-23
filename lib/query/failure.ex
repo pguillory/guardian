@@ -75,8 +75,7 @@ defmodule Query.Failure do
 
   @doc """
   Returns valid UTF-8 of at most #{@max_message_bytes} bytes plus "...", so the
-  message can always be JSON-encoded: messages may come from C (the jq worker cuts at
-  a byte limit) or quote user data.
+  message can always be JSON-encoded: messages may quote user data.
   """
   @spec truncate(String.t()) :: String.t()
   def truncate(message) do

@@ -10,7 +10,6 @@ permissions:
 
 jobs:
   test:
-    # Hyperscan is x86-64 only.
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     env:
@@ -25,7 +24,7 @@ jobs:
       - name: Install native build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends build-essential libhyperscan-dev libjq-dev
+          sudo apt-get install -y --no-install-recommends build-essential
 
       - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
         with:
@@ -56,7 +55,6 @@ jobs:
         with:
           persist-credentials: false
 
-      # Builds the release image, including the jq sandbox self-test the Dockerfile
-      # runs. Nothing is pushed.
+      # Builds the release image (amd64, as Fly runs it). Nothing is pushed.
       - name: Build the image
         run: docker build --platform linux/amd64 --build-arg GIT_COMMIT="$GITHUB_SHA" -t guardian:ci .

@@ -65,4 +65,5 @@ which reports the first exception to the query and skips the rest of that worker
 work; the query then raises it as `Query.Error`. The guard keeps row values out of
 crash reports.
 Raise `Query.Error` with an actionable message for failures caused by the query
-itself (limits, invalid jq programs); the JSON API answers it with 400.
+itself (limits, a regular expression over its backtracking limit); the JSON API
+answers it with 400.
