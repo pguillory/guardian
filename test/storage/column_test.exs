@@ -190,6 +190,26 @@ defmodule ColumnTest do
     assert divide(column1, column2) |> to_list() === [nil, nil, nil, 1.0]
   end
 
+  test "arithmetic results that aren't finite are null, never stored" do
+    assert divide(from_list([1, 0, -1, 1.5, 0.0]), from_list([0, 0, 0, 0.0, 0])) |> to_list() ===
+             [nil, nil, nil, nil, nil]
+
+    assert add(from_list([1.0e308, 1, 2]), from_list([1.0e308, 1, 3])) |> to_list() === [
+             nil,
+             2,
+             5,
+           ]
+
+    assert subtract(from_list([-1.0e308, 5]), from_list([1.0e308, 2])) |> to_list() === [nil, 3]
+
+    assert multiply(from_list([1.0e200, 2.5]), from_list([1.0e200, 2])) |> to_list() === [
+             nil,
+             5.0,
+           ]
+
+    assert divide(from_list([1.0e308, 6]), from_list([1.0e-308, 3])) |> to_list() === [nil, 2.0]
+  end
+
   test "min_max_number" do
     assert from_list([1, 2, 3]) |> min_max_number() === {1, 3}
     assert from_list([nil, 2, 3]) |> min_max_number() === {2, 3}

@@ -647,6 +647,17 @@ void append_float(struct column * column, double value) {
   column->header->float_count += 1;
 }
 
+// For arithmetic results: a value that isn't finite (division by zero, overflow) is
+// stored as null. A column never holds inf or NaN (assert_valid_column).
+void append_arithmetic_float(struct column * column, double value) {
+  if (isfinite(value)) {
+    append_float(column, value);
+  }
+  else {
+    append_null(column);
+  }
+}
+
 void append_string(struct column * column, size_t size, unsigned char * data) {
   assert(size <= MAX_VALUE_LENGTH);
   ensure_available_capacity(column);
@@ -1491,7 +1502,7 @@ static ERL_NIF_TERM add_nif(ErlNifEnv * env, int argc, const ERL_NIF_TERM argv[]
         append_int(column3, *(column1.int_values++) + *(column2.int_values++));
       }
       else if (column2.float_bitmap[word] & (1ULL << bit)) {
-        append_float(column3, *(column1.int_values++) + *(column2.float_values++));
+        append_arithmetic_float(column3, *(column1.int_values++) + *(column2.float_values++));
       }
       else {
         append_null(column3);
@@ -1500,10 +1511,10 @@ static ERL_NIF_TERM add_nif(ErlNifEnv * env, int argc, const ERL_NIF_TERM argv[]
     }
     else if (column1.float_bitmap[word] & (1ULL << bit)) {
       if (column2.int_bitmap[word] & (1ULL << bit)) {
-        append_float(column3, *(column1.float_values++) + *(column2.int_values++));
+        append_arithmetic_float(column3, *(column1.float_values++) + *(column2.int_values++));
       }
       else if (column2.float_bitmap[word] & (1ULL << bit)) {
-        append_float(column3, *(column1.float_values++) + *(column2.float_values++));
+        append_arithmetic_float(column3, *(column1.float_values++) + *(column2.float_values++));
       }
       else {
         append_null(column3);
@@ -1552,7 +1563,7 @@ static ERL_NIF_TERM subtract_nif(ErlNifEnv * env, int argc, const ERL_NIF_TERM a
         append_int(column3, *(column1.int_values++) - *(column2.int_values++));
       }
       else if (column2.float_bitmap[word] & (1ULL << bit)) {
-        append_float(column3, *(column1.int_values++) - *(column2.float_values++));
+        append_arithmetic_float(column3, *(column1.int_values++) - *(column2.float_values++));
       }
       else {
         append_null(column3);
@@ -1561,10 +1572,10 @@ static ERL_NIF_TERM subtract_nif(ErlNifEnv * env, int argc, const ERL_NIF_TERM a
     }
     else if (column1.float_bitmap[word] & (1ULL << bit)) {
       if (column2.int_bitmap[word] & (1ULL << bit)) {
-        append_float(column3, *(column1.float_values++) - *(column2.int_values++));
+        append_arithmetic_float(column3, *(column1.float_values++) - *(column2.int_values++));
       }
       else if (column2.float_bitmap[word] & (1ULL << bit)) {
-        append_float(column3, *(column1.float_values++) - *(column2.float_values++));
+        append_arithmetic_float(column3, *(column1.float_values++) - *(column2.float_values++));
       }
       else {
         append_null(column3);
@@ -1613,7 +1624,7 @@ static ERL_NIF_TERM multiply_nif(ErlNifEnv * env, int argc, const ERL_NIF_TERM a
         append_int(column3, *(column1.int_values++) * *(column2.int_values++));
       }
       else if (column2.float_bitmap[word] & (1ULL << bit)) {
-        append_float(column3, *(column1.int_values++) * *(column2.float_values++));
+        append_arithmetic_float(column3, *(column1.int_values++) * *(column2.float_values++));
       }
       else {
         append_null(column3);
@@ -1622,10 +1633,10 @@ static ERL_NIF_TERM multiply_nif(ErlNifEnv * env, int argc, const ERL_NIF_TERM a
     }
     else if (column1.float_bitmap[word] & (1ULL << bit)) {
       if (column2.int_bitmap[word] & (1ULL << bit)) {
-        append_float(column3, *(column1.float_values++) * *(column2.int_values++));
+        append_arithmetic_float(column3, *(column1.float_values++) * *(column2.int_values++));
       }
       else if (column2.float_bitmap[word] & (1ULL << bit)) {
-        append_float(column3, *(column1.float_values++) * *(column2.float_values++));
+        append_arithmetic_float(column3, *(column1.float_values++) * *(column2.float_values++));
       }
       else {
         append_null(column3);
@@ -1671,10 +1682,10 @@ static ERL_NIF_TERM divide_nif(ErlNifEnv * env, int argc, const ERL_NIF_TERM arg
     uint64_t bit = offset % 64;
     if (column1.int_bitmap[word] & (1ULL << bit)) {
       if (column2.int_bitmap[word] & (1ULL << bit)) {
-        append_float(column3, (double) *(column1.int_values++) / *(column2.int_values++));
+        append_arithmetic_float(column3, (double) *(column1.int_values++) / *(column2.int_values++));
       }
       else if (column2.float_bitmap[word] & (1ULL << bit)) {
-        append_float(column3, *(column1.int_values++) / *(column2.float_values++));
+        append_arithmetic_float(column3, *(column1.int_values++) / *(column2.float_values++));
       }
       else {
         append_null(column3);
@@ -1683,10 +1694,10 @@ static ERL_NIF_TERM divide_nif(ErlNifEnv * env, int argc, const ERL_NIF_TERM arg
     }
     else if (column1.float_bitmap[word] & (1ULL << bit)) {
       if (column2.int_bitmap[word] & (1ULL << bit)) {
-        append_float(column3, *(column1.float_values++) / *(column2.int_values++));
+        append_arithmetic_float(column3, *(column1.float_values++) / *(column2.int_values++));
       }
       else if (column2.float_bitmap[word] & (1ULL << bit)) {
-        append_float(column3, *(column1.float_values++) / *(column2.float_values++));
+        append_arithmetic_float(column3, *(column1.float_values++) / *(column2.float_values++));
       }
       else {
         append_null(column3);
