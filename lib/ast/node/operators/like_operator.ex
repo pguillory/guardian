@@ -31,8 +31,10 @@ defmodule AST.Node.Operators.LikeOperator do
     eval(left, "%" <> right)
   end
 
+  # '%_' is '_%': move the '_' first, so a run of them stays linear for the clauses
+  # below (dropping it, as before, made '' LIKE '%_' true).
   def eval(left, <<"%_", right::binary>>) do
-    eval(left, "%" <> right)
+    eval(left, "_%" <> right)
   end
 
   def eval(<<>>, <<"%", right::binary>>) do
