@@ -22,8 +22,15 @@ Engine is Guardian's event-ingestion boundary.
   rules or reserved words change, update this rule to match. Keep this check at the
   Engine boundary, not in Storage.
 
-There is no rule compilation, execution, or management in this subsystem. Keep Engine
-free of external service dependencies. HTTP `/api/json/send_events` and MCP
+`ingest_events/2` runs the table's rules when it has any (`Rules.lookup/1`): it
+validates each event as above, hands the valid rows to `Rules.run/2` (a worker, one
+outcome per row), validates the values the rules produced the same way, and stores the
+result. The reported event is built from the row after rules; Engine's shortcut of
+reporting the original event applies only when the rules changed nothing. A rule
+failure is that event's `{:error, message}` and it is not stored. `ingest_event/2`
+and the `log_event` writers (Guardian's built-in tables) never run rules. Rule
+compilation and management live in `lib/rules`, not here. Keep Engine free of
+external service dependencies. HTTP `/api/json/send_events` and MCP
 `send_events` are the API ingest paths. Guardian's own built-in tables are written
 through `Engine.log_event/2` and `Engine.try_log_event/2`: `SystemStats`, request
 logging and query parse errors use `try_log_event/2` and log only its failure kind;

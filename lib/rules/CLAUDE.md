@@ -1,0 +1,52 @@
+# Rules Subsystem
+
+Ingest-time rules: files of SET and UNSET statements, one folder per table
+(`<table>/<name>.gsql`), run on each event sent through the ingest APIs before it is
+stored. The design and its reviews are in `docs/changes/ingest-rules.md`; user-visible
+behavior is `docs/product/spec.md` section 5.1. Read both before changing this.
+
+Modules:
+
+- `Rules`: the API (`lookup/1`, `run/2`, list/read/write/delete, `reload/0`). Lookups
+  read one `:persistent_term` map of table to compiled module, or `{:invalid,
+  message}` for a table whose stored rules fail validation.
+- `Rules.RuleSet`: parses (`AST.Parser.parse_rules/1`) and validates a whole set,
+  every table together, into one `Rules.Plan` per table. Pure: no reads, no state.
+- `Rules.Compiler`: a plan into a generated module from a fixed template, with the
+  statements as escaped literals. No rule text becomes code.
+- `Rules.Runtime`: what generated modules call for each statement (reads, SET, UNSET,
+  failures).
+- `Rules.Runner`: runs a batch in a worker under the heap limit, 1 s per event.
+- `Rules.Store` (`Local`, `S3`): the files. `Rules.Lock`: the write lock in the store.
+- `Rules.Config`: chooses the store from the environment.
+- `Rules.Server`: startup load, reload, poll, writes, activation, the module pool.
+
+Rules to keep:
+
+1. Nothing reads the store per event. The ingest path sees only the published map.
+2. Never load a module name twice while anything can call it. Compile into a free
+   pool name, publish the whole map at once only after every changed table compiled,
+   and reclaim retired names only after the grace period and a successful
+   `:code.soft_purge/1`. Never `:code.purge/1` a published or retired module.
+3. Atoms stay bounded: module names come only from `Rules.Compiler`'s pool. Never
+   create an atom from rule text, a table name or a store key.
+4. Credentials never leave `Rules.Store.S3` or `Rules.Config`: they live only in a
+   closure, requests carry an MFA for signing, and every store call returns a reason
+   naming only a kind. Never log or return a response body, header, request, or a
+   caught exception's message from a store call.
+5. Rule failures are logged by file, line and kind only, never a value (event values
+   can be the very secret an UNSET removes). The rule worker reports heap kills
+   without the error_logger report and catches every raise.
+6. Validation is whole-set and a write is refused only for errors it adds
+   (`Rules.RuleSet.new_errors/2`, ignoring lines), so broken sets stay repairable.
+7. Two behaviors are switchable through app env (the defaults are decided; removing
+   the switches is a follow-up):
+   `:rules_on_failure` (`:reject`, the default, fails the event; `:skip` passes it on
+   without that statement) and `:rules_invalid_at_boot` (`:fail_table`, the default,
+   publishes the table as invalid; `:refuse_startup`). Keep both easy to flip.
+8. Statement words are contextual (see `lib/ast/CLAUDE.md`); TRACK and LOOKUP will be
+   new statement kinds in the same grammar, plan and dependency graph. Where TRACK
+   counter state lives is not decided; don't add state here without that decision.
+
+Tests use `RulesTestHelper` (shared server, so `async: false`) and `FakeS3`, which
+checks SigV4 with its own implementation of the canonical request.

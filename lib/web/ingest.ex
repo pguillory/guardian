@@ -42,6 +42,8 @@ defmodule Web.Ingest do
   defp valid_return_keys?(keys) when is_list(keys), do: Enum.all?(keys, &is_binary/1)
   defp valid_return_keys?(_keys), do: false
 
+  # Every requested key is in the result, null when the event lacks it, so a client can
+  # always read the fields it asked for (such as one a rule sets only sometimes).
   defp filter_keys(event, nil), do: event
-  defp filter_keys(event, keys), do: Map.take(event, keys)
+  defp filter_keys(event, keys), do: Map.new(keys, &{&1, Map.get(event, &1)})
 end

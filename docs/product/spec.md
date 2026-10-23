@@ -30,8 +30,9 @@ Design commitments that shape every feature below:
 
 1. Single tenant: One API key, full access, no identities.
 2. Schemaless: Tables and columns appear when written; columns are untyped.
-3. Predictable ingestion: The write path makes no calls to external services and does
-   not transform events by rule.
+3. Predictable ingestion: The write path makes no calls to external services. Events
+   change on the way in only by the operator's own rules ([section 5.1](#51-rules)),
+   which have no state and call nothing.
 4. Read-only queries: Data enters only through ingestion. Through the API, data leaves
    only by age.
 5. Self-observing: Guardian records its own metrics, request log, and query parse
@@ -141,8 +142,11 @@ CORS is enabled on these routes.
 - `table` must be a valid table name ([section 6.1](#61-tables)).
 - `events` must be a list. Items are processed independently ([section 5](#5-ingestion)).
 - `return_keys` is optional. Omitted or `null` returns each stored event in full; a
-  list of strings returns only those top-level fields of each successful event; `[]`
-  returns `{}`.
+  list of strings returns exactly those top-level fields of each successful event,
+  `null` for any the stored event lacks (until rules existed, a missing key was left
+  out); `[]` returns `{}`. The event is the one stored, after rules
+  ([section 5.1](#51-rules)), so this is how a client reads a field a rule computed,
+  such as `is_blocked`.
 - A request-level error (bad table, `events` not a list, bad `return_keys`) returns
   400 with `{"status": 400, "info": "..."}` before any event is stored. A body that is
   malformed JSON gets 400 (`info` "malformed JSON body"), one over 8 MB gets 413, and
@@ -200,7 +204,14 @@ authenticated like the JSON API. It offers:
    semantics and result shape as HTTP. Request-level errors are MCP tool errors and
    nothing is stored. Event items are not schema-checked by the MCP layer, so a
    non-object item fails on its own rather than rejecting the batch.
-3. Resource `guardian://query-language`: the full query-language reference as
+3. Tools `list_rules` (optional `table`), `read_rule` (`table`, `name`), `write_rule`
+   (`table`, `name`, `source`) and `delete_rule` (`table`, `name`) manage rule files
+   ([section 5.1](#51-rules)). A rejected write is a tool error listing every
+   validation message, and nothing is saved. A saved write returns `saved: true`, the
+   validation errors the set still has (from before this write), and any machine that
+   has not yet confirmed loading it (it catches up within a minute). A write whose
+   outcome is unknown says it may have been saved.
+4. Resource `guardian://query-language`: the full query-language reference as
    Markdown.
 
 Sessions: a request naming an unknown or expired MCP session gets HTTP 404, so clients
@@ -273,7 +284,8 @@ goes through the same validation and storage.
    mixing scalars and objects with one invalid value inside), the whole top-level field
    is omitted from the result even though its valid parts were stored.
 5. No enrichment: Guardian adds no timestamp, ID, source, or node field. Events are
-   stored exactly as sent, minus dropped values.
+   stored as sent, minus dropped values, changed only by the table's rules
+   ([section 5.1](#51-rules)).
 6. Error wording tells the caller what is safe to retry:
    - `value cannot be stored; the event was not stored`
    - `internal error before storage; the event was not stored`
@@ -284,6 +296,88 @@ goes through the same validation and storage.
    larger body gets 413. MCP has the same 8 MB limit. Very large events with many
    distinct keys in lists of objects can be slow to flatten.
 9. Duplicates: Guardian does not deduplicate. A retried event is stored twice.
+10. Rules: events sent through the ingest APIs run their table's rules after
+    validation and before storage ([section 5.1](#51-rules)). Guardian's own writes to
+    built-in tables do not.
+
+### 5.1 Rules
+
+Rules are statements, in files per table, that set or remove fields on each incoming
+event before it is stored:
+
+```sql
+-- logins/blocking.gsql
+SET is_blocked = true WHERE signal > 0.9;
+SET email = lower(email);
+UNSET password
+```
+
+Files:
+
+1. A rule file is `<table>/<name>.gsql`; the folder names the table. `<name>` matches
+   `[a-z0-9_][a-z0-9_-]*` (at most 64 bytes). The table must be a valid table name
+   ([section 6.1](#61-tables)) and not a built-in table.
+2. A file holds statements separated by `;`, with `--` comments, at most 64 KiB.
+   Limits on the whole set: 1,000 files, 256 tables with rules, 1,000 statements per
+   table.
+3. Files live in a local folder (the default, `<data dir>/rules`) or an S3-compatible
+   bucket such as Cloudflare R2 (configured by environment,
+   [configuration](../reference/configuration.md)). There is no index file and no
+   local cache: listing the store is the rule set.
+
+Statements:
+
+1. `SET field = expr [WHERE cond]` sets a top-level field, named in lowercase (names
+   are not quoted, and `SET isBlocked` stores `isblocked`). It replaces the whole
+   incoming field: every column under that name in any case (an object, a list, `X`
+   for `x`) is removed first.
+2. `UNSET path [WHERE cond]` removes a field (`password`) or a field inside an object
+   (`user.password`), in any case, and everything beneath it.
+3. Expressions and conditions are the query language's scalar expressions: operators,
+   CASE, and every scalar function. Aggregates are refused.
+4. `SET`, `UNSET` (and the planned `TRACK`, `LOOKUP`, `LAST`) are not reserved words:
+   they still work as column and table names, in rules and queries.
+
+Running:
+
+1. A field the event lacks is null, with no warning; nothing is declared. Rules read
+   the flattened event, so an object field has no value of its own: read its leaves
+   (`card.number`). Names match ignoring case; an exact match wins, otherwise the
+   first match in byte order (queries instead reject an ambiguous name).
+2. WHERE applies a statement only when it is true; false or null leaves the field as
+   sent.
+3. Every SET runs before every UNSET, so a SET can read a field an UNSET removes. A SET
+   that reads a field another SET writes runs after it; others run in file-name then
+   statement order. A SET that reads its own field reads the incoming value.
+4. A value a rule produces is validated like an incoming one; one that cannot be
+   stored is dropped.
+5. Rules run outside the request, each event with a 1-second limit and the query heap
+   limit. A statement that fails (a regular expression over its backtracking limit,
+   say) or an event over a limit fails that event, with an error naming the rule file
+   and line or the limit, and the event is not stored. Other events in the batch are
+   unaffected.
+6. A table whose stored rules are invalid (edited in the store by hand, or using a
+   function a newer build lacks) fails its events with `rules for <table> are invalid`
+   until fixed; other tables run normally. A running machine instead keeps that
+   table's last good rules.
+
+Writing:
+
+1. Every write validates the whole set, every table together, and is refused if it
+   adds an error the set did not already have: a parse error or unknown function, an
+   invalid path or a limit, a field defined two different ways on one table (two
+   statements for the same field that differ; identical copies count once), or SETs
+   that read each other's fields in a cycle. A set that is already broken can be
+   fixed one file at a time, and a broken table does not block writes to others.
+2. Writes take a lock held in the store itself, so they are serialized across every
+   machine, then every connected machine reloads. Machines also re-read the store
+   every minute, catching changes made directly in the store.
+3. A local folder belongs to one machine, so with other machines connected, writes are
+   refused: a cluster needs a bucket.
+
+Startup: Guardian loads every rule before it loads stored events. A store it cannot
+reach is retried for a minute, then startup is refused; misconfigured store settings
+refuse startup at once.
 
 ## 6. Data model
 
@@ -562,7 +656,10 @@ Product-level behavior:
 
 These are deliberately absent.
 
-1. No rule engine, alerting, enrichment, or blocking of requests.
+1. No alerting, counters (planned: TRACK and LOOKUP), enrichment from outside
+   services, or blocking of requests. Rules ([section 5.1](#51-rules)) compute fields,
+   such as an `is_blocked` decision the producer acts on, but Guardian itself blocks
+   nothing.
 2. No users, roles, per-table permissions, or multiple keys.
 3. No SQL or API writes beyond ingestion, no updates or deletes, and no per-table
    retention.
@@ -594,3 +691,7 @@ Listed here because they change what a user sees:
    list holding null beside a list of objects (`[null, [{"a": 1}]]`), which cannot be
    rebuilt for the result, slow flattening of lists of objects with many distinct
    keys, and a corrupt segment file that aborts the VM.
+9. The rule write lock is a lease in the store. A writer that stalls for more than a
+   minute after checking its lease, or a write the store applies more than a minute
+   after the writer gave up, can leave a rule set that validation would have refused;
+   loading then fails the affected table's events until it is fixed.

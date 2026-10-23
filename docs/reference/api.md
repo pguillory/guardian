@@ -37,7 +37,13 @@ Events are inserted independently:
 - Invalid tables, missing or non-list `events`, and malformed `return_keys` return 400
   with `info`, before any event is stored.
 - Optional `return_keys` must be a list of strings and filters what successful events
-  return. Omitting it or passing `null` returns all fields.
+  return. Omitting it or passing `null` returns all fields; a listed field the event
+  doesn't have comes back as `null`.
+- If the table has [rules](../product/spec.md#51-rules), each event runs them first and
+  the response shows the event as stored, so `return_keys` is how a sender reads a
+  computed field. An event whose rules fail isn't stored and gets an error naming the
+  rule file and line (or the table, if its rules ran over their time or memory limit
+  or are invalid).
 
 Table names must match `[a-z_][a-z0-9_]*`, be at most 64 characters, and exclude SQL
 keywords, `null`, `true`, `false`, `current_date`, `current_timestamp` and `schema`.
@@ -70,12 +76,17 @@ serves as the resource `guardian://query-language`.
 
 ## MCP
 
-The MCP endpoint at `/mcp` (Streamable HTTP) exposes two tools:
+The MCP endpoint at `/mcp` (Streamable HTTP) exposes these tools:
 
 - `query`: runs one SQL query, given as `sql`, and returns rows as JSON objects.
 - `send_events`: ingests a `table`, an `events` list of JSON objects, and optional
   `return_keys`. Its result has the same `{status: 200, results: [...]}` shape as
   HTTP. Invalid requests return an MCP tool error before anything is stored.
+- `list_rules`, `read_rule`, `write_rule`, `delete_rule`: manage rule files
+  (`table` and `name`, plus `source` to write). A write is checked against the whole
+  rule set and refused, with the errors, if it would add one; a saved write returns
+  `saved: true`, any errors the set already had, and any nodes that didn't confirm
+  reloading. Where rules are kept: [Rule storage](../guides/rules.md).
 
 For example, a Claude Code client:
 

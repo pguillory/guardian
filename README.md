@@ -23,6 +23,10 @@ producer saw at that moment.
 - Queries read like SQL. `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY` and `LIMIT`, about
   twenty aggregates and sixty scalar functions, including regular expressions and time
   functions that work on the `timestamp` strings your producers already write.
+- Decisions on the way in. Rules compute fields on each event before it's stored
+  (`SET is_blocked = risk_score > 0.9`) and strip fields you never want kept
+  (`UNSET password`). The sender gets the computed fields back in the same response,
+  so it can act on them at once.
 - One thing to run. One Docker image, one required environment variable, and no other
   services to stand up. When one machine isn't enough, add machines that find each
   other through DNS (Fly.io is a preset); every query fans out to all of them, and each
@@ -137,6 +141,57 @@ GROUP BY user.id
 `SHOW TABLES` and `DESC requests` show what's there. The full language, including
 every function, is in the [query language reference](lib/web/mcp/query_language.md).
 
+## Rules: decide as events arrive
+
+A rule file holds `SET` and `UNSET` statements for one table. Every event sent to that
+table runs them before it's stored, and the sender can ask for the results in the
+same response. Here is `logins/blocking.gsql`:
+
+```sql
+-- Decide on every login as it arrives.
+SET is_blocked = risk_score > 0.9;
+SET is_suspicious = true WHERE lower(message) RLIKE 'wire transfer|gift card';
+-- Never store the password, whatever the client sends.
+UNSET password
+```
+
+A login comes in, asking for the decision back:
+
+```sh
+curl -s https://guardian.example.com/api/json/send_events \
+  -H "x-api-key: $GUARDIAN_API_KEY" -H 'content-type: application/json' \
+  -d '{"table": "logins", "return_keys": ["is_blocked", "is_suspicious"], "events": [{
+        "timestamp": "2026-10-23 06:40:12", "user": "dana", "ip": "203.0.113.9",
+        "risk_score": 0.97, "message": "Send the WIRE TRANSFER today", "password": "hunter2"
+      }]}'
+```
+
+```json
+{"status": 200, "results": [{"success": true, "event": {"is_blocked": true, "is_suspicious": true}}]}
+```
+
+The login service refuses Dana on the spot. The computed fields are stored like any
+other, and the password never was. After two more logins:
+
+```sql
+SELECT user, risk_score, is_blocked, is_suspicious, password FROM logins ORDER BY timestamp
+```
+
+```text
+user | risk_score | is_blocked | is_suspicious | password
+dana | 0.97       | true       | true          | null
+lee  | 0.12       | false      | null          | null
+kim  | 0.35       | false      | true          | null
+```
+
+Expressions are the query language's, missing fields are null, and nothing has to be
+declared first. Rules live in a folder or an S3-compatible bucket such as Cloudflare
+R2, and an agent manages them with the MCP tools `list_rules`, `read_rule`,
+`write_rule` and `delete_rule`. Every write is checked against the whole rule set
+first (syntax, a field defined two ways, rules that depend on each other in a
+circle), so a bad rule never goes live. The details are in the
+[product spec](docs/product/spec.md#51-rules).
+
 ## Let your agent use it
 
 Guardian serves MCP (Streamable HTTP) at `/mcp`. Connect Claude Code:
@@ -157,7 +212,8 @@ env_http_headers = { "x-api-key" = "GUARDIAN_API_KEY" }
 The agent gets a `query` tool, which takes `sql`, one statement, and returns the rows
 as JSON objects. There's also a `send_events` tool, the MCP twin of the HTTP endpoint,
 which is handy for testing; in normal use your application code sends the
-events and the agent only reads them.
+events and the agent only reads them. The rule tools let the agent write and change
+rules.
 
 The agent can also read the resource `guardian://query-language`, the same reference
 linked above, so it learns the syntax without your help. A session looks like this:
@@ -225,6 +281,7 @@ Running it:
 - [Fly.io](docs/guides/fly.md): the best-supported deployment, scaling, rollbacks,
   and the optional Cloudflare Tunnel.
 - [Configuration](docs/reference/configuration.md): every environment variable.
+- [Rule storage](docs/guides/rules.md): rules in a folder or an S3-compatible bucket.
 - [Known limitations](docs/reference/limitations.md): durability, retention, memory,
   and cluster behavior to plan around.
 

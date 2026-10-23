@@ -39,7 +39,9 @@ defmodule AST.Parser do
   alias AST.Node.Statements.LetStatement
   alias AST.Node.Statements.NullStatement
   alias AST.Node.Statements.SelectStatement
+  alias AST.Node.Statements.SetStatement
   alias AST.Node.Statements.ShowTablesStatement
+  alias AST.Node.Statements.UnsetStatement
 
   # Infix and postfix operators, tightest-binding tier first. An operator's syntax is its
   # node's `symbol/0`, the spelling `to_source/1` prints: each word is a keyword token,
@@ -120,6 +122,101 @@ defmodule AST.Parser do
     with_source_parsed(source, fn tokens ->
       parse_expression!(tokens)
     end)
+  end
+
+  @doc """
+  Parses a rule file: statements (`SET field = expr [WHERE cond]`, `UNSET path [WHERE
+  cond]`) separated by semicolons, empty statements allowed. Returns
+  `[{statement, line}]`, `line` being the 1-based line the statement starts on.
+  Raises `AST.ParseError`.
+
+  The statement words (SET, UNSET, and later TRACK, LOOKUP and LAST) are recognized
+  by position only, not as tokenizer keywords, so they stay usable as column and
+  table names in queries and in rules (`SET set = last`).
+  """
+  def parse_rules(source) when is_binary(source) do
+    with_source_parsed(source, fn tokens ->
+      statements = parse_rule_statements!(tokens, length(tokens), [])
+      rows = Tokenizer.token_rows(source)
+      {Enum.map(statements, fn {statement, index} -> {statement, elem(rows, index) + 1} end), []}
+    end)
+  end
+
+  defp parse_rule_statements!(tokens, total, acc) do
+    case tokens do
+      [] ->
+        Enum.reverse(acc)
+
+      [{:punctuation, ";"} | tokens] ->
+        parse_rule_statements!(tokens, total, acc)
+
+      _ ->
+        index = total - length(tokens)
+        {statement, tokens} = parse_rule_statement!(tokens)
+
+        case tokens do
+          [] -> :ok
+          [{:punctuation, ";"} | _] -> :ok
+          _ -> throw {:expected, "end of statement", tokens}
+        end
+
+        parse_rule_statements!(tokens, total, [{statement, index} | acc])
+    end
+  end
+
+  defp parse_rule_statement!(tokens) do
+    case tokens do
+      [{:identifier, "set"} | tokens] ->
+        {field, tokens} = parse_rule_field!(tokens, :set)
+        tokens = parse_punctuation!(tokens, "=")
+        {value_expr, tokens} = parse_expression!(tokens)
+        {where_expr, tokens} = maybe_parse_rule_where(tokens)
+        {%SetStatement{field: field, value_expr: value_expr, where_expr: where_expr}, tokens}
+
+      [{:identifier, "unset"} | tokens] ->
+        {field, tokens} = parse_rule_field!(tokens, :unset)
+        {where_expr, tokens} = maybe_parse_rule_where(tokens)
+        {%UnsetStatement{field: field, where_expr: where_expr}, tokens}
+
+      [{:identifier, word} | _] when word in ["track", "lookup"] ->
+        throw {:parse_error, "#{String.upcase(word)} statements are not supported yet", tokens}
+
+      _ ->
+        throw {:expected, "SET or UNSET statement", tokens}
+    end
+  end
+
+  # SET takes a top-level field name; UNSET also takes an object path (`user.password`)
+  # but not list boundaries (`..`).
+  defp parse_rule_field!(tokens, kind) do
+    case tokens do
+      [{:identifier, name} | rest] ->
+        segments = String.split(name, ".")
+
+        cond do
+          String.contains?(name, "\"") ->
+            throw {:parse_error, "Rule field names cannot be quoted", tokens}
+
+          kind == :set and length(segments) > 1 ->
+            throw {:parse_error, "SET takes a top-level field name, not a path", tokens}
+
+          "" in segments ->
+            throw {:parse_error, "UNSET takes an object path without list boundaries", tokens}
+
+          true ->
+            {%AST.Node.Identifier{name: name}, rest}
+        end
+
+      _ ->
+        throw {:expected, "field name", tokens}
+    end
+  end
+
+  defp maybe_parse_rule_where(tokens) do
+    case tokens do
+      [{:keyword, "WHERE"} | tokens] -> parse_expression!(tokens)
+      _ -> {nil, tokens}
+    end
   end
 
   defp with_source_parsed(source, func) do

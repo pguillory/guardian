@@ -46,7 +46,10 @@ design (trust boundaries, invariants, known gaps) is in
 MCP routers, query functions, logging, secrets, or the Fly deployment, and update it
 when those change.
 
-There is no rule engine, PostgreSQL metadata store, Memcached runtime, or MaxMind
+Rules are files of SET and UNSET statements per table (`<table>/<name>.gsql`), run on
+each ingested event before storage (`lib/rules/CLAUDE.md`, `docs/changes/ingest-rules.md`).
+They have no state and make no external calls; TRACK and LOOKUP counters are designed
+for but not built. There is no PostgreSQL metadata store, Memcached runtime, or MaxMind
 service. Guardian is single-user: authentication is one environment-configured API key
 (at least 32 bytes, in the `x-api-key` header; the `api_key` query parameter only with
 `GUARDIAN_ALLOW_QUERY_API_KEY=true`), and a valid key grants access to the whole event
@@ -64,7 +67,8 @@ store. There is no user namespace.
 
 Summary; the full description is `docs/architecture/system.md`.
 
-The runtime consists of Storage, SystemStats, Web.QueryParseErrors (records query
+The runtime consists of Rules.Server (loads the rule store first; an unreachable or
+misconfigured store refuses startup), Storage, SystemStats, Web.QueryParseErrors (records query
 parse failures), Web.QueryLog (records every API query in `queries`), Web, and
 Cluster (DNS peer discovery
 through `DNS_CLUSTER_QUERY`; `<app>.internal` by default on Fly.io). Schema lookups (SHOW TABLES, DESC, the `schema` virtual table, SELECT *) fan
@@ -73,8 +77,9 @@ out to every connected node through `Cluster.Metadata`.
 Event ingestion:
 
 ```text
-Engine.ingest_event(table, event)
+Engine.ingest_events(table, events)
   -> validate storage-safe values
+  -> the table's rules (Rules.Runner, in a worker), then validate their outputs
   -> Storage.append(table, event)
 ```
 
@@ -126,5 +131,6 @@ Key subsystem documentation:
 - `lib/aggregation/CLAUDE.md`
 - `lib/ast/CLAUDE.md`
 - `lib/web/CLAUDE.md`
+- `lib/rules/CLAUDE.md`
 
-Last updated: 2026-10-22
+Last updated: 2026-10-23

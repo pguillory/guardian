@@ -50,7 +50,7 @@ defmodule MixProject do
   def application do
     [
       mod: {Main, []},
-      extra_applications: [:logger, :runtime_tools],
+      extra_applications: [:logger, :runtime_tools, :xmerl],
     ]
   end
 
@@ -65,6 +65,7 @@ defmodule MixProject do
       {:freedom_formatter, ">= 0.0.0", only: :dev},
       {:hypex, "~> 1.1"},
       {:jason, ">= 0.0.0"},
+      {:req, "~> 0.7"},
       {:superlist, ">= 0.0.0"},
       {:uuid, ">= 0.0.0"},
     ]

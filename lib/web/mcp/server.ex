@@ -8,6 +8,8 @@ defmodule Web.MCP.Server do
 
   - `query` - Execute SQL queries, returns list of maps
   - `send_events` - Ingest events independently, returns ordered per-event results
+  - `list_rules`, `read_rule`, `write_rule`, `delete_rule` - Manage ingest-time rules
+    (`Rules`)
 
   ## Resources
 
@@ -52,6 +54,20 @@ defmodule Web.MCP.Server do
   Full reference: the MCP resource #{@query_language_uri}.\
   """
 
+  @write_rule_description """
+  Create or replace a rule file, <table>/<name>.gsql. Rules run on every event sent \
+  to that table through send_events, before it is stored. A file holds statements \
+  separated by semicolons, with -- comments: SET field = expr [WHERE cond] sets a \
+  top-level field (replacing it whole; the name is stored lowercased), UNSET path [WHERE cond] removes a field and \
+  everything beneath it. Expressions are the query language's scalar expressions \
+  (no aggregates). Missing fields are null; names match ignoring case. Every SET runs \
+  before every UNSET; a SET that reads another SET's field runs after it. Example: \
+  SET is_blocked = true WHERE signal > 0.9; UNSET password. The whole rule set is \
+  validated together: a write is refused if it adds a parse error, a field defined \
+  two different ways on one table, or a cycle. Ask send_events for computed fields \
+  with return_keys.\
+  """
+
   # Anubis 0.16 keeps tools and resources registered at runtime in the private map of
   # its one shared frame, and empties that map when the session it served last ends
   # (a client's DELETE). Registering them in init/2, which runs only on a client's
@@ -77,6 +93,38 @@ defmodule Web.MCP.Server do
           {{:oneof, [{:list, :string}, {:literal, nil}]},
            description:
              "Fields to return for successful events; omitted or null returns all, [] returns none"},
+      }
+    )
+    |> register_tool("list_rules",
+      description:
+        "List ingest-time rule files: each file's table, name and size in bytes. Optional table limits the list to one table.",
+      input_schema: %{
+        table: {:string, description: "Only this table's rule files"},
+      }
+    )
+    |> register_tool("read_rule",
+      description: "Read one rule file's source.",
+      input_schema: %{
+        table: {:required, :string, description: "The table the rules apply to"},
+        name: {:required, :string, description: "The rule file's name, without .gsql"},
+      }
+    )
+    |> register_tool("write_rule",
+      description: @write_rule_description,
+      input_schema: %{
+        table: {:required, :string, description: "The table the rules apply to"},
+        name:
+          {:required, :string,
+           description: "The rule file's name: [a-z0-9_][a-z0-9_-]*, at most 64 bytes"},
+        source: {:required, :string, description: "The file's statements"},
+      }
+    )
+    |> register_tool("delete_rule",
+      description:
+        "Delete one rule file. Deleting is refused if it would leave a new validation error.",
+      input_schema: %{
+        table: {:required, :string, description: "The table the rules apply to"},
+        name: {:required, :string, description: "The rule file's name, without .gsql"},
       }
     )
     |> register_resource(@query_language_uri,
@@ -126,6 +174,25 @@ defmodule Web.MCP.Server do
     {:reply, response, frame}
   end
 
+  def handle_tool_call("list_rules", params, frame) do
+    reply(frame, Rules.list_rules(Map.get(params, :table)))
+  end
+
+  def handle_tool_call("read_rule", %{table: table, name: name}, frame) do
+    case Rules.read_rule(table, name) do
+      {:ok, source} -> reply(frame, {:ok, %{table: table, name: name, source: source}})
+      error -> reply(frame, error)
+    end
+  end
+
+  def handle_tool_call("write_rule", %{table: table, name: name, source: source}, frame) do
+    reply(frame, rule_write_result(Rules.write_rule(table, name, source)))
+  end
+
+  def handle_tool_call("delete_rule", %{table: table, name: name}, frame) do
+    reply(frame, rule_write_result(Rules.delete_rule(table, name)))
+  end
+
   def handle_tool_call("query", %{sql: sql}, frame) do
     try do
       # Every query is recorded in queries; parse failures also in query_parse_errors,
@@ -152,4 +219,24 @@ defmodule Web.MCP.Server do
         {:reply, response, frame}
     end
   end
+
+  defp reply(frame, {:ok, result}), do: {:reply, Response.tool() |> Response.json(result), frame}
+
+  defp reply(frame, {:error, message}),
+    do: {:reply, Response.tool() |> Response.error(message), frame}
+
+  defp rule_write_result({:ok, %{errors: errors, unconfirmed: unconfirmed}}) do
+    {:ok,
+     %{
+       saved: true,
+       remaining_errors: errors,
+       nodes_not_yet_reloaded: Enum.map(unconfirmed, &to_string/1),
+     }}
+  end
+
+  defp rule_write_result({:error, {:rejected, messages}}),
+    do: {:error, "rejected; nothing was saved:\n" <> Enum.join(messages, "\n")}
+
+  defp rule_write_result({:error, {:unknown, message}}), do: {:error, message}
+  defp rule_write_result({:error, message}), do: {:error, message}
 end

@@ -26,8 +26,9 @@ key: one Logger line naming the path, at most once a minute per node.
 `send_events` validates table, events list, and return_keys before storing anything.
 HTTP invalid requests return 400 with an `info` message; MCP returns a tool error.
 `Web.Ingest` shares request validation and result shaping between both interfaces.
-Absent or null return_keys returns all event keys; a list of strings filters
-successful events. Valid requests return
+Absent or null return_keys returns all event keys; a list of strings gives successful
+events exactly those keys, null for any the event lacks. Events are reported after
+the table's rules, so return_keys is how a client reads a computed field. Valid requests return
 200 with ordered `results`, each `{success: true, event: ...}` or
 `{success: false, error: ...}`. Events are independent: a failure does not stop the
 rest, and uncertain storage failures say the event may have been stored.
@@ -50,5 +51,6 @@ in recording may raise into the request. Keep recording in `Web.Query` (the
 coordinating machine) so a distributed query is one row, and never record request
 headers there (caller fields are `interface`, `remote_ip` and MCP client info).
 
-The MCP server exposes `query` and `send_events` tools. Keep query results as a list
+The MCP server exposes `query`, `send_events`, and the rule tools `list_rules`,
+`read_rule`, `write_rule` and `delete_rule` (through `Rules`). Keep query results as a list
 of maps while the JSON endpoint retains its `{columns, rows}` response shape.

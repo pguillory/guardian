@@ -99,4 +99,27 @@ defmodule TestCluster do
       30_000 -> {:error, :storage_start_timeout}
     end
   end
+
+  @doc """
+  Starts Rules.Server on this node (a peer) with `store` and extra app env, from a
+  process that outlives the RPC, as `start_storage/1` does for Storage.
+  """
+  def start_rules(store, app_env \\ []) do
+    {:ok, _} = Application.ensure_all_started(:req)
+    Application.put_env(:guardian, :rules_store, store)
+    for {key, value} <- app_env, do: Application.put_env(:guardian, key, value)
+    caller = self()
+
+    spawn(fn ->
+      send(caller, {:rules_started, Rules.Server.start_link([])})
+      Process.sleep(:infinity)
+    end)
+
+    receive do
+      {:rules_started, {:ok, _pid}} -> :ok
+      {:rules_started, error} -> error
+    after
+      30_000 -> {:error, :rules_start_timeout}
+    end
+  end
 end

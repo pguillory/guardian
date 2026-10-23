@@ -111,6 +111,23 @@ defmodule AST.Tokenizer do
     |> end_position()
   end
 
+  @doc """
+  The 0-based row each token of `tokenize/1`'s result starts on, as a tuple indexed
+  like that list.
+  """
+  def token_rows(source) do
+    {rows, _row} =
+      tokenize_raw(source)
+      |> Enum.reduce({[], 0}, fn {type, raw_token}, {rows, row} ->
+        rows = if type in [:whitespace, :comment], do: rows, else: [row | rows]
+        {rows, row + count_newlines(raw_token)}
+      end)
+
+    rows |> Enum.reverse() |> List.to_tuple()
+  end
+
+  defp count_newlines(text), do: length(:binary.matches(text, "\n"))
+
   # The source text of the first remaining token, as written, or nil at end of input.
   def next_raw_token(_source, []) do
     nil

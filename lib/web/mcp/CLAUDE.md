@@ -1,13 +1,19 @@
 # MCP Server
 
-Guardian's MCP endpoint exposes two tools:
+Guardian's MCP endpoint exposes these tools:
 
 - `query`: execute one resolved query and return rows as JSON objects keyed by labels.
 - `send_events`: ingest a table and list of events through `Web.Ingest` and Engine,
   returning `{status: 200, results: [...]}` with one ordered outcome per input.
   Optional return_keys filters successful events only; omitted/null returns all,
-  an empty list returns no fields. Failures do not stop later events, and uncertain
-  storage failures say the event may have been stored.
+  an empty list returns no fields, and a selected key the event lacks is null.
+  Failures do not stop later events, and uncertain storage failures say the event may
+  have been stored.
+- `list_rules`, `read_rule`, `write_rule`, `delete_rule`: manage rule files through
+  `Rules`. A rejected or failed write is a tool error carrying the messages; a saved
+  one returns `saved`, `remaining_errors` and `nodes_not_yet_reloaded`. The
+  `write_rule` description summarizes the rule language; keep it in step with
+  `docs/product/spec.md` section 5.1.
 
 The `query` description summarizes the language, its unsupported syntax, the untyped
 data model, and the timestamp convention. The resource `guardian://query-language`
@@ -54,5 +60,5 @@ items which fail individually. Avoid typed Anubis validation that rejects mixed 
 or filters arbitrary event keys. Document table-name rules and stable object keys in
 the tool description. Keep data in values rather than using data as object keys.
 
-Do not add metadata or rule-management tools. Preserve SELECT, SHOW TABLES, DESC,
+Do not add metadata tools. Preserve SELECT, SHOW TABLES, DESC,
 query-time aggregations, and scalar function behavior.

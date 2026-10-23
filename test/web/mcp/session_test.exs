@@ -274,7 +274,15 @@ defmodule Web.MCP.SessionTest do
   defp assert_works_first(:tools_list, session_id) do
     conn = tools_list(session_id)
     assert %{"result" => %{"tools" => tools}} = Jason.decode!(conn.resp_body)
-    assert Enum.map(tools, & &1["name"]) == ["query", "send_events"]
+
+    assert Enum.map(tools, & &1["name"]) == [
+             "delete_rule",
+             "list_rules",
+             "query",
+             "read_rule",
+             "send_events",
+             "write_rule",
+           ]
   end
 
   defp assert_works_first(:resources_read, session_id) do

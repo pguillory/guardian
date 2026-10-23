@@ -42,7 +42,15 @@ defmodule Web.MCP.ClientTest do
       tools = response.result["tools"]
       tool_names = Enum.map(tools, & &1["name"])
 
-      assert tool_names == ["query", "send_events"]
+      assert tool_names == [
+               "delete_rule",
+               "list_rules",
+               "query",
+               "read_rule",
+               "send_events",
+               "write_rule",
+             ]
+
       ingest = Enum.find(tools, &(&1["name"] == "send_events"))
       schema = ingest["inputSchema"]
       assert Enum.sort(schema["required"]) == ["events", "table"]
@@ -309,14 +317,15 @@ defmodule Web.MCP.ClientTest do
       assert Storage.dump_table(table) == [%{"value" => 2}]
     end
 
-    test "preserves absent, null, selected and empty return_keys without filtering stored events" do
+    test "preserves absent, null, selected and empty return_keys without filtering stored events; a missing selected key is null" do
       MCPTestClient.start()
       event = %{"value" => 1, "nested" => %{"x" => 2}}
 
       for {options, expected} <- [
             {%{}, event},
             {%{"return_keys" => nil}, event},
-            {%{"return_keys" => ["nested", "missing"]}, %{"nested" => %{"x" => 2}}},
+            {%{"return_keys" => ["nested", "missing"]},
+             %{"nested" => %{"x" => 2}, "missing" => nil}},
             {%{"return_keys" => []}, %{}},
           ] do
         table = "mcp_keys_#{System.unique_integer([:positive])}"

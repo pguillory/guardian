@@ -14,6 +14,9 @@ Everything is set through environment variables. Only `GUARDIAN_API_KEY` is requ
 | `DNS_CLUSTER_QUERY` | (unset; `<app>.internal` on Fly) | A DNS name resolving to every node's IP. Nodes poll it every 5 s and connect to the peers it returns. |
 | `RELEASE_COOKIE` | (required when clustered) | The Erlang distribution secret, shared by every node. It grants code execution on all of them. |
 | `GUARDIAN_DIST_PORT` | (unset: a random port) | Pins the server's Erlang distribution port, so a firewall needs only that port and epmd's 4369. |
+| `GUARDIAN_RULES_DIR` | `<GUARDIAN_DATA_DIR>/rules` | The folder rule files live in, when there's no bucket. See [Rule storage](../guides/rules.md). |
+| `GUARDIAN_RULES_S3_BUCKET`, `GUARDIAN_RULES_S3_ENDPOINT`, `GUARDIAN_RULES_S3_ACCESS_KEY_ID`, `GUARDIAN_RULES_S3_SECRET_ACCESS_KEY` | (unset) | Keep rules in an S3-compatible bucket instead, as a cluster needs. Set all four or none; the secret belongs with your other secrets. See [Rule storage](../guides/rules.md). |
+| `GUARDIAN_RULES_S3_REGION`, `GUARDIAN_RULES_S3_PREFIX` | `auto`, none | Optional bucket settings: the signing region, and a key prefix ending in `/` (letters, digits and `. _ ~ / -` only). |
 | `TUNNEL_TOKEN` | (unset) | Optional: starts a Cloudflare Tunnel connector beside Guardian (see [Fly.io: optional Cloudflare Tunnel](../guides/fly.md#optional-cloudflare-tunnel)). |
 
 How these combine into a deployment: [single node](../guides/single-node.md),

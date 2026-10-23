@@ -4,10 +4,12 @@ The `lib/` directory contains the event store, query engine, and network interfa
 
 ## Top-level modules
 
-- `Main`: starts Storage, SystemStats, Web.QueryParseErrors, Web.QueryLog, Web, and
+- `Main`: starts Rules.Server (first, so a bad rule store fails startup fast),
+  Storage, SystemStats, Web.QueryParseErrors, Web.QueryLog, Web, and
   DNS peer discovery (only when `DNS_CLUSTER_QUERY` is set; on Fly.io it defaults to
   `<app>.internal`).
-- `Engine`: validates and ingests events.
+- `Engine`: validates and ingests events, running the table's rules on API ingests.
+- `Rules`: ingest-time SET/UNSET rules stored as files (`lib/rules/CLAUDE.md`).
 - `Storage`: custom columnar segment storage.
 - `Query`: plans and executes SQL-like queries. `Query.Limits` holds the per-query
   bounds, including the per-process heap limit (`GUARDIAN_QUERY_MAX_HEAP_MB`) on the
@@ -34,8 +36,10 @@ refuses at boot a node whose host is not a non-loopback IP written as `:inet.nto
 writes it, and queries AAAA or A records to match. Every node in a cluster must run the
 same build: mid rolling deploy, queries can fail until all nodes are upgraded.
 
-Guardian does not have a rule execution layer or external metadata/runtime services.
-Do not add external calls to the ingestion path.
+Rules run on the ingestion path, but only compiled rule sets loaded in memory; the
+rule store (a folder or an S3 bucket) is read at startup, on reload and by a poll,
+never per event. Guardian has no external metadata/runtime services. Do not add
+external calls to the ingestion path.
 
 Guardian is single-user. Storage and query operations are scoped by table only;
 persisted segment files are named `{table}.{segment_id}.seg`.

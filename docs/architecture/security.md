@@ -305,7 +305,8 @@ and no single request that takes the service down or destroys stored data.
 
 1. Read-only SQL. The parser and planner implement SELECT, SHOW TABLES, DESC, and LET
    only; there is no INSERT, UPDATE, DELETE, or DDL (spec section 7). Writes happen
-   only through `send_events`, which goes through `Engine`.
+   only through `send_events`, which goes through `Engine`, and, for rule files, the
+   MCP rule tools, which go through `Rules` (item 7).
 2. No path or atom injection from names. Table names must match
    `[a-z_][a-z0-9_]*` and avoid reserved words (`Engine.valid_table_name?/1`), checked
    before any write; segment filenames are built only from a validated table name and
@@ -315,10 +316,19 @@ and no single request that takes the service down or destroys stored data.
    limit. Queries do not open segment files by table name: they look up tables already
    registered in memory. Nothing in `lib/` converts caller strings to atoms
    (`String.to_atom` and friends do not appear), so the atom table cannot be exhausted
-   from input.
-3. No dynamic code. Nothing in `lib/` evaluates code, runs shell commands, or decodes
-   Erlang terms from input (`Code.eval`, `System.cmd`, `:os.cmd`, and
-   `binary_to_term` do not appear).
+   from input. Compiled rule modules take their names from a fixed pool of 1,024
+   (`Rules.Compiler`), never from a table name or rule text, so editing rules any
+   number of times creates no new atoms. Rule file paths are checked
+   (`Rules.RuleSet.check_path/2`: a valid table name and `[a-z0-9_][a-z0-9_-]*`)
+   before they reach the store, and the local store refuses any other key, so a rule
+   name cannot escape the rule folder.
+3. No dynamic code from input. Nothing in `lib/` evaluates code, runs shell
+   commands, or decodes Erlang terms from input (`Code.eval`, `System.cmd`, `:os.cmd`,
+   and `binary_to_term` do not appear). Rules are compiled with `Module.create/3`, but
+   the module body is a fixed template (`Rules.Compiler`): each statement becomes a
+   call to `Rules.Runtime` with its parsed AST as an escaped literal, which the
+   query engine's scalar evaluator interprets as it does query expressions. No rule
+   text becomes code, and rules can call only the registered scalar functions.
 4. Value validation. `Engine` drops values the column NIF cannot store (out-of-range
    integers, over-deep lists, oversized strings and lists, keys over 250 bytes) before
    they reach native code (spec section 5).
@@ -332,6 +342,20 @@ and no single request that takes the service down or destroys stored data.
 6. A segment the persister cannot store (for any reason, such as a full disk) is
    logged once, stays in memory and queryable, and is retried on every pass while
    other segments persist, so one bad segment does not stall persistence.
+7. Rules are a key holder's power over ingestion, the same principal's. A rule can set
+   or remove any field of any event sent through the ingest APIs to its table, but
+   cannot run on built-in tables (refused at write; Guardian's own writes never run
+   rules), read other tables or stored data, keep state, or call anything outside the
+   VM. Each event's rules run in a worker with the query heap limit and a 1-second
+   limit, outside the request process and Anubis's shared process, and a failure or
+   kill fails only that event. Failures are logged by rule file, line and kind, never
+   a value, and heap kills skip the error_logger report, so an event's values (such
+   as a password an UNSET was meant to remove) stay out of logs. A failing rule
+   fails its event closed (not stored) by default, so a broken `UNSET password` does
+   not store the password.
+8. The rule store is read at boot, on writes and once a minute, never per event, so
+   the ingest path still makes no external calls. Its S3 credentials stay out of
+   application config, logs and error messages (7.2).
 
 ### 5.2 Gaps
 
@@ -436,6 +460,18 @@ and no single request that takes the service down or destroys stored data.
    slow to flatten. Bounded by the 8 MB body limit per request.
 7. A segment that never stores (5.1.6) still holds its memory, and it is lost at
    shutdown like any unpersisted segment.
+8. Rules (5.1.7): a rule set can cost up to a second of CPU per event, and a whole
+   batch runs its events in turn, so a key holder can slow ingestion of a table. The
+   write lock is a lease in the store, not a fence: a writer stalled more than a
+   minute past its lease check, or a request the store applies more than a minute
+   after the writer abandoned it, can leave a stored set validation would have
+   refused. Running nodes keep that table's last good rules, but a node that starts
+   then fails its events until it is fixed. Anyone who can write to the rule store
+   directly (the bucket's credentials, or the rule folder) controls ingest-time rules
+   without the API key; those writes still go through validation at load. The S3
+   endpoint is trusted too: its list responses are parsed with `:xmerl` (entities
+   off, at most 20 pages), which makes atoms of element names, so a hostile endpoint
+   could grow the atom table.
 
 ## 6. B4: Machine to machine (clustering)
 
@@ -573,6 +609,7 @@ and the boundary is whatever protects those. Guardian adds nothing on top.
 | `GUARDIAN_API_KEY` | process environment (on Fly, a Fly secret); app env `:guardian, :api_key` | operators; callers who hold it | set the new value and restart (`fly secrets set` restarts) |
 | `RELEASE_COOKIE` | process environment (on Fly, a Fly secret); node memory | operators; peers | set the new value and restart; all nodes must share it |
 | `TUNNEL_TOKEN` (optional) | process environment (on Fly, a Fly secret, also visible in `fly ssh` sessions); `bin/fly-start` unsets it before starting Guardian, so Guardian's process doesn't hold it | operators; whoever administers the operator's Cloudflare account | rotate the tunnel's token on Cloudflare, then set the new value and restart |
+| `GUARDIAN_RULES_S3_ACCESS_KEY_ID`, `GUARDIAN_RULES_S3_SECRET_ACCESS_KEY` (optional) | process environment (on Fly, Fly secrets); read once by `Rules.Config` into a closure held by Rules.Server and `:persistent_term`, never application config; requests carry only an MFA for signing, and store errors name only a kind | operators; whoever administers the bucket's account | create a new bucket-scoped token, set both values and restart, then revoke the old token |
 | Build-time cookie | `releases/COOKIE` in the release and image | anyone with the image or release | per build; used only by a single node (6.4) |
 
 Secrets also end up in any Erlang crash dump the VM writes (`erl_crash.dump` in the
@@ -699,16 +736,21 @@ Open gaps named above, by boundary:
 14. B4: distribution traffic is unencrypted; the cookie is the only authority, with no
     member allowlist (6.5).
 15. B4: the image carries a build-time cookie, used by a single node (6.5.3).
-16. B5: secrets end up in any Erlang crash dump (7.2).
+16. B5: secrets end up in any Erlang crash dump (7.2), the rule store's S3 secret
+    included.
 17. B7: caller data reaches stdout in printed errors and crash reports, and the
     `referer` header is stored verbatim (4.1.3, 8).
+18. B3: rules can slow a table's ingestion by up to a second per event; the rule
+    write lock is a lease, not a fence; direct writers to the rule store bypass the
+    API key (5.2.8).
 
 ## 10. How this was checked
 
 Written from the code: the routers, `Web.Auth`, `Web.Logger`, `Web.QueryParseErrors`,
-`Web.QueryLog`, `Engine`, `Cluster`, `Query.Limits`, `config/runtime.exs`,
+`Web.QueryLog`, `Engine`, `lib/rules`, `Cluster`, `Query.Limits`, `config/runtime.exs`,
 `rel/env.sh.eex`, `bin/fly-start`, `Dockerfile`, and `fly.toml` in this repository,
-and the pinned dependencies `cors_plug` 3.0.3 and `anubis_mcp` 0.16.0. Regular
+and the pinned dependencies `cors_plug` 3.0.3, `anubis_mcp` 0.16.0, and `req` 0.7.5
+(its SigV4 step accepts an MFA for credentials, read from its source). Regular
 expressions run on OTP's `:re` through `Query.Regex`. Statements about Fly's platform
 (volume encryption, private network membership, edge behavior) come from Fly's
 tooling and documentation, not from Guardian's code. Where something was read from a

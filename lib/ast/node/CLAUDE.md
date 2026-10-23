@@ -31,5 +31,5 @@ aliases, parentheses, splats, cases, and operators. Statement nodes are document
 `statements/CLAUDE.md`.
 
 Aggregate calls are planned specially by the query planner rather than evaluated as
-ordinary scalar functions. Aliases are used by SELECT; LOOKUP is not part of the
-language.
+ordinary scalar functions. Aliases are used by SELECT. LOOKUP is not part of the language yet (it is planned as
+a rule statement).

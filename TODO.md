@@ -23,6 +23,14 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       failed result
 - [ ] segment-slot-and-column-caps: cap a mutable segment's columns and slot area
       before each append, beside today's row and byte caps
+- [x] ingest-rules: SET and UNSET rules stored as files (`<table>/<name>.gsql`, in a
+      folder or an S3-compatible bucket), run on API ingests before storage, managed
+      through MCP tools with whole-set validation and a store-held write lock
+      (`docs/changes/ingest-rules.md`)
+- [ ] rules-track-lookup: TRACK (counters) and LOOKUP statements; decide first where
+      counter state lives (`docs/changes/ingest-rules.md`)
+- [ ] rules-open-questions: confirm the failure and invalid-at-boot defaults
+      (`:rules_on_failure`, `:rules_invalid_at_boot`) and remove the switch not chosen
 - [ ] engine-single-flatten: Engine flattens each ingested event twice (store, then
       check the returned event); skip the check for events without atom keys
 - [ ] fix-unflatten-nil-list-items: unflattening a list holding nil beside a list of

@@ -59,8 +59,9 @@ The design follows from the product commitments (spec section 1):
 2. Schemaless: storage keeps one column per distinct flattened key, holding any mix of
    types, and the schema is whatever per-type counts the stored columns report. There
    is no catalog to keep in sync.
-3. Predictable ingestion: the write path is a validation step and an append to an
-   in-memory segment. It calls no external service, and nothing on it waits for disk.
+3. Predictable ingestion: the write path is a validation step, the table's rules (if
+   any, compiled in memory), and an append to an in-memory segment. It calls no
+   external service, and nothing on it waits for disk.
 4. Read-only queries: the query language has no write statements, so the query engine
    only reads segments and builds temporary results.
 5. Self-observing: Guardian's own metrics and logs go through the same ingest path as
@@ -75,6 +76,7 @@ The design follows from the product commitments (spec section 1):
 
 ```text
 Main (one_for_one)
+├── Rules.Server                     loads the rule store, publishes compiled rules, polls each minute
 ├── Storage (supervisor, rest_for_one)
 │   ├── Storage.Schema               per-table schema of loaded segments
 │   ├── Storage.LoadedSegments       mmap'd segment files; loads all at boot, rescans each minute
@@ -94,7 +96,14 @@ Main (one_for_one)
 
 Why this order:
 
-1. Storage starts first, and `LoadedSegments.init/1` loads every segment file on the
+1. Rules.Server starts first: its `init` loads and validates the whole rule set from
+   the store (section 3.4), and an unreachable (after a minute of retries) or
+   misconfigured store refuses startup. Starting before Storage makes a bad store
+   fail in seconds instead of after every segment has loaded. It holds nothing the
+   ingest path needs between calls: the compiled rules are in `:persistent_term`, so
+   if it restarts, ingestion keeps the published rules and the new process reloads
+   in the background instead of failing again.
+2. Storage starts next, and `LoadedSegments.init/1` loads every segment file on the
    volume before returning. Supervisors start children one at a time, so the HTTP
    listener does not exist until all stored data is loaded. That is what lets
    `GET /health` double as a readiness check at boot (spec section 4.3), and it is why
@@ -103,10 +112,10 @@ Why this order:
    never blocks on a supervisor that is restarting children; because a GenServer
    registers its name before its `init`, it relies on SegmentExpiration starting last,
    after LoadedSegments has finished loading.
-2. The writers of built-in tables (SystemStats, Web.QueryParseErrors, Web.QueryLog)
+3. The writers of built-in tables (SystemStats, Web.QueryParseErrors, Web.QueryLog)
    start after Storage because they write to it.
-3. Web starts after everything it calls.
-4. Shutdown runs in reverse: discovery stops, then the HTTP listener (in-flight requests
+4. Web starts after everything it calls.
+5. Shutdown runs in reverse: discovery stops, then the HTTP listener (in-flight requests
    get at most 500 ms), so no new events arrive while Storage persists what it holds.
 
 Inside Storage, `:rest_for_one` reflects dependencies: each manager calls the ones
@@ -164,6 +173,8 @@ POST /api/json/send_events or MCP send_events
   -> Engine.ingest_events/2             table name check, then each event on its own
        -> Storage.Flattening.flatten_event/1
        -> drop invalid values and over-long keys
+       -> Rules.run/2, if the table has rules (3.4): a worker, one outcome per event
+       -> drop invalid values the rules produced
        -> Storage.append_flattened_result/2
             -> MutableSegments: pick the table's writable segment
             -> Segment.append (GenServer call into the segment process)
@@ -249,6 +260,58 @@ packs a snapshot of it; `lib/storage/CLAUDE.md` covers the costs).
    each event twice.
 4. Request logging is synchronous: `Web.Logger` writes the `web_requests` row through
    Engine before the request runs, so a stalled Storage delays every JSON API request.
+
+### 3.4 Rules
+
+Rules (spec section 5.1) are files of SET and UNSET statements, `<table>/<name>.gsql`,
+in a rule store: a local folder or an S3-compatible bucket (`lib/rules/CLAUDE.md`;
+the design and its reviews are `docs/changes/ingest-rules.md`).
+
+1. Parsing and validation: `AST.Parser.parse_rules/1` parses a file (statement words
+   are matched by position, not reserved). `Rules.RuleSet.validate/1` takes the whole
+   set and returns each table's `Rules.Plan` (SETs in dependency order, then UNSETs,
+   identical duplicates merged) or its errors: parse errors, paths and limits,
+   aggregates, a field defined two ways, SET cycles. It is pure.
+2. Compilation: `Rules.Compiler` turns a plan into a module from a fixed template,
+   each statement one call to `Rules.Runtime` with the statement as an escaped literal
+   (expressions run through the scalar evaluator, `Query.Eval` on an event map). Names
+   come from a pool of 1,024 (`Rules.Compiled.M0`...), so atoms are bounded.
+3. Publication: one `:persistent_term` map of table to module, or `{:invalid,
+   message}`. A reload compiles every changed table into free names first and
+   publishes one new map only if all compiled, so a change is all or nothing on each
+   node. A module the map stops using is retired, then after 30 s (rows run under a
+   1 s limit) deleted and soft-purged; its name is reused only after the purge
+   succeeds. On a restart the pool is rebuilt from what is loaded.
+4. Running: `Rules.Runner` runs a batch in a worker with the query heap limit (without
+   the error_logger report), sending each row's result back; a row over 1 s, or a
+   worker that dies, fails that row and a new worker continues. The worker reads the
+   map per row. `Rules.Runtime` resolves reads (exact key, else the first
+   case-insensitive match in byte order), applies WHERE (true only), SET (remove the
+   whole field in any case, then put) and UNSET (remove the path in any case and
+   everything beneath). A statement that raises fails the event by default
+   (`:rules_on_failure`).
+5. Loading: at boot, then on every write and every minute. The store is listed, and
+   objects whose ETag changed are fetched with `If-Match` on the listed ETag (a change
+   in between restarts the read). A table invalid at boot is published as invalid
+   (`:rules_invalid_at_boot` can refuse startup instead); a running node keeps a
+   table's previous good module if its stored copy turns invalid.
+6. Writes (`Rules.Server`): take the lock, an object in the store (`Rules.Lock`:
+   `If-None-Match: *` create, 120 s lease judged by the store's own clock, takeover of
+   an expired or released lock with `If-Match`, ownership-safe release), read the set
+   from the store, refuse the change if it adds an error, check 80 s of lease remain,
+   save the one file conditionally (20 s deadline), release, publish locally, and ask
+   every connected node to reload (10 s). An unknown save outcome leaves the lock to
+   expire. With a local folder and peers connected, writes are refused.
+7. The S3 client is Req with SigV4 (`service: :s3`, region `auto` for R2), path-style
+   URLs, `:xmerl` for ListObjectsV2, 5 s connect and 15 s receive timeouts, no
+   retries. Credentials stay in a closure; requests carry an MFA for signing; every
+   store call returns a reason naming only a kind (security.md).
+
+Why a lock object and not `:global`: `:global` gives each side of a partition its own
+lock. Why no manifest: the design keeps the store as plain files, so a set
+validated on a write is serialized by the lease but not fenced: a writer stalled past
+its lease, or a request applied long after it was abandoned, can still leave an
+invalid set, which loading then handles per table (spec section 12).
 
 ## 4. Storage engine
 
@@ -960,6 +1023,8 @@ Environment variables:
 | `RELEASE_COOKIE` | `rel/env.sh.eex`, the release | Erlang cookie. Required with `GUARDIAN_NODE_HOST` or on Fly; must match on every node. |
 | `GUARDIAN_DIST_PORT` | `rel/env.sh.eex` | Pins the server's distribution listen port, 1 to 65535. Unset means a random port. |
 | `FLY_PRIVATE_IP`, `FLY_APP_NAME` | `rel/env.sh.eex`, `config/runtime.exs` | Set by Fly. Their presence selects the Fly preset (section 7) and the volume check. |
+| `GUARDIAN_RULES_DIR` | `Rules.Config` | The local rule folder. Default `<data dir>/rules`. |
+| `GUARDIAN_RULES_S3_BUCKET`, `_ENDPOINT`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY`, `_REGION`, `_PREFIX` | `Rules.Config` | An S3-compatible rule store instead of the folder (3.4). The first four together or none; region defaults to `auto`. Read at boot by Rules.Server, not `config/runtime.exs`, so the secret never enters application config. |
 | `TUNNEL_TOKEN` | `bin/fly-start` | Optional. Starts the cloudflared connector (10.1); Guardian's own process never sees it. |
 
 Application environment (`:guardian`), with code defaults; deployments set none of
@@ -973,6 +1038,10 @@ these except through the variables above:
 | `query_max_string_bytes` | 16 MiB | `Query.Limits` |
 | `query_time_limit_ms` | 30,000 | `Query.run/1` (`Query.Limits`) |
 | `query_parse_errors_per_hour` | 60 | `Web.QueryParseErrors` (tests raise it) |
+| `rules_on_failure` | `:reject` | `Rules.Runtime`, `Rules.Runner`: a failing statement or an event over its limit fails the event; `:skip` passes it on |
+| `rules_invalid_at_boot` | `:fail_table` | `Rules.Server`: a table invalid at boot fails its events; `:refuse_startup` refuses startup |
+| `rules_store` | from the variables above | `Rules.Config` (tests set a store directly) |
+| `rules_poll_ms`, `rules_time_limit_ms`, `rules_boot_retry_ms`, `rules_reclaim_after_ms`, `rules_lock_lease_ms`, `rules_save_margin_ms`, `rules_s3_receive_timeout_ms`, `rules_s3_write_deadline_ms` | 60,000; 1,000; 60,000; 30,000; 120,000; 80,000; 15,000; 20,000 | `lib/rules` (tests shorten them) |
 | `persisted_segment_cache_ms` | 600,000 | `Storage.PersistedSegments`: how long a written segment's in-memory copy serves before it is stopped (tests shorten it); a value that is not a positive integer stops Storage from starting |
 
 Constants in code that act like configuration: segment capacity 16,384 rows and 64 MiB
@@ -1072,7 +1141,9 @@ operational decisions:
 4. The mmap NIF (`src/mmap.c`, `Storage.Mmap`) and DistributedStream
    (`Query.DistributedStream`) are vendored, with Guardian's own fixes, and are outside
    Hex updates. Do not reintroduce the `mmap` or `distributed_stream` Hex packages.
-5. No system library is linked. Hyperscan and libjq were dropped so the build needs
+5. `req` (`~> 0.7`) is the rule store's S3 client, for its SigV4 signing; its HTTP
+   stack (Finch, Mint) was already in the graph through Anubis.
+6. No system library is linked. Hyperscan and libjq were dropped so the build needs
    only a C toolchain; don't add a dependency that needs a system library without
    weighing the install cost.
 
@@ -1110,7 +1181,13 @@ formatting and compiles with warnings as errors). About 150 test files cover:
    mid-pipeline); stage functions that must run on peers live in
    `libtest/distributed_stream_test_stages.ex`, because test modules are not loaded
    there.
-5. Configuration and deployment: `config/runtime.exs` and the production config are
+5. Rules: the parser, whole-set validation, semantics through real ingestion, the
+   worker's limits, the server (boot refusals, repair, activation, the module pool,
+   restarts), the lock, both stores, and a peer cluster sharing a store. `FakeS3` (in
+   `libtest/`) is a small S3 server that checks every request's SigV4 signature with
+   its own implementation of the canonical request; `RulesTestHelper` restarts the
+   shared Rules.Server on a test store.
+6. Configuration and deployment: `config/runtime.exs` and the production config are
    evaluated in tests, as are the release environment script's three naming modes and
    `GUARDIAN_DIST_PORT`, and `Cluster.discovery_child_spec/1`'s record types and
    boot-time name check.

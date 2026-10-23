@@ -25,3 +25,9 @@
    fail until every machine runs the new one. Retry them.
 8. Every machine running `guardian start` with the same cookie and DNS name joins the
    cluster and its query results.
+9. Rules: the write lock is a lease, not a guarantee. A rule write stalled for more
+   than about a minute can still land after another and leave a rule set that the check
+   would have refused; running nodes keep that table's last good rules, but a node
+   that starts then rejects the table's events until the rules are fixed.
+   Rules cost time on every event they run on (up to a second each), and nodes pick
+   up a write within a minute if they missed its reload.

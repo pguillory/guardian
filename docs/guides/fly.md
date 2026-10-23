@@ -75,6 +75,8 @@ machine joins the cluster within seconds. With more than one machine:
 - Deploys replace machines one at a time, so ingestion continues on the others.
 - Queries miss a machine's data until it has loaded its segments.
 - A query running while a machine shuts down can fail with a node error. Retry it.
+- Rules need an S3-compatible bucket: rule writes to the default local folder are
+  refused while machines are connected ([Rule storage](rules.md)).
 
 Scaling down destroys a machine but leaves its volume unattached. That machine's
 events drop out of queries until a machine uses that volume again.

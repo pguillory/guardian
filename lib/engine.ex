@@ -50,14 +50,18 @@ defmodule Engine do
   @spec ingest_events(String.t(), list()) :: [{:ok, map()} | {:error, String.t()}]
   def ingest_events(table, events) do
     validate_table!(table)
-    Enum.map(events, &ingest_result(table, &1))
+
+    case Rules.lookup(table) do
+      nil -> Enum.map(events, &ingest_result(table, &1))
+      _rules -> ingest_with_rules(table, events)
+    end
   end
 
   def ingest_event(table, event) do
     validate_table!(table)
-    {event, flat_row} = validate_event(table, event)
-    :ok = Storage.append_flattened(table, flat_row)
-    event
+    {valid_row, invalid_row} = validate_event(table, event)
+    :ok = Storage.append_flattened(table, valid_row)
+    reported_event(event, valid_row, invalid_row)
   end
 
   @doc """
@@ -101,16 +105,94 @@ defmodule Engine do
 
   defp ingest_result(table, event) when is_map(event) do
     case prepare_event(table, event) do
-      {:ok, event, flat_row} -> store_event(table, event, flat_row)
-      {:error, _message} = error -> error
+      {:ok, event, valid_row, invalid_row} ->
+        with {:ok, reported} <-
+               report(table, fn -> reported_event(event, valid_row, invalid_row) end) do
+          store_event(table, reported, valid_row)
+        end
+
+      {:error, _message} = error ->
+        error
     end
   end
 
   defp ingest_result(_table, _event), do: {:error, "event is not a JSON object"}
 
+  # Rules run on every event's validated row, in a worker (Rules.Runner), after which
+  # the values they produced are validated the same way and the row is stored. The
+  # reported event is built from the row after rules.
+  defp ingest_with_rules(table, events) do
+    prepared =
+      Enum.map(events, fn
+        event when is_map(event) -> prepare_event(table, event)
+        _event -> {:error, "event is not a JSON object"}
+      end)
+
+    rows = for {:ok, _event, valid_row, _invalid_row} <- prepared, do: valid_row
+
+    case run_rules(table, rows) do
+      {:ok, results} ->
+        {outcomes, []} =
+          Enum.map_reduce(prepared, results, fn
+            {:ok, event, valid_row, invalid_row}, [result | results] ->
+              {finish_with_rules(table, event, valid_row, invalid_row, result), results}
+
+            error, results ->
+              {error, results}
+          end)
+
+        outcomes
+
+      :error ->
+        Enum.map(prepared, fn
+          {:ok, _event, _valid_row, _invalid_row} ->
+            {:error, "internal error before storage; the event was not stored"}
+
+          error ->
+            error
+        end)
+    end
+  end
+
+  defp run_rules(table, rows) do
+    {:ok, Rules.run(table, rows)}
+  catch
+    kind, reason ->
+      log_ingest_failure(table, kind, reason, __STACKTRACE__)
+      :error
+  end
+
+  defp finish_with_rules(_table, _event, _valid_row, _invalid_row, {:error, _} = error), do: error
+
+  defp finish_with_rules(table, event, valid_row, invalid_row, {:ok, row}) do
+    reported =
+      report(table, fn ->
+        if row == valid_row do
+          reported_event(event, valid_row, invalid_row)
+        else
+          {row, _invalid} = split_valid(row)
+          {reported_after_rules(event, row), row}
+        end
+      end)
+
+    case reported do
+      {:ok, {reported, row}} -> store_event(table, reported, row)
+      {:ok, reported} -> store_event(table, reported, row)
+      error -> error
+    end
+  end
+
   defp prepare_event(table, event) do
-    {event, flat_row} = validate_event(table, event)
-    {:ok, event, flat_row}
+    {valid_row, invalid_row} = validate_event(table, event)
+    {:ok, event, valid_row, invalid_row}
+  catch
+    kind, reason ->
+      log_ingest_failure(table, kind, reason, __STACKTRACE__)
+      {:error, "internal error before storage; the event was not stored"}
+  end
+
+  defp report(table, fun) do
+    {:ok, fun.()}
   catch
     kind, reason ->
       log_ingest_failure(table, kind, reason, __STACKTRACE__)
@@ -163,20 +245,59 @@ defmodule Engine do
 
   # Storage flattens nested objects into dot-notation columns, so validate the
   # flattened values: a nested value can be invalid even when its top-level map is
-  # fine. Returns the event to report back and the validated flat row to store.
+  # fine. Returns the validated flat row to store and the dropped columns.
   #
   # Invalid values and over-long flattened keys are dropped individually. The flat
   # row goes to Storage as is, because unflattening cannot rebuild every shape that
   # flattening accepts, such as arrays that mix scalars and objects.
   defp validate_event(_table, event) when is_map(event) do
-    flat_row = Flattening.flatten_event(event)
+    event |> Flattening.flatten_event() |> split_valid()
+  end
 
-    {valid_row, invalid_row} =
-      Map.split_with(flat_row, fn {key, value} ->
-        Value.valid_key?(key) and Value.valid?(value)
-      end)
+  defp split_valid(flat_row) do
+    Map.split_with(flat_row, fn {key, value} ->
+      Value.valid_key?(key) and Value.valid?(value)
+    end)
+  end
 
-    {reported_event(event, valid_row, invalid_row), valid_row}
+  # The event to report for a row the rules changed: rebuilt from the row when that
+  # keeps every column; otherwise field by field, keeping the original value of each
+  # top-level field whose columns the rules left alone and rebuilding the others
+  # (leaving out any that cannot be rebuilt).
+  defp reported_after_rules(event, row) do
+    event = stringify_keys(event)
+
+    case rebuild(row) do
+      reported when is_map(reported) ->
+        if all_columns_kept?(reported, row), do: reported, else: field_by_field(event, row)
+
+      nil ->
+        field_by_field(event, row)
+    end
+  end
+
+  defp field_by_field(event, row) do
+    original = event |> Flattening.flatten_event() |> group_by_field()
+
+    row
+    |> group_by_field()
+    |> Enum.flat_map(fn {field, columns} ->
+      with false <- Map.get(original, field) == columns and Map.has_key?(event, field),
+           rebuilt when is_map(rebuilt) <- rebuild(columns),
+           true <- all_columns_kept?(rebuilt, columns),
+           {:ok, value} <- Map.fetch(rebuilt, field) do
+        [{field, value}]
+      else
+        true -> [{field, Map.fetch!(event, field)}]
+        _ -> []
+      end
+    end)
+    |> Map.new()
+  end
+
+  defp group_by_field(row) do
+    Enum.group_by(row, fn {key, _value} -> key |> Flattening.decode_path() |> hd() |> hd() end)
+    |> Map.new(fn {field, columns} -> {field, Map.new(columns)} end)
   end
 
   # The reported event should hold every stored column. Candidates, in order: the
