@@ -1,0 +1,31 @@
+# Engine Subsystem
+
+Engine is Guardian's event-ingestion boundary.
+
+- `Engine.ingest_event/2` drops values that are unsafe for Storage, appends the event,
+  and returns the stored event. It validates the flattened event, so invalid values
+  nested inside objects and fields whose flattened key exceeds 250 bytes are dropped
+  individually. The validated flat row is stored with `Storage.append_flattened/2`
+  (never unflattened and re-flattened, which cannot rebuild every shape). Events with
+  nothing dropped are returned unchanged.
+- `Engine.ingest_events/2` processes events independently and returns ordered
+  `{:ok, event}` or `{:error, message}` outcomes, continuing after each failure.
+  Non-object events fail before storage. Unexpected failures before storage say the
+  event was not stored; failures after storage starts say it may have been stored.
+  An explicit storage refusal says it was not stored. Exception details go to Logger.
+  `Engine.ingest_event/2` retains its raising behavior for internal callers.
+- Both reject table names that SQL cannot address with `Engine.InvalidTableNameError`
+  before writing: names must match `[a-z_][a-z0-9_]*`, be at most 64 bytes (segment
+  filenames must fit the filesystem's 255-byte limit), and must not be a tokenizer
+  keyword, `null`/`true`/`false`, `current_date`/`current_timestamp`, or `schema`.
+  This also keeps names safe in segment filenames. If the SQL tokenizer's identifier
+  rules or reserved words change, update this rule to match. Keep this check at the
+  Engine boundary, not in Storage.
+
+There is no rule compilation, execution, or management in this subsystem. Keep Engine
+free of external service dependencies. HTTP `/api/json/send_events` and MCP
+`send_events` are the API ingest paths. Guardian's own built-in tables are written
+through `Engine.log_event/2` and `Engine.try_log_event/2`: `SystemStats`, request
+logging and query parse errors use `try_log_event/2` and log only its failure kind;
+`Web.QueryParseErrors` also names its own caught failures with
+`Engine.failure_kind/3`. SQL queries are read-only.

@@ -1,0 +1,37 @@
+#!/bin/sh
+# The Fly image's entry point (Dockerfile CMD): starts Guardian, and, when the
+# TUNNEL_TOKEN secret is set, a cloudflared connector beside it. The optional
+# connector opens an outbound Cloudflare Tunnel, for reaching Guardian from
+# Cloudflare Workers through a Workers VPC binding instead of the public edge.
+# Without the secret, this is exactly `guardian start`.
+#
+# Keep the connector here, never in rel/env.sh.eex: env.sh runs for every
+# bin/guardian invocation (remote, rpc over fly ssh), which would start more
+# connectors.
+set -eu
+
+guardian="${GUARDIAN_START_BIN:-/app/bin/guardian}"
+cloudflared="${CLOUDFLARED_BIN:-/usr/local/bin/cloudflared}"
+
+if [ -n "${TUNNEL_TOKEN:-}" ]; then
+  # The connector reads the token from its environment and never logs it
+  # (the machine env still holds it too, for fly ssh sessions). If cloudflared exits, it starts
+  # again after a pause; the loop ends with the machine.
+  #
+  # --metrics pins cloudflared's metrics listener to loopback whatever the build's
+  # default (all interfaces in builds for virtual environments).
+  # --management-diagnostics=false keeps /debug/pprof and /metrics off the tunnel's
+  # remote management service. Both are `tunnel` options, so they go before `run`.
+  (
+    while :; do
+      "$cloudflared" --no-autoupdate tunnel --metrics 127.0.0.1:20241 \
+        --management-diagnostics=false run || true
+      sleep 5
+    done
+  ) &
+fi
+
+# Guardian's environment never holds the token. exec, so Guardian receives
+# Fly's SIGTERM directly, as before.
+unset TUNNEL_TOKEN
+exec "$guardian" start

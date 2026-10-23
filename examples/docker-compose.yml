@@ -1,0 +1,87 @@
+# A three-node Guardian cluster on one Docker host, discovered through DNS.
+#
+# Unverified: this file is a starting point and is not run by Guardian's own checks.
+#
+#   export GUARDIAN_API_KEY="$(openssl rand -hex 32)"
+#   export RELEASE_COOKIE="$(openssl rand -base64 48 | tr -d '\n/+=')"
+#   docker compose -f examples/docker-compose.yml up -d --build
+#
+# How it fits together:
+# - Each node has a fixed address on a user-defined network and names itself
+#   guardian@<that address> (GUARDIAN_NODE_HOST).
+# - Every node also carries the network alias "guardian-peers", so that name resolves
+#   to all three addresses. DNS_CLUSTER_QUERY points at it, and each node connects to
+#   the others within seconds.
+# - Each node has its own volume: nodes never share storage, and a query fans out to
+#   all of them.
+# - Only node a publishes HTTP, and only on the host's loopback. Any node can serve
+#   queries, since each one reads the whole cluster.
+# - epmd and distribution stay on the private compose network; never publish them.
+# - On Apple Silicon, where amd64 runs under emulation, add ERL_FLAGS: "+JMsingle true"
+#   to the environment and build with --build-arg ERL_FLAGS="+JMsingle true" (see the
+#   README quickstart).
+
+x-guardian: &guardian
+  platform: linux/amd64
+  image: guardian:local
+  restart: unless-stopped
+  stop_grace_period: 120s
+
+x-guardian-env: &guardian-env
+  GUARDIAN_API_KEY: ${GUARDIAN_API_KEY:?set GUARDIAN_API_KEY}
+  RELEASE_COOKIE: ${RELEASE_COOKIE:?set RELEASE_COOKIE}
+  DNS_CLUSTER_QUERY: guardian-peers
+  GUARDIAN_DIST_PORT: "9100"
+
+services:
+  # Only one service builds the image; the others reuse its tag.
+  guardian-a:
+    <<: *guardian
+    build:
+      context: ..
+    environment:
+      <<: *guardian-env
+      GUARDIAN_NODE_HOST: 172.28.0.11
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - guardian_a:/data
+    networks:
+      guardian:
+        ipv4_address: 172.28.0.11
+        aliases: [guardian-peers]
+
+  guardian-b:
+    <<: *guardian
+    environment:
+      <<: *guardian-env
+      GUARDIAN_NODE_HOST: 172.28.0.12
+    volumes:
+      - guardian_b:/data
+    networks:
+      guardian:
+        ipv4_address: 172.28.0.12
+        aliases: [guardian-peers]
+
+  guardian-c:
+    <<: *guardian
+    environment:
+      <<: *guardian-env
+      GUARDIAN_NODE_HOST: 172.28.0.13
+    volumes:
+      - guardian_c:/data
+    networks:
+      guardian:
+        ipv4_address: 172.28.0.13
+        aliases: [guardian-peers]
+
+networks:
+  guardian:
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+
+volumes:
+  guardian_a:
+  guardian_b:
+  guardian_c:

@@ -1,0 +1,62 @@
+# Checks every push and pull request. Needs no secrets and publishes nothing.
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # Hyperscan is x86-64 only.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      # The versions the Dockerfile builds with.
+      OTP_VERSION: "28.2"
+      ELIXIR_VERSION: "1.19.3"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential libhyperscan-dev libjq-dev
+
+      - uses: erlef/setup-beam@54075bcc5e249e4758d363f27d099f55d843f124 # v1.24.1
+        with:
+          otp-version: ${{ env.OTP_VERSION }}
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+
+      # All environments: the formatter plugin is a dev dependency.
+      - name: Fetch dependencies
+        run: mix deps.get
+
+      - name: Check formatting
+        run: mix format --check-formatted
+
+      - name: Compile
+        run: MIX_ENV=test mix compile --warnings-as-errors
+
+      # The multi-node tests start peer nodes, which need epmd.
+      - name: Test
+        run: |
+          epmd -daemon
+          mix test --warnings-as-errors
+
+  docker:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Builds the release image, including the jq sandbox self-test the Dockerfile
+      # runs. Nothing is pushed.
+      - name: Build the image
+        run: docker build --platform linux/amd64 --build-arg GIT_COMMIT="$GITHUB_SHA" -t guardian:ci .

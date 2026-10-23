@@ -1,0 +1,35 @@
+# AST Nodes
+
+AST node modules define query expressions and statements. Each does `use AST.Node`,
+which declares the `AST.Node` behaviour (its moduledoc is the contract):
+
+- `to_source/1` for deterministic SQL-like output
+- `traverse/4` for pre/post tree walks: a node with children calls
+  `traverse_fields(expr, fields, acc, pre, post)` with its child fields in a fixed
+  order (a `nil` field is skipped, a list walked element by element). The order is
+  load-bearing for walks that collect in visit order (the planner numbers HAVING's
+  aggregate columns that way), and pre-before-children, post-after is what lets
+  `Query.Resolver` park AS nodes; `test/ast_test.exs` pins both.
+- optionally `rewrite/1` to an equivalent node that can be evaluated
+
+An evaluable node implements the `Query.Eval` protocol inside its own module,
+`defimpl Query.Eval do def eval(%@for{...}, context) ... end end`, so its evaluation
+sits next to its struct. Inside the `defimpl`, `__MODULE__` is the implementation
+module: write the node's struct as `%@for{}` and call its own functions (such as its
+scalar `eval/2`) as `@for.eval`, since a bare `eval` is the protocol's. A rewrite-only
+node needs no implementation: the protocol's `Any` fallback evaluates `rewrite/1`'s
+result, and raises `Query.Error` for a node with neither.
+
+Two-operand infix nodes (the binary operators, and AS) do
+`use AST.Node.BinaryOperator, symbol: "..."` instead of writing their struct,
+`symbol/0`, `to_source/1` and `traverse/4`; the macro does `use AST.Node` for them.
+`AST.Parser` reads `symbol/0` from every operator node in its table (BETWEEN, ASC and
+DESC define it by hand), so the parser and `to_source/1` share one spelling.
+
+Expression nodes include identifiers, literals, function calls, aggregate calls,
+aliases, parentheses, splats, cases, and operators. Statement nodes are documented in
+`statements/CLAUDE.md`.
+
+Aggregate calls are planned specially by the query planner rather than evaluated as
+ordinary scalar functions. Aliases are used by SELECT; LOOKUP is not part of the
+language.

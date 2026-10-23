@@ -1,0 +1,20 @@
+defmodule Aggregation.MaxNByTest do
+  use Query.EvaluationTestCase, async: true
+
+  test "max_n_by" do
+    rows = [
+      [x: "a", y: 5],
+      [x: "b", y: 1],
+      [x: "c", y: 3],
+      [x: "d", y: 3],
+      [x: "e", y: 8],
+      [x: "f", y: 9],
+      [x: "g", y: 2],
+      [x: "h", y: 2],
+      [x: "i", y: 7],
+      [x: "j", y: 3],
+    ]
+
+    assert eval_aggregate("max_n_by(x, y, 3)", rows) == ["f", "e", "i"]
+  end
+end
