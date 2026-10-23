@@ -112,9 +112,8 @@ defmodule Query.LimitsTest do
     assert run_sql("SELECT count() FROM #{table} WHERE s RLIKE '^row [0-9]{2}$'") == [[21]]
   end
 
-  test "factorial refuses results that do not fit in 64 bits" do
-    assert error("SELECT factorial(100000000)") =~ "factorial(100000000) does not fit"
-    assert error("SELECT factorial(21)") =~ "the largest is factorial(20)"
+  test "factorial is null where the result doesn't fit in 64 bits" do
+    assert run_sql("SELECT factorial(100000000), factorial(21)") == [[nil, nil]]
 
     assert run_sql("SELECT factorial(0), factorial(5), factorial(20)") == [
              [1, 120, 2_432_902_008_176_640_000],

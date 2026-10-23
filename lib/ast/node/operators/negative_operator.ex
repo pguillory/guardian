@@ -21,7 +21,9 @@ defmodule AST.Node.Operators.NegativeOperator do
     traverse_fields(expr, [:right], acc, pre, post)
   end
 
-  def eval(value) when is_number(value) do
+  def eval(value) when is_integer(value), do: Query.Numeric.wrap(-value)
+
+  def eval(value) when is_float(value) do
     -value
   end
 

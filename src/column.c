@@ -647,6 +647,27 @@ void append_float(struct column * column, double value) {
   column->header->float_count += 1;
 }
 
+// Integer arithmetic wraps to int64, two's complement, as Query.Numeric does on the
+// Elixir path. The builtins compute the wrapped result with defined behavior (plain
+// signed overflow is undefined in C); the overflow flag is ignored.
+static int64_t wrapping_add(int64_t a, int64_t b) {
+  int64_t result;
+  __builtin_add_overflow(a, b, &result);
+  return result;
+}
+
+static int64_t wrapping_sub(int64_t a, int64_t b) {
+  int64_t result;
+  __builtin_sub_overflow(a, b, &result);
+  return result;
+}
+
+static int64_t wrapping_mul(int64_t a, int64_t b) {
+  int64_t result;
+  __builtin_mul_overflow(a, b, &result);
+  return result;
+}
+
 // For arithmetic results: a value that isn't finite (division by zero, overflow) is
 // stored as null. A column never holds inf or NaN (assert_valid_column).
 void append_arithmetic_float(struct column * column, double value) {
@@ -1499,7 +1520,7 @@ static ERL_NIF_TERM add_nif(ErlNifEnv * env, int argc, const ERL_NIF_TERM argv[]
     uint64_t bit = offset % 64;
     if (column1.int_bitmap[word] & (1ULL << bit)) {
       if (column2.int_bitmap[word] & (1ULL << bit)) {
-        append_int(column3, *(column1.int_values++) + *(column2.int_values++));
+        append_int(column3, wrapping_add(*(column1.int_values++), *(column2.int_values++)));
       }
       else if (column2.float_bitmap[word] & (1ULL << bit)) {
         append_arithmetic_float(column3, *(column1.int_values++) + *(column2.float_values++));
@@ -1568,7 +1589,7 @@ static ERL_NIF_TERM subtract_nif(ErlNifEnv * env, int argc, const ERL_NIF_TERM a
     uint64_t bit = offset % 64;
     if (column1.int_bitmap[word] & (1ULL << bit)) {
       if (column2.int_bitmap[word] & (1ULL << bit)) {
-        append_int(column3, *(column1.int_values++) - *(column2.int_values++));
+        append_int(column3, wrapping_sub(*(column1.int_values++), *(column2.int_values++)));
       }
       else if (column2.float_bitmap[word] & (1ULL << bit)) {
         append_arithmetic_float(column3, *(column1.int_values++) - *(column2.float_values++));
@@ -1637,7 +1658,7 @@ static ERL_NIF_TERM multiply_nif(ErlNifEnv * env, int argc, const ERL_NIF_TERM a
     uint64_t bit = offset % 64;
     if (column1.int_bitmap[word] & (1ULL << bit)) {
       if (column2.int_bitmap[word] & (1ULL << bit)) {
-        append_int(column3, *(column1.int_values++) * *(column2.int_values++));
+        append_int(column3, wrapping_mul(*(column1.int_values++), *(column2.int_values++)));
       }
       else if (column2.float_bitmap[word] & (1ULL << bit)) {
         append_arithmetic_float(column3, *(column1.int_values++) * *(column2.float_values++));

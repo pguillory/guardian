@@ -79,7 +79,7 @@ defmodule Cluster.MetadataTest do
     ingest_on(peer_node, table, [%{"v" => 1}, %{"v" => 2}])
     Engine.ingest_events(table, [%{"v" => 3}])
 
-    error = assert_raise Query.Error, fn -> run_sql("SELECT div(v, 0) FROM #{table}") end
+    error = assert_raise Query.Error, fn -> run_sql("SELECT test_raise(v) FROM #{table}") end
     assert error.message =~ "query evaluation failed"
     assert Enum.sort(run_sql("SELECT v FROM #{table}")) == [[1], [2], [3]]
   end

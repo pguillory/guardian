@@ -280,6 +280,27 @@ Then register in `lib/query/function.ex`:
 ]
 ```
 
+## Totality
+
+Every function and operator is total: on any input it returns a value storage can
+hold, or `nil`. It never raises, and never returns a bignum, a non-finite float, or a
+list nested deeper than a list of lists. `Query.Numeric` states the rules:
+
+- An integer result wraps to int64 with `Query.Numeric.wrap/1`, matching the column
+  NIF's wrapping `+ - *` (`src/column.c`), so both evaluation paths agree.
+- Float arithmetic that overflows raises `ArithmeticError` in Erlang: catch
+  `:error, :badarith` and return `nil`.
+- A result with no good value (division by zero, a domain error, a rounded float
+  outside int64, `Query.Numeric.int64_or_nil/1`) is `nil`.
+- `Query.ColumnOrConstant.list_or_constant_to_column_or_constant/1` turns any
+  remaining unstorable value into `nil` as the result is built, a backstop rather
+  than a substitute for the rules above.
+
+`test/query/totality_test.exs` runs every registered function and operator over a grid
+of edge values per event, against constants and over columns, and checks that the
+three agree. A new function is covered automatically; add an edge value there when a
+new kind of input matters.
+
 ## Type Handling
 
 Functions should handle type mismatches gracefully:
@@ -381,7 +402,8 @@ The `Query.EvaluationTestCase` provides the `eval/2` helper for easy testing.
 
 1. Always register new functions in `lib/query/function.ex` - they won't work otherwise
 2. Module name must match the pattern `Query.Function.FunctionName`
-3. Return `nil` for type errors, don't raise exceptions
+3. Return `nil` for type errors and for results with no good value; never raise
+   (see "Totality")
 4. For multi-arity functions, register EACH arity separately in the parent module
 5. Use `ColumnOrConstant.map` not regular `Enum.map` - different representation
 6. A module without `eval2/2` needs `eval/N` for each registered arity; `eval2/2` is

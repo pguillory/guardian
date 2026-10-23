@@ -394,12 +394,13 @@ and no single request that takes the service down or destroys stored data.
    about 64 MiB, counted where rows collect on the machine running the query (the
    result, the input of an in-memory ORDER BY, the merge of ORDER BY ... LIMIT);
    ORDER BY with a LIMIT above the cap is refused; `lpad`, `rpad`, `concat`, `||`, and
-   `replace` refuse strings over 16 MiB; `factorial` takes at most 20; regular expressions
+   `replace` refuse strings over 16 MiB; regular expressions
    have a backtracking limit (5.2.1). A query is stopped on every machine after 30 seconds
    (`query_time_limit_ms`), which bounds how long it holds memory and CPU but not how
    much memory it takes first. Exceeding one fails the query with an error. These
    cover the common accidental cases (a SELECT without LIMIT over a big table,
-   `lpad('x', 2000000000)`, `factorial(100000000)`).
+   `lpad('x', 2000000000)`). Numeric functions return null rather than fail or build
+   an unbounded integer (`factorial(100000000)` is null; `docs/changes/total-functions.md`).
 
    A heap guard covers part of the rest. `GUARDIAN_QUERY_MAX_HEAP_MB` (default 256,
    `0` turns it off) sets Erlang's `max_heap_size` on the query process and on every

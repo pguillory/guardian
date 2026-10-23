@@ -13,9 +13,19 @@ defmodule Aggregation.Avg do
     {0, 0}
   end
 
+  # An integer sum stays exact (a bignum of a few words at most, for any real count).
+  # A float overflow makes the state :overflow, which absorbs every later merge and
+  # finishes as null (Query.Numeric).
+  def merge(:overflow, _acc2), do: :overflow
+  def merge(_acc1, :overflow), do: :overflow
+
   def merge({sum1, count1}, {sum2, count2}) do
     {sum1 + sum2, count1 + count2}
+  catch
+    :error, :badarith -> :overflow
   end
+
+  def finish(:overflow), do: nil
 
   def finish({_sum, 0}) do
     nil
@@ -23,5 +33,7 @@ defmodule Aggregation.Avg do
 
   def finish({sum, count}) do
     sum / count
+  catch
+    :error, :badarith -> nil
   end
 end

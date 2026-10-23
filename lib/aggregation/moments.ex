@@ -18,6 +18,11 @@ defmodule Aggregation.Moments do
     {0, 0.0, 0.0}
   end
 
+  # A float overflow while merging makes the state :overflow, which absorbs every
+  # later merge and finishes as null (Query.Numeric).
+  def merge(_kind, :overflow, _acc2), do: :overflow
+  def merge(_kind, _acc1, :overflow), do: :overflow
+
   def merge(_kind, {0, _, _}, acc2) do
     acc2
   end
@@ -32,7 +37,11 @@ defmodule Aggregation.Moments do
     mean = mean1 + delta * count2 / count
     m2 = m2_1 + m2_2 + delta * delta * count1 * count2 / count
     {count, mean, m2}
+  catch
+    :error, :badarith -> :overflow
   end
+
+  def finish(_kind, :overflow), do: nil
 
   def finish(:var_pop, {count, _mean, m2}) when count > 0 do
     m2 / count

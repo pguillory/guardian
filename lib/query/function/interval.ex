@@ -1,4 +1,6 @@
 defmodule Query.Function.Interval do
+  import Query.Numeric, only: [int64?: 1]
+
   @second 1
   @minute 60
   @hour 60 * 60
@@ -33,16 +35,37 @@ defmodule Query.Function.Interval do
     to_seconds(interval, seconds)
   end
 
+  # A number of more than 19 digits, or a term or running total outside int64, is
+  # `:error` (null), so no bignum ever forms (Query.Numeric).
   defp to_seconds(interval, seconds) do
-    case Integer.parse(interval) do
-      {n, "s" <> interval} -> to_seconds(interval, seconds + n * @second)
-      {n, "m" <> interval} -> to_seconds(interval, seconds + n * @minute)
-      {n, "h" <> interval} -> to_seconds(interval, seconds + n * @hour)
-      {n, "d" <> interval} -> to_seconds(interval, seconds + n * @day)
-      {n, "w" <> interval} -> to_seconds(interval, seconds + n * @week)
+    with true <- digits_within_limit?(interval),
+         {n, <<unit, interval::binary>>} <- Integer.parse(interval),
+         {:ok, unit_seconds} <- unit_seconds(unit),
+         term when int64?(term) <- n * unit_seconds,
+         total when int64?(total) <- seconds + term do
+      to_seconds(interval, total)
+    else
       _ -> :error
     end
   end
+
+  defp unit_seconds(?s), do: {:ok, @second}
+  defp unit_seconds(?m), do: {:ok, @minute}
+  defp unit_seconds(?h), do: {:ok, @hour}
+  defp unit_seconds(?d), do: {:ok, @day}
+  defp unit_seconds(?w), do: {:ok, @week}
+  defp unit_seconds(_), do: :error
+
+  # At most 19 digits after an optional sign, before Integer.parse can build more.
+  defp digits_within_limit?(<<sign, rest::binary>>) when sign in [?+, ?-],
+    do: digits_within_limit?(rest)
+
+  defp digits_within_limit?(string), do: leading_digits(string, 0) <= 19
+
+  defp leading_digits(<<digit, rest::binary>>, n) when digit in ?0..?9 and n <= 19,
+    do: leading_digits(rest, n + 1)
+
+  defp leading_digits(_string, n), do: n
 
   @doc "Formats seconds as a duration that `to_seconds/1` parses, such as `\"2h30m\"`."
   def from_seconds(0) do

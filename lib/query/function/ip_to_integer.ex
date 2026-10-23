@@ -1,12 +1,12 @@
 defmodule Query.Function.IpToInteger do
   def eval(value) when is_binary(value) do
-    case :inet.parse_address(String.to_charlist(value)) do
-      {:ok, {a, b, c, d}} ->
-        <<result::32-big>> = <<a, b, c, d>>
-        result
-
-      _ ->
-        nil
+    # Invalid UTF-8 is no address (String.to_charlist would raise on it).
+    with true <- String.valid?(value),
+         {:ok, {a, b, c, d}} <- :inet.parse_address(String.to_charlist(value)) do
+      <<result::32-big>> = <<a, b, c, d>>
+      result
+    else
+      _ -> nil
     end
   end
 

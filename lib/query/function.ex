@@ -77,6 +77,12 @@ defmodule Query.Function do
     {"url_scheme", 1, Query.Function.UrlScheme},
   ]
 
+  # Tests need an expression that raises while a worker evaluates it, and no real
+  # function raises (they return null instead), so the test build adds one.
+  if Mix.env() == :test do
+    @names_and_mods @names_and_mods ++ [{"test_raise", 1, Query.Function.TestRaise}]
+  end
+
   {names, arities, mods} = SuperList.unzip(@names_and_mods)
   @names names
   @names_and_arities SuperList.zip(names, arities)

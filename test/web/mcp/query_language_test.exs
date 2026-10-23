@@ -5,8 +5,8 @@ defmodule Web.MCP.QueryLanguageTest do
 
   test "documents every registered function and aggregate" do
     # `interval` is registered for the INTERVAL n UNIT syntax, but INTERVAL is a keyword,
-    # so interval(...) cannot be called directly.
-    names = Enum.uniq(Query.Function.names() ++ Aggregation.names()) -- ["interval"]
+    # so interval(...) cannot be called directly. `test_raise` exists only in the test build.
+    names = Enum.uniq(Query.Function.names() ++ Aggregation.names()) -- ["interval", "test_raise"]
 
     missing =
       Enum.reject(names, fn name ->

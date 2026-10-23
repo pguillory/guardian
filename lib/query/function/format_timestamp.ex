@@ -1,8 +1,12 @@
 defmodule Query.Function.FormatTimestamp do
   require Timestamp
 
+  # A field outside its range (month 13, hour 25: Timestamp.match/0 checks only the
+  # shape) has no name to format: null.
   def eval(Timestamp.match() = timestamp, format) when is_binary(format) do
     eval_format(format, timestamp, "")
+  rescue
+    CaseClauseError -> nil
   end
 
   def eval(_, _) do

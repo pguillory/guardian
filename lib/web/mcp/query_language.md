@@ -86,7 +86,8 @@ SELECT path, count() FROM web_requests WHERE timestamp > date_sub(now(), INTERVA
   backslash escapes: `\'`, `\\`, `\/`, `\b`, `\f`, `\n`, `\r`, `\t`, and `\uXXXX`
   (four hex digits; a character outside the Basic Multilingual Plane is a surrogate
   pair, as in JSON).
-- Arithmetic: `+ - * /`, unary `-`. String concatenation: `||`.
+- Arithmetic: `+ - * /`, unary `-`. String concatenation: `||`. Integers are 64-bit
+  and wrap around on overflow (`9223372036854775807 + 1` is `-9223372036854775808`).
 - Comparison: `= != < <= > >=`, `<=>` (null-safe equal), `IS`, `IS NOT`.
 - Logic: `AND`, `OR`, `NOT`.
 - `x BETWEEN a AND b`.
@@ -126,7 +127,8 @@ Aggregates make a query grouped; with no GROUP BY, the whole table is one group.
 
 `sum`, `avg`, and the variance and standard deviation aggregates skip values that are
 not numbers (null, strings, booleans, lists); a group whose values include no numbers
-gives null (`sum` over no rows at all gives 0.0).
+gives null (`sum` over no rows at all gives 0.0). An integer `sum` wraps around like
+`+`; a float `sum`, `avg`, variance or standard deviation that overflows is null.
 
 ```sql
 SELECT status, count(), avg(response_time_ms) FROM web_responses GROUP BY status HAVING count() > 10 ORDER BY count() DESC LIMIT 10
@@ -134,13 +136,20 @@ SELECT status, count(), avg(response_time_ms) FROM web_responses GROUP BY status
 
 ## Scalar functions
 
+Numeric functions and operators never fail the query. A result with no good value is
+null, never NaN or infinity: division or `mod` by zero, `sqrt` of a negative, a
+logarithm of zero or less, a float too large to represent (`1e308 * 10`), `round`,
+`ceil` or `floor` of a float outside 64-bit integers, an `INTERVAL` outside them,
+date arithmetic outside years 0000 to 9999, and a list nested deeper than a list of
+lists.
+
 Most functions return null when an argument has the wrong type. `concat` and `||`
 turn numbers and booleans into strings, but don't handle lists: a list argument gives
 an error or a meaningless result.
 
 - Math: `abs(x)`, `ceil(x)`, `floor(x)`, `round(x)`, `div(a, b)`, `mod(a, b)`,
   `power(a, b)`, `sqrt(x)`, `exp(x)`, `log(x)`, `log2(x)`, `log10(x)`,
-  `factorial(n)` (n up to 20), `pi()`, `random()`, `random(seed)`
+  `factorial(n)` (null above 20), `pi()`, `random()`, `random(seed)`
 - Strings: `concat(a, b, ...)` (2 to 9 arguments), `length(s)`, `lower(s)`,
   `upper(s)`, `trim(s)`, `ltrim(s)`, `rtrim(s)`, `lpad(s, n)`, `rpad(s, n)`,
   `reverse(s)`, `substr(s, start)`, `substr(s, start, count)` (start is 1-based),

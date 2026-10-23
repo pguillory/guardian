@@ -735,7 +735,7 @@ for `RLIKE`: roughly 2.5 to 10 µs a row for an 89-byte string, against under 1.
 `Query.Limits` caps what collects on the coordinator: 100,000 rows and about 64 MiB of
 result, the input of an in-memory ORDER BY, and the merge of ORDER BY ... LIMIT; ORDER
 BY with a LIMIT above the row cap is refused. String-building functions refuse results
-over 16 MiB and `factorial` takes at most 20. A query may run for 30 seconds:
+over 16 MiB. A query may run for 30 seconds:
 `Query.run/1` then kills its process, whose links stop every router and worker on
 every machine, and raises. Exceeding a cap or the time limit raises `Query.Error`,
 which both interfaces report with its message. The caps are application environment

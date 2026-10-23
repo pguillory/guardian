@@ -1,5 +1,6 @@
 defmodule Query.Function.Log do
-  def eval(value) when is_number(value) do
+  # Zero and negatives have no logarithm: null.
+  def eval(value) when is_number(value) and value > 0 do
     :math.log(value)
   end
 

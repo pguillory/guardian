@@ -12,12 +12,24 @@ defmodule Query.ColumnOrConstant do
     column
   end
 
-  def list_or_constant_to_column_or_constant(%Constant{} = constant) do
-    constant
+  # Where evaluated values become a column or constant: a value storage can't hold
+  # (a list of lists of lists, an integer outside int64) becomes null, so no
+  # expression yields one (Query.Numeric). Functions avoid producing them; this is the
+  # backstop. Checking costs nothing on the usual path: Column.from_list validates
+  # anyway, and only a failed list is scanned.
+  def list_or_constant_to_column_or_constant(%Constant{value: value} = constant) do
+    if Storage.Value.valid?(value), do: constant, else: %{constant | value: nil}
   end
 
   def list_or_constant_to_column_or_constant(list) when is_list(list) do
-    column = Column.from_list(list)
+    column =
+      try do
+        Column.from_list(list)
+      rescue
+        ArgumentError ->
+          list |> Enum.map(&if(Storage.Value.valid?(&1), do: &1, else: nil)) |> Column.from_list()
+      end
+
     column_to_column_or_constant(column)
   end
 

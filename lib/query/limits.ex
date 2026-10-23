@@ -14,9 +14,6 @@ defmodule Query.Limits do
   - Time: a query may run for at most `:query_time_limit_ms` (30 s). `Query.run/1`
     then stops it on every machine and raises. Nothing else bounds a query's running
     time: query stages and segment reads wait as long as they need to.
-  - `factorial` refuses inputs over 20: larger results do not fit the 64-bit integers
-    columns hold (they used to fail after computing an unbounded bignum).
-
   - Heap: each process a query runs in (the query process and every
     `Query.DistributedStream` worker, on every machine) is killed if its own Erlang
     heap grows past `:query_max_heap_mb` (256 MiB; 0 turns it off), read on the
@@ -36,8 +33,6 @@ defmodule Query.Limits do
   can still exhaust a machine's memory.
   """
 
-  @max_factorial 20
-
   def max_result_rows, do: Application.get_env(:guardian, :query_max_result_rows, 100_000)
 
   def max_result_bytes,
@@ -45,8 +40,6 @@ defmodule Query.Limits do
 
   def max_string_bytes,
     do: Application.get_env(:guardian, :query_max_string_bytes, 16 * 1024 * 1024)
-
-  def max_factorial, do: @max_factorial
 
   @doc """
   The per-process heap limit in MiB (`:query_max_heap_mb`), or 0 when it is off.
@@ -152,16 +145,6 @@ defmodule Query.Limits do
     if size > max do
       raise Query.Error,
         message: "#{function} would build a string of #{size} bytes, over the #{max}-byte limit"
-    end
-
-    :ok
-  end
-
-  def check_factorial!(n) do
-    if n > @max_factorial do
-      raise Query.Error,
-        message:
-          "factorial(#{n}) does not fit in a 64-bit integer; the largest is factorial(#{@max_factorial})"
     end
 
     :ok

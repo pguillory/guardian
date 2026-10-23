@@ -433,11 +433,22 @@ the shipped surface:
    Precedence, tightest first: `* /`; `+ - ||`; comparisons, `IS [NOT]`,
    `[NOT] LIKE|ILIKE|RLIKE`, `IN`; `BETWEEN`; `NOT`; `AND`; `OR`. So `NOT a = b` is
    `NOT (a = b)`, as in standard SQL.
+   Integers are 64-bit, and integer arithmetic (`+ - *`, unary `-`, `abs`, `div`,
+   `mod`, and `sum`) wraps around on overflow, two's complement. Numeric functions and
+   operators never fail the query: a result with no good value is null, never NaN or
+   infinity. That covers division or modulo by zero, the square root of a negative, the
+   logarithm of zero or less, a float result too large to represent, a rounded float or
+   an interval outside 64-bit integers, `factorial` above 20, date arithmetic outside
+   years 0000 to 9999, a port outside 0 to 65535, `ip_to_integer` of invalid UTF-8,
+   `format_timestamp` of a month or hour with no name, and a list nested deeper than
+   storage holds (a list of lists).
 4. Aggregates (21 names): `count`, `count_if`, `count_distinct` (approximate,
    HyperLogLog, ignoring null), `sum`, `avg`, `min`, `max`, `min_by`, `max_by`, `min_n`,
    `max_n`, `min_n_by`, `max_n_by`, `arbitrary`, `all`, and standard deviation and
    variance variants. Aggregates merge across segments and machines. `sum`, `avg`, and
    the variance and standard deviation aggregates skip values that are not numbers.
+   An integer `sum` wraps like `+`; a float `sum`, `avg`, variance or standard
+   deviation that overflows is null.
    `min_n` and `max_n` skip nulls, and `min_by`, `max_by` and the `_n_by` forms skip
    rows whose ordering key is null. The n of `min_n`, `max_n` and the `_n_by` forms must
    be a non-negative integer, the same for every row of a group.
@@ -468,7 +479,7 @@ the shipped surface:
    100,000 rows and about 64 MiB; a larger result fails with an error asking for a
    `LIMIT`, `WHERE`, or `GROUP BY`, never a truncated answer. Rows scanned or
    aggregated don't count. `ORDER BY` with a `LIMIT` over 100,000 is refused. String
-   functions refuse to build strings over 16 MiB and `factorial` takes at most 20.
+   functions refuse to build strings over 16 MiB.
    Each process a query runs in, on every machine, has a heap limit
    (`GUARDIAN_QUERY_MAX_HEAP_MB`, default 256 MiB, `0` for none); a process killed
    for exceeding it fails the query with "a query process was killed; it may have

@@ -67,6 +67,11 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] replace-offset-memory: `replace` held every match offset of a value with no
       bound when `GUARDIAN_QUERY_MAX_HEAP_MB=0`; a value over 16 KiB is now replaced in
       a helper process with its own heap cap (`docs/changes/replace-offset-memory.md`)
+- [x] total-functions: numeric functions and operators return null instead of
+      failing, integers wrap to 64 bits on both evaluation paths, and aggregates that
+      overflow are null; a query behavior change (`docs/changes/total-functions.md`)
+- [ ] timestamp-arithmetic-columns: a timestamp string plus or minus an integer adds
+      the seconds per event, but over two columns the NIF gives null; make them agree
 - [ ] ci-arm64-image: CI builds only the amd64 image; build linux/arm64 too, which
       should work now that Hyperscan is gone but has never been built
 - [ ] query-memory-bound: result sizes, string sizes, run time and each query

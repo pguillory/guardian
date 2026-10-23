@@ -24,4 +24,10 @@ keep their best `n` with `Query.Sorting.merge_take/4`.
 Merge must be associative because partial results are combined across segments and
 nodes. Test empty, null, mixed-type, and multi-segment behavior as applicable.
 
+Aggregates follow `Query.Numeric` like scalar functions. An integer `sum` wraps to
+int64. A float overflow in `merge` (`:error, :badarith`) makes the state `:overflow`,
+which absorbs every later merge, so the overflow survives merging across segments and
+nodes, and `finish` turns it into `nil` (`sum`, `avg`, `Aggregation.Moments`). Don't
+let an overflowed state look like an empty one: an empty group can finish to a value.
+
 Aggregations are query features only; there is no ingestion-time aggregation runtime.

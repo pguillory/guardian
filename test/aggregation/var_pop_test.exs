@@ -12,4 +12,9 @@ defmodule Aggregation.VarPopTest do
 
     assert var_pop([4, 7, 13, 16, nil]) === 22.5
   end
+
+  test "var_pop is null once the moments overflow, however later rows merge in" do
+    assert var_pop([1.0e308, -1.0e308]) == nil
+    assert var_pop([1.0e308, -1.0e308, 1, 2]) == nil
+  end
 end

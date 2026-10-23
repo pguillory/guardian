@@ -47,7 +47,7 @@ defmodule QueryTest do
   # )
 
   describe "errors while workers evaluate expressions" do
-    # div/2 raises on a zero divisor; any exception during evaluation behaves alike.
+    # test_raise/1 (test build only) raises; any exception during evaluation behaves alike.
     setup do
       table = "worker_errors_#{System.unique_integer([:positive])}"
       for v <- 1..5, do: :ok = Storage.append(table, k: rem(v, 2), v: v)
@@ -55,29 +55,31 @@ defmodule QueryTest do
     end
 
     test "fail the query instead of dropping rows", %{table: table} do
-      error = assert_raise Query.Error, fn -> run("select div(v, 0) from #{table}") end
+      error = assert_raise Query.Error, fn -> run("select test_raise(v) from #{table}") end
       assert error.message =~ "query evaluation failed"
-      assert error.message =~ "arithmetic"
-
-      assert_raise Query.Error, fn -> run("select count() from #{table} where div(v, 0) = 1") end
+      assert error.message =~ "test_raise"
 
       assert_raise Query.Error, fn ->
-        run("select k, count() from #{table} where div(v, 0) = 1 group by k")
+        run("select count() from #{table} where test_raise(v) = 1")
       end
 
-      assert_raise Query.Error, fn -> run("select v from #{table} order by div(v, 0)") end
+      assert_raise Query.Error, fn ->
+        run("select k, count() from #{table} where test_raise(v) = 1 group by k")
+      end
+
+      assert_raise Query.Error, fn -> run("select v from #{table} order by test_raise(v)") end
     end
 
     test "do not affect the next query in the same process", %{table: table} do
-      assert_raise Query.Error, fn -> run("select div(v, 0) from #{table}") end
+      assert_raise Query.Error, fn -> run("select test_raise(v) from #{table}") end
       assert run("select count() from #{table}") == [[5]]
-      assert_raise Query.Error, fn -> run("select div(v, 0) from #{table}") end
+      assert_raise Query.Error, fn -> run("select test_raise(v) from #{table}") end
       assert Enum.sort(run("select v from #{table}")) == [[1], [2], [3], [4], [5]]
     end
 
     test "leave no messages or linked processes behind", %{table: table} do
       {:links, links_before} = Process.info(self(), :links)
-      assert_raise Query.Error, fn -> run("select div(v, 0) from #{table}") end
+      assert_raise Query.Error, fn -> run("select test_raise(v) from #{table}") end
       assert run("select 1") == [[1]]
       assert {:messages, []} = Process.info(self(), :messages)
       assert {:links, ^links_before} = Process.info(self(), :links)

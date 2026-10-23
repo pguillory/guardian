@@ -1,5 +1,6 @@
 defmodule Query.Function.Sqrt do
-  def eval(value) when is_number(value) do
+  # A negative has no real square root: null.
+  def eval(value) when is_number(value) and value >= 0 do
     :math.sqrt(value)
   end
 

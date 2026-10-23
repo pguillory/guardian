@@ -393,7 +393,7 @@ defmodule JsonApiTest do
     Engine.ingest_event(table, %{"v" => 1})
 
     result =
-      json_post("/api/json/query", api_key: @api_key, query: "SELECT div(v, 0) FROM #{table}")
+      json_post("/api/json/query", api_key: @api_key, query: "SELECT test_raise(v) FROM #{table}")
 
     assert result["status"] == 400
     assert result["info"] =~ "query evaluation failed"

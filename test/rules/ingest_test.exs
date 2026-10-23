@@ -114,10 +114,20 @@ defmodule Rules.IngestTest do
 
   test "values a rule produces are validated like incoming ones" do
     table = unique_table("rules_invalid_value")
-    with_rules(%{"#{table}/r.gsql" => "SET too_big = 9223372036854775807 * 2; SET ok = 1"})
+    # A field name over Storage.Value.max_key_size/0 bytes cannot be stored.
+    long_name = String.duplicate("k", Storage.Value.max_key_size() + 1)
+    with_rules(%{"#{table}/r.gsql" => "SET #{long_name} = 1; SET ok = 1"})
     assert [{:ok, reported}] = ingest(table, [%{"x" => 1}])
     assert reported == %{"x" => 1, "ok" => 1}
     assert Storage.dump_table(table) == [%{"x" => 1, "ok" => 1}]
+  end
+
+  test "arithmetic with no good value stores null, and integer overflow wraps" do
+    table = unique_table("rules_numeric")
+    with_rules(%{"#{table}/r.gsql" => "SET x = div(a, 0); SET y = a * 2; SET z = sqrt(-a)"})
+    assert [{:ok, reported}] = ingest(table, [%{"a" => 9_223_372_036_854_775_807}])
+    assert reported == %{"a" => 9_223_372_036_854_775_807, "x" => nil, "y" => -2, "z" => nil}
+    assert Storage.dump_table(table) == [%{"a" => 9_223_372_036_854_775_807, "y" => -2}]
   end
 
   test "a statement that raises fails its event (fail closed), naming the file and line" do
