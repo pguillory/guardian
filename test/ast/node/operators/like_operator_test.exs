@@ -1,6 +1,8 @@
 defmodule LikeOperatorTest do
   use Query.EvaluationTestCase, async: true
 
+  alias AST.Node.Operators.LikeOperator
+
   test "like operator" do
     assert eval("'' like ''") == true
     assert eval("'a' like ''") == false
@@ -51,6 +53,72 @@ defmodule LikeOperatorTest do
     assert result == false
     assert micros < 1_000_000
   end
+
+  test "no pattern backtracks: alternating literals and % stay fast" do
+    value = String.duplicate("a", 16_384)
+    pattern = String.duplicate("%a", 999) <> "%b"
+    {micros, result} = :timer.tc(fn -> eval("'#{value}' like '#{pattern}'") end)
+    assert result == false
+    assert micros < 1_000_000
+
+    {micros, result} =
+      :timer.tc(fn -> eval("'#{String.duplicate("a", 80)}' like '%a%a%a%a%a%b'") end)
+
+    assert result == false
+    assert micros < 1_000_000
+  end
+
+  test "a pattern of more than 1,000 characters besides % matches nothing" do
+    at_limit = String.duplicate("%a", 1_000)
+    assert LikeOperator.eval(String.duplicate("a", 1_000), at_limit) == true
+    assert LikeOperator.eval(String.duplicate("a", 1_001), at_limit <> "a") == nil
+    assert LikeOperator.eval("x", String.duplicate("_", 1_001)) == nil
+  end
+
+  test "a long, varied pattern costs little, as a constant or per row" do
+    # Distinct code points, each with its own state mask: bounded by the item cap.
+    varied = 0x10000..0x1FFFF |> Enum.map(&<<&1::utf8>>) |> Enum.join()
+    {micros, result} = :timer.tc(fn -> LikeOperator.eval("", varied) end)
+    assert result == nil
+    assert micros < 1_000_000
+
+    pattern = 0x4E00..0x51E7 |> Enum.map(&<<&1::utf8>>) |> Enum.join()
+    {micros, result} = :timer.tc(fn -> eval("'x' like '#{pattern}'") end)
+    assert result == false
+    assert micros < 1_000_000
+  end
+
+  test "_ is one character of UTF-8 text, one byte otherwise" do
+    assert eval("'é' like '_'") == true
+    assert eval("'日本' like '__'") == true
+    assert eval("'日本' like '_'") == false
+    assert LikeOperator.eval(<<0xFF, 0xFE>>, "__") == true
+    assert LikeOperator.eval(<<0xFF, ?a>>, "%a") == true
+    # An invalid pattern selects bytes too: "é" is the two bytes 0xC3 0xA9.
+    assert LikeOperator.eval("é", <<?_, 0xA9>>) == true
+  end
+
+  test "agrees with an equivalent regular expression on random cases" do
+    for _ <- 1..2_000 do
+      value = random_string(Enum.random(0..8), ~w[a b])
+      pattern = random_string(Enum.random(0..6), ~w[a b % _])
+
+      regex =
+        pattern
+        |> String.graphemes()
+        |> Enum.map_join(fn
+          "%" -> ".*"
+          "_" -> "."
+          char -> Regex.escape(char)
+        end)
+
+      expected = Regex.match?(Regex.compile!("\\A" <> regex <> "\\z", "s"), value)
+      assert LikeOperator.eval(value, pattern) == expected
+    end
+  end
+
+  defp random_string(length, chars),
+    do: Enum.map_join(1..length//1, fn _ -> Enum.random(chars) end)
 
   test "redundant % wildcards" do
     assert eval("'quick brown fox' like '%%brown%%'") == true

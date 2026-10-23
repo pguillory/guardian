@@ -91,7 +91,10 @@ SELECT path, count() FROM web_requests WHERE timestamp > date_sub(now(), INTERVA
 - Logic: `AND`, `OR`, `NOT`.
 - `x BETWEEN a AND b`.
 - `x IN [a, b, c]`. The list uses square brackets; parentheses are not a list.
-- `LIKE` and `ILIKE` (case-insensitive), with `%` as the wildcard. `RLIKE` takes a
+- `LIKE` and `ILIKE` (case-insensitive), with `%` matching any run of characters and
+  `_` exactly one (a UTF-8 character, or a byte if either side isn't valid UTF-8); no
+  escape character. A pattern of more than 1,000 characters besides `%` gives null.
+  Matching never backtracks: its time grows linearly with the value. `RLIKE` takes a
   regular expression string literal and is true when it matches anywhere in the
   value. Each has a `NOT` form. See "Regular expressions" below.
 - `CASE WHEN cond THEN x [WHEN ...] [ELSE y] END` and `CASE x WHEN v THEN y ... END`.
