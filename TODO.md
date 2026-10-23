@@ -70,6 +70,14 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       readiness check is paid once per query and resolve and FROM see the same nodes
 - [ ] json-query-error-responses: JSON `/query` returns a bare 500 for parse and
       resolve errors, where MCP reports the message; return 400 with `info`
+- [x] integer-literal-range: an integer literal outside int64
+      (`99999999999999999999`, or `-9223372036854775808`, which is minus applied to
+      2^63) parsed, then failed evaluation; it is now the parse error "Number out of
+      range" (`docs/changes/integer-literal-range.md`)
+- [ ] interval-arithmetic-overflow: an in-range `INTERVAL n WEEK` whose seconds
+      overflow int64 (`INTERVAL 15250284452472 WEEK`), constant arithmetic that
+      overflows (`15250284452472 * 604800`), and `interval('<huge>w')` fail the query
+      with "argument error" instead of giving null
 - [ ] interval-round-trip: `INTERVAL 2 WEEK` unparses to `interval('2w')`, which does
       not parse (INTERVAL is a keyword), so its column label cannot be re-parsed
 - [ ] test-only-labels: `Query.labels/1` (SQL text) and the SHOW/DESC clauses of

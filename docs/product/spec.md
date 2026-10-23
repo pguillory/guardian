@@ -334,6 +334,11 @@ the shipped surface:
 3. Expressions: arithmetic, `||`, comparisons including null-safe `<=>`, `IS [NOT]`,
    `AND/OR/NOT`, `BETWEEN`, `IN [list]`, `LIKE`, `ILIKE`, `RLIKE` (Perl-compatible
    regular expressions), `CASE`, `INTERVAL n UNIT`, list literals.
+   Integer literals have no sign (minus is an operator) and run from 0 to
+   9223372036854775807, the largest 64-bit integer. A larger one, in an expression,
+   `LIMIT` or `INTERVAL n UNIT`, is the parse error "Number out of range", as is a
+   float too large to represent. The smallest 64-bit integer is written
+   `-9223372036854775807 - 1`.
    Precedence, tightest first: `* /`; `+ - ||`; comparisons, `IS [NOT]`,
    `[NOT] LIKE|ILIKE|RLIKE`, `IN`; `BETWEEN`; `NOT`; `AND`; `OR`. So `NOT a = b` is
    `NOT (a = b)`, as in standard SQL.
