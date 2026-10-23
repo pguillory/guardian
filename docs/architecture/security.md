@@ -208,7 +208,7 @@ Gaps:
    faster for a wrong length than for a wrong value. This reveals only the key's
    length, which matters little for a long random key.
 2. The minimum is a length policy, not an entropy check. Startup refuses a key shorter
-   than 32 bytes, but a long guessable key passes. The README and the startup error
+   than 32 bytes, but a long guessable key passes. The docs and the startup error
    say to generate one with `openssl rand -hex 32`; nothing checks that it was.
 3. Query-parameter keys put the key in the URL. They are off by default; with
    `GUARDIAN_ALLOW_QUERY_API_KEY=true`, URLs carrying the key end up in client-side
@@ -449,7 +449,7 @@ Invariants and argument:
 
 1. Possession of the cookie is the authentication. Erlang distribution authenticates
    with a challenge-response digest of the cookie, so the cookie itself is not sent on
-   the wire. The README generates it from 48 random bytes. Any node that knows it has
+   the wire. The cluster and Fly guides generate it from 48 random bytes. Any node that knows it has
    full code execution on every node, as Guardian's OS user (root in the Docker image);
    there is no finer authority.
 2. Distribution must not be reachable from outside the deployment. Who can reach epmd

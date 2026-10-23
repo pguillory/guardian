@@ -1,4 +1,4 @@
-# Fly.io configuration for Guardian. See "Fly.io" in README.md.
+# Fly.io configuration for Guardian. See docs/guides/fly.md.
 #
 # This is the configuration of the maintainer's own deployment. To deploy your own copy,
 # change `app` (globally unique) and `primary_region` (where the machine and its volume

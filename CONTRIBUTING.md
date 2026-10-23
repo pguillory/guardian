@@ -4,9 +4,10 @@ Thanks for your interest in Guardian.
 
 ## Setup
 
-Install the prerequisites listed under "Development" in [README.md](README.md):
+Install the prerequisites listed in
+[docs/guides/development.md](docs/guides/development.md):
 
-- Elixir 1.19.6 on Erlang/OTP 28.5.0.8
+- Elixir and Erlang/OTP, at the `ELIXIR_VERSION` and `OTP_VERSION` in the `Dockerfile`
 - a C toolchain
 
 Then:

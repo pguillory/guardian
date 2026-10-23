@@ -18,8 +18,8 @@
 #   queries, since each one reads the whole cluster.
 # - epmd and distribution stay on the private compose network; never publish them.
 # - On Apple Silicon, where amd64 runs under emulation, add ERL_FLAGS: "+JMsingle true"
-#   to the environment and build with --build-arg ERL_FLAGS="+JMsingle true" (see the
-#   README quickstart).
+#   to the environment and build with --build-arg ERL_FLAGS="+JMsingle true" (see
+#   docs/guides/single-node.md).
 
 x-guardian: &guardian
   platform: linux/amd64

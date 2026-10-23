@@ -958,7 +958,7 @@ Tests log at `warning`.
 
 ## 10. Deployment and operations
 
-Procedures are in the README; this section explains how the pieces fit. Guardian is
+Procedures are in the guides under `docs/guides/`; this section explains how the pieces fit. Guardian is
 one release, built into one Docker image, that runs as a single node or as a cluster
 (section 7). Fly.io is the best-supported deployment: the repository carries its
 `fly.toml`, and on a Fly machine the cluster settings need no configuration beyond the

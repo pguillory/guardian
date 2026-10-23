@@ -9,7 +9,8 @@ detailed references instead of repeating them:
 - Query language: [`lib/web/mcp/query_language.md`](../../lib/web/mcp/query_language.md),
   also served over MCP as `guardian://query-language`. It is the authoritative
   reference for syntax, functions, and aggregates.
-- Deployment, configuration, and operations procedures: [README.md](../../README.md).
+- Deployment, configuration, and operations procedures: the guides in
+  [docs/guides/](../guides/) and the [configuration reference](../reference/configuration.md).
 - Internals: the [system architecture](../architecture/system.md) and the
   per-subsystem `CLAUDE.md` files under `lib/`.
 - Trust boundaries: the [security architecture](../architecture/security.md).
@@ -471,7 +472,7 @@ Request bodies, API keys, and MCP traffic are not logged in `web_requests` or
 
 Guardian runs from one Docker image (or release) as a single node or as a cluster on
 any set of machines that can reach each other. Fly.io is the best-supported
-deployment, with its configuration in the repository. Procedures are in the README.
+deployment, with its configuration in the repository. Procedures are in the guides under `docs/guides/`.
 Product-level behavior:
 
 1. Single node: with no cluster settings, a node runs alone, and its Erlang

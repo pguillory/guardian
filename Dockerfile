@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # ADD --checksum needs Dockerfile frontend 1.6 or later; the line above selects it.
-# Guardian release image. See the "Fly.io" section of README.md. CI builds
+# Guardian release image. See docs/guides/fly.md. CI builds
 # linux/amd64; linux/arm64 has a cloudflared stage and no x86-only dependency, but is
 # not yet tested.
 #

@@ -95,7 +95,7 @@ through `DNS_CLUSTER_QUERY` (on Fly, `<app>.internal` by default). Keep Fly's ou
 `rel/env.sh.eex` unchanged unless the change is meant for Fly: `test/deployment_test.exs`
 pins it.
 
-Fly.io is the best-supported deploy path (`Dockerfile`, `fly.toml`, README "Fly.io").
+Fly.io is the best-supported deploy path (`Dockerfile`, `fly.toml`, `docs/guides/fly.md`).
 The `fly.toml` in the tree is the maintainer's own deployment, including a marked block
 of overrides (`GUARDIAN_ALLOW_QUERY_API_KEY`, `GUARDIAN_QUERY_MAX_HEAP_MB`) that a test
 keeps active; don't drop them without the maintainer's say-so. `GUARDIAN_API_KEY` and
