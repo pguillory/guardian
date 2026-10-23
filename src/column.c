@@ -1522,7 +1522,15 @@ static ERL_NIF_TERM add_nif(ErlNifEnv * env, int argc, const ERL_NIF_TERM argv[]
       }
     }
     else {
+      // The left side isn't a number: skip the right side's value too, or every
+      // later row would pair with the wrong right-hand value.
       append_null(column3);
+      if (column2.int_bitmap[word] & (1ULL << bit)) {
+        column2.int_values++;
+      }
+      else if (column2.float_bitmap[word] & (1ULL << bit)) {
+        column2.float_values++;
+      }
     }
   }
 
@@ -1583,7 +1591,15 @@ static ERL_NIF_TERM subtract_nif(ErlNifEnv * env, int argc, const ERL_NIF_TERM a
       }
     }
     else {
+      // The left side isn't a number: skip the right side's value too, or every
+      // later row would pair with the wrong right-hand value.
       append_null(column3);
+      if (column2.int_bitmap[word] & (1ULL << bit)) {
+        column2.int_values++;
+      }
+      else if (column2.float_bitmap[word] & (1ULL << bit)) {
+        column2.float_values++;
+      }
     }
   }
 
@@ -1644,7 +1660,15 @@ static ERL_NIF_TERM multiply_nif(ErlNifEnv * env, int argc, const ERL_NIF_TERM a
       }
     }
     else {
+      // The left side isn't a number: skip the right side's value too, or every
+      // later row would pair with the wrong right-hand value.
       append_null(column3);
+      if (column2.int_bitmap[word] & (1ULL << bit)) {
+        column2.int_values++;
+      }
+      else if (column2.float_bitmap[word] & (1ULL << bit)) {
+        column2.float_values++;
+      }
     }
   }
 
@@ -1705,7 +1729,15 @@ static ERL_NIF_TERM divide_nif(ErlNifEnv * env, int argc, const ERL_NIF_TERM arg
       }
     }
     else {
+      // The left side isn't a number: skip the right side's value too, or every
+      // later row would pair with the wrong right-hand value.
       append_null(column3);
+      if (column2.int_bitmap[word] & (1ULL << bit)) {
+        column2.int_values++;
+      }
+      else if (column2.float_bitmap[word] & (1ULL << bit)) {
+        column2.float_values++;
+      }
     }
   }
 
