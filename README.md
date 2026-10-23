@@ -1,36 +1,49 @@
 # Guardian
 
-Guardian is a self-hosted event store for you and your agents. Your services, scripts
-and coding agents send it JSON events, and you or your agents ask questions about them
-in a SQL-like language, seconds or days later.
+Guardian is a self-hosted event store for you and your agents. Your services and
+scripts send it JSON events, and you or your agents query them in a SQL-like language,
+over HTTP or MCP.
 
-The idea is to record what happened, with the context it happened in, and decide what
-to ask later. A producer puts what it knows into the event when it sends it: the
-user's plan, the request's latency, the error it hit. There's no schema to
-design first and no pipeline to build, and ingestion never calls out to another
-service, so a query next week sees what the producer saw at that moment.
+It's built for one job: keeping a record of what your own systems did, with the
+context they had at the time, so you can decide later what to ask. A producer puts
+what it knows into the event when it sends it: the user's plan, the request's latency,
+the error it hit. Guardian stores it as sent, and a query next week sees what the
+producer saw at that moment.
 
-What makes it pleasant to use:
+## Why use it
 
-- Schemaless. Any JSON object can go into any table. Nested objects become dotted
-  columns (`user.plan`), and a column can hold mixed types. A new field is just a new
-  column.
-- Queryable at once. Events can be queried as soon as they're stored, in Guardian's
-  own columnar format.
-- A real query language. `GROUP BY`, `HAVING`, `ORDER BY`, about twenty aggregates,
-  regular expressions (`RLIKE` and `replace()`), and time functions that work on
-  the `timestamp` strings your producers already write.
-- Agent-native. A built-in MCP endpoint gives Claude Code, Codex or any MCP client two
-  tools, `send_events` and `query`, plus the full query-language reference. An agent
-  can record what it does and answer questions about everything else.
-- Small to run, and it scales out. One release, one required environment variable.
-  Run a single node, or a cluster on any machines that can find each other through
-  DNS (Fly.io is a preset). Every query fans out to every node, each node scans the
-  events it received, and GROUP BY spreads its aggregation across the cluster.
+- Nothing to design first. A table exists once something writes to it, and any JSON
+  object fits. Nested objects become dotted columns (`user.plan`), a new field is a new
+  column, and a column can hold a number in one event and a string in the next. There
+  are no schemas, mappings or index settings to plan, and no pipeline to build.
+- Made for agents to query. MCP is part of the server, not a separate service beside
+  it. Claude Code, Codex or any MCP client gets a `query` tool and the full
+  query-language reference, so it can write queries without coaching. Your application
+  code writes the events, which keeps their shape consistent.
+- Queries read like SQL. `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY` and `LIMIT`, about
+  twenty aggregates and sixty scalar functions, including regular expressions and time
+  functions that work on the `timestamp` strings your producers already write.
+- One thing to run. One Docker image, one required environment variable, and no other
+  services to stand up. When one machine isn't enough, add machines that find each
+  other through DNS (Fly.io is a preset); every query fans out to all of them, and each
+  scans the events it received.
 
-Guardian is single-tenant: one API key reads and writes every table, with no users,
-roles or namespaces, and events expire after 15 days. It's built for an operator's
-own systems, not as a multi-user analytics product.
+## What it isn't
+
+Guardian stays small on purpose, and these are the trade-offs:
+
+- Single-tenant. One API key reads and writes every table. There are no users, roles
+  or namespaces, so it suits an operator's own systems, not analytics shared across a
+  team.
+- Short-lived data. Events expire after about 15 days, with no per-table retention.
+  Each machine keeps its own events, with no replication, and a hard crash loses
+  recent writes that haven't reached disk yet (normally up to about an hour's worth).
+- Questions, not reports. A query reads one table, with no joins or subqueries, and
+  there's no web UI, dashboards or alerting.
+
+If you need long retention, high-volume log pipelines or a shared analytics product, a
+dedicated analytics database or a hosted observability service will serve you better.
+The details are in [Known limitations](docs/reference/limitations.md).
 
 ## What using it looks like
 
@@ -141,14 +154,13 @@ url = "https://guardian.example.com/mcp"
 env_http_headers = { "x-api-key" = "GUARDIAN_API_KEY" }
 ```
 
-The agent gets two tools:
+The agent gets a `query` tool, which takes `sql`, one statement, and returns the rows
+as JSON objects. There's also a `send_events` tool, the MCP twin of the HTTP endpoint,
+which is handy for testing; in normal use your application code sends the
+events and the agent only reads them.
 
-- `query` takes `sql`, one statement, and returns the rows as JSON objects.
-- `send_events` takes a `table`, a list of `events`, and optional `return_keys`, and
-  returns one ordered result per event.
-
-It can also read the resource `guardian://query-language`, the same reference linked
-above, so it learns the syntax without your help. A session looks like this:
+The agent can also read the resource `guardian://query-language`, the same reference
+linked above, so it learns the syntax without your help. A session looks like this:
 
 > You: Checkout has been flaky for the last hour. What's going on?
 >
@@ -166,14 +178,6 @@ above, so it learns the syntax without your help. A session looks like this:
 >
 > Agent: Two of the last hour's three checkouts failed with a 502 after about 3 s
 > each: one upstream timeout and one declined card. The timeout is the one to chase.
->
-> You: Log that you're rolling back checkout.
->
-> Agent calls `send_events`:
-> `{"table": "deploys", "events": [{"timestamp": "2026-10-23 06:41:00", "service": "checkout", "action": "rollback", "by": "claude"}]}`
->
-> Guardian returns:
-> `{"status": 200, "results": [{"success": true, "event": {"action": "rollback", "by": "claude", "service": "checkout", "timestamp": "2026-10-23 06:41:00"}}]}`
 
 ## Quickstart
 
