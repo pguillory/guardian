@@ -84,6 +84,7 @@ Main (one_for_one)
 │   └── Storage.SegmentExpiration    deletes segments older than 15 days, every 10 minutes
 ├── SystemStats                      one system_stats row per second
 ├── Web.QueryParseErrors             records query parse failures, asynchronously
+├── Web.QueryLog                     records every API query in `queries`, asynchronously
 ├── Web (supervisor, rest_for_one)
 │   ├── Anubis.Server.Registry       MCP session registry
 │   ├── Web.MCP.Server               the Anubis MCP server process
@@ -102,8 +103,8 @@ Why this order:
    never blocks on a supervisor that is restarting children; because a GenServer
    registers its name before its `init`, it relies on SegmentExpiration starting last,
    after LoadedSegments has finished loading.
-2. The writers of built-in tables (SystemStats, Web.QueryParseErrors) start after
-   Storage because they write to it.
+2. The writers of built-in tables (SystemStats, Web.QueryParseErrors, Web.QueryLog)
+   start after Storage because they write to it.
 3. Web starts after everything it calls.
 4. Shutdown runs in reverse: discovery stops, then the HTTP listener (in-flight requests
    get at most 500 ms), so no new events arrive while Storage persists what it holds.
@@ -718,8 +719,8 @@ means an anonymous client cannot make the server parse anything.
 
 1. `/send_events` calls `Web.Ingest.send_events/1`, shared with MCP, so both
    interfaces validate requests and shape results identically.
-2. `/query` calls `Web.Query.execute/3` (which has `Web.QueryParseErrors` record
-   parse failures, section 6.5) around `Query.execute/2`, the SQL entry point the MCP tool and the
+2. `/query` calls `Web.Query.execute/3` (which has `Web.QueryLog` record every query
+   and `Web.QueryParseErrors` parse failures, section 6.5) around `Query.execute/2`, the SQL entry point the MCP tool and the
    console share. It resolves the SQL, requires exactly one statement, calls
    `Query.run/1` from the request process (which runs the query in its own process),
    and returns labels and rows, which `/query` sends as `{columns, rows}`. A wrong
@@ -804,6 +805,22 @@ Guardian observes itself by writing ordinary tables through `Engine.log_event/2`
    response is unchanged. A failed write or row build is logged by kind and does not
    affect the response. The bounds (spec section 8) keep a flood of bad queries from
    growing the table or delaying responses.
+4. `queries`: `Web.Query.execute/3` times every query and catches every outcome (a
+   result, an error result, or a raise, exit or throw, which it reraises unchanged
+   with `:erlang.raise/3`), builds a bounded row in the request process and casts it
+   to the `Web.QueryLog` GenServer, which writes it through `Engine.try_log_event/2`.
+   It runs only on the machine that received the request, which coordinates the
+   query; peers run plan steps and schema lookups through `Query` internals, never
+   through `Web.Query`, so each query is one row. Writing is an ingest, never a query,
+   so there is no recursion. No rate cap; when the GenServer's mailbox already holds
+   1,000 rows (a best-effort check by the sender) the row is dropped and counted in an
+   atomic the GenServer owns (`:persistent_term`, keyed by its name), which the next
+   written row reports as `dropped_before`; the first drop of a backlog logs once, and
+   the GenServer re-arms that log once its mailbox falls to half the cap.
+   Building, handing off and writing never raise into the request, and failures are
+   logged by kind only. Request headers are never recorded: the caller fields are
+   `interface`, `remote_ip` and MCP client info. `query_parse_errors` is conceptually
+   redundant with it (TODO.md `drop-query-parse-errors`).
 
 ## 7. Clustering
 
@@ -1013,7 +1030,7 @@ operational decisions:
 2. Secrets: set the key, cookie, or optional tunnel token in the environment and
    restart (on Fly, `fly secrets set`, which restarts the machine).
 3. Observing: the built-in tables (`system_stats`, `web_requests`, `web_responses`,
-   `query_parse_errors`) and stdout (on Fly, `fly logs` and `fly status`). Nothing
+   `query_parse_errors`, `queries`) and stdout (on Fly, `fly logs` and `fly status`). Nothing
    alerts.
 4. Remote console: `bin/guardian remote` on the node (on Fly,
    `fly ssh console --pty -C "/app/bin/guardian remote"`; in Docker, `docker exec`)

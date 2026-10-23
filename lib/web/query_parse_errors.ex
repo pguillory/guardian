@@ -78,7 +78,7 @@ defmodule Web.QueryParseErrors do
     {message, _} = truncate(Exception.message(error), @max_error_bytes)
 
     caller
-    |> Map.new(fn {key, value} -> {key, bound_caller_field(value)} end)
+    |> bound_caller_fields()
     |> Map.merge(%{
       "timestamp" => Timestamp.now(),
       "hostname" => Utils.hostname(),
@@ -87,6 +87,14 @@ defmodule Web.QueryParseErrors do
       "sql_truncated" => truncated?,
       "error" => message,
     })
+  end
+
+  @doc """
+  Bounds each caller field (see `http_caller/1` and `mcp_caller/1`) to
+  #{@max_caller_field_bytes} bytes; a non-string value becomes nil.
+  """
+  def bound_caller_fields(caller) do
+    Map.new(caller, fn {key, value} -> {key, bound_caller_field(value)} end)
   end
 
   defp bound_caller_field(value) when is_binary(value) do

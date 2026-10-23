@@ -65,7 +65,8 @@ store. There is no user namespace.
 Summary; the full description is `docs/architecture/system.md`.
 
 The runtime consists of Storage, SystemStats, Web.QueryParseErrors (records query
-parse failures), Web, and Cluster (DNS peer discovery
+parse failures), Web.QueryLog (records every API query in `queries`), Web, and
+Cluster (DNS peer discovery
 through `DNS_CLUSTER_QUERY`; `<app>.internal` by default on Fly.io). Schema lookups (SHOW TABLES, DESC, the `schema` virtual table, SELECT *) fan
 out to every connected node through `Cluster.Metadata`.
 

@@ -95,3 +95,8 @@ Guardian writes some tables of its own:
   verbatim, so a referring URL that carries `?api_key=` records the key (see the
   [security architecture](../architecture/security.md)). MCP calls aren't logged here.
 - `query_parse_errors`: one row for each query that fails to parse, over JSON or MCP.
+- `queries`: one row for every query run over JSON or MCP, written on the machine that
+  received it: the query text (first 16 KiB), `interface` (`http` or `mcp`), start
+  `timestamp`, `duration_ms`, `row_count`, and `outcome` (`ok` or `error`, with
+  `error_kind` and `error`). The key and request headers are never recorded. Fields
+  are listed in [spec section 8](../product/spec.md#8-built-in-tables).

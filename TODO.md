@@ -50,6 +50,12 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       VM in the Hyperscan NIF; regular expressions now run on `:re` with backtracking
       limits, and jq() and the Hyperscan and libjq dependencies are gone
       (`docs/changes/regex-on-re-drop-jq.md`)
+- [x] query-log: every JSON and MCP query is recorded in the built-in `queries`
+      table, once on the coordinating machine (`docs/changes/query-log.md`)
+- [ ] drop-query-parse-errors: `queries` records every parse failure too (with
+      `error_kind = 'parse'`, without the hourly cap); drop `query_parse_errors` and
+      its recorder, moving `truncate/2` to `Utils` and the caller helpers to a small
+      `Web.Caller` module
 - [ ] replace-offset-memory: `replace` collects every match offset of a value before
       its exact-size check, so millions of empty matches on one value take hundreds of
       MB, unbounded when `GUARDIAN_QUERY_MAX_HEAP_MB=0`; check size as matches stream

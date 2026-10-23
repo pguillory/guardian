@@ -4,7 +4,7 @@ The `lib/` directory contains the event store, query engine, and network interfa
 
 ## Top-level modules
 
-- `Main`: starts Storage, SystemStats, Web.QueryParseErrors, Web, and
+- `Main`: starts Storage, SystemStats, Web.QueryParseErrors, Web.QueryLog, Web, and
   DNS peer discovery (only when `DNS_CLUSTER_QUERY` is set; on Fly.io it defaults to
   `<app>.internal`).
 - `Engine`: validates and ingests events.

@@ -68,7 +68,7 @@ ignoring case.
 
 Timestamps are plain strings. By convention, not enforcement, they are UTC in
 `YYYY-MM-DD HH:MM:SS` format, as written by Guardian's own tables (`system_stats`,
-`web_requests`, `web_responses`) and returned by `now()`. When every value uses that
+`web_requests`, `web_responses`, `query_parse_errors`, `queries`) and returned by `now()`. When every value uses that
 format, string comparison and sorting are chronological, so time ranges work directly:
 
 ```sql

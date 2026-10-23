@@ -8,6 +8,7 @@ defmodule Main do
       Storage,
       SystemStats,
       Web.QueryParseErrors,
+      Web.QueryLog,
       Web,
       Cluster.discovery_child_spec(),
     ]

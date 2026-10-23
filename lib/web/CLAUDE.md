@@ -42,5 +42,13 @@ synchronous, because MCP tool calls run inside Anubis's shared server process an
 stalled Storage write would block every MCP request. Bounds (16 KiB SQL, 1 KiB error,
 256-byte caller fields, 60 rows per machine per hour) are in that module.
 
+`Web.Query.execute/3` also records every query, whatever its outcome, in the `queries`
+table through `Web.QueryLog.record/4`, a cast to the `Web.QueryLog` GenServer under the
+same never-synchronous rule. It catches raises, exits and throws and reraises them
+with `:erlang.raise/3`, so callers see exactly what `Query.execute/2` produced; nothing
+in recording may raise into the request. Keep recording in `Web.Query` (the
+coordinating machine) so a distributed query is one row, and never record request
+headers there (caller fields are `interface`, `remote_ip` and MCP client info).
+
 The MCP server exposes `query` and `send_events` tools. Keep query results as a list
 of maps while the JSON endpoint retains its `{columns, rows}` response shape.

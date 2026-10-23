@@ -112,7 +112,8 @@ defmodule Web.JsonApi do
   ```
 
   Other query errors, such as parse errors, return 500. Parse errors are also recorded
-  in the `query_parse_errors` table; recording never changes the response.
+  in the `query_parse_errors` table, and every query, whatever its outcome, in the
+  `queries` table; recording never changes the response.
 
   **400 Bad Request** (a query string that cannot be decoded: invalid UTF-8, or
   nesting deeper than 32; checked before the key when there is no `x-api-key`
@@ -208,9 +209,10 @@ defmodule Web.JsonApi do
     end
   end
 
-  # Runs like MCP and the console (`Query.execute/2`). Parse failures are recorded in
-  # query_parse_errors and reraised unchanged. A failure of the query itself (statement
-  # count, or a `Query.Error` while running) is a 400; other exceptions are 500s.
+  # Runs like MCP and the console (`Query.execute/2`). Every query is recorded in
+  # queries; parse failures also in query_parse_errors, and reraised unchanged. A
+  # failure of the query itself (statement count, or a `Query.Error` while running) is
+  # a 400; other exceptions are 500s.
   defp run_query(conn, query_string) do
     caller_fun = fn -> Web.QueryParseErrors.http_caller(conn) end
 

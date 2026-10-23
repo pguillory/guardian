@@ -56,6 +56,7 @@ Guardian is also a producer of its own tables:
 | `system_stats` | once a second per machine | [section 8](#8-built-in-tables) |
 | `web_requests`, `web_responses` | per authenticated JSON API request | [section 8](#8-built-in-tables) |
 | `query_parse_errors` | per query that fails to parse (JSON API or MCP) | [section 8](#8-built-in-tables) |
+| `queries` | per query run (JSON API or MCP) | [section 8](#8-built-in-tables) |
 
 ### Readers
 
@@ -77,12 +78,14 @@ Guardian is also a producer of its own tables:
    [security architecture](../architecture/security.md) covers the details).
 2. Full access: A valid key can read every table and write any valid table name. No
    identity is recorded and there is no namespace or per-table permission.
-   Built-in tables are no exception: any key holder can read `query_parse_errors`,
-   which keeps the text of every query that failed to parse (up to 16 KiB each) for
+   Built-in tables are no exception: any key holder can read `queries`, which keeps
+   the text of every query run over the JSON API or MCP, and `query_parse_errors`,
+   which keeps the text of every query that failed to parse (up to 16 KiB each), for
    the retention period. Callers should not put secrets in query text. Since there is
    one key and one user, this stores a caller's data for the same principal, not for
-   someone else. It is meant to be the only place Guardian keeps query text; today
-   fragments of JSON API queries also reach the server log in printed error messages.
+   someone else. These are meant to be the only places Guardian keeps query text;
+   today fragments of JSON API queries also reach the server log in printed error
+   messages.
    Production logs at info, so MCP messages (query text, event payloads) are not
    logged.
 3. Rotation: The key can change at any time without touching stored data; a node
@@ -173,6 +176,9 @@ CORS is enabled on these routes.
   Use MCP to see the message. Parse errors (which
   include unknown function names) are also recorded in `query_parse_errors` ([section 8](#8-built-in-tables)), with the message
   the parser produced; recording never changes the response.
+- Every query that reaches the query engine, whatever its outcome, is recorded in
+  `queries` ([section 8](#8-built-in-tables)); recording never changes or delays the
+  response.
 
 With a valid key, unknown paths under `/api/json` return 404 `{"status": 404}`;
 without one they return 401 like any other path.
@@ -225,8 +231,9 @@ the query runs, within its limit.) Meanwhile no other MCP tool call on that mach
 runs. Ingestion has no such limit: a slow `send_events` keeps
 running after the client's timeout.
 
-MCP calls are not recorded in `web_requests` or `web_responses`. MCP `query` calls
-that fail to parse are recorded in `query_parse_errors`.
+MCP calls are not recorded in `web_requests` or `web_responses`. Every MCP `query`
+call is recorded in `queries`, and those that fail to parse also in
+`query_parse_errors`.
 
 ### 4.3 Health check
 
@@ -429,6 +436,45 @@ retention and query rules as producer tables.
    15-day retention. Recording is handed off without waiting, so the caller's response
    is never delayed or changed by it, and a row normally appears within milliseconds
    of the error. A failure to record is written to the server log, not to the caller.
+
+5. `queries`: one row per query run through `POST /api/json/query` or the MCP `query`
+   tool, whatever its outcome, written on the machine that received it. That machine
+   coordinates the query, so a query that fans out across a cluster is recorded once;
+   the machines that run parts of it record nothing. The remote console is not
+   recorded, and neither is a JSON request rejected before its query runs (a body
+   without a string `query`). Fields:
+   - `timestamp` (when the query started; the row is written when it ends, so a
+     long query appears late), `hostname`.
+   - `interface`: `http` or `mcp`.
+   - Caller: `remote_ip`, and for MCP the client's self-reported
+     `mcp_client_name` and `mcp_client_version` from `initialize` (null when
+     unknown), each cut to 256 bytes. No request header is recorded: not the key,
+     and not even the user agent or `x-forwarded-for` that `query_parse_errors`
+     keeps.
+   - `sql`, `sql_bytes`, `sql_truncated`: as in `query_parse_errors` (first 16 KiB,
+     cut on a character boundary).
+   - `duration_ms`: from receiving the query text to having the result or error,
+     including resolution and schema lookups; fractional milliseconds.
+   - `outcome`: `ok` or `error`. `row_count`: rows returned (null on error).
+   - `error_kind` (null on success): `parse` for a parse error (including an unknown
+     function); `query` for a failure answered as a query error (HTTP 400: zero or
+     several statements, a resource or time limit, a function failing on a value);
+     `internal` for anything else (HTTP 500: an ambiguous column, a machine failing
+     the schema lookup, an unexpected failure).
+   - `error`: the error message, cut to 1 KiB, as MCP returns it (for a failure that
+     is not an exception, only its kind); null on success.
+   - `dropped_before`: how many rows this machine dropped since its previous recorded
+     row (normally 0): writes that failed, and rows refused while 1,000 were already
+     waiting to be written (Storage stalled). Rows refused while the recorder process
+     itself is restarting are only written to the server log.
+
+   There is no rate cap. Recording is handed off without waiting, so the response is
+   never delayed or changed by it, and writing a row never runs a query, so querying
+   `queries` records one row like any other query. A query whose request process is
+   killed before it ends (an HTTP client that disconnects) is not recorded; an MCP
+   query that outlives the MCP request timeout is recorded when it ends. A failure to
+   record is written to the server log, naming only its kind, never query text. Rows
+   follow normal 15-day retention.
 
 Request bodies, API keys, and MCP traffic are not logged in `web_requests` or
 `web_responses`.

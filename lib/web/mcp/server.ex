@@ -128,7 +128,8 @@ defmodule Web.MCP.Server do
 
   def handle_tool_call("query", %{sql: sql}, frame) do
     try do
-      # Parse failures are recorded in query_parse_errors and reraised unchanged.
+      # Every query is recorded in queries; parse failures also in query_parse_errors,
+      # and reraised unchanged.
       case Web.Query.execute(sql, fn -> Web.QueryParseErrors.mcp_caller(frame) end) do
         {:ok, columns, rows} ->
           result =

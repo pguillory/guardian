@@ -22,8 +22,9 @@ Assets, roughly in order of value:
    tables. Producers send whatever the operator's systems choose to record (spec
    section 2). Event content is not classified; treat it as the operator's private
    data.
-2. Caller query text: by design kept only for queries that fail to parse, in
-   `query_parse_errors`, for the 15-day retention period (and in any backup or volume
+2. Caller query text: by design kept for every query run over the JSON API or MCP,
+   in `queries`, and for queries that fail to parse, in `query_parse_errors`, for the
+   15-day retention period (and in any backup or volume
    snapshot for as long as that is kept, section 7). Fragments of JSON API queries
    also reach the server log through printed errors (section 8).
 3. The API key (`GUARDIAN_API_KEY`): the only credential for the HTTP and MCP
@@ -174,7 +175,8 @@ without the header is 401. None of these reads or writes data.
    without the query string, selected headers, and `auth_method`, which says only
    whether the key came from the header or the query parameter), not in
    `query_parse_errors` (caller fields are remote IP, `x-forwarded-for`, user agent,
-   and MCP client info), and not in any log line of a well-formed request found in the
+   and MCP client info), not in `queries` (remote IP and MCP client info only, no
+   request header), and not in any log line of a well-formed request found in the
    code (section 8). One exception: `web_requests` stores the `referer` header
    verbatim, so a caller whose referring URL contains `?api_key=` gets the key
    recorded there.
@@ -323,7 +325,10 @@ and no single request that takes the service down or destroys stored data.
 5. Query parse failures are recorded asynchronously and with fixed bounds (16 KiB SQL,
    1 KiB error, 256-byte caller fields, 60 rows per machine per hour, queue cap 100), so
    a flood of bad queries cannot grow that table or delay responses without limit
-   (`Web.QueryParseErrors`).
+   (`Web.QueryParseErrors`). Every API query is recorded the same way in `queries`
+   (`Web.QueryLog`): 16 KiB SQL, 1 KiB error, 256-byte caller fields, queue cap 1,000
+   rows, and no rate cap, since each query writes one row whose cost is of the order
+   of the query's own.
 6. A segment the persister cannot store (for any reason, such as a full disk) is
    logged once, stays in memory and queryable, and is retried on every pass while
    other segments persist, so one bad segment does not stall persistence.
@@ -408,7 +413,9 @@ and no single request that takes the service down or destroys stored data.
    such as a query worker or machine failing, into an exception the handler rescues.
 4. Error messages reach the caller. The MCP `query` tool returns `Exception.message/1`
    of whatever was raised, which can include internal detail such as peer node names
-   (`guardian@<address>`). Acceptable for a single trusted principal.
+   (`guardian@<address>`). Acceptable for a single trusted principal. The same text,
+   cut to 1 KiB, is stored in `queries.error` for both interfaces, including HTTP
+   queries whose response is a bare 500 (before, that message reached only stdout).
 5. Corrupt segment files abort the VM. The column NIF uses C asserts while unpacking,
    so a corrupt `.seg` file crashes the whole VM. A truncated, empty, or structurally
    malformed file is skipped instead, and its load failure is logged by kind only,
@@ -573,13 +580,16 @@ working directory; on Fly, the machine's disposable root filesystem).
    is no other deletion path through the product.
 3. Backups: on Fly, the repository's `fly.toml` has Fly snapshot the volume daily and
    keep snapshots 14 days (`snapshot_retention = 14`). Snapshots hold everything the
-   volume held, so deleted data, including `query_parse_errors` query text, survives
+   volume held, so deleted data, including `queries` and `query_parse_errors` query
+   text, survives
    up to about 29 days after it was written. Snapshots are reachable only by
    operators. Elsewhere, backups are whatever the operator arranges. There is no
    replication.
-4. `query_parse_errors` stores caller query text by design (spec section 3). It is
-   the same principal's data, readable by the same principal; the spec tells callers
-   not to put secrets in query text.
+4. `queries` and `query_parse_errors` store caller query text by design (spec
+   section 3). It is the same principal's data, readable by the same principal; the
+   spec tells callers not to put secrets in query text. `queries.error` also keeps the
+   message of a failed query (up to 1 KiB), which can quote stored values or a remote
+   failure (5.2.4).
 
 ## 8. B7: Logs and built-in tables
 
@@ -595,19 +605,24 @@ Where data goes:
    There are no body or key fields; the one way the key can land there is the
    verbatim `referer` header (4.1.3).
 2. `query_parse_errors` records failing query text with bounds (5.1.5).
-3. `system_stats` records VM metrics; no request data.
-4. stdout (on Fly, Fly's log stream) receives more caller data than the tables do:
+3. `queries` records every JSON and MCP query's text, timing, row count and outcome,
+   with the same text bounds, plus remote IP and MCP client info; no request header,
+   so neither the key nor any other header value.
+4. `system_stats` records VM metrics; no request data.
+5. stdout (on Fly, Fly's log stream) receives more caller data than the tables do:
    - `Web.JsonApi.handle_errors/2` prints every exception in full. Parse errors carry
      SQL fragments. Body failures (malformed JSON 400, too large 413, wrong content type
      415), a `/query` body without a string `query` (400), and an undecodable query
      string (400) are answered without printing.
    - `Engine` logs `Exception.format/3` of any ingestion crash, and a stack trace can
      carry the event values passed to the failing function.
-   - A `web_requests`, `web_responses`, `system_stats` or `query_parse_errors` write
+   - A `web_requests`, `web_responses`, `system_stats`, `query_parse_errors` or
+     `queries` write
      that fails is logged with the table and the failure's kind only (an exception
      module or exit kind, from `Engine.try_log_event/2`), never the event or the
      exception's message, and the request, if any, still answers normally.
-     `query_parse_errors` logs the same way when building or handing off a row fails.
+     `query_parse_errors` and `queries` log the same way when building or handing off
+     a row fails.
    - OTP crash reports for crashed processes (segments, the Anubis server) include the
      last message and state, which can hold event data. A segment file that fails to
      load is not a crash: its process stops with a `:shutdown` reason naming only the
@@ -682,12 +697,12 @@ Open gaps named above, by boundary:
 ## 10. How this was checked
 
 Written from the code: the routers, `Web.Auth`, `Web.Logger`, `Web.QueryParseErrors`,
-`Engine`, `Cluster`, `Query.Limits`, `config/runtime.exs`, `rel/env.sh.eex`,
-`bin/fly-start`, `Dockerfile`, and `fly.toml` in this repository, and the pinned
-dependencies `cors_plug` 3.0.3 and `anubis_mcp` 0.16.0. Regular expressions run on
-OTP's `:re` through `Query.Regex`. Statements about Fly's
-platform (volume encryption, private network membership, edge behavior) come from
-Fly's tooling and documentation, not from Guardian's code. Where something was read
-from a dependency's source rather than tested, the text says so.
+`Web.QueryLog`, `Engine`, `Cluster`, `Query.Limits`, `config/runtime.exs`,
+`rel/env.sh.eex`, `bin/fly-start`, `Dockerfile`, and `fly.toml` in this repository,
+and the pinned dependencies `cors_plug` 3.0.3 and `anubis_mcp` 0.16.0. Regular
+expressions run on OTP's `:re` through `Query.Regex`. Statements about Fly's platform
+(volume encryption, private network membership, edge behavior) come from Fly's
+tooling and documentation, not from Guardian's code. Where something was read from a
+dependency's source rather than tested, the text says so.
 
 When code on one of these boundaries changes, update the matching section here.

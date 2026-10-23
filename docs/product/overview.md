@@ -42,7 +42,8 @@ queries.
    tables it chooses. By convention each stamps its own `timestamp` and `time_ms`.
    Guardian itself writes `system_stats` once a second, a
    `web_requests`/`web_responses` pair for every authenticated JSON API request, and
-   a `query_parse_errors` row for each query that fails to parse.
+   a `query_parse_errors` row for each query that fails to parse, and a `queries` row
+   for every query run over the JSON API or MCP.
 2. Readers: the operator and their agents (for example, Claude or Codex coding
    sessions) query through MCP, which also serves the full query-language reference.
    Scripts can use the JSON API, and an operator can use the Erlang remote console.
