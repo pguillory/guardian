@@ -128,8 +128,8 @@ defmodule AST.Parser do
 
   @doc """
   Parses a rule file: SET, UNSET, TRACK and LOOKUP statements separated by
-  semicolons, empty statements allowed. TRACK/LOOKUP syntax is parsed but
-  `Rules.RuleSet` rejects it until counter execution is enabled. Returns
+  semicolons, empty statements allowed. `Rules.RuleSet` validates dependencies and
+  binds TRACK/LOOKUP identities before compilation. Returns
   `[{statement, line}]`, `line` being the 1-based line the statement starts on.
   Raises `AST.ParseError`.
 

@@ -1,5 +1,5 @@
 defmodule Rules.CounterRuntime do
-  @moduledoc "Internal bucket execution; public counter compilation and admission remain disabled."
+  @moduledoc "Bucket execution for resolved TRACK/LOOKUP plans with fail-open aggregate defaults."
   alias Counters.{Aggregate, Cluster}
 
   @cas_attempts 3

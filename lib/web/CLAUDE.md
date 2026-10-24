@@ -28,7 +28,9 @@ HTTP invalid requests return 400 with an `info` message; MCP returns a tool erro
 `Web.Ingest` shares request validation and result shaping between both interfaces.
 Absent or null return_keys returns all event keys; a list of strings gives successful
 events exactly those keys, null for any the event lacks. Events are reported after
-the table's rules, so return_keys is how a client reads a computed field. Valid requests return
+the table's SET/UNSET/TRACK/LOOKUP rules, so return_keys is how a client reads a
+computed decision or counter result. Counter failures default and continue; final
+UNSETs still run, while SET/UNSET failures reject the event. Valid requests return
 200 with ordered `results`, each `{success: true, event: ...}` or
 `{success: false, error: ...}`. Events are independent: a failure does not stop the
 rest, and uncertain storage failures say the event may have been stored.

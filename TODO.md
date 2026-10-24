@@ -55,29 +55,29 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
          names the bucket, `list_rules` shows the copied rules, and a test write and
          delete through the MCP tools succeed. Rollback: remove them all together,
          in one restart (removing some refuses startup); `/data/rules` stays.
-- [ ] rules-track-lookup: TRACK (counters) and LOOKUP statements; settled v1 design
+- [x] rules-track-lookup: TRACK (counters) and LOOKUP statements; settled v1 design
       and reviewed four-piece plan in `docs/changes/ingest-rules.md`
       1. [x] C1: node-local ETS get/get_many/gets/cas/incr, per-key TTLs, memory
          budget and oldest-half eviction
       2. [x] C2: consistent owner hashing, bounded remote operations and fail open
       3. [x] C3: mergeable count, distinct (HyperLogLog), sum, min, max and avg
-      4. [ ] C4: TRACK/LOOKUP grammar, validation, bucket policy and rule execution
-         C4 is split into C4a/b/c; active counter statements remain unavailable.
+      4. [x] C4: TRACK/LOOKUP grammar, validation, bucket policy and rule execution
+         C4 is split into C4a/b/c; counter statements are enabled.
          1. [x] C4a: parsed syntax, AST, canonical source and traversal; RuleSet
-           explicitly rejects counter statements before building executable steps
+           initially rejected counter statements before building executable steps
          2. [x] C4b: validation, dependencies, resolved identities and pure coherent
-           reload selection; active counter statements remain refused
+           reload selection; counter statements were still refused at this checkpoint
            - [x] Prerequisite: separate typed steps, scalar validation and dependency ordering
          3. [x] Prerequisite: quiet expiry catches up in immediate pages and
            reclaims expiry before live eviction; counter crash loops are isolated
            from Main, with automatic backoff recovery and availability metrics
-         4. [ ] C4c: execution, buckets, arrival metadata, limits/config, live coherent
+         4. [x] C4c: execution, buckets, arrival metadata, limits/config, live coherent
            reloads/restart metadata and product docs
            1. [x] C4c1: Server activation selection, bounded recoverable module-plan
-             metadata and unresolved-candidate compiler refusal; counters stay disabled
+             metadata and unresolved-candidate compiler refusal; counters stayed disabled
            2. [x] C4c2: internal execution, buckets, private arrival metadata and
              shared event/batch budgets; both counter gates remain closed
-           3. [ ] C4c3: enable both gates together, live counter reload/restart and
+           3. [x] C4c3: enable both gates together, live counter reload/restart and
              HTTP/MCP return_keys coverage, memory config and full feature docs
 - [x] rules-open-questions: the failure and invalid-at-boot defaults are confirmed
       and their switches (`:rules_on_failure`, `:rules_invalid_at_boot`) removed

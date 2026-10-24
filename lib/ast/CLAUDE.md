@@ -6,8 +6,8 @@ nodes back to source.
 Supported top-level statements include SELECT, SHOW TABLES, DESC, LET, and empty
 statements. Rule files have their own entry point, `AST.Parser.parse_rules/1`: SET,
 UNSET, TRACK and LOOKUP statements, each with its 1-based line. TRACK/LOOKUP have
-AST nodes, canonical source and traversal, but `Rules.RuleSet` explicitly rejects
-them until counter validation and execution land. Their words (SET, UNSET, TRACK,
+AST nodes, canonical source and traversal; `Rules.RuleSet` validates their semantics
+and binds targets before compilation. Their words (SET, UNSET, TRACK,
 LOOKUP, LAST) are matched by position as identifiers, never added as tokenizer
 keywords, so they stay valid column and table
 names. A query cannot contain a rule statement, and a rule file cannot contain a query. UPDATE, INSERT,

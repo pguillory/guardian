@@ -76,7 +76,7 @@ defmodule Rules.RuleSetTest do
     assert messages(%{"t/a.gsql" => "SET a = b AS c"}) == ["t/a.gsql line 1: rules cannot use AS"]
   end
 
-  test "parsed counter statements remain explicitly unsupported, with no executable table plan" do
+  test "counter statements validate with SET and UNSET into a resolved table plan" do
     validation =
       RuleSet.validate(%{
         "t/a.gsql" =>
@@ -84,36 +84,28 @@ defmodule Rules.RuleSetTest do
         "u/a.gsql" => "SET x = 2",
       })
 
-    assert {:error, errors} = validation.tables["t"]
-
-    assert Enum.map(errors, & &1.message) == [
-             "t/a.gsql line 2: TRACK statements are not supported yet",
-             "t/a.gsql line 3: LOOKUP statements are not supported yet",
-           ]
-
-    assert errors == validation.errors
+    assert validation.errors == []
+    assert {:ok, %Rules.Plan{resolved?: true, steps: steps}} = validation.tables["t"]
+    assert Enum.map(steps, & &1.kind) == [:lookup, :set, :track, :unset]
     assert {:ok, %Rules.Plan{}} = validation.tables["u"]
 
-    relocated_and_rewritten =
+    invalid =
       RuleSet.validate(%{
         "t/a.gsql" =>
           "\n\nTRACK other = sum(amount) LAST '2h'; LOOKUP changed = other FROM elsewhere",
       })
 
-    assert RuleSet.new_errors(errors, relocated_and_rewritten.errors) == []
+    assert [%{kind: :counter_target}] = RuleSet.new_errors([], invalid.errors)
   end
 
-  test "unsupported counters take precedence over scalar validation within their file" do
+  test "a valid counter cannot hide an invalid scalar expression" do
     files = %{"t/a.gsql" => "SET x = count(); TRACK c = count() LAST '1h'"}
     before = RuleSet.validate(files)
-    assert messages(files) == ["t/a.gsql line 1: TRACK statements are not supported yet"]
+    assert messages(files) == ["t/a.gsql line 1: rules cannot use aggregate functions"]
 
     repaired = RuleSet.validate(%{"t/a.gsql" => "SET x = count()"})
 
-    assert [%{kind: :expression, message: message}] =
-             RuleSet.new_errors(before.errors, repaired.errors)
-
-    assert message == "t/a.gsql line 1: rules cannot use aggregate functions"
+    assert RuleSet.new_errors(before.errors, repaired.errors) == []
   end
 
   test "rejects parse errors, bad paths, built-in tables and oversized files" do

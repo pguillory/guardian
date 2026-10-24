@@ -66,6 +66,18 @@ defmodule Web.MCP.ClientTest do
       assert query["description"] =~ "Columns are untyped"
       assert query["description"] =~ "'YYYY-MM-DD HH:MM:SS'"
       assert query["description"] =~ "guardian://query-language"
+
+      rules = Enum.find(tools, &(&1["name"] == "write_rule"))["description"]
+
+      for phrase <- [
+            "TRACK name",
+            "LOOKUP field",
+            "ephemeral",
+            "return_keys",
+            "guardian://query-language",
+          ] do
+        assert rules =~ phrase
+      end
     end
   end
 

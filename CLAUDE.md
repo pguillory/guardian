@@ -46,10 +46,12 @@ design (trust boundaries, invariants, known gaps) is in
 MCP routers, query functions, logging, secrets, or the Fly deployment, and update it
 when those change.
 
-Rules are files of SET and UNSET statements per table (`<table>/<name>.gsql`), run on
+Rules are files of SET, UNSET, TRACK and LOOKUP statements per table (`<table>/<name>.gsql`), run on
 each ingested event before storage (`lib/rules/CLAUDE.md`, `docs/changes/ingest-rules.md`).
-They have no state and make no external calls; TRACK and LOOKUP syntax is parsed
-but rejected before rule execution. There is no PostgreSQL metadata store, Memcached
+SET/UNSET are stateless. TRACK/LOOKUP use ephemeral counters on Guardian nodes,
+bounded peer calls and aggregate defaults on failure; final UNSETs still run.
+Counters are advisory, lose state on restart/eviction/cluster changes and use private
+arrival metadata, never caller timestamps. There is no PostgreSQL metadata store, Memcached
 runtime, or MaxMind service. Guardian is single-user: authentication is one environment-configured API key
 (at least 32 bytes, in the `x-api-key` header; the `api_key` query parameter only with
 `GUARDIAN_ALLOW_QUERY_API_KEY=true`), and a valid key grants access to the whole event
@@ -70,7 +72,7 @@ Summary; the full description is `docs/architecture/system.md`.
 The runtime consists of Rules.Server (loads the rule store first; an unreachable or
 misconfigured store refuses startup), Counters.Restarter (isolates and recovers the
 Counters.Supervisor subtree containing node-local Counters.Store and bounded
-Counters.Cluster routing; TRACK/LOOKUP integration is pending), Storage,
+Counters.Cluster routing for TRACK/LOOKUP), Storage,
 SystemStats, Web.QueryParseErrors (records query parse failures), Web.QueryLog
 (records every API query in `queries`),
 Web.IngestIdempotency (short-lived, node-local client-key receipts), Web, and

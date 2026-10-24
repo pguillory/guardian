@@ -12,6 +12,7 @@ defmodule RuntimeConfigTest do
     "GUARDIAN_ALLOW_QUERY_API_KEY",
     "GUARDIAN_QUERY_MAX_HEAP_MB",
     "GUARDIAN_PORT",
+    "GUARDIAN_COUNTER_MEMORY_MB",
   ]
 
   # A key long enough for the 32-byte minimum.
@@ -40,6 +41,7 @@ defmodule RuntimeConfigTest do
     System.delete_env("GUARDIAN_ALLOW_QUERY_API_KEY")
     System.delete_env("GUARDIAN_QUERY_MAX_HEAP_MB")
     System.delete_env("GUARDIAN_PORT")
+    System.delete_env("GUARDIAN_COUNTER_MEMORY_MB")
     System.put_env("GUARDIAN_DATA_DIR", directory)
     %{directory: directory}
   end
@@ -208,5 +210,36 @@ defmodule RuntimeConfigTest do
 
   defp read_runtime_config do
     Config.Reader.read!(@runtime_config, env: :prod, target: :host)
+  end
+
+  test "counter memory defaults to Store's 64 MiB and accepts positive MiB overrides" do
+    System.put_env("GUARDIAN_API_KEY", @key)
+    refute Keyword.has_key?(read_runtime_config()[:guardian], :counter_memory_budget_bytes)
+    store = start_supervised!({Counters.Store, name: nil})
+    assert {:ok, %{memory_budget_bytes: 67_108_864}} = Counters.Store.stats(server: store)
+
+    for {value, mb} <- [{"1", 1}, {"128", 128}, {"+64", 64}] do
+      System.put_env("GUARDIAN_COUNTER_MEMORY_MB", value)
+
+      assert get_in(read_runtime_config(), [:guardian, :counter_memory_budget_bytes]) ==
+               mb * 1_024 * 1_024
+    end
+
+    for value <- ["", "0", "-1", "1.5", "64MB", " 64", "64 "] do
+      System.put_env("GUARDIAN_COUNTER_MEMORY_MB", value)
+
+      assert_raise RuntimeError,
+                   "GUARDIAN_COUNTER_MEMORY_MB must be a positive integer",
+                   &read_runtime_config/0
+    end
+  end
+
+  test "the configured counter byte budget reaches Store through application environment" do
+    System.put_env("GUARDIAN_API_KEY", @key)
+    System.put_env("GUARDIAN_COUNTER_MEMORY_MB", "2")
+    budget = get_in(read_runtime_config(), [:guardian, :counter_memory_budget_bytes])
+    RulesTestHelper.put_env(:counter_memory_budget_bytes, budget)
+    store = start_supervised!({Counters.Store, name: nil})
+    assert {:ok, %{memory_budget_bytes: 2_097_152}} = Counters.Store.stats(server: store)
   end
 end

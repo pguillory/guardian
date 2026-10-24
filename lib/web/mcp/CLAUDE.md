@@ -18,13 +18,14 @@ Guardian's MCP endpoint exposes these tools:
   `Rules`. A rejected or failed write is a tool error carrying the messages; a saved
   one returns `saved`, `remaining_errors` and `nodes_not_yet_reloaded`. The
   `write_rule` description summarizes the rule language; keep it in step with
-  `docs/product/spec.md` section 5.1.
+  `docs/product/spec.md` section 5.1 and the served reference's Ingest rules section.
+  TRACK/LOOKUP outputs use return_keys; completed keyed retries return only receipts.
 
 The `query` description summarizes the language, its unsupported syntax, the untyped
 data model, and the timestamp convention. The resource `guardian://query-language`
 serves `query_language.md`, the full reference. When syntax, functions, or aggregates
 change, update both. `Web.MCP.QueryLanguageTest` fails when a registered function or
-aggregate is missing from the reference or a `sql` example no longer parses. Server
+aggregate is missing from the reference or a `sql`/`gsql` example no longer parses. Server
 `instructions` need Anubis 1.x or later.
 
 Authentication is handled by `Web.MCP.Router` before requests reach the Anubis server.

@@ -1,6 +1,6 @@
 # Rules Subsystem
 
-Ingest-time rules: files of SET and UNSET statements, one folder per table
+Ingest-time rules: files of SET, UNSET, TRACK and LOOKUP statements, one folder per table
 (`<table>/<name>.gsql`), run on each event sent through the ingest APIs before it is
 stored. The design and its reviews are in `docs/changes/ingest-rules.md`; user-visible
 behavior is `docs/product/spec.md` section 5.1. Read both before changing this.
@@ -13,8 +13,8 @@ Modules:
 - `Rules.RuleSet`: parses (`AST.Parser.parse_rules/1`) and validates a whole set,
   every table together, into one `Rules.Plan` per table. Pure: no reads, no state.
   `prepare/1` checks counter semantics and returns unbound candidates plus resolved
-  plans; public writes/loads use `prepare/2` with `counters: false`, preserving
-  `validate/1`'s early counter refusal. Only resolved plans have `resolved?: true`.
+  plans; public validation and Server writes/loads use the same preparation.
+  Only resolved plans have `resolved?: true`.
 - `Rules.Step`: typed per-kind inputs and read derivation.
 - `Rules.Validation`: scalar, counter aggregate, interval and FROM checks.
 - `Rules.DependencyGraph`: deterministic field ordering.
@@ -27,11 +27,11 @@ Modules:
   No rule text becomes code. Unresolved plans and unbound LOOKUPs cannot compile.
 - `Rules.Runtime`: the dispatcher called by generated modules (reads, SET, UNSET,
   failures), threading a `Rules.RowIndex` through ordered typed steps. Internal
-  TRACK/LOOKUP dispatch is implemented but remains behind both closed gates.
+  TRACK/LOOKUP dispatch uses bound identities and aggregate defaults on failure.
 - `Rules.Event`: private Unix/monotonic arrival coordinates outside the row; Engine
   captures them before validation. Runner adds a per-event Cluster context on worker
   entry, sharing one batch atomics budget across replacement workers.
-- `Rules.CounterRuntime`: internal counter execution using Cluster and Aggregate.
+- `Rules.CounterRuntime`: counter execution using Cluster and Aggregate.
   Whole intersecting buckets bias reads toward overcount: floor((arrival-W)/B)
   through floor(arrival/B), B=ceil(W/3). Native count increments and generic
   gets/merge/CAS use their returned state, never a post-update read. Only definite
@@ -75,22 +75,20 @@ Rules to keep:
    limit, fails the event; a table whose stored rules are invalid at boot is published
    as invalid (its events fail, other tables run) rather than refusing startup. There are
    no switches for either (`docs/changes/ingest-rules.md`, open questions 1 and 2).
-8. Statement words are contextual (see `lib/ast/CLAUDE.md`); TRACK and LOOKUP have
-   parsed AST nodes, but Rules.RuleSet validation explicitly rejects both before
-   building executable steps. Counter-aware preparation validates plans, orders
-   expression dependencies and binds definition identities. Compiler independently
-   refuses counter plans. The activation selector retains prior dependency
+8. Statement words are contextual (see `lib/ast/CLAUDE.md`). Whole-set preparation
+   validates counter plans, orders expression dependencies with the LOOKUP barrier
+   and binds definition identities. Compiler refuses unresolved plans and unbound
+   LOOKUPs. The activation selector retains prior dependency
    components on invalid reloads; Server derives prior plans from published
    modules, including after restart, without a separate metadata registry.
-   Counter execution is implemented internally in C4c2; enabling remains C4c3.
-   Only direct internal dispatcher tests execute resolved `prepare/1` counter plans;
-   public validation, Server preparation and Compiler still refuse them.
    Where TRACK counter state lives is settled in the change document:
    Counters.Store provides node-local ETS storage,
    Counters.Cluster provides bounded cluster ownership,
-   and Counters.Aggregate provides pure mergeable operators. Public integration
-   follows separately. Counter failures fail open without changing SET/UNSET's
-   fail-closed behavior. Read the reviewed plan before implementing those pieces.
+   and Counters.Aggregate provides pure mergeable operators. Counter failures fail
+   open without changing SET/UNSET's fail-closed behavior or skipping final UNSETs.
+   BY/min/max state may retain sensitive values after UNSET; no event retry or
+   rollback is allowed. GUARDIAN_COUNTER_MEMORY_MB maps positive MiB to Store's
+   byte budget. Read the reviewed design before changing counter semantics.
 
 Tests use `RulesTestHelper` (shared server, so `async: false`) and `FakeS3`, which
 checks SigV4 with its own implementation of the canonical request.

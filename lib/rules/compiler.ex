@@ -5,8 +5,7 @@ defmodule Rules.Compiler do
   row. `plan/0` recovers the exact immutable plan for reload selection after a
   Server restart. Metadata lives and is reclaimed with its bounded pool module.
   Unresolved candidates return `:unresolved_plan`; a LOOKUP without a bound target
-  returns `:unbound_lookup`. Counter plans still return `:unsupported_counters`
-  until public enablement lands. `apply/1` creates a fresh event and batch context.
+  returns `:unbound_lookup`. `apply/1` creates a fresh event and batch context.
 
   The module body comes only from the fixed template below: ordered typed steps
   are escaped as literal data for `Rules.Runtime.run/3`. No rule text
@@ -37,15 +36,12 @@ defmodule Rules.Compiler do
       Enum.any?(plan.steps, &match?(%Rules.Step.Lookup{target: nil}, &1)) ->
         {:error, :unbound_lookup}
 
-      Enum.any?(plan.steps, &(&1.kind in [:track, :lookup])) ->
-        {:error, :unsupported_counters}
-
       true ->
-        compile_supported(module, plan)
+        compile_resolved(module, plan)
     end
   end
 
-  defp compile_supported(module, plan) do
+  defp compile_resolved(module, plan) do
     body =
       quote do
         @moduledoc false

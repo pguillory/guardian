@@ -9,7 +9,7 @@ Guardian supports these statement families:
 - SetStatement and UnsetStatement, the rule statements, parsed only from rule files
   by `AST.Parser.parse_rules/1` (`lib/rules/CLAUDE.md`)
 - TrackStatement and LookupStatement, parsed counter rule syntax with canonical
-  source and traversal; `Rules.RuleSet` rejects them until validation/execution land
+  source and traversal; `Rules.RuleSet` validates and resolves them for execution
 
 There is no UPDATE transformation syntax, INSERT, or DELETE statement. API ingestion
 uses `/api/json/send_events`.
@@ -23,4 +23,4 @@ LOOKUP holds `field`, `counter`, `from_table`, `by_exprs`, `where_expr`.
 Omitted BY is an empty list; omitted FROM/WHERE is nil. The parser reuses the query
 aggregate registry and arity checks (including count(*) becoming count()), but
 counter aggregate restrictions, scalar inputs, LAST bounds and FROM table validity
-belong to the later rule validation work.
+belong to Rules.Validation and whole-set Rules.RuleSet preparation.

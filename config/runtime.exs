@@ -1,6 +1,18 @@
 import Config
 
 if config_env() != :test do
+  # Resident counter entries/indexes, in MiB; Store defaults to 64 MiB.
+  case System.get_env("GUARDIAN_COUNTER_MEMORY_MB") do
+    nil ->
+      :ok
+
+    value ->
+      case Integer.parse(value) do
+        {mb, ""} when mb > 0 -> config :guardian, counter_memory_budget_bytes: mb * 1_024 * 1_024
+        _ -> raise "GUARDIAN_COUNTER_MEMORY_MB must be a positive integer"
+      end
+  end
+
   case System.get_env("GUARDIAN_MUTABLE_SEGMENT_MAX_AGE_MS") do
     nil ->
       :ok

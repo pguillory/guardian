@@ -13,9 +13,6 @@ defmodule Rules.RuleSet do
   that only moves lines does not make an old error new (`new_errors/2`).
   """
 
-  alias AST.Node.Statements.LookupStatement
-  alias AST.Node.Statements.TrackStatement
-
   @max_file_bytes 64 * 1024
   @max_files 1_000
   @max_tables 256
@@ -91,24 +88,19 @@ defmodule Rules.RuleSet do
   | {:error, errors}}, errors: errors}`. A table with any error has no plan.
   """
   def validate(files) when is_map(files),
-    do: files |> prepare(counters: false) |> Map.take([:tables, :errors])
+    do: files |> prepare() |> Map.take([:tables, :errors])
 
   @doc """
-  Prepares counter-aware plans without admitting them for execution. `candidates`
+  Prepares whole-set plans for validation and activation. `candidates`
   are locally valid, unbound table plans; `tables` are resolved against the whole
-  candidate set. Used by the pure activation selector and future rule execution.
-  `counters: false` preserves public validation's counter refusal and precedence;
-  Server uses this mode until counter execution lands.
+  candidate set. Only resolved plans may compile for execution.
   """
-  def prepare(files, opts \\ []) when is_map(files),
-    do: prepare_set(files, Keyword.get(opts, :counters, true))
-
-  defp prepare_set(files, counters?) do
+  def prepare(files) when is_map(files) do
     keys = files |> Map.keys() |> Enum.sort()
 
     {parsed, errors} =
       Enum.reduce(keys, {%{}, []}, fn key, {parsed, errors} ->
-        case parse_file(key, Map.fetch!(files, key), counters?) do
+        case parse_file(key, Map.fetch!(files, key)) do
           {:ok, table, statements} ->
             {Map.update(parsed, table, [{key, statements}], &(&1 ++ [{key, statements}])), errors}
 
@@ -190,7 +182,7 @@ defmodule Rules.RuleSet do
     file_errors ++ table_errors
   end
 
-  defp parse_file(key, source, counters?) do
+  defp parse_file(key, source) do
     case parse_key(key) do
       :ignore ->
         {:error, nil, []}
@@ -211,7 +203,7 @@ defmodule Rules.RuleSet do
             {:error, table, [error(key, nil, :encoding, "utf8", "is not UTF-8 text", table)]}
 
           true ->
-            parse_source(key, table, source, counters?)
+            parse_source(key, table, source)
         end
     end
   end
@@ -225,25 +217,18 @@ defmodule Rules.RuleSet do
     end
   end
 
-  defp parse_source(key, table, source, counters?) do
-    parsed = AST.Parser.parse_rules(source)
+  defp parse_source(key, table, source) do
+    statements =
+      source
+      |> AST.Parser.parse_rules()
+      |> Enum.with_index()
+      |> Enum.map(fn {{statement, line}, index} ->
+        Rules.Step.new(table, key, line, index, statement)
+      end)
 
-    case if(counters?, do: [], else: unsupported_statement_errors(key, table, parsed)) do
-      [] ->
-        statements =
-          parsed
-          |> Enum.with_index()
-          |> Enum.map(fn {{statement, line}, index} ->
-            Rules.Step.new(table, key, line, index, statement)
-          end)
-
-        case Enum.flat_map(statements, &Rules.Validation.errors/1) do
-          [] -> {:ok, table, statements}
-          errors -> {:error, table, errors}
-        end
-
-      errors ->
-        {:error, table, errors}
+    case Enum.flat_map(statements, &Rules.Validation.errors/1) do
+      [] -> {:ok, table, statements}
+      errors -> {:error, table, errors}
     end
   rescue
     e in AST.ParseError ->
@@ -254,25 +239,6 @@ defmodule Rules.RuleSet do
     e ->
       kind = inspect(e.__struct__)
       {:error, table, [error(key, nil, :parse, kind, "could not be parsed (#{kind})", table)]}
-  end
-
-  # Syntax lands before execution. Refuse counters before converting AST nodes to
-  # executable steps; remove this gate only with public enablement in C4c3.
-  defp unsupported_statement_errors(key, table, parsed) do
-    Enum.flat_map(parsed, fn {statement, line} ->
-      word =
-        case statement do
-          %TrackStatement{} -> "TRACK"
-          %LookupStatement{} -> "LOOKUP"
-          _ -> nil
-        end
-
-      if word do
-        [error(key, line, :unsupported, word, "#{word} statements are not supported yet", table)]
-      else
-        []
-      end
-    end)
   end
 
   # Conflicting definitions, too many statements, and cycles.

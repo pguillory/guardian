@@ -46,25 +46,26 @@ defmodule Rules.CounterPlanTest do
     end
   end
 
-  test "counter-refusing preparation matches validation and preserves early refusal" do
+  test "public validation reports every counter and scalar semantic error" do
     files = %{
       "t/a.gsql" => "SET x = count(); TRACK c = arbitrary(x) LAST '0s'",
       "u/a.gsql" => "SET x = 1",
     }
 
-    preparation = RuleSet.prepare(files, counters: false)
-    assert Map.take(preparation, [:tables, :errors]) == RuleSet.validate(files)
-    assert [%{kind: :unsupported}] = preparation.errors
+    preparation = RuleSet.prepare(files)
+
+    assert Enum.sort(Enum.map(RuleSet.validate(files).errors, & &1.kind)) ==
+             [:counter_aggregate, :counter_window, :expression]
+
     assert {:ok, %{resolved?: false}} = preparation.candidates["u"]
     assert {:ok, %{resolved?: true}} = preparation.tables["u"]
   end
 
-  test "counter preparation never enables public validation or compilation" do
+  test "public validation produces resolved counter plans in barrier order" do
     files = %{"t/a.gsql" => "TRACK c = count() LAST '1h'; LOOKUP prior = c"}
     plan = plan(files)
     assert Enum.map(plan.steps, & &1.kind) == [:lookup, :track]
-    assert Enum.map(RuleSet.validate(files).errors, & &1.kind) == [:unsupported, :unsupported]
-    assert Rules.Compiler.compile(Rules.Compiler.name(0), plan) == {:error, :unsupported_counters}
+    assert RuleSet.validate(files).errors == []
     track_only = plan(%{"t/a.gsql" => "TRACK c = count() LAST '1h'"})
 
     lookup_only =
@@ -74,16 +75,9 @@ defmodule Rules.CounterPlanTest do
       })
 
     for single_kind <- [track_only, lookup_only] do
-      assert Rules.Compiler.compile(Rules.Compiler.name(0), single_kind) ==
-               {:error, :unsupported_counters}
+      assert single_kind.resolved?
+      assert length(single_kind.steps) == 1
     end
-
-    # The early public gate retains its exact precedence even for malformed semantics.
-    mixed = %{"t/a.gsql" => "SET x = count(); TRACK c = arbitrary(x) LAST '0s'"}
-    assert [%{kind: :unsupported}] = RuleSet.validate(mixed).errors
-
-    assert Enum.sort(Enum.map(RuleSet.prepare(mixed).errors, & &1.kind)) ==
-             [:counter_aggregate, :counter_window, :expression]
   end
 
   test "counter operators are the aggregate allowlist, with scalar arguments" do
@@ -293,7 +287,6 @@ defmodule Rules.CounterPlanTest do
   test "SET/UNSET preparation and runtime selection preserve per-table behavior" do
     files = %{"a/r.gsql" => "SET x = 1; UNSET secret", "deleted/r.gsql" => "SET x = 2"}
     prep = RuleSet.prepare(files)
-    assert Map.take(prep, [:tables, :errors]) == RuleSet.validate(files)
 
     assert elem(prep.tables["a"], 1).hash ==
              "85e505311172b4f3fe1fbaf62f395881dfefca3919a99962b54881b5ea23e6cd"

@@ -32,3 +32,12 @@
    that starts then rejects the table's events until the rules are fixed.
    Rules cost time on every event they run on (up to a second each), and nodes pick
    up a write within a minute if they missed its reload.
+10. Counters are advisory and ephemeral. Buckets include the entire oldest
+    intersecting interval (up to almost one extra bucket); distinct is approximate.
+    Restarts, eviction, membership changes, partitions and uncertain writes can
+    lose/split counts. Failed operations default and ingestion continues. A later
+    rule/storage failure can leave increments behind, and unkeyed retries count
+    again. The counter memory budget covers resident entries/indexes only.
+    High-cardinality BY values compete for that budget and can evict other groups.
+    UNSET does not erase grouping keys or min/max state from counter memory.
+    See the [rules guide](../guides/rules.md#counters-with-track-and-lookup).

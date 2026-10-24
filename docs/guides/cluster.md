@@ -26,6 +26,18 @@ Give every node:
 The machines must reach each other on epmd (4369) and the distribution port. Pin that
 port with `GUARDIAN_DIST_PORT`.
 
+Counters use one owner per definition and typed group, chosen from connected nodes
+per event; all buckets for that group share the owner. This is ephemeral state:
+joins, leaves, rolling deploys, different membership views, partitions and restarts
+can lose or split counts. There is no migration or replication. Slow/unavailable
+owners supply defaults and ingestion continues. Keep node clocks synchronized for
+arrival-time windows, and configure GUARDIAN_COUNTER_MEMORY_MB on each node.
+
+Upgrade every node before adding TRACK/LOOKUP files to a shared rule bucket. Older
+nodes that cannot load the syntax can retain previous plans (or reject affected
+tables at boot), so a mixed-version rollout does not give consistent counter rules.
+See [counter edits and retries](rules.md#editing-and-retrying-counters).
+
 ## Network security
 
 Keep epmd and the distribution port on a private network. Anyone who can reach them

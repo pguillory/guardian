@@ -78,7 +78,7 @@ The design follows from the product commitments (spec section 1):
 Main (one_for_one)
 ├── Rules.Server                     loads the rule store, publishes compiled rules, polls each minute
 ├── Counters.Restarter               trapping lifecycle owner; backs off subtree recovery
-│   └── Counters.Supervisor (one_for_one; rules integration pending)
+│   └── Counters.Supervisor (one_for_one)
 │       ├── Counters.Store           ephemeral node-local ETS counter storage
 │       └── Counters.Cluster         bounded owner routing and node-local cooldown
 ├── Storage (supervisor, rest_for_one)
@@ -312,17 +312,16 @@ packs a snapshot of it; `lib/storage/CLAUDE.md` covers the costs).
 
 ### 3.4 Rules
 
-Rules (spec section 5.1) are files of SET and UNSET statements, `<table>/<name>.gsql`,
+Rules (spec section 5.1) are files of SET, UNSET, TRACK and LOOKUP statements, `<table>/<name>.gsql`,
 in a rule store: a local folder or an S3-compatible bucket (`lib/rules/CLAUDE.md`;
 the design and its reviews are `docs/changes/ingest-rules.md`).
 
 1. Parsing and validation: `AST.Parser.parse_rules/1` parses a file (statement words
    are matched by position, not reserved). `Rules.RuleSet.validate/1` takes the whole
-   set and returns each table's `Rules.Plan` (SETs in dependency order, then UNSETs,
+   set and returns each table's resolved `Rules.Plan` (dependencies ordered, UNSETs last,
    identical duplicates merged) or its errors: parse errors, paths and limits,
-   aggregates, a field defined two ways, SET cycles. TRACK/LOOKUP syntax is parsed
-   into AST nodes but explicitly refused here before building executable steps.
-   Internal `prepare/1` validates counter operators/scalar clauses/windows/targets,
+   invalid scalar/aggregate use, a field defined two ways and cycles.
+   `prepare/1` validates counter operators/scalar clauses/windows/targets,
    orders SET/TRACK/LOOKUP expression dependencies with a LOOKUP-before-TRACK
    barrier, and binds immutable definition identities through `Rules.Resolution`.
    Invalid target tables propagate to dependent plans to a fixed point.
@@ -333,16 +332,15 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    invalid components of old/new LOOKUP dependencies retain prior plans together,
    including deleted targets/dependents. Tables without a previous valid plan in
    such components are invalid.
-   Valid unrelated components still activate. Server calls `prepare/2` with
-   `counters: false`, preserving the early public counter refusal; current SET/UNSET
-   behavior is unchanged. Local candidates have `resolved?: false`; only successful
+   Valid unrelated components still activate. Server uses the same `prepare/1` on
+   boot, reload and both sides of write admission. Local candidates have `resolved?: false`; only successful
    whole-set resolution marks them ready for compilation.
 2. Compilation: `Rules.Compiler` turns a plan into a module from a fixed template,
    calling `Rules.Runtime.run/3` with ordered typed steps as escaped literals
    (expressions run through the scalar evaluator, `Query.Eval` on an event map). Names
    come from a pool of 1,024 (`Rules.Compiled.M0`...), so atoms are bounded.
    Compiler independently refuses unresolved candidates and LOOKUPs without bound
-   targets, and still refuses plans containing TRACK or LOOKUP until public enablement.
+   targets.
    Each generated module exposes its exact resolved `plan/0` as escaped literal
    data, including canonical source and AST constants, never executable rule text.
 3. Publication: one `:persistent_term` map of table to module, or `{:invalid,
@@ -363,7 +361,8 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    map per row. `Rules.Runtime` resolves reads (exact key, else the first
    case-insensitive match in byte order), applies WHERE (true only), SET (remove the
    whole field in any case, then put) and UNSET (remove the path in any case and
-   everything beneath). A statement that raises fails the event. At the first
+   everything beneath). SET/UNSET exceptions fail the event; counter exceptions
+   supply aggregate defaults and continue, including final UNSETs. At the first
    statement it indexes the row (`Rules.RowIndex`): each lowercase spelling's present
    keys in order, and, at the first SET or UNSET that applies, a trie of keys by
    lowercase object path. A SET or UNSET then touches only the keys it removes and a
@@ -397,21 +396,23 @@ validated on a write is serialized by the lease but not fenced: a writer stalled
 its lease, or a request applied long after it was abandoned, can still leave an
 invalid set, which loading then handles per table (spec section 12).
 
-### 3.5 Counter storage foundation
+### 3.5 Counters
 
-`Counters.Store` is the node-local foundation for the reviewed TRACK/LOOKUP design
-in `docs/changes/ingest-rules.md`. Internal `Rules.CounterRuntime` execution is
-implemented, but both public admission and compiler gates remain closed. Tests
-drive the internal dispatcher with resolved `prepare/1` steps; live ingestion
-still cannot call counters. The dispatcher keeps LOOKUP-before-TRACK ordering,
+`Counters.Store` is the node-local foundation for TRACK/LOOKUP
+(`docs/changes/ingest-rules.md`). Public whole-set validation and Compiler admit
+resolved counter plans; generated modules call `Rules.CounterRuntime` through
+the typed-step dispatcher. It keeps LOOKUP-before-TRACK ordering,
 uses the mutation's returned state for current-event inclusion, defaults the
 whole result on any failed operation, and leaves SET/UNSET failures fail closed.
 Buckets retain the complete oldest intersecting interval (overcount bias).
 TTL durations decrease toward bucket_end+window, anchored to private monotonic
 arrival coordinates; network/queue transit can delay physical expiry. Only
 definite CAS conflicts retry, with three total attempts within Cluster budgets.
-It adds no external service or counter-store operations to today's SET/UNSET rules;
-those events capture private arrival and routing metadata only.
+It adds no external service. SET/UNSET-only events capture private arrival/routing
+metadata but make no counter-store calls. Counter identities include table, output
+name and the SHA-256 of canonical TRACK source; LOOKUP plans bind target identities.
+Edits start fresh, while moves/comments/whitespace retain state. Queries only read
+stored historical output fields. No later rule/storage failure rolls back updates.
 
 One GenServer owns a private ETS set of values and reference CAS tokens, plus
 ordered indexes of insertion order and expiry. It serializes get, gets, CAS and
@@ -425,7 +426,9 @@ one periodic timer chain, and stale sweep tags do nothing.
 TTL uses local monotonic time. A restart clears this store without restarting
 Storage or Rules.Server.
 
-The default 64 MiB app setting `:counter_memory_budget_bytes` charges ETS table
+GUARDIAN_COUNTER_MEMORY_MB sets the positive MiB budget (default 64), converted to
+`:counter_memory_budget_bytes`; explicit empty/invalid values refuse startup.
+The budget charges ETS table
 memory in bytes above empty-table overhead, plus serialized key/value payloads and
 any larger backing allocations retained by nested binary/bitstring slices, to
 include off-heap binaries conservatively. Shared backing allocations can be counted
@@ -442,7 +445,7 @@ begun can still finish after its caller times out, so uncertain increments must 
 be retried. Errors and formatted status disclose no keys or values.
 
 `Counters.Cluster`, independently supervised after Store inside the counter subtree,
-provides internal owner routing; TRACK/LOOKUP statements remain pending. It takes
+provides owner routing for TRACK/LOOKUP. It takes
 one connected-member snapshot per event, without Storage readiness RPCs, then
 chooses the highest SHA-256 rendezvous score for `{identity, group}` and node name.
 Its explicit typed encoding is independent of Erlang external-term format and
@@ -451,14 +454,15 @@ up to four bucket reads fit one Store turn. Remote operations call Store directl
 on that owner, preserving terms and CAS references, never re-routing or failing
 over to another owner. Booting or older peers without the endpoint fail open.
 
-The internal API exposes `new_batch/0` and `new_event/2` for the future rule caller.
+Runner calls `new_batch/0` outside workers and `new_event/2` on worker event entry.
 One event has a 100 ms wall-clock counter phase; operations use at most 50 ms and
 skip without dispatch below 10 ms remaining. A shared atomics handle reserves from
 250 ms of failed-call wait per batch, survives rule-worker replacement, and refunds
 healthy calls fully (including misses/CAS conflicts). Failed calls refund unused
 allowance; a killed caller conservatively spends its outstanding reservation.
 This event wall-clock deadline is deliberately stricter than summing call time.
-The current SET/UNSET ingest path does not invoke these APIs yet.
+Healthy calls can still accumulate latency across events; the batch allowance
+bounds failed waits, not the whole batch's duration.
 
 A local guard monitors the caller and links a worker that may block in distribution
 flow control. Both local and remote calls use the same bounded path. Deadline or
@@ -1192,6 +1196,7 @@ Environment variables:
 | `GUARDIAN_ALLOW_QUERY_API_KEY` | `config/runtime.exs` | `true` also accepts the key as the `api_key` query parameter; `false` or unset (the default) never decodes the query string for a key. Any other value fails boot. |
 | `GUARDIAN_PORT` | `config/runtime.exs`, `bin/fly-start` | HTTP port, 1 to 65535. Default 8080. Tests use an OS-chosen port. |
 | `GUARDIAN_QUERY_MAX_HEAP_MB` | `config/runtime.exs` | Heap limit of each query process, in MiB (5.7). Default 256; `0` turns it off. |
+| `GUARDIAN_COUNTER_MEMORY_MB` | `config/runtime.exs` | Positive integer MiB for resident counter entries/indexes (3.5), default 64; empty/invalid refuses startup. |
 | `GUARDIAN_DATA_DIR` | `config/runtime.exs` (prod) | Data directory; segments go in `segments/` under it. Default `/root/data`; `/data` in the image and on Fly. Must be writable, and on Fly must be a mounted volume, or boot fails. |
 | `GUARDIAN_MUTABLE_SEGMENT_MAX_AGE_MS` | `config/runtime.exs` | Writable segment age before handoff. Default 3,600,000. |
 | `GUARDIAN_NODE_HOST` | `rel/env.sh.eex` | This node's address; setting it makes the node `guardian@<address>`, a cluster member (section 7). Wins over `FLY_PRIVATE_IP`. |
@@ -1213,7 +1218,7 @@ these except through the variables above:
 | `query_max_result_rows` | 100,000 | `Query.Limits` |
 | `query_max_result_bytes` | 64 MiB | `Query.Limits` |
 | `query_time_limit_ms` | 30,000 | `Query.run/1` (`Query.Limits`) |
-| `counter_memory_budget_bytes` | 64 MiB | `Counters.Store`: resident ephemeral entries/indexes (3.5); a non-positive or non-integer value refuses startup |
+| `counter_memory_budget_bytes` | 64 MiB, overridden by `GUARDIAN_COUNTER_MEMORY_MB` | `Counters.Store`: resident ephemeral entries/indexes (3.5); a non-positive or non-integer value refuses startup |
 | `query_parse_errors_per_hour` | 60 | `Web.QueryParseErrors` (tests raise it) |
 | `rules_store` | from the variables above | `Rules.Config` (tests set a store directly) |
 | `rules_poll_ms`, `rules_time_limit_ms`, `rules_boot_retry_ms`, `rules_reclaim_after_ms`, `rules_lock_lease_ms`, `rules_save_margin_ms`, `rules_s3_receive_timeout_ms`, `rules_s3_write_deadline_ms` | 60,000; 1,000; 60,000; 30,000; 120,000; 80,000; 15,000; 20,000 | `lib/rules` (tests shorten them) |

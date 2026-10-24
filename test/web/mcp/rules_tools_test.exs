@@ -59,4 +59,36 @@ defmodule Web.MCP.RulesToolsTest do
     assert {true, "no rule file " <> _} =
              call("read_rule", %{"table" => table, "name" => "blocking"})
   end
+
+  test "counter writes reject invalid definitions and later rule failures preserve prior increments" do
+    MCPTestClient.start()
+    table = unique_table("mcp_counter_validation")
+
+    for source <- ["TRACK hits = count() LAST '0s'", "LOOKUP prior = absent"] do
+      assert {true, message} =
+               call("write_rule", %{"table" => table, "name" => "r", "source" => source})
+
+      assert message =~ "rejected; nothing was saved"
+      assert ok("list_rules", %{"table" => table}) == []
+    end
+
+    source = "TRACK hits = count() LAST '1h'; SET decision = test_raise(bad) + hits; UNSET secret"
+    assert ok("write_rule", %{"table" => table, "name" => "r", "source" => source})["saved"]
+    on_exit(fn -> Rules.delete_rule(table, "r") end)
+
+    ExUnit.CaptureLog.capture_log(fn ->
+      assert %{"results" => [failed, good]} =
+               ok("send_events", %{
+                 "table" => table,
+                 "events" => [%{"bad" => 1, "secret" => "private"}, %{"secret" => "private"}],
+                 "return_keys" => ["hits", "secret"],
+               })
+
+      assert failed["success"] == false
+      assert failed["error"] =~ "the event was not stored"
+      assert good == %{"success" => true, "event" => %{"hits" => 2, "secret" => nil}}
+    end)
+
+    assert Storage.dump_table(table) == [%{"hits" => 2}]
+  end
 end

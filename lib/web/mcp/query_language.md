@@ -40,6 +40,101 @@ The virtual table `schema` has one row per table and column, with the columns `t
 `key`, `count`, `null_count`, `false_count`, `true_count`, `int_count`, `float_count`,
 and `string_count`. SHOW TABLES and DESC are shorthand for queries on it.
 
+## Ingest rules
+
+Rules are separate from queries, managed with list_rules, read_rule, write_rule and
+delete_rule. A file is `<table>/<name>.gsql` (name matches `[a-z0-9_][a-z0-9_-]*`,
+at most 64 bytes). It runs on send_events before storage, not on Guardian's built-in
+tables. Files hold semicolon-separated statements and `--` comments, at most 64 KiB;
+the set allows 1,000 files, 256 tables and 1,000 statements per table.
+
+```text
+SET field = expr [WHERE cond]
+UNSET path [WHERE cond]
+TRACK name = aggregate(...) [BY expr, ...] [WHERE cond] LAST 'interval'
+LOOKUP field = counter_name [FROM table] [BY expr, ...] [WHERE cond]
+```
+
+```gsql
+TRACK logins_last_hour = count() BY ip LAST '1h';
+LOOKUP previous_logins = logins_last_hour BY ip;
+SET busy = logins_last_hour >= 50;
+UNSET password
+```
+
+SET replaces the whole top-level field; UNSET removes the path and everything
+beneath it, ignoring case. Missing fields are null; an exact spelling wins,
+otherwise the first case-insensitive spelling in byte order. Reads see flattened
+leaves. Output identifiers are lowercased. WHERE applies only when true; false/null
+preserves the incoming output and skips updates. Do not trust skipped outputs as
+computed decisions when the caller could supply them.
+
+TRACK updates its counter and writes the resolved window value, including this
+event on success: the 50th event sees 50. LOOKUP reads without updating and can name
+a TRACK on another table with FROM. LOOKUPs and prerequisite SETs run first, then
+remaining SETs/TRACKs in dependency order, then UNSETs. LOOKUP sees 49 when TRACK
+sees 50, independent of file order. This is per event; other events can update
+between reads. Self-reads see incoming fields. Independent order is file then
+statement. Cycles, conflicting output definitions and LOOKUP inputs/WHERE that
+depend transitively on a TRACK output are refused; identical copies count once.
+All statement kinds share one output namespace.
+
+Counter operators are count() (also count(*)), count(expr), count_distinct(expr),
+sum(expr), min(expr), max(expr), avg(expr). Count(expr) and distinct skip null;
+distinct uses approximate HyperLogLog precision 8. Sum/avg skip non-numbers; min/max
+skip null and use query ordering. Empty/failed counts give 0; other counters give
+null (unlike query sum's empty 0.0). Integer sums wrap to int64, average retains
+exact integer sums, and floating overflow gives null. Min/max ties keep the later
+merged value/type. Inputs, BY and WHERE accept scalar functions, CASE and operators;
+aggregates are allowed only as TRACK's outer call, never nested or in SET/BY/WHERE.
+
+BY is an exact ordered tuple of typed values. Omit it for a global counter; null
+is a valid group. Integer 1, float 1.0 and string '1' are different groups. LOOKUP
+must resolve to a TRACK with the same BY arity and supply matching types/values.
+
+```gsql
+LOOKUP recent_logins = logins_last_hour FROM logins BY client_ip;
+SET needs_review = recent_logins > 100
+```
+
+LAST is a positive integral total interval in s/m/h/d/w notation, up to 365 days.
+Private arrival metadata captured before validation drives windows, never caller
+timestamps, and is not automatically stored. With W the window and B=ceil(W/3),
+read whole buckets floor((arrival-W)/B) through floor(arrival/B), at most four.
+The complete oldest bucket biases toward overcount: 30 minutes can include almost
+40 minutes. Approximation/loss can still undercount. Buckets expire at bucket_end+W;
+writes use remaining TTL, but transit/queue delay can delay physical expiry.
+Events delayed past expiry skip their update and default. Keep node clocks
+synchronized; there is no event-time/backfill mode.
+
+A canonical TRACK definition (table/name/source) identifies its state. Definition
+edits or renames start fresh; moves/comments/whitespace do not. Queries read stored
+historical outputs, never live state. Changing BY arity or deleting/renaming a
+referenced TRACK is refused: add a new named TRACK, retarget LOOKUPs, then delete
+the old one. Whole-set writes reject newly introduced errors, permitting repair
+of already broken sets. Invalid reloads retain the entire connected old/new LOOKUP
+component, including deletions; new joins wait. Unrelated components activate.
+At clean boot invalidity propagates toward dependents. Published bindings survive
+a rules-process restart, including a rule-store outage.
+
+Counters are advisory and ephemeral, with one owner per definition/group. Restarts,
+eviction, partitions and cluster membership changes can lose/split counts. Every
+failed counter statement defaults its whole result, then other rules/UNSETs run.
+SET/UNSET failures still reject the event. Calls wait at most 50 ms within a 100 ms
+event phase and 250 ms shared failed-wait batch allowance; suspect owners cool down
+for one second. Healthy calls refund the batch allowance. Only definite CAS conflicts
+retry (three total attempts), never uncertain writes or entire events. There is no
+rollback: a later rule/storage failure can leave increments. Unkeyed retries count
+again. Completed matching same-node idempotency-key retries skip rules for ten
+seconds but return only receipts, without decision fields; protection can be lost.
+Request outputs through send_events return_keys (missing fields return null).
+
+GUARDIAN_COUNTER_MEMORY_MB is a positive MiB budget, default 64; explicit empty or
+invalid settings refuse startup. It bounds resident entries/indexes, not mailboxes
+or copies. Capacity reclaims expiry then roughly the oldest half of live keys.
+UNSET does not erase grouping keys/min/max inputs from private counter memory or
+trusted peer traffic. Avoid secrets in those expressions.
+
 ## Not supported
 
 - `UNION`, `JOIN`, and subqueries. Each query reads one table.

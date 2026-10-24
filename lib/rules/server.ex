@@ -19,8 +19,7 @@ defmodule Rules.Server do
 
   `reload/0` and a poll every 60 s re-read the store, fetching only objects whose ETag
   changed. Activation selects prior good plans for invalid dependency components
-  (a new table that is invalid is published as invalid). With counters disabled,
-  components are individual tables. Nothing changes unless every
+  (a new table that is invalid is published as invalid). Nothing changes unless every
   changed table compiles; then one map is published, switching every addition, change
   and deletion at once.
 
@@ -276,9 +275,8 @@ defmodule Rules.Server do
 
   defp sources(files), do: Map.new(files, fn {key, file} -> {key, file.source} end)
 
-  # Keep the public counter gate until public enablement in C4c3. Boot, reload and
-  # both sides of write validation must use the same preparation mode.
-  defp prepare(sources), do: RuleSet.prepare(sources, counters: false)
+  # Whole-set preparation is shared by every admission path.
+  defp prepare(sources), do: RuleSet.prepare(sources)
 
   defp reload_state(state) do
     case read_set(state) do

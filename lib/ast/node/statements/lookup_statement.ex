@@ -1,7 +1,7 @@
 defmodule AST.Node.Statements.LookupStatement do
   @moduledoc """
   Counter rule syntax, `LOOKUP field = counter [FROM table] [BY expr, ...] [WHERE cond]`.
-  Parsed only by `AST.Parser.parse_rules/1`; execution is not yet enabled.
+  Parsed only by `AST.Parser.parse_rules/1`; Rules binds its target before execution.
   """
 
   use AST.Node

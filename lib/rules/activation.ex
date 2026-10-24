@@ -7,10 +7,8 @@ defmodule Rules.Activation do
 
   Edges include previous bound LOOKUP targets and new locally valid candidates,
   so an invalid dependent cannot strand an old identity when its target changes.
-  Server uses counter-refusing preparation until public enablement in C4c3. Its previous
-  plans come from the published modules' recoverable metadata, so selection also
-  preserves prior plans after Server restarts. With counters disabled, components
-  are individual tables.
+  Previous plans come from the published modules' recoverable metadata, so selection
+  also preserves prior plans after Server restarts.
   Selection returns tables/retained; the caller must combine preparation.errors
   with selected table errors so retained failures and deferral diagnostics survive.
   """

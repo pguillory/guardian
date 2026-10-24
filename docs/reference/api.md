@@ -51,6 +51,32 @@ keywords, `null`, `true`, `false`, `current_date`, `current_timestamp` and `sche
 Use stable object keys, and put data in values (`{"customer_id": 123}`, not
 `{"123": true}`). Guardian adds no timestamp: each producer stamps its own, by
 convention a UTC `timestamp` string (`YYYY-MM-DD HH:MM:SS`) and a `time_ms` number.
+Private arrival metadata drives counter windows; it is never automatically stored
+or taken from the event's timestamp fields.
+
+### Counter decisions in the response
+
+[TRACK and LOOKUP rules](../guides/rules.md#counters-with-track-and-lookup) return
+their output through the same `return_keys` mechanism:
+
+```sql
+TRACK hits = count() BY ip LAST '1h';
+LOOKUP previous_hits = hits BY ip;
+SET busy = hits >= 50
+```
+
+With these rules on `logins`, request `return_keys: ["hits", "previous_hits", "busy"]`.
+The 50th login in a group returns 50, 49 and true. Successful TRACK includes the
+current event; LOOKUP excludes it. Queries read the stored historical outputs.
+Counter failures still return successful ingest with missing results (0 for counts,
+null for sum/min/max/avg); final UNSETs continue. WHERE false/null preserves an
+incoming output, so only applied statements produce trusted computed values.
+Counters are approximate and ephemeral, with boundary overcount and state loss;
+use them as advisory signals, not durable limits.
+
+An increment can survive a later rule or storage failure. There is no rollback or
+internal event replay. Unkeyed retries count again. A completed matching keyed
+retry skips counters but returns only a receipt, without computed decisions.
 
 ### Retrying a batch
 
@@ -138,7 +164,9 @@ The MCP endpoint at `/mcp` (Streamable HTTP) exposes these tools:
   (`table` and `name`, plus `source` to write). A write is checked against the whole
   rule set and refused, with the errors, if it would add one; a saved write returns
   `saved: true`, any errors the set already had, and any nodes that didn't confirm
-  reloading. Where rules are kept: [Rule storage](../guides/rules.md).
+  reloading. SET, UNSET, TRACK and LOOKUP syntax and safe counter edits are in the
+  [rules guide](../guides/rules.md). The served `guardian://query-language` resource
+  includes the rule reference too.
 
 For example, a Claude Code client:
 

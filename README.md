@@ -144,7 +144,7 @@ every function, is in the [query language reference](lib/web/mcp/query_language.
 
 ## Rules: decide as events arrive
 
-A rule file holds `SET` and `UNSET` statements for one table. Every event sent to that
+A rule file holds SET, UNSET, TRACK and LOOKUP statements for one table. Every event sent to that
 table runs them before it's stored, and the sender can ask for the results in the
 same response. Here is `logins/blocking.gsql`:
 
@@ -192,6 +192,28 @@ R2, and an agent manages them with the MCP tools `list_rules`, `read_rule`,
 first (syntax, a field defined two ways, rules that depend on each other in a
 circle), so a bad rule never goes live. The details are in the
 [product spec](docs/product/spec.md#51-rules).
+
+Counters let a producer react to recent activity:
+
+```sql
+-- logins/rate.gsql
+TRACK logins_last_hour = count() BY ip LAST '1h';
+LOOKUP previous_logins = logins_last_hour BY ip;
+SET busy = logins_last_hour >= 50
+```
+
+Ask for `logins_last_hour`, `previous_logins` and `busy` in `return_keys`. On the
+50th login for an IP, TRACK returns 50 and LOOKUP returns 49, regardless of statement
+order. LOOKUP can also read a named counter on another table with `FROM table`.
+Queries see the values stored on each event, not today's live counts.
+
+Counters are approximate and ephemeral. Window buckets can include almost one
+extra bucket of older events; restarts, eviction and cluster changes lose state.
+Counter failures return 0 for counts or null for other aggregates and ingestion
+continues. A later rule/storage failure can leave increments behind; unkeyed retries
+count again. These are advisory signals, not durable enforcement limits. See the
+[rules guide](docs/guides/rules.md#counters-with-track-and-lookup) for operators,
+grouping, window semantics, safe edits and memory configuration.
 
 ## Let your agent use it
 
@@ -282,7 +304,7 @@ Running it:
 - [Fly.io](docs/guides/fly.md): the best-supported deployment, scaling, rollbacks,
   and the optional Cloudflare Tunnel.
 - [Configuration](docs/reference/configuration.md): every environment variable.
-- [Rule storage](docs/guides/rules.md): rules in a folder or an S3-compatible bucket.
+- [Rules and rule storage](docs/guides/rules.md): TRACK/LOOKUP counters, SET/UNSET and rule files in a folder or an S3-compatible bucket.
 - [Known limitations](docs/reference/limitations.md): durability, retention, memory,
   and cluster behavior to plan around.
 

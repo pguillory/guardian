@@ -29,4 +29,20 @@ defmodule Web.MCP.QueryLanguageTest do
       assert [_ | _] = AST.parse_statements(example)
     end
   end
+
+  test "rule examples validate together and the rule reference includes every counter operator" do
+    [_, rule_section] = String.split(@reference, "## Ingest rules\n", parts: 2)
+    rule_section = rule_section |> String.split("## Not supported", parts: 2) |> hd()
+    examples = Regex.scan(~r/```gsql\n(.*?)\n```/s, rule_section, capture: :all_but_first)
+    assert length(examples) >= 2
+
+    files =
+      for {[example], n} <- Enum.with_index(examples), into: %{} do
+        table = if n == 0, do: "logins", else: "reference_#{n}"
+        {"#{table}/reference.gsql", example}
+      end
+
+    assert Rules.RuleSet.validate(files).errors == []
+    for {name, _arity} <- Counters.Aggregate.operators(), do: assert(rule_section =~ name)
+  end
 end

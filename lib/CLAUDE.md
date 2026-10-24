@@ -12,10 +12,10 @@ The `lib/` directory contains the event store, query engine, and network interfa
 - `Web.IngestIdempotency`: bounded node-local client-key receipts, started before
   Web. It holds only metadata and never runs ingestion; unavailability fails open.
 - `Engine`: validates and ingests events, running the table's rules on API ingests.
-- `Rules`: ingest-time SET/UNSET rules stored as files (`lib/rules/CLAUDE.md`).
+- `Rules`: ingest-time SET/UNSET/TRACK/LOOKUP rules stored as files (`lib/rules/CLAUDE.md`).
 - `Counters.Store`: node-local, ephemeral ETS get/gets/cas/incr store with TTLs and
-  a memory budget (`lib/counters/CLAUDE.md`); internal TRACK/LOOKUP execution is
-  implemented but public validation and compilation still refuse counter rules.
+  a memory budget (`lib/counters/CLAUDE.md`); TRACK/LOOKUP run through Rules using
+  bounded owner routing and fail-open defaults.
 - `Counters.Restarter`: owns the disposable Store/Cluster supervisor and recovers
   it with backoff, so counter crash loops cannot exhaust Main's restart intensity.
 - `Storage`: custom columnar segment storage.

@@ -21,7 +21,7 @@ their agents, mostly through the MCP `query` tool. Guardian is schemaless: any J
 object can go into any table, nested objects become dotted columns, and a column can
 hold mixed types. One API key grants access to everything. Events land in Guardian's
 own columnar segment format (after the table's rules, if any, compute or remove
-fields), are queryable as soon as they are stored, start moving to
+fields, including ephemeral window-counter results), are queryable as soon as they are stored, start moving to
 disk within about an hour, and expire after about 15 days. It runs as a single node or
 as a cluster of machines, each holding its own events, and every query fans out to all
 connected machines. Fly.io is the best-supported deployment.
@@ -63,9 +63,10 @@ queries.
    adds no timestamp or ID. An optional idempotency key gives matching retries on
    the same node a short-lived receipt instead of inserting the batch again;
    protection is best effort and resets on restart.
-3. Rules: a table can have rule files, `SET field = expr [WHERE cond]` and `UNSET
-   field [WHERE cond]` statements, that compute or remove fields on each incoming
-   event before it is stored (`SET is_blocked = true WHERE signal > 0.9`). The client
+3. Rules: a table can have rule files with SET, UNSET, TRACK and LOOKUP statements.
+   They compute or remove fields and keep approximate, ephemeral window counters
+   on incoming events (`TRACK logins = count() BY ip LAST '1h'`). A SET can turn the
+   result into a decision (`SET is_blocked = logins >= 50`). The client
    asks for computed fields back with `return_keys`. Rules live in a local folder or
    an S3-compatible bucket, are managed with MCP tools, and are validated together on
    every write.
@@ -94,8 +95,10 @@ down silently drops out of results.
 
 ### What it is not
 
-Guardian has no alerting or counters, no per-user access control, no retention
-settings per table, and no external services in its ingestion path. Its rules compute
-and remove fields on the way in; they hold no state and call nothing.
+Guardian has no alerting, per-user access control, retention settings per table,
+or external services in its ingestion path. Counters use bounded calls between
+Guardian nodes and fail open when unavailable. They are advisory: restarts, eviction
+and cluster changes lose counts. A producer acts on a computed decision; Guardian
+does not block its requests.
 
 The full behavior, limits, and known gaps are in [spec.md](spec.md).

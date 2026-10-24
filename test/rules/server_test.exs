@@ -40,28 +40,39 @@ defmodule Rules.ServerTest do
     assert [{:error, _}] = Engine.ingest_events("bad", [%{}])
   end
 
-  test "counter rule writes are rejected without saving or disclosing their source" do
+  test "invalid counter writes save nothing and valid counters execute through generated modules" do
     table = unique_table("counter_reject")
     {_s3, store} = s3_server()
 
     for {word, source} <- [
-          {"TRACK", "TRACK c = count() BY secret_group LAST '1h'"},
-          {"LOOKUP", "LOOKUP x = c BY secret_group"},
+          {:counter_window, "TRACK c = count() BY secret_group LAST '0s'"},
+          {:counter_target, "LOOKUP x = c BY secret_group"},
         ] do
-      assert Rules.write_rule(table, "a", "\n" <> source) ==
-               {:error,
-                {:rejected, ["#{table}/a.gsql line 2: #{word} statements are not supported yet"]}}
+      assert {:error, {:rejected, [message]}} = Rules.write_rule(table, "a", "\n" <> source)
+      assert message =~ "#{table}/a.gsql line 2:"
+      refute message =~ "secret_group"
+      assert [%{kind: ^word}] = Rules.RuleSet.validate(%{"#{table}/a.gsql" => source}).errors
     end
 
     assert Rules.Store.list(store) |> elem(1) |> Enum.reject(&(&1.key == "_write.lock")) == []
     assert Rules.lookup(table) == nil
+
+    assert {:ok, _} =
+             Rules.write_rule(table, "a", "TRACK c = count() LAST '1h'; LOOKUP prior = c")
+
+    module = Rules.lookup(table)
+    assert module.plan().resolved?
+    assert module.apply(%{}) == %{"c" => 1, "prior" => 0}
+    assert [{:ok, %{"c" => 2, "prior" => 1}}] = Engine.ingest_events(table, [%{}])
   end
 
-  test "parsed counter rules at boot invalidate only their table and logs omit source" do
+  test "invalid counter rules at boot invalidate only their table and logs omit source" do
     s3 = FakeS3.start()
     on_exit(fn -> FakeS3.stop(s3) end)
-    FakeS3.put_object(s3, "counter/a.gsql", "TRACK c = count() BY secret_group LAST '1h'")
-    FakeS3.put_object(s3, "good/a.gsql", "SET x = 1")
+    table = unique_table("counter_boot")
+    good = unique_table("counter_boot_good")
+    FakeS3.put_object(s3, "#{table}/a.gsql", "TRACK c = count() BY secret_group LAST '0s'")
+    FakeS3.put_object(s3, "#{good}/a.gsql", "SET x = 1")
 
     log =
       ExUnit.CaptureLog.capture_log(fn ->
@@ -69,13 +80,12 @@ defmodule Rules.ServerTest do
         Logger.flush()
       end)
 
-    assert {:invalid, "counter/a.gsql line 1: TRACK statements are not supported yet"} =
-             Rules.lookup("counter")
+    assert {:invalid, _} = Rules.lookup(table)
 
-    assert log =~ "counter/a.gsql line 1 (unsupported)"
+    assert log =~ "#{table}/a.gsql line 1 (counter_window)"
     refute log =~ "secret_group"
-    assert [{:error, _}] = Engine.ingest_events("counter", [%{}])
-    assert [{:ok, %{"x" => 1}}] = Engine.ingest_events("good", [%{}])
+    assert [{:error, _}] = Engine.ingest_events(table, [%{}])
+    assert [{:ok, %{"x" => 1}}] = Engine.ingest_events(good, [%{}])
   end
 
   test "invalid rules are logged by file, line and kind, never by rule text" do

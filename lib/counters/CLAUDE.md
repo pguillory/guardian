@@ -2,9 +2,10 @@
 
 Ephemeral counter infrastructure for the reviewed TRACK/LOOKUP v1 design in
 `docs/changes/ingest-rules.md`. The node-local store, cluster routing and pure
-aggregate operators and internal rule execution (`Rules.CounterRuntime`) are
-implemented; public rule enablement follows separately. Do not describe
-TRACK/LOOKUP as available until public enablement (C4c3).
+aggregate operators and live rule execution (`Rules.CounterRuntime`) are
+implemented. TRACK/LOOKUP are available through normal whole-set rule writes,
+startup and reload. GUARDIAN_COUNTER_MEMORY_MB sets positive MiB, default 64;
+explicit empty/invalid values refuse startup.
 
 `Counters.Store` owns private ETS tables for entries, insertion order and expiry.
 Its serialized get/get_many/gets/cas/incr operations are atomic on one node.
@@ -27,7 +28,7 @@ external services, credentials, rule text or event logging belongs here.
    only by successful mutations. The periodic expiry sweep cleans quiet keys in
    256-entry turns, continuing immediately while expired entries remain. It keeps
    one tagged timer chain and interleaves queued operations between pages.
-   Counter bucket callers will pass remaining TTL to a fixed expiry.
+   Counter bucket callers pass remaining TTL to a fixed expiry.
 3. Charge ETS memory in bytes plus serialized payloads for off-heap binaries,
    including whole backing allocations retained by nested binary/bitstring slices
    (also through keys and function environments);
@@ -96,7 +97,7 @@ state winning ties, including the type of equal integer/float values.
 Bucket callers merge states, compare with the prior state using `===` to skip
 unchanged writes, then resolve once. Count values returned by native increments
 must also be resolved to apply int64 output bounds. Keep historical query
-aggregate sharing as separate follow-up work, and do not wire rules here.
+aggregate sharing as separate follow-up work; rule execution belongs in Rules.
 The numeric merge/resolve clauses mirror query aggregates; keep their overflow
 policy changes aligned until that sharing work is done. Counter rule execution
 lives in Rules, with at most three total CAS attempts for definite conflicts only.

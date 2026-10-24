@@ -1,4 +1,4 @@
-# Rule storage
+# Rules and rule storage
 
 Rules are files named `<table>/<name>.gsql` (the language is in the
 [product spec](../product/spec.md#51-rules)). Guardian reads them from one store: a
@@ -7,6 +7,106 @@ startup, after each write through the MCP rule tools, and once a minute, and nev
 reads the store while ingesting. If the store is misconfigured, or unreachable or
 rate-limiting at startup (after about a minute of retries), Guardian refuses to start
 rather than run without its rules.
+
+## Counters with TRACK and LOOKUP
+
+Create `logins/rate.gsql`, or use MCP `write_rule` with `table: logins`, `name: rate`
+and this source:
+
+```sql
+TRACK logins_last_hour = count() BY ip LAST '1h';
+LOOKUP previous_logins = logins_last_hour BY ip;
+SET busy = logins_last_hour >= 50;
+UNSET password
+```
+
+Send events through HTTP or MCP `send_events`, requesting
+`return_keys: ["logins_last_hour", "previous_logins", "busy"]`. The 50th login for
+an IP returns 50, 49 and true. The producer decides what to do with that signal.
+Guardian stores the computed fields and queries read those historical values.
+
+TRACK updates and includes the current event; LOOKUP only reads. All LOOKUPs finish
+before any TRACK on that event, even if files put TRACK first. SET dependencies run
+where needed and all UNSETs run last. A LOOKUP input or condition cannot depend on
+a TRACK result, even through SETs. Other events can update between reads; there is
+no global snapshot.
+
+For cross-table reads, put this in `payments/risk.gsql`:
+
+```sql
+LOOKUP recent_logins = logins_last_hour FROM logins BY client_ip;
+SET needs_review = recent_logins > 100
+```
+
+The target must exist and BY arity must match. Grouping uses exact typed ordered
+values: integer 1, float 1.0 and string '1' are different, and null is a valid group.
+Omit BY for a global counter. WHERE false or null skips the statement and preserves
+its incoming field. Apply counter statements unconditionally, or explicitly set a
+safe skipped value, when a caller-supplied output would be untrustworthy.
+
+TRACK supports count(), count(expr), count_distinct(expr), sum(expr), min(expr),
+max(expr) and avg(expr). Count skips null arguments; count() counts all matching
+events. Distinct uses approximate HyperLogLog precision 8. Sum/avg skip non-numbers,
+min/max skip null and use query ordering. Empty or failed counts return 0; the
+other operators return null. Counter sum's empty result differs from query sum's
+0.0. Scalars are allowed in arguments, BY and WHERE; nested aggregates are not.
+The [product spec](../product/spec.md#51-rules) gives numeric and dependency details.
+
+LAST takes a positive integral total interval in s/m/h/d/w notation, up to 365 days.
+Windows use private arrival metadata captured before validation, never a client's
+timestamp. Guardian adds no stored timestamp. Keep node clocks synchronized.
+Window W uses buckets B=ceil(W/3), reading up to four whole intersecting buckets:
+a 30-minute window can include almost 40 minutes. The oldest-bucket overcount bias
+does not prevent undercounts from approximation or lost state. Each bucket expires
+at bucket_end+W; updates pass the remaining TTL, though transit and queues can delay
+physical expiry. An event delayed past that expiry skips its update and defaults.
+
+Counters live in memory on one Guardian owner per definition/group, with all buckets
+together. Restarts, node joins/leaves, partitions, divergent membership and eviction
+can lose or split counts. No persistence, replication, backfill, uncertain-write
+retry or failover is provided. A failed operation defaults the entire statement,
+then SETs and final UNSETs continue; SET/UNSET failures still reject the event.
+Calls have a 50 ms limit, a 100 ms event phase and a shared 250 ms failed-wait batch
+allowance; suspect owners cool down for one second. Healthy calls refund the batch
+allowance, so a large batch can still take time. Counters are advisory signals.
+
+Set GUARDIAN_COUNTER_MEMORY_MB to a positive integer in MiB (default 64) and restart
+to change the resident entry/index budget. Empty, zero, negative and non-integer
+values refuse startup. The budget excludes mailboxes, temporary copies and the
+rest of the VM. Capacity reclaims expired keys, then roughly the oldest half of
+live keys. High-cardinality groups compete for this shared budget.
+
+UNSET removes fields from stored events, not from counter memory: BY keys and
+min/max values can retain sensitive inputs and cross the trusted peer network until
+expiry/eviction. Avoid putting secrets in those expressions.
+
+### Editing and retrying counters
+
+The canonical TRACK definition identifies the state. Changing its name, aggregate,
+expressions, WHERE or LAST starts fresh. Moving identical text to another file or
+changing comments/whitespace preserves counts. Identical copies count only once.
+Old definitions disappear by expiry/eviction; old stored results are unchanged.
+
+Writes validate the entire rule set. To change grouping arity or rename/delete a
+referenced TRACK, add a new named TRACK, retarget its LOOKUPs (with matching BY),
+then delete the old TRACK. Alternatively remove dependents first. A one-file change
+that strands a LOOKUP is refused. Duplicate definitions must be removed or updated
+without leaving conflicting definitions of one output field.
+
+On reload, valid definitions and LOOKUP bindings switch atomically on each node.
+If a table is invalid, the entire component linked by old or new LOOKUP dependencies
+keeps its previous good plans, even for deleted members. New joins wait as invalid;
+unrelated components activate. At clean boot only directed dependents of invalid
+targets fail. A Rules.Server-only restart preserves published bindings and counts;
+a Store/node restart loses counts. Very rapid edits with many dependents can fill
+the compiled-module pool: a saved file then waits for module reclamation and polling.
+
+A later SET or storage failure can leave earlier TRACK increments; there is no
+rollback. Unkeyed client resubmissions count twice. A completed matching
+idempotency-key retry on the same node skips rules for ten seconds but returns only
+a receipt, without counter/decision fields. Receipt protection is node-local even
+though counters have cluster owners; eviction, overload, restart or another node
+can bypass it. See [retrying a batch](../reference/api.md#retrying-a-batch).
 
 ## A local folder (the default)
 

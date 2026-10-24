@@ -58,13 +58,25 @@ defmodule Web.MCP.Server do
   to that table through send_events, before it is stored. A file holds statements \
   separated by semicolons, with -- comments: SET field = expr [WHERE cond] sets a \
   top-level field (replacing it whole; the name is stored lowercased), UNSET path [WHERE cond] removes a field and \
-  everything beneath it. Expressions are the query language's scalar expressions \
-  (no aggregates). Missing fields are null; names match ignoring case. Every SET runs \
-  before every UNSET; a SET that reads another SET's field runs after it. Example: \
-  SET is_blocked = true WHERE signal > 0.9; UNSET password. The whole rule set is \
-  validated together: a write is refused if it adds a parse error, a field defined \
-  two different ways on one table, or a cycle. Ask send_events for computed fields \
-  with return_keys.\
+  everything beneath it. TRACK name = aggregate(...) [BY expr, ...] [WHERE cond] LAST '1h' \
+  updates an ephemeral window counter and includes this event. LOOKUP field = counter \
+  [FROM table] [BY expr, ...] [WHERE cond] reads a TRACK before any TRACK updates on \
+  this event. Supported: count(), count(expr), count_distinct(expr), sum, min, max, avg. \
+  LAST is a positive integral s/m/h/d/w interval up to 365 days. BY uses exact ordered \
+  typed values, including null, and must match the target arity. Scalar expressions \
+  are allowed in inputs/WHERE; no nested aggregates. Missing fields are null; names \
+  match ignoring case. WHERE false/null preserves incoming outputs. LOOKUPs and their \
+  prerequisite SETs run first, then SET/TRACK in dependency order, then UNSET. \
+  Counter failures give 0 for counts or null otherwise; SET/UNSET failures reject \
+  the event. Example: TRACK hits = count() BY ip LAST '1h'; SET busy = hits >= 50; \
+  UNSET password. Counters are approximate/advisory, reset on definition edits, and \
+  can lose state on restarts, eviction or cluster changes. A later failure can leave \
+  increments; unkeyed resubmissions count again. The whole set is validated: invalid \
+  syntax, scalar/aggregate/window/target/arity errors, conflicting fields, cycles or \
+  TRACK-dependent LOOKUP inputs are refused. To rename/regroup a referenced TRACK, \
+  add a new named TRACK, retarget LOOKUPs, then delete the old one. Ask send_events \
+  for outputs with return_keys; completed keyed retries return only receipts. Full \
+  rule reference: #{@query_language_uri}.\
   """
 
   # Anubis 0.16 keeps tools and resources registered at runtime in the private map of

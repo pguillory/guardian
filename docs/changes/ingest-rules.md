@@ -1,13 +1,10 @@
-# ingest-rules: SET and UNSET rules run on incoming events, stored as files
+# ingest-rules: SET, UNSET, TRACK and LOOKUP rules stored as files
 
-Status: phase 1 (SET and UNSET) done. Counter C1 (the node-local ETS store),
-C2 (bounded cluster ownership) and C3 (aggregate operators) are implemented.
-TRACK and LOOKUP's settled v1 design and reviewed four-piece implementation plan
-are below. C4a adds parsed TRACK/LOOKUP syntax, canonical source and traversal;
-Rules.RuleSet still rejects both statements, so counters are not yet available in
-active rules. C4c1 wires activation selection and recoverable module-plan metadata.
-Internal counter execution is implemented in C4c2; public enabling remains C4c3.
-The remaining C4 work is split below.
+Status: complete through C4c3. SET/UNSET and TRACK/LOOKUP are live through normal
+rule writes, startup, reload and HTTP/MCP ingestion. C1 provides node-local ETS,
+C2 bounded cluster ownership, C3 mergeable operators, and C4 grammar, validation,
+coherent activation, execution, memory configuration and product documentation.
+The settled design and implementation history are below. Deployment is separate.
 The phase 1 open questions were settled on the recommendations below.
 Each was first kept switchable through app env (`:rules_on_failure`,
 `:rules_invalid_at_boot`); once confirmed, the switches and the alternatives they
@@ -48,7 +45,7 @@ reviewed, diffed and backed up like code.
    one. Expressions and conditions are the query language's scalar expressions (all
    scalar functions, operators, CASE). Aggregates are rejected anywhere in a
    statement, WHERE included.
-4. Counter v1 adds these forms (internal execution built; public enabling pending):
+4. Counter v1 adds these forms:
 
    ```sql
    TRACK logins_last_hour = count() BY ip LAST '1h'
@@ -327,7 +324,7 @@ JSON API rule endpoints in phase 1.
    their resolved counter identities atomically with the new definitions. Invalid
    runtime reloads retain whole connected dependency components of prior plans,
    as specified in C4b below. Server selection and module metadata are implemented
-   in C4c1; live counter activation is deferred to C4c3.
+   in C4c1; C4c3 enables live counter activation.
 7. Running a statement does not scan the row. At the first statement the runtime
    indexes the event's flattened row once: a trie of its keys by lowercase
    top-level object path, and each lowercase spelling's present keys in byte order.
@@ -343,8 +340,9 @@ JSON API rule endpoints in phase 1.
 This extends the completed SET/UNSET work. The implementation has four pieces,
 C1 through C4; C4 is split into sequential commits below. C2 and C3 depend on C1;
 C4 depends on both. The grammar
-above stays unchanged. There is no Memcached, sidecar, persistence, backfill,
-hot-key sharding, replication, or client deduplication in this version.
+above stays unchanged. There is no Memcached, sidecar, counter persistence, backfill,
+hot-key sharding or replication. Separate best-effort same-node idempotency-key
+receipts can skip completed retries; this is not cluster-wide deduplication.
 
 ### Counter behavior
 
@@ -377,7 +375,9 @@ hot-key sharding, replication, or client deduplication in this version.
    incoming counter value as if a read had succeeded. A statement skipped by WHERE
    still preserves its field. There are no event retries or rollback: a client
    resubmission counts again, and a later rule/storage failure can leave an earlier
-   TRACK update counted. Client idempotency is separate follow-up work.
+   TRACK update counted. Completed matching same-node keyed retries skip rules,
+   returning only a receipt, without counter/decision values; the protection is
+   short-lived and can be lost (see `ingest-idempotency.md`).
 
 ### Time buckets and identity
 
@@ -553,7 +553,7 @@ the member list once per event from this node and its connected peers. Do not ca
 ### C3: mergeable aggregate operators
 
 Implemented: `Counters.Aggregate`, a pure operator API with no store or rule
-wiring. Product spec impact: none until C4; TRACK/LOOKUP are not yet available.
+wiring. Its own product spec impact was none; C4c3 enables TRACK/LOOKUP.
 Operators are `{string_name, arity}` tuples from `operators/0`. `create/2` takes
 one event's list of arguments. Callers compare merged states with the prior state
 using `===` before deciding whether to write; all count states, including native
@@ -591,10 +591,10 @@ allowlist: count/0, count/1, count_distinct/1, sum/1, min/1, max/1, avg/1.
 
 ### C4: rule integration and product behavior
 
-C4 is split into C4a/b/c. C4a is implemented: contextual TRACK/LOOKUP AST parsing,
+C4 was split into C4a/b/c. C4a added contextual TRACK/LOOKUP AST parsing,
 canonical source and source-order traversal, with an explicit RuleSet refusal
-before executable steps are built. Product spec impact: none; active rules still
-support only SET/UNSET. Canonical source normalizes count(*) to count(), just as
+before executable steps were built. Its product spec impact was none: active rules
+then supported only SET/UNSET. Canonical source normalizes count(*) to count(), just as
 the query parser does. The syntax parser currently uses the query aggregate
 registry/arity checks. C4b now validates the counter allowlist, scalar
 arguments/BY/WHERE, interval bounds and FROM table validity. Dependency reads come
@@ -633,17 +633,15 @@ reload can switch it together. Unrelated components activate normally. At boot,
 with no previous plans, only directed target-invalidity propagation applies.
 
 Plan review narrowed C4b to these tested pure preparation/selection contracts.
-Server wiring and bounded recoverable plan metadata are implemented in C4c1 below;
-live counter reload/restart coverage belongs to C4c3 alongside public enablement.
-Internal execution is implemented in C4c2. Public `validate/1` still refuses counters
-before scalar checks within their file, and Compiler independently refuses prepared
-counter plans. Product spec impact: none; overview and spec continue to describe
-active SET/UNSET rules.
+Server wiring and bounded recoverable plan metadata landed in C4c1 below;
+C4c2 added internal execution, and C4c3 enables it with live reload/restart tests.
+At the C4b checkpoint, public validation and Compiler still refused counters and
+product spec impact was none. That temporary refusal is removed in C4c3.
 
-Remaining order:
+Implementation order (all completed):
 
 1. C4b, implemented: whole-set validation, dependency graph, resolved definition
-   identities and pure coherent reload selection. Counter statements remain unavailable.
+   identities and pure coherent reload selection. Counter statements were still unavailable.
 2. Prerequisite (C1 follow-ups), implemented: quiet expiry catches up in immediate
    pages and capacity reclaims expiry first; counter crash loops recover separately
    from Main as described below.
@@ -651,16 +649,16 @@ Remaining order:
    metadata, with unresolved-plan safety. Product spec impact: none.
 4. C4c2, implemented: internal execution, buckets, private arrival metadata and
    shared event/batch budgets, with both gates closed. Product spec impact: none.
-5. C4c3: enable both gates together; live coherent counter reloads/restarts,
+5. C4c3, implemented: enable both gates together; live coherent counter reloads/restarts,
    HTTP/MCP return_keys and stored historical fields, runtime memory configuration,
    and the full user-visible documentation obligations below. Include stopped/slow
    peers, cooldown recovery, duplicate events and partial side effects in live
    coverage, building on C2's routing tests and C4c2's internal execution tests.
 
-C4c1 connects boot, reload and saved writes to `Rules.Activation.select/2`, using
+C4c1 connected boot, reload and saved writes to `Rules.Activation.select/2`. At that checkpoint it used
 `RuleSet.prepare/2` with `counters: false` everywhere on the live path. The public
-unsupported-before-scalar precedence and Compiler's independent counter gate stay
-closed. Local candidates have `resolved?: false`; successful whole-set resolution
+unsupported-before-scalar precedence and Compiler's independent counter gate stayed
+closed at that checkpoint. Local candidates have `resolved?: false`; successful whole-set resolution
 marks plans resolved. Compiler rejects unresolved candidates before loading any
 code, and independently rejects a LOOKUP with no bound target, even if its plan
 is marked resolved.
@@ -680,10 +678,10 @@ Coverage includes candidate refusal without module creation, exact plan round-tr
 with regex/scalar expressions, restart through invalid/unreachable stored copies,
 repair and unrelated changes/deletions, atomic pool-exhaustion rollback, metadata
 reclamation, and status redaction with secrets inside AST literals. Live counter
-dependency-component reload/restart tests remain C4c3; C4c1 does not bypass
-the counter gates to simulate execution. Overview and product spec stay unchanged.
+dependency-component reload/restart tests were left to C4c3; C4c1 did not bypass
+the counter gates to simulate execution. Its overview and product spec stayed unchanged.
 
-C4c2 implements internal execution behind those same closed admission and compiler
+C4c2 implemented internal execution behind those same closed admission and compiler
 gates. `Rules.Runtime.run/3` dispatches ordered typed steps; tests drive it with
 resolved `RuleSet.prepare/1` plans. There is no compiler bypass or public path
 activating counters. Generated SET/UNSET modules use this dispatcher too and expose
@@ -718,7 +716,42 @@ definition edits/moves and duplicate TRACK deduplication, bucket boundaries,
 expired-before-issue updates, no-op states, fixed TTLs, bounded CAS conflicts and
 uncertain-write non-retry, healthy batches/concurrent increments, many-rule batch
 budget exhaustion, worker replacement and private Engine metadata. Real enabled
-reload/restart, API/MCP and full feature documentation remain C4c3.
+reload/restart, API/MCP and full feature documentation were left to C4c3.
+
+C4c3 enables the public path coherently: validate/1 and Server's shared helper use
+counter-aware prepare/1, and Compiler admits resolved counter plans. The obsolete
+disable option and early unsupported-statement branch are removed. Unresolved
+candidates and unbound LOOKUPs still refuse compilation; there is no bypass or
+second execution path. GUARDIAN_COUNTER_MEMORY_MB accepts positive integer MiB,
+defaulting to Store's 64 MiB; explicitly empty/invalid configuration refuses boot.
+
+Live tests use normal writes, FakeS3 reloads, generated modules, HTTP routers and
+an MCP client. They cover valid target/dependent identity switches, retained old
+modules continuing with old identities, definition moves, invalid target/dependent
+retention across deletion/join/transitive/retarget cases, unrelated activation,
+Rules.Server restarts through invalid/unreachable stores and directed boot failure.
+Public counter migrations test the add-new/retarget/delete sequence for incompatible
+BY/name changes. API tests cover 49/50, SET-derived groups/decisions, copied TRACK
+deduplication, forged caller timestamps, return_keys variants and historical fields
+after definition edits and Store loss. Live aggregate and typed/null group tests
+complement the existing exhaustive internal runtime cases.
+
+Stopped/slow named local and real peer stores exercise aggregate defaults, bounded
+long-batch waits, cooldown/recovery, restart resets and UNSET secret removal, with
+serial tests restoring process availability/cooldowns. Concurrent healthy peer
+events all count. Additional tests show unkeyed duplicates, cross-interface keyed
+receipts, later rule/storage failures leaving increments, and status/log redaction.
+The exact CAS/budget/worker/bucket/TTL boundary matrix remains in C2/C4c2 tests.
+Live long-batch tests bound cooldown behavior; they do not claim to isolate the
+250 ms allowance, which the lower-level tests exercise without cooldown masking.
+
+C4c3 product impact: overview rules/state and removal of the counter non-feature;
+spec section 1's ingestion commitment, section 5's private-arrival clarification,
+5.1 syntax/order/defaults/failures/reloads, 10 ownership/loss and 11 non-features.
+README, rules/cluster guides, HTTP/MCP reference and tool description, configuration,
+limitations, architecture/security and applicable guidance describe the live feature.
+Counters are advisory and ephemeral, not durable enforcement limits; UNSET does not
+erase group/min/max data from counter memory. Deployment remains a separate action.
 
 C4 runtime prerequisite implemented separately from rule integration: quiet expiry
 uses 256-entry pages with immediate continuation while expired entries remain;
@@ -738,7 +771,7 @@ catch-up, expiry before live eviction, child restart independence, crash-loop
 isolation, automatic recovery/backoff/reset, failed/overlapping starts, stale timers
 and clean shutdown after recovery. Product spec impact: section 8 adds the sampled
 `system_stats.counters_available` boolean; overview unchanged, `/health` stays
-Storage-only, and TRACK/LOOKUP statements remain unavailable until C4c3 enablement.
+Storage-only. TRACK/LOOKUP statements stayed unavailable until C4c3 enablement.
 
 The complete C4 contract:
 
@@ -774,7 +807,8 @@ The complete C4 contract:
 6. Product spec impact: overview's rule forms/state and counter non-feature;
    spec section 5.1 syntax, ordering, defaults, failure semantics and counters;
    section 5's private arrival metadata clarification (no automatic stored field);
-   section 10's ownership/loss behavior and section 11's counter non-feature.
+   section 10's ownership/loss behavior, section 11's counter non-feature and
+   section 1's formerly stateless-only ingestion commitment.
    Update rules/API/MCP references, the rules guide, architecture/security,
    limitations, configuration and applicable CLAUDE.md files together. Do not
    claim TRACK/LOOKUP are available in earlier pieces.
@@ -801,7 +835,7 @@ as documented in the development guide. No deployments, WIP commits, amend, reba
 or force push.
 
 Deferred: persistent counters/recovery, backfill, stronger partition semantics,
-hot-key sharding, shared query aggregate implementations, client idempotency keys,
+hot-key sharding, shared query aggregate implementations, cluster-wide idempotency,
 and richer operators such as last-N lists. Record distinct follow-ups instead of
 expanding the four pieces.
 

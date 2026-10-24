@@ -15,7 +15,7 @@ defmodule Rules.Runtime do
   SET/UNSET failures raise `Rules.Runtime.Failure` naming the file and line, and
   the event is not stored. Counter failures supply their operator's missing result
   and continue. Exceptions are logged by kind only (`note_failure/3`), never a value.
-  Counter execution is internal until both public admission and compilation gates open.
+  Generated modules execute resolved counter plans through this same dispatcher.
   """
 
   alias Rules.RowIndex

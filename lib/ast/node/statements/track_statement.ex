@@ -1,7 +1,7 @@
 defmodule AST.Node.Statements.TrackStatement do
   @moduledoc """
   Counter rule syntax, `TRACK field = aggregate [BY expr, ...] [WHERE cond] LAST string`.
-  Parsed only by `AST.Parser.parse_rules/1`; execution is not yet enabled.
+  Parsed only by `AST.Parser.parse_rules/1`; Rules validates and executes it at ingest.
   """
 
   use AST.Node

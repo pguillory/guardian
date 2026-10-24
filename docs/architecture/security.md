@@ -361,23 +361,27 @@ and no single request that takes the service down or destroys stored data.
 7. Rules are a key holder's power over ingestion, the same principal's. A rule can set
    or remove any field of any event sent through the ingest APIs to its table, but
    cannot run on built-in tables (refused at write; Guardian's own writes never run
-   rules), read other tables or stored data, keep state, or call anything outside the
-   VM. Each event's rules run in a worker with the query heap limit and a 1-second
-   limit, outside the request process and Anubis's shared process, and a failure or
+   rules), or query stored event data. SET/UNSET are stateless; TRACK/LOOKUP keep
+   ephemeral counter state and can read a named counter on another table through
+   bounded calls to Guardian peers, never an external runtime service.
+   Each event's rules run in a worker with the query heap limit and a 1-second
+   limit, outside the request process and Anubis's shared process, and a SET/UNSET failure or
    kill fails only that event. Failures are logged by rule file, line and kind, never
    a value, and heap kills skip the error_logger report, so an event's values (such
    as a password an UNSET was meant to remove) stay out of logs. A failing rule
-   fails its event closed (not stored) by default, so a broken `UNSET password` does
+   fails its event closed (not stored), so a broken `UNSET password` does
    not store the password.
 8. The rule store is read at boot, on writes and once a minute, never per event, so
-   the ingest path still makes no external calls. Its S3 credentials stay out of
+   the ingest path makes no rule-store/external-service calls (counter peer RPCs
+   stay inside Guardian). Its S3 credentials stay out of
    application config, logs and error messages (7.2). The S3 endpoint must use
    `https://` unless it is on the same machine (`localhost`, 127.0.0.0/8 or
    `[::1]`; `Rules.Config` refuses anything else at startup), so no one on the
    network path can read rule text or rewrite the rules a node loads. The name
    `localhost` relies on the machine's own resolver mapping it to loopback.
-9. Counter storage foundation: `Counters.Store` owns private ETS with a 64 MiB
-   default budget for resident entries/indexes, conservatively charging serialized
+9. Counter storage: `Counters.Store` owns private ETS with a 64 MiB
+   default budget for resident entries/indexes (`GUARDIAN_COUNTER_MEMORY_MB`, a
+   positive integer MiB setting; explicit empty/invalid refuses startup), conservatively charging serialized
    payload sizes and any larger backing allocation retained by a nested binary or
    bitstring slice, as well as ETS memory, to include off-heap binaries. Fixed empty
    overhead, mailboxes and temporary copies are outside this budget. At capacity
@@ -385,13 +389,11 @@ and no single request that takes the service down or destroys stored data.
    keys; expiry is checked before access and cleaned in bounded, immediately
    continuing sweep pages. Operations have local deadlines and scrubbed failures;
    formatted status redacts state, messages, logs and reasons, and callback crashes
-   replace exception details and stack arguments with fixed text/arities. This is
-   internal infrastructure only: TRACK/LOOKUP syntax is parsed but RuleSet rejects
-   it before building executable steps; Compiler also refuses prepared counter
-   plans. Internal pure preparation validates counter semantics and resolves
-   identities without evaluating expressions or accessing counter state. The
-   current ingest path does not call the counter store. Internal counter execution
-   is tested through the resolved-step dispatcher: failures overwrite the output
+   replace exception details and stack arguments with fixed text/arities.
+   Whole-set preparation validates counter semantics and resolves identities without
+   evaluating expressions or accessing counter state. Compiler refuses unresolved
+   plans and unbound LOOKUPs. Live counter execution uses the resolved-step
+   dispatcher: failures overwrite the output
    with aggregate defaults and continue, so final UNSETs still remove secrets;
    SET/UNSET failures remain fail closed. Arrival coordinates are captured before
    validation, outside caller-writable fields, and are never automatically stored.
@@ -416,8 +418,27 @@ and no single request that takes the service down or destroys stored data.
    `system_stats.counters_available`; `/health` remains Storage-only.
    Membership disagreement/loss, restarts, eviction and uncertain writes can lose
    or split counts; these counters are advisory, never durable enforcement limits.
+   BY values and min/max states can retain sensitive source values in owner memory
+   and cross trusted distribution even after UNSET removes those fields from event
+   storage. Old definition state remains until expiry/eviction, not erased by edits.
 
 ### 5.2 Gaps
+
+Counter-specific limits:
+
+- The positive MiB budget has no upper cap. Size it below available RAM with
+  headroom for the rest of the VM; a VM crash dump can include counter ETS too (7.2).
+- Untrusted high-cardinality BY inputs can fill the shared memory budget and evict
+  other groups, or trigger stalls/cooldowns. A SET decision based on a default count
+  can then fail open; it is an advisory signal, not a durable security limit.
+- UNSET is not counter-memory erasure. Avoid secret group keys and min/max inputs;
+  they may remain for bucket_end+window (up to about 487 days at the maximum window)
+  or appear in later computed fields. Distribution is fully trusted and unencrypted.
+- WHERE false/null preserves caller-supplied outputs. Apply a counter unconditionally
+  or explicitly set the skipped output before trusting it as a decision.
+- Healthy responses refund the batch failure allowance; slow successful calls can
+  accumulate up to the per-event phase across a large batch. The 250 ms allowance
+  is not an end-to-end request deadline.
 
 1. Regular expressions run in the VM, bounded but not cheap. `RLIKE` and `replace`
    run caller patterns on Erlang's `:re` (PCRE2, part of OTP), not in a NIF of

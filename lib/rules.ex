@@ -1,6 +1,6 @@
 defmodule Rules do
   @moduledoc """
-  Ingest-time rules: SET and UNSET statements, in files per table, run on each event
+  Ingest-time rules: SET, UNSET, TRACK and LOOKUP statements, in files per table, run on each event
   sent through the ingest APIs before it is stored.
 
   - `lookup/1`: the compiled rules for a table (read by `Rules.Runner`, per event).

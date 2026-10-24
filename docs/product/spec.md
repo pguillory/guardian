@@ -32,7 +32,8 @@ Design commitments that shape every feature below:
 2. Schemaless: Tables and columns appear when written; columns are untyped.
 3. Predictable ingestion: The write path makes no calls to external services. Events
    change on the way in only by the operator's own rules ([section 5.1](#51-rules)),
-   which have no state and call nothing.
+   whose counters keep ephemeral state on Guardian nodes using bounded peer calls.
+   SET and UNSET themselves have no state or external calls.
 4. Read-only queries: Data enters only through ingestion. Through the API, data leaves
    only by age.
 5. Self-observing: Guardian records its own metrics, request log, and query parse
@@ -294,7 +295,9 @@ goes through the same validation and storage.
    is omitted from the result even though its valid parts were stored.
 5. No enrichment: Guardian adds no timestamp, ID, source, or node field. Events are
    stored as sent, minus dropped values, changed only by the table's rules
-   ([section 5.1](#51-rules)).
+   ([section 5.1](#51-rules)). A private arrival timestamp drives counter windows;
+   it is metadata outside the event, captured before validation, never automatically
+   stored, and cannot be supplied or overwritten by a producer or rule.
 6. Error wording tells the caller what is safe to retry:
    - `value cannot be stored; the event was not stored`
    - `internal error before storage; the event was not stored`
@@ -330,13 +333,16 @@ goes through the same validation and storage.
 
 ### 5.1 Rules
 
-Rules are statements, in files per table, that set or remove fields on each incoming
-event before it is stored:
+Rules are statements, in files per table, that compute or remove fields and update
+or read counters on each incoming event before it is stored:
 
 ```sql
 -- logins/blocking.gsql
 SET is_blocked = true WHERE signal > 0.9;
 SET email = lower(email);
+TRACK logins_last_hour = count() BY ip LAST '1h';
+LOOKUP previous_logins = logins_last_hour BY ip;
+SET busy = logins_last_hour >= 50;
 UNSET password
 ```
 
@@ -361,9 +367,16 @@ Statements:
    for `x`) is removed first.
 2. `UNSET path [WHERE cond]` removes a field (`password`) or a field inside an object
    (`user.password`), in any case, and everything beneath it.
-3. Expressions and conditions are the query language's scalar expressions: operators,
-   CASE, and every scalar function. Aggregates are refused.
-4. `SET`, `UNSET` (and the planned `TRACK`, `LOOKUP`, `LAST`) are not reserved words:
+3. `TRACK name = aggregate(...) [BY expr, ...] [WHERE cond] LAST 'interval'`
+   updates a counter and writes its resolved window result under `name`, including
+   the current event when the update succeeds. The 50th matching event sees 50.
+4. `LOOKUP field = counter [FROM table] [BY expr, ...] [WHERE cond]` reads a TRACK
+   on this table, or on its FROM table, and writes the result under `field` without
+   updating it. The number of BY expressions must match the target TRACK.
+5. Expressions and conditions are the query language's scalar expressions: operators,
+   CASE, and every scalar function. Aggregates are allowed only as TRACK's outer
+   aggregate call, never nested or in SET, BY or WHERE.
+6. `SET`, `UNSET`, `TRACK`, `LOOKUP` and `LAST` are not reserved words:
    they still work as column and table names, in rules and queries.
 
 Running:
@@ -374,35 +387,107 @@ Running:
    first match in byte order (queries instead reject an ambiguous name).
 2. WHERE applies a statement only when it is true; false or null leaves the field as
    sent.
-3. Every SET runs before every UNSET, so a SET can read a field an UNSET removes. A SET
-   that reads a field another SET writes runs after it; others run in file-name then
-   statement order. A SET that reads its own field reads the incoming value.
+3. LOOKUPs and the SETs their inputs require run first, then remaining SETs/TRACKs in
+   dependency order, then every UNSET. A statement reading a field another statement
+   defines runs after it; a self-read sees the incoming field. Independent statements
+   use file-name then statement order. A LOOKUP input or WHERE cannot depend, even
+   through SETs, on a TRACK output. All of an event's LOOKUP reads precede its TRACK
+   updates, so LOOKUP of that counter sees 49 when TRACK sees 50. Other events may
+   update between reads: this is a per-event barrier, not a global snapshot.
 4. A value a rule produces is validated like an incoming one; one that cannot be
    stored is dropped.
 5. Rules run outside the request, each event with a 1-second limit and the query heap
    limit. Functions and operators give null rather than fail (section 7), so a
-   statement fails only through a bug; such a failure or an event over a limit fails
-   that event, with an error naming the rule file
+   SET/UNSET statement fails only through a bug; such a failure or an event over a
+   limit fails that event, with an error naming the rule file
    and line or the limit, and the event is not stored. Other events in the batch are
    unaffected.
 6. A table whose stored rules are invalid (edited in the store by hand, or using a
    function a newer build lacks) fails its events with `rules for <table> are invalid`
    until fixed; other tables run normally. A running machine instead keeps that
-   table's last good rules.
+   table's last good rules together with all tables connected through old or new
+   LOOKUP dependencies. Deletions in that component wait too; new tables joining
+   it fail their events until the component validates. Unrelated components still
+   activate. At clean boot invalidity propagates only toward dependents. A restart
+   of the rules process retains the published plans and their identities even while
+   the rule store is unreachable. A whole node restart has no previous plans.
+
+Counters:
+
+1. Operators: count() (also count(*)) counts events; count(expr) counts non-null
+   values; count_distinct(expr) skips null and uses approximate HyperLogLog at
+   precision 8. Sum and avg skip non-numeric values; min and max skip null and use
+   query ordering. Missing/expired results and any failed operation produce 0 for
+   count and count_distinct, null for sum/min/max/avg. Counter sum's empty result is
+   null, unlike query sum's 0.0. Integer sums wrap to int64; average retains exact
+   integer sums; float overflow resolves to null, as in query aggregates. Min/max
+   ties keep the later merged value, including its type.
+2. BY is an exact ordered tuple of typed values. Omitted BY is one global group;
+   null is a valid shared component. Integer 1, float 1.0 and string '1' are distinct
+   groups. LOOKUP evaluates its own BY expressions, so types and order must match.
+   WHERE false or null preserves the incoming output field and skips any update;
+   do not trust that field as a computed decision when the statement is skipped.
+3. LAST is a positive integral total interval in s/m/h/d/w notation, at most
+   365 days. Windows use Guardian's private arrival time, never producer timestamps.
+   With window W, bucket width B=ceil(W/3), reads include every bucket from
+   floor((arrival-W)/B) through floor(arrival/B), at most four. The complete oldest
+   intersecting bucket is included: a 30-minute window can include almost 40 minutes.
+   This is a boundary overcount bias, not a numerical upper bound (negative sums,
+   approximation and loss can reduce results). No proportional weighting is used.
+   Buckets expire at bucket_end+W; writes use remaining TTL rather than renewing a
+   full window. Transit/queue delay can delay physical owner expiry. An event delayed
+   beyond its bucket expiry skips its update and receives the missing result.
+   Operators must synchronize node clocks; there is no event-time or late-event mode.
+4. Counter identity includes table, name and the hash of canonical TRACK source.
+   Changing expressions, aggregate, BY, WHERE, LAST or name starts fresh; moving
+   identical source between files, comments and whitespace do not. Identical TRACK
+   copies count once. Valid definition and dependent LOOKUP edits switch together
+   on each node. In-flight events keep their old identities; old state expires or
+   is evicted. Queries read historical stored output fields, never live counters.
+5. Counter operations fail open: any read/update failure or counter-expression
+   exception overwrites that statement's output with its missing result, and other
+   rules (including final UNSETs) continue. A successful increment can survive a later
+   rule or storage failure. There is no rollback or internal event retry; unkeyed
+   resubmissions count again. A matching completed same-node idempotency-key retry
+   skips rules but returns only its receipt, without decision values (section 5).
+   Eviction, overload, restart or another node can bypass receipt protection.
+6. Calls wait at most 50 ms, within a 100 ms counter phase per event and a shared
+   250 ms failed-call wait allowance per batch, including replacement workers.
+   Unavailable owners enter a one-second cooldown; timeouts do so with at least
+   25 ms call allowance. Healthy calls refund the batch allowance, so slow successful
+   events can still accumulate latency across a batch. There is no uncertain-write
+   retry or owner failover. Only definite CAS conflicts retry, at most three total
+   attempts within the same budgets. SET/UNSET keep their fail-closed behavior.
+7. State is ephemeral and advisory: restarts, eviction, membership changes,
+   partitions and uncertain writes can lose or split counts (section 10). The
+   resident entry/index budget is GUARDIAN_COUNTER_MEMORY_MB, positive MiB, default
+   64; explicit empty or invalid values refuse startup. It excludes mailboxes,
+   temporary copies and other VM memory. Capacity reclaims expiry, then roughly
+   the oldest half of live keys. Counters are not durable enforcement limits.
+   UNSET does not erase BY values or min/max inputs from counter memory: they can
+   remain for a window plus a bucket and cross the trusted peer network unencrypted.
+   Avoid secrets in those expressions.
 
 Writing:
 
 1. Every write validates the whole set, every table together, and is refused if it
    adds an error the set did not already have: a parse error or unknown function, an
    invalid path or a limit, a field defined two different ways on one table (two
-   statements for the same field that differ; identical copies count once), or SETs
-   that read each other's fields in a cycle. A set that is already broken can be
-   fixed one file at a time, and a broken table does not block writes to others.
+   statements for the same field that differ; identical copies count once), a cycle
+   between statements reading each other's fields, an invalid counter aggregate/window,
+   a missing TRACK target, a grouping-arity mismatch or a LOOKUP-after-TRACK
+   dependency. SET/TRACK/LOOKUP share one output namespace. A set that is already
+   broken can be fixed one file at a time; a broken table does not block writes to others.
 2. Writes take a lock held in the store itself, so they are serialized across every
    machine, then every connected machine reloads. Machines also re-read the store
    every minute, catching changes made directly in the store.
 3. A local folder belongs to one machine, so with other machines connected, writes are
    refused: a cluster needs a bucket.
+4. A referenced TRACK cannot be deleted or changed to an incompatible grouping
+   through a single-file write. Add a new named TRACK, retarget LOOKUPs to it, then
+   delete the old one, or remove dependent LOOKUPs first. Rapid edits with many
+   dependents can exhaust the bounded compiled-module pool; the file may be saved
+   while activation waits for reclamation and the next poll.
 
 Startup: Guardian loads every rule before it loads stored events. A store it cannot
 reach, or one that rate-limits it (HTTP 429), is retried for a minute, then startup is
@@ -725,12 +810,20 @@ Product-level behavior:
    running as a machine shuts down can fail, and queries spanning old and new releases
    can fail; retry them.
 8. On Fly, a failed deploy health check stops the deploy without rolling back.
+9. Counters choose one owner per definition and typed group from the event's
+   connected-node snapshot, with all buckets on that owner. There is no replication,
+   state migration or recovery after a partition. Node joins/leaves, different
+   membership views, rolling deploys and Store restarts can lose/split state.
+   An owner that is slow or unavailable supplies defaults, preserving ingestion.
+   Rules-process restarts retain published identities; Store/node restarts lose
+   counts. Run one build across the cluster: older nodes that cannot load counter
+   rules can retain earlier rules or reject affected tables at boot.
 
 ## 11. Non-features
 
 These are deliberately absent.
 
-1. No alerting, counters (planned: TRACK and LOOKUP), enrichment from outside
+1. No alerting, durable counters, enrichment from outside
    services, or blocking of requests. Rules ([section 5.1](#51-rules)) compute fields,
    such as an `is_blocked` decision the producer acts on, but Guardian itself blocks
    nothing.
@@ -740,7 +833,8 @@ These are deliberately absent.
 4. No joins, subqueries, or cross-table queries.
 5. No replication or cross-machine redundancy.
 6. No PostgreSQL, Memcached, MaxMind, or other external service dependency.
-7. No server-side timestamps or IDs. Deduplication is limited to short-lived,
+7. No automatically stored server-side timestamps or IDs (private counter arrival
+   metadata is described in section 5). Deduplication is limited to short-lived,
    best-effort idempotency-key receipts ([section 5](#5-ingestion)).
 8. No web UI.
 
