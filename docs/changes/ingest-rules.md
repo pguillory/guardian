@@ -210,7 +210,8 @@ JSON API rule endpoints in phase 1.
      `$GUARDIAN_DATA_DIR/rules`. Writes go to a temporary file and are renamed. The
      ETag is a hash of the content.
    - S3-compatible bucket (R2): on when `GUARDIAN_RULES_S3_BUCKET` is set, with
-     `GUARDIAN_RULES_S3_ENDPOINT`, `GUARDIAN_RULES_S3_ACCESS_KEY_ID`,
+     `GUARDIAN_RULES_S3_ENDPOINT` (`https://`, or `http://` only for `localhost`,
+     127.0.0.0/8 or `[::1]`), `GUARDIAN_RULES_S3_ACCESS_KEY_ID`,
      `GUARDIAN_RULES_S3_SECRET_ACCESS_KEY`, optional `GUARDIAN_RULES_S3_REGION`
      (default `auto`) and `GUARDIAN_RULES_S3_PREFIX`. Setting both a folder and a
      bucket, or only some of the bucket settings, refuses startup.

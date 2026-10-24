@@ -49,4 +49,34 @@ defmodule Rules.ConfigTest do
     assert {:error, "GUARDIAN_RULES_S3_PREFIX may use only " <> _} =
              Config.from_env(Map.put(@s3, "GUARDIAN_RULES_S3_PREFIX", "my rules/"))
   end
+
+  test "http:// only for a server on this machine" do
+    endpoint = &Config.from_env(Map.put(@s3, "GUARDIAN_RULES_S3_ENDPOINT", &1))
+
+    for url <- [
+          "http://localhost:9000",
+          "http://127.0.0.1:9000",
+          "http://127.0.0.2",
+          "http://[::1]:9000",
+          "https://127.evil.example",
+        ] do
+      assert {:ok, {Rules.Store.S3, %{endpoint: ^url}}} = endpoint.(url)
+    end
+
+    for url <- [
+          "http://example.com",
+          "http://127.evil.example",
+          "http://localhost.example",
+          "http://[::ffff:127.0.0.1]",
+          "http://10.0.0.1",
+          "http://127.1",
+          # A lenient parse reads this as octal: 87.0.0.1.
+          "http://0127.0.0.1",
+          "HTTP://example.com",
+          "http://localhost@evil.example",
+          "http://localhost.",
+        ] do
+      assert {:error, "GUARDIAN_RULES_S3_ENDPOINT must use https://" <> _} = endpoint.(url)
+    end
+  end
 end

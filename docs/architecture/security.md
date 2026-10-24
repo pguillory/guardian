@@ -355,7 +355,11 @@ and no single request that takes the service down or destroys stored data.
    not store the password.
 8. The rule store is read at boot, on writes and once a minute, never per event, so
    the ingest path still makes no external calls. Its S3 credentials stay out of
-   application config, logs and error messages (7.2).
+   application config, logs and error messages (7.2). The S3 endpoint must use
+   `https://` unless it is on the same machine (`localhost`, 127.0.0.0/8 or
+   `[::1]`; `Rules.Config` refuses anything else at startup), so no one on the
+   network path can read rule text or rewrite the rules a node loads. The name
+   `localhost` relies on the machine's own resolver mapping it to loopback.
 
 ### 5.2 Gaps
 

@@ -27,7 +27,7 @@ A cluster needs a bucket, so that every node reads the same rules. Set all four 
 | Variable | Meaning |
 | --- | --- |
 | `GUARDIAN_RULES_S3_BUCKET` | The bucket name. |
-| `GUARDIAN_RULES_S3_ENDPOINT` | The S3 endpoint, `https://<host>` with no path (for R2, `https://<account id>.r2.cloudflarestorage.com`). |
+| `GUARDIAN_RULES_S3_ENDPOINT` | The S3 endpoint, `https://<host>` with no path (for R2, `https://<account id>.r2.cloudflarestorage.com`). `http://` is accepted only for a server on the same machine: `localhost`, an address in 127.0.0.0/8, or `[::1]`. |
 | `GUARDIAN_RULES_S3_ACCESS_KEY_ID` | An access key that can list, read, write and delete objects in the bucket. |
 | `GUARDIAN_RULES_S3_SECRET_ACCESS_KEY` | Its secret. Keep it with your other secrets (on Fly, as a Fly secret). |
 

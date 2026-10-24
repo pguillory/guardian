@@ -3,8 +3,9 @@ defmodule Rules.Config do
   Chooses the rule store from the environment, at startup.
 
   - `GUARDIAN_RULES_S3_BUCKET` set: an S3-compatible bucket, which also needs
-    `GUARDIAN_RULES_S3_ENDPOINT` (an `https://` URL, or `http://` for a local test
-    server), `GUARDIAN_RULES_S3_ACCESS_KEY_ID` and
+    `GUARDIAN_RULES_S3_ENDPOINT` (an `https://` URL; `http://` only for a server on
+    this machine: the host `localhost`, an IPv4 address in 127.0.0.0/8, or `[::1]`),
+    `GUARDIAN_RULES_S3_ACCESS_KEY_ID` and
     `GUARDIAN_RULES_S3_SECRET_ACCESS_KEY`; `GUARDIAN_RULES_S3_REGION` (default `auto`,
     right for R2) and `GUARDIAN_RULES_S3_PREFIX` (default none; a non-empty prefix
     must end in `/`) are optional.
@@ -72,6 +73,11 @@ defmodule Rules.Config do
       uri.scheme not in ["https", "http"] or uri.host in [nil, ""] or uri.path not in [nil, ""] ->
         {:error, "GUARDIAN_RULES_S3_ENDPOINT must be a URL like https://<host>, with no path"}
 
+      uri.scheme == "http" and not loopback?(uri.host) ->
+        {:error,
+         "GUARDIAN_RULES_S3_ENDPOINT must use https:// (http:// only for localhost, " <>
+           "127.0.0.0/8 or [::1])"}
+
       prefix != "" and not String.ends_with?(prefix, "/") ->
         {:error, "GUARDIAN_RULES_S3_PREFIX must end in /"}
 
@@ -91,6 +97,18 @@ defmodule Rules.Config do
         }
 
         {:ok, {Rules.Store.S3, config}}
+    end
+  end
+
+  # Only the plain loopback forms: `localhost`, 127.0.0.0/8 and ::1. Not a name that
+  # merely starts with them, and not an IPv4-mapped IPv6 address.
+  defp loopback?("localhost"), do: true
+
+  defp loopback?(host) do
+    case :inet.parse_strict_address(String.to_charlist(host)) do
+      {:ok, {127, _, _, _}} -> true
+      {:ok, {0, 0, 0, 0, 0, 0, 0, 1}} -> true
+      _ -> false
     end
   end
 
