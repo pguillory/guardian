@@ -29,14 +29,14 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       (`docs/changes/ingest-rules.md`)
 - [ ] rules-rollout: put rules into the maintainer's deployment (`fly.toml`), each
       step only on the maintainer's go, and each after the one before is checked
-      1. Deploy: hold until the `:re` segfault investigation reports (a process killed
-         mid-`:re` run crashed the VM in testing; the rule worker kills at 1 s and at
-         its heap limit). Deploy with no `GUARDIAN_RULES_*` settings: rules use the
-         empty local folder `/data/rules`, and no table has rules, so ingest is
-         unchanged. Until the investigation clears, write no rules, since one
-         `write_rule` call makes the worker's kill paths live for that table. Checks:
-         the boot log line `Rules: 0 files for 0 tables from <local folder>`,
-         `/health`, `list_rules` empty, and ingest and queries as before.
+      1. Deploy done (2026-10-24, `c5df444`): no `GUARDIAN_RULES_*` settings or
+         secrets, empty local `/data/rules`, and no rules written. The `:re` hold
+         cleared: erlang/otp#10432 affects OTP 28.0–28.2 and is fixed from 28.3;
+         the deployed image uses OTP 28.5.0.8. Checked `/health`, MCP `list_rules`
+         returning empty, live ingestion and queries, and canonical UTC `date_add`
+         succeeding (numeric offsets return null). The boot line was outside Fly's
+         latest-100-log buffer; direct runtime checks confirmed the empty local
+         folder, empty rule list and absence of rule settings instead.
       2. Bucket: an R2 bucket and a bucket-scoped object read/write token, made by
          the maintainer; the secret goes straight into the deployment's secrets,
          never printed or stored here. Check the credentials from the deployment's
