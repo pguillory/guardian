@@ -569,7 +569,10 @@ retention and query rules as producer tables.
 1. `system_stats`: one row per machine per second with Erlang VM metrics: memory by
    category, reductions, run queues, garbage collection, IO bytes, process, port, atom,
    and ETS counts and limits, plus `timestamp` and `host`. Rows carry the machine's
-   hostname but no Erlang node name.
+   hostname but no Erlang node name. `counters_available` is a boolean reporting
+   whether the internal counter processes are present, sampled without waiting for
+   them. Counter crashes recover automatically with backoff and do not make
+   `/health` fail; this field does not measure counter responsiveness.
 2. `web_requests`: one row per authenticated JSON API request, written before the
    request runs: `timestamp`, `hostname`, `host`, `port`, `method`, `path` (no query
    string), `plug_route`, `scheme`, `remote_ip`, `x_forwarded_for`, `referer`,

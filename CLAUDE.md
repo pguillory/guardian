@@ -48,9 +48,9 @@ when those change.
 
 Rules are files of SET and UNSET statements per table (`<table>/<name>.gsql`), run on
 each ingested event before storage (`lib/rules/CLAUDE.md`, `docs/changes/ingest-rules.md`).
-They have no state and make no external calls; TRACK and LOOKUP counters are designed
-for but not built. There is no PostgreSQL metadata store, Memcached runtime, or MaxMind
-service. Guardian is single-user: authentication is one environment-configured API key
+They have no state and make no external calls; TRACK and LOOKUP syntax is parsed
+but rejected before rule execution. There is no PostgreSQL metadata store, Memcached
+runtime, or MaxMind service. Guardian is single-user: authentication is one environment-configured API key
 (at least 32 bytes, in the `x-api-key` header; the `api_key` query parameter only with
 `GUARDIAN_ALLOW_QUERY_API_KEY=true`), and a valid key grants access to the whole event
 store. There is no user namespace.
@@ -68,10 +68,11 @@ store. There is no user namespace.
 Summary; the full description is `docs/architecture/system.md`.
 
 The runtime consists of Rules.Server (loads the rule store first; an unreachable or
-misconfigured store refuses startup), Counters.Store (node-local ephemeral ETS
-storage), Counters.Cluster (bounded owner routing and cooldown; TRACK/LOOKUP
-integration is pending), Storage, SystemStats, Web.QueryParseErrors (records query
-parse failures), Web.QueryLog (records every API query in `queries`),
+misconfigured store refuses startup), Counters.Restarter (isolates and recovers the
+Counters.Supervisor subtree containing node-local Counters.Store and bounded
+Counters.Cluster routing; TRACK/LOOKUP integration is pending), Storage,
+SystemStats, Web.QueryParseErrors (records query parse failures), Web.QueryLog
+(records every API query in `queries`),
 Web.IngestIdempotency (short-lived, node-local client-key receipts), Web, and
 Cluster (DNS peer discovery
 through `DNS_CLUSTER_QUERY`; `<app>.internal` by default on Fly.io). Schema lookups (SHOW TABLES, DESC, the `schema` virtual table, SELECT *) fan

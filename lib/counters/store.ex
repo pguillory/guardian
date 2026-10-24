@@ -10,8 +10,9 @@ defmodule Counters.Store do
 
   The default budget is 64 MiB (`:guardian, :counter_memory_budget_bytes`). It
   charges ETS memory above empty-table overhead plus serialized payload sizes and
-  retained binary backing allocations. At capacity, roughly the oldest half
-  of keys are discarded, repeating if necessary. Updating a key does not make it
+  retained binary backing allocations. At capacity, expired keys are reclaimed
+  before roughly the oldest half of live keys are discarded, repeating if needed.
+  Updating a key does not make it
   younger. This bounds resident entries, not mailbox or temporary process memory.
 
   Options for operations: `:server` (default this module), `:timeout` (default
@@ -131,9 +132,11 @@ defmodule Counters.Store do
   @impl true
   def handle_info({:sweep, tag}, %{sweep_tag: tag} = state) do
     scrubbed(fn ->
-      state = sweep(state, state.clock.(), @sweep_batch)
+      now = state.clock.()
+      state = sweep(state, now, @sweep_batch)
+      delay = if expired?(state, now), do: 0, else: state.sweep_interval_ms
       state = %{state | sweep_tag: make_ref()}
-      Process.send_after(self(), {:sweep, state.sweep_tag}, state.sweep_interval_ms)
+      Process.send_after(self(), {:sweep, state.sweep_tag}, delay)
       {:noreply, state}
     end)
   end
@@ -230,6 +233,9 @@ defmodule Counters.Store do
       :ets.insert(state.oldest, {sequence, key})
       :ets.insert(state.expiry, {{expires, sequence}, key})
       state = %{state | payload_bytes: state.payload_bytes + charge}
+      # Reclaim the entire expired backlog before throwing away live counts.
+      # Like bulk eviction, this exceptional capacity path can outlast a caller.
+      state = if memory_bytes(state) >= state.budget, do: sweep(state, now, :all), else: state
       {state, oversized} = evict(state, key)
 
       case :ets.lookup(state.entries, key) do
@@ -281,10 +287,18 @@ defmodule Counters.Store do
       {expires, _sequence} = expiry when expires <= now ->
         [{^expiry, key}] = :ets.lookup(state.expiry, expiry)
         [entry] = :ets.lookup(state.entries, key)
-        state |> remove(entry) |> sweep(now, left - 1)
+        next = if left == :all, do: :all, else: left - 1
+        state |> remove(entry) |> sweep(now, next)
 
       _ ->
         state
+    end
+  end
+
+  defp expired?(state, now) do
+    case :ets.first(state.expiry) do
+      {expires, _sequence} -> expires <= now
+      _ -> false
     end
   end
 

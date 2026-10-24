@@ -2,25 +2,37 @@
 
 Ephemeral counter infrastructure for the reviewed TRACK/LOOKUP v1 design in
 `docs/changes/ingest-rules.md`. The node-local store, cluster routing and pure
-aggregate operators are implemented; rule statements follow separately. Do not
+aggregate operators are implemented; rule execution follows separately. Do not
 describe TRACK/LOOKUP as available until the rule integration lands.
 
 `Counters.Store` owns private ETS tables for entries, insertion order and expiry.
 Its serialized get/get_many/gets/cas/incr operations are atomic on one node.
-Start it after Rules.Server and before Storage, independently of both. No disk,
+Start it after Rules.Server and before Storage, independently of both. Store and
+Cluster run under Counters.Supervisor, owned by a trapping Counters.Restarter.
+Exhausting the subtree's restart intensity stops only counters; its owner logs a
+fixed reason category at error and retries with capped exponential backoff (timing
+in `docs/architecture/system.md` section 2.1). Startup failures retry too, except
+invalid Store options still refuse initial startup. Never adopt a subtree linked
+to an old owner. Orderly owner shutdown stops its subtree before exiting and logs
+no failure. Counter processes must never spend Main's restart intensity.
+`system_stats.counters_available` samples process presence; it is not a latency
+probe and does not affect `/health`. No disk,
 external services, credentials, rule text or event logging belongs here.
 
 1. Preserve missing versus stored nil. `:missing` CAS creates only an absent or
    expired key. Every successful mutation, including incr, issues a new reference
    token, so expiry, eviction and restart cannot resurrect an old CAS token.
 2. TTLs use the owner's monotonic clock, are checked before access, and are renewed
-   only by successful mutations. A bounded periodic expiry sweep cleans quiet
-   keys. Counter bucket callers will pass remaining TTL to a fixed expiry.
+   only by successful mutations. The periodic expiry sweep cleans quiet keys in
+   256-entry turns, continuing immediately while expired entries remain. It keeps
+   one tagged timer chain and interleaves queued operations between pages.
+   Counter bucket callers will pass remaining TTL to a fixed expiry.
 3. Charge ETS memory in bytes plus serialized payloads for off-heap binaries,
    including whole backing allocations retained by nested binary/bitstring slices
    (also through keys and function environments);
    ignore only fixed empty-table overhead. Reads do not change FIFO order and
-   updates keep their original insertion order. At capacity evict the oldest half,
+   updates keep their original insertion order. At capacity reclaim all expired
+   entries first, then evict the oldest half of live keys if still necessary,
    repeating when large survivors still exceed the budget. Loss is intentional;
    `{:error, :evicted}` means the updated key was evicted, a definite loss.
    `:too_large` can likewise follow eviction when the payload fits but ETS overhead
@@ -32,8 +44,8 @@ external services, credentials, rule text or event logging belongs here.
    a fixed error. Unexpected internal failures reset the store with scrubbed
    stacks instead of keeping partially changed ETS with stale accounting.
 6. The memory budget bounds resident entries/indexes, not mailboxes, temporary
-   copies or the VM. Capacity eviction can stall this single owner; the planned
-   cluster layer will provide fail-fast cooldown and shared failure-wait budgets.
+   copies or the VM. Capacity expiry reclamation and eviction can stall this single
+   owner; cluster routing provides fail-fast cooldown and shared failure-wait budgets.
 
 Tests use unnamed stores and a private injectable TTL clock. Operation deadlines
 always use real monotonic time. Keep these tests independent of external services.

@@ -77,8 +77,10 @@ The design follows from the product commitments (spec section 1):
 ```text
 Main (one_for_one)
 ├── Rules.Server                     loads the rule store, publishes compiled rules, polls each minute
-├── Counters.Store                   ephemeral node-local ETS counter storage (rules integration pending)
-├── Counters.Cluster                 bounded owner routing and node-local cooldown (rules integration pending)
+├── Counters.Restarter               trapping lifecycle owner; backs off subtree recovery
+│   └── Counters.Supervisor (one_for_one; rules integration pending)
+│       ├── Counters.Store           ephemeral node-local ETS counter storage
+│       └── Counters.Cluster         bounded owner routing and node-local cooldown
 ├── Storage (supervisor, rest_for_one)
 │   ├── Storage.Schema               per-table schema of loaded segments
 │   ├── Storage.LoadedSegments       mmap'd segment files; loads all at boot, rescans each minute
@@ -106,9 +108,10 @@ Why this order:
    holds nothing the ingest path needs between calls: the compiled rules are in
    `:persistent_term`, so if it restarts, ingestion keeps the published rules and the
    new process reloads in the background instead of failing again.
-2. Counters.Store starts after Rules.Server, with empty private ETS tables. It does
-   no loading and is independent of rule compilation and event storage.
-   Counters.Cluster starts next with empty cooldown ETS and membership monitoring. Storage
+2. Counters.Restarter starts after Rules.Server and owns a linked counter supervisor
+   that starts Store with empty private ETS tables, then Cluster with empty cooldown
+   ETS and membership monitoring. It does no loading and is independent of rule
+   compilation and event storage. Invalid Store options still refuse startup. Storage
    starts next, and `LoadedSegments.init/1` loads every segment file on the
    volume before returning. Supervisors start children one at a time, so the HTTP
    listener does not exist until all stored data is loaded. That is what lets
@@ -151,6 +154,19 @@ Storage.
 `Main` uses the default restart intensity (3 restarts in 5 seconds). The release starts
 the application as permanent, so if Storage or Web keeps crashing the VM exits, and the
 deployment's supervisor restarts it (on Fly, `[[restart]] policy = "always"`).
+
+Counter failures use a separate restart boundary. Counters.Supervisor restarts each
+child independently, with its own 3-in-5-second intensity. Counters.Restarter traps
+the linked subtree's exits, so even exhaustion (which exits with `:shutdown`) never
+spends Main's restart allowance. It logs an error with a fixed reason category and
+retries after 15 seconds, doubling after each failed start or short-lived recovery
+to a four-minute cap. One continuously healthy minute resets the delay. Failed
+starts retry without crashing the owner, including when a prior owner's subtree
+still holds names; it never adopts an old generation. A recovery logs at info.
+On orderly shutdown Main stops the stable owner, which synchronously stops its
+subtree before exiting; no counter failure is logged and no retry survives.
+The owner has an infinite shutdown budget for this cleanup, while its two leaf
+children each retain the default five-second budget.
 
 ### 2.2 Native code
 
@@ -364,6 +380,9 @@ increment operations, including create-if-missing CAS and create-on-increment.
 get_many reads up to four keys in one turn. A successful mutation renews the key's
 positive millisecond TTL and replaces its token. Reads do neither; expiry is
 checked before access and a periodic sweep removes up to 256 expired keys per turn.
+A turn with more expired entries schedules its next page immediately, interleaving
+queued requests; otherwise the next sweep waits one second. Tagged messages keep
+one periodic timer chain, and stale sweep tags do nothing.
 TTL uses local monotonic time. A restart clears this store without restarting
 Storage or Rules.Server.
 
@@ -372,9 +391,10 @@ memory in bytes above empty-table overhead, plus serialized key/value payloads a
 any larger backing allocations retained by nested binary/bitstring slices, to
 include off-heap binaries conservatively. Shared backing allocations can be counted
 more than once, and inline data can be counted twice. At
-capacity the owner discards roughly the oldest half of keys, repeating as needed;
+capacity the owner first reclaims the entire expired backlog through its expiry
+index, then discards roughly the oldest half of live keys if necessary, repeating as needed;
 updates do not refresh insertion order. The budget bounds resident entries and
-indexes, not temporary copies, mailboxes or other VM memory. Eviction can stall
+indexes, not temporary copies, mailboxes or other VM memory. Capacity reclamation can stall
 this single owner; cluster routing bounds waits and fails open.
 
 Calls default to 50 ms and carry a local monotonic deadline. A queued request whose
@@ -382,7 +402,7 @@ deadline passed returns a timeout without mutating. Execution that has already
 begun can still finish after its caller times out, so uncertain increments must not
 be retried. Errors and formatted status disclose no keys or values.
 
-`Counters.Cluster`, independently supervised after Store and before Storage,
+`Counters.Cluster`, independently supervised after Store inside the counter subtree,
 provides internal owner routing; TRACK/LOOKUP statements remain pending. It takes
 one connected-member snapshot per event, without Storage readiness RPCs, then
 chooses the highest SHA-256 rendezvous score for `{identity, group}` and node name.
@@ -418,6 +438,11 @@ this map. Restarting routing clears cooldowns; while absent, operations fail fas
 Membership changes, divergent membership views, restarts, eviction and uncertain
 late writes can lose or split counts. Availability takes precedence over precision;
 there is no replication, migration or partition recovery protocol.
+
+`system_stats.counters_available` reports whether the counter supervisor, Store and
+Cluster are registered. This samples presence without waiting for any process; it
+is not a responsiveness probe. It becomes false during subtree downtime or a child
+restart and true after recovery. `/health` continues to depend only on Storage.
 
 ## 4. Storage engine
 

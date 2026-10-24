@@ -436,7 +436,8 @@ incr(key, delta, ttl_ms, opts)      -> {:ok, new_integer} | {:error, reason}
 2. TTL is a positive integer in milliseconds and starts when a mutation executes.
    Successful mutations replace the TTL; reads and conflicts do not refresh it.
    Expiry is checked before every access; a periodic, bounded sweep reclaims quiet
-   expired keys. Replacing a value removes its previous expiry entry. Creation
+   expired keys, continuing immediately while more are due. Replacing a value
+   removes its previous expiry entry. Creation
    time/order survives updates; eviction is FIFO, not LRU.
 3. Default memory budget: 64 MiB per node, overridable through app env
    `:counter_memory_budget_bytes` and the start option `:memory_budget_bytes`.
@@ -446,7 +447,8 @@ incr(key, delta, ttl_ms, opts)      -> {:ok, new_integer} | {:error, reason}
    more than once). The
    budget covers resident counter entries/indexes, not process mailboxes, temporary
    copies, the rest of the VM or fixed empty-table overhead.
-4. On reaching the budget, remove roughly the oldest half of keys. If unusually
+4. On reaching the budget, reclaim all expired keys before removing roughly the
+   oldest half of live keys if still necessary. If unusually
    large survivors still exceed it, repeat; a value too large to fit alone is
    refused as `:too_large`. Eviction is deliberately crude and can lose live
    counts. If the updated key itself is among the oldest keys evicted, return
@@ -489,7 +491,7 @@ signed zero. JSON lists/maps and nested tuples are defined; unsupported terms ar
 rejected. Remote endpoints preserve native values/reference tokens, and guard/worker
 cleanup bounds flow-control stalls and discards late replies. Mixed-version peers
 without the endpoint fail open. C1 expiry throughput and supervisor crash isolation
-are follow-up work for C4 rather than part of this ownership change.
+were completed as the separate C4 runtime prerequisite below.
 
 Build `Counters.Cluster` over C1. Use rendezvous hashing (consistent ownership when
 members change), selecting the highest stable hash of {routing key, node}. Capture
@@ -597,11 +599,33 @@ Remaining order:
 
 1. C4b: whole-set validation, dependency graph, resolved definition identities and
    coherent reloads. Keep counter statements unavailable until execution lands.
-2. Prerequisite (C1 follow-ups): improve quiet expiry beyond the current
-   256-key/second sweep and isolate counter crash loops from the main supervisor's
-   restart intensity.
+2. Prerequisite (C1 follow-ups), implemented: quiet expiry catches up in immediate
+   pages and capacity reclaims expiry first; counter crash loops recover separately
+   from Main as described below.
 3. C4c: execution, buckets, private arrival metadata, budgets/configuration and the
    full user-visible documentation obligations below. Only then enable statements.
+
+C4 runtime prerequisite implemented separately from rule integration: quiet expiry
+uses 256-entry pages with immediate continuation while expired entries remain;
+capacity pressure reclaims all expired entries before evicting live keys. Indexed
+capacity reclamation, like existing bulk eviction, can outlast callers; the bounded
+cluster operation/cooldown contract still applies.
+
+Store and Cluster now run inside Counters.Supervisor, owned by a trapping
+Counters.Restarter rather than directly under Main. Local 3-in-5-second restart
+exhaustion shuts down only counters. The owner logs a fixed error reason and retries
+with capped exponential backoff, reset by a healthy stretch (timing is specified in
+`docs/architecture/system.md` section 2.1).
+Failed starts retry too; invalid Store options still refuse initial startup. The
+owner never adopts a subtree with an old OTP parent. Orderly owner shutdown stops
+its subtree synchronously, with no failure log. Regression tests cover backlog
+catch-up, expiry before live eviction, child restart independence, crash-loop
+isolation, automatic recovery/backoff/reset, failed/overlapping starts, stale timers
+and clean shutdown after recovery. Product spec impact: section 8 adds the sampled
+`system_stats.counters_available` boolean; overview unchanged, `/health` stays
+Storage-only, and TRACK/LOOKUP statements remain unavailable until execution lands.
+
+The complete C4 contract:
 
 1. Add contextual TRACK/LOOKUP AST nodes, parsing and canonical source output.
    Validate aggregate name/arity, scalar inputs/BY/WHERE, LAST bounds, referenced

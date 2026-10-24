@@ -381,8 +381,9 @@ and no single request that takes the service down or destroys stored data.
    payload sizes and any larger backing allocation retained by a nested binary or
    bitstring slice, as well as ETS memory, to include off-heap binaries. Fixed empty
    overhead, mailboxes and temporary copies are outside this budget. At capacity
-   it drops roughly the oldest half of keys; expiry is checked before access and
-   cleaned in bounded sweeps. Operations have local deadlines and scrubbed failures;
+   it reclaims expired entries before dropping roughly the oldest half of live
+   keys; expiry is checked before access and cleaned in bounded, immediately
+   continuing sweep pages. Operations have local deadlines and scrubbed failures;
    formatted status redacts state, messages, logs and reasons, and callback crashes
    replace exception details and stack arguments with fixed text/arities. This is
    internal infrastructure only: TRACK/LOOKUP syntax is parsed but RuleSet rejects
@@ -400,6 +401,12 @@ and no single request that takes the service down or destroys stored data.
    and timed-out owners only with at least 25 ms allowance; definite failures and
    budget skips never mark owners. No group keys or values are retained there.
    RPC exceptions become fixed error atoms.
+   Store and routing have a disposable supervisor whose linked lifecycle owner
+   traps its exits and retries with backoff; counter crash loops cannot exhaust
+   Main's restart intensity. The owner's down/recovery messages use only fixed
+   reason categories, never arbitrary exit/startup terms; its formatted status
+   redacts state, messages, logs and reasons. Process presence is sampled in
+   `system_stats.counters_available`; `/health` remains Storage-only.
    Membership disagreement/loss, restarts, eviction and uncertain writes can lose
    or split counts; these counters are advisory, never durable enforcement limits.
 
@@ -705,7 +712,7 @@ Where data goes:
 3. `queries` records every JSON and MCP query's text, timing, row count and outcome,
    with the same text bounds, plus remote IP and MCP client info; no request header,
    so neither the key nor any other header value.
-4. `system_stats` records VM metrics; no request data.
+4. `system_stats` records VM metrics and counter process availability; no request data.
 5. stdout (on Fly, Fly's log stream) receives more caller data than the tables do:
    - `Web.JsonApi.handle_errors/2` prints every exception in full. Parse errors carry
      SQL fragments. Body failures (malformed JSON 400, too large 413, wrong content type
@@ -742,6 +749,9 @@ Where data goes:
      state anyway.
    - Counters.Store's formatted status and callback failures redact keys and values
      (5.1.9). Ordinary operations do not log their arguments or returned values.
+     The counter lifecycle owner logs subtree exits and failed recovery attempts
+     at error with fixed reason categories and a retry delay, and recovery at info.
+     Clean application shutdown stops the subtree without logging a failure.
      Like Rules.Server, OTP's raw sys debug options and proc_lib mailbox reports
      are outside this formatting; this configuration drops SASL reports.
    - Invalid rules found at boot or on a reload are logged by file, line and kind only

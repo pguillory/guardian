@@ -17,6 +17,22 @@ defmodule SystemStatsTest do
     assert abs(NaiveDateTime.diff(NaiveDateTime.utc_now(), recorded)) < 5
   end
 
+  test "counter availability is visible in metrics while health remains Storage-only" do
+    assert Keyword.fetch!(SystemStats.metrics(), :counters_available) == true
+    :ok = Supervisor.terminate_child(Main, Counters.Restarter)
+
+    try do
+      assert Keyword.fetch!(SystemStats.metrics(), :counters_available) == false
+      conn = Plug.Test.conn(:get, "/health") |> Web.MainRouter.call(nil)
+      assert conn.status == 200
+      assert conn.resp_body == "ok"
+    after
+      {:ok, _} = Supervisor.restart_child(Main, Counters.Restarter)
+    end
+
+    assert Keyword.fetch!(SystemStats.metrics(), :counters_available) == true
+  end
+
   # Delivers a tick now and waits until it has been handled.
   defp tick(stats) do
     send(stats, {:tick, System.monotonic_time(:millisecond)})

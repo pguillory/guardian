@@ -66,8 +66,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
          1. [x] C4a: parsed syntax, AST, canonical source and traversal; RuleSet
            explicitly rejects counter statements before building executable steps
          2. [ ] C4b: validation, dependencies, resolved identities and coherent reloads
-         3. [ ] Prerequisite: improve quiet expiry throughput and isolate counter
-           restart failures from the main supervisor's restart intensity
+         3. [x] Prerequisite: quiet expiry catches up in immediate pages and
+           reclaims expiry before live eviction; counter crash loops are isolated
+           from Main, with automatic backoff recovery and availability metrics
          4. [ ] C4c: execution, buckets, arrival metadata, limits/config and product docs
 - [x] rules-open-questions: the failure and invalid-at-boot defaults are confirmed
       and their switches (`:rules_on_failure`, `:rules_invalid_at_boot`) removed

@@ -5,7 +5,7 @@ The `lib/` directory contains the event store, query engine, and network interfa
 ## Top-level modules
 
 - `Main`: starts Rules.Server (first, so a bad rule store fails startup fast),
-  Counters.Store, Storage, SystemStats, Web.QueryParseErrors, Web.QueryLog,
+  Counters.Restarter, Storage, SystemStats, Web.QueryParseErrors, Web.QueryLog,
   Web.IngestIdempotency, Web, and
   DNS peer discovery (only when `DNS_CLUSTER_QUERY` is set; on Fly.io it defaults to
   `<app>.internal`).
@@ -14,8 +14,10 @@ The `lib/` directory contains the event store, query engine, and network interfa
 - `Engine`: validates and ingests events, running the table's rules on API ingests.
 - `Rules`: ingest-time SET/UNSET rules stored as files (`lib/rules/CLAUDE.md`).
 - `Counters.Store`: node-local, ephemeral ETS get/gets/cas/incr store with TTLs and
-  a memory budget (`lib/counters/CLAUDE.md`); the TRACK/LOOKUP statements are not yet
+  a memory budget (`lib/counters/CLAUDE.md`); TRACK/LOOKUP rule execution is not yet
   implemented.
+- `Counters.Restarter`: owns the disposable Store/Cluster supervisor and recovers
+  it with backoff, so counter crash loops cannot exhaust Main's restart intensity.
 - `Storage`: custom columnar segment storage.
 - `Query`: plans and executes SQL-like queries. `Query.Limits` holds the per-query
   bounds, including the per-process heap limit (`GUARDIAN_QUERY_MAX_HEAP_MB`) on the
@@ -52,6 +54,7 @@ persisted segment files are named `{table}.{segment_id}.seg`.
 
 `SystemStats` is a required runtime child. It writes Erlang VM metrics to the
 `system_stats` stream through `Engine.try_log_event/2` every second, each event with a
-`Timestamp.now/0` timestamp. Keep it free of external services.
+`Timestamp.now/0` timestamp. Its `counters_available` field reports counter process
+presence without waiting for counters. Keep it free of external services.
 
 Read the nearest subsystem CLAUDE.md before editing and run the full suite afterward.

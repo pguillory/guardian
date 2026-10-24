@@ -132,6 +132,69 @@ defmodule Counters.StoreTest do
     end
   end
 
+  test "one scheduled sweep drains a quiet backlog without waiting between pages", %{clock: clock} do
+    server = start_store(clock, sweep_interval_ms: 60_000)
+    opts = [server: server, timeout: 5_000]
+    for key <- 1..1_000, do: assert({:ok, 1} = Store.incr(key, 1, 10, opts))
+    observer = self()
+
+    :ok =
+      :sys.install(
+        server,
+        {fn debug_state, event, _name ->
+           case event do
+             {:noreply, state} ->
+               send(observer, {:page_remaining, :ets.info(state.entries, :size)})
+
+             _ ->
+               :ok
+           end
+
+           debug_state
+         end, nil}
+      )
+
+    %{sweep_tag: tag} = :sys.get_state(server)
+    :atomics.put(clock, 1, 10)
+    send(server, {:sweep, tag})
+
+    for remaining <- [744, 488, 232, 0], do: assert_receive({:page_remaining, ^remaining})
+    assert_eventually(fn -> assert {:ok, %{keys: 0}} = Store.stats(opts) end)
+    %{sweep_tag: new_tag} = :sys.get_state(server)
+    refute new_tag == tag
+
+    assert Store.incr(:new, 1, 10, opts) == {:ok, 1}
+    :atomics.put(clock, 1, 20)
+    send(server, {:sweep, tag})
+    assert {:ok, %{keys: 1}} = Store.stats(opts)
+    assert %{sweep_tag: ^new_tag} = :sys.get_state(server)
+  end
+
+  test "capacity reclaims all newer expired entries before evicting an older live key", %{
+    clock: clock,
+  } do
+    probe = start_store(clock, sweep_interval_ms: 60_000)
+    probe_opts = [server: probe, timeout: 5_000]
+    for key <- 0..601, do: assert({:ok, 1} = Store.incr(key, 1, 10_000, probe_opts))
+    assert {:ok, %{memory_bytes: budget}} = Store.stats(probe_opts)
+
+    server = start_store(clock, memory_budget_bytes: budget, sweep_interval_ms: 60_000)
+    opts = [server: server, timeout: 5_000]
+    assert Store.incr(0, 1, 10_000, opts) == {:ok, 1}
+    assert {:ok, 1, token} = Store.gets(0, opts)
+    for key <- 1..600, do: assert({:ok, 1} = Store.incr(key, 1, 10, opts))
+    assert {:ok, %{keys: 601}} = Store.stats(opts)
+
+    :atomics.put(clock, 1, 10)
+    assert Store.incr(601, 1, 10_000, opts) == {:ok, 1}
+    assert {:ok, %{keys: 2, memory_bytes: bytes}} = Store.stats(opts)
+    assert bytes < budget
+    assert Store.gets(0, opts) == {:ok, 1, token}
+    assert Store.get(601, opts) == {:ok, 1}
+    assert Store.get(600, opts) == :not_found
+    assert Store.cas(0, token, 2, 10_000, opts) == :ok
+  end
+
   test "budget evicts oldest half, updates stay old, and evicted tokens cannot recreate", %{
     clock: clock,
   } do

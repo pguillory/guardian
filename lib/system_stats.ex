@@ -107,6 +107,7 @@ defmodule SystemStats do
       port_limit: :erlang.system_info(:port_limit),
       process_count: :erlang.system_info(:process_count),
       process_limit: :erlang.system_info(:process_limit),
+      counters_available: Counters.Supervisor.available?(),
     ]
 
     memory_stats ++ erlang_stats
