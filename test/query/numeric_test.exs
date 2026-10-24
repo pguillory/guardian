@@ -106,6 +106,25 @@ defmodule Query.NumericTest do
     assert eval("[[a]]", a: [1]) == nil
   end
 
+  test "an _n aggregate of lists of lists is null, not a deeper list" do
+    rows = [[x: [[1]], y: 1], [x: [[2]], y: 2]]
+
+    for source <- ["min_n(x, 2)", "max_n(x, 2)", "min_n_by(x, y, 2)", "max_n_by(x, y, 2)"] do
+      assert eval_aggregate(source, rows) == nil, source
+    end
+
+    # One list of lists is fine as a value, but not as an item of the result.
+    assert eval_aggregate("max_n(x, 2)", [[x: [1]], [x: [2]]]) == [[2], [1]]
+    assert eval_aggregate("max_n(x, 2)", [[x: [[1]]], [x: 2]]) == nil
+
+    table = "numeric_max_n_#{System.unique_integer([:positive])}"
+    on_exit(fn -> :ok = Storage.delete_table(table) end)
+    for {x, k} <- [{[[1]], 1}, {[[2]], 1}, {[3], 2}], do: :ok = Storage.append(table, k: k, x: x)
+
+    assert Enum.sort(run_sql("select k, max_n(x, 2), min_n_by(x, k, 2) from #{table} group by k")) ==
+             [[1, nil, nil], [2, [[3]], [[3]]]]
+  end
+
   test "comparisons near the int64 and float boundaries are exact" do
     assert eval("a < b", a: @max - 1, b: @max) == true
     assert eval("a = b", a: @max, b: @max) == true

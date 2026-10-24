@@ -21,8 +21,11 @@ defmodule Aggregation.MinMaxN do
     Ordering.merge_n(name(extreme), acc1, acc2, &Ordering.wins?(extreme, &1, &2))
   end
 
+  # A list of list-of-lists values nests deeper than storage holds
+  # (Storage.Value.valid?/1), so it is null, as Query.ColumnOrConstant makes any such
+  # expression value.
   def finish(_extreme, {values, _n}) do
-    values
+    if Storage.Value.valid?(values), do: values, else: nil
   end
 
   defp name(:min), do: "min_n"

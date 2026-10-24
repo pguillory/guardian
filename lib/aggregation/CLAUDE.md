@@ -29,5 +29,8 @@ int64. A float overflow in `merge` (`:error, :badarith`) makes the state `:overf
 which absorbs every later merge, so the overflow survives merging across segments and
 nodes, and `finish` turns it into `nil` (`sum`, `avg`, `Aggregation.Moments`). Don't
 let an overflowed state look like an empty one: an empty group can finish to a value.
+A result storage can't hold is null too: `min_n`, `max_n` and their `_by` forms
+finish as `nil` when an item is itself a list of lists, since the result would nest
+three deep.
 
 Aggregations are query features only; there is no ingestion-time aggregation runtime.
