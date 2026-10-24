@@ -39,11 +39,12 @@ Rules to keep:
    naming only a kind. Never log or return a response body, header, request, or a
    caught exception's message from a store call.
 5. Rule failures are logged by file, line and kind only, never a value (event values
-   can be the very secret an UNSET removes). The rule worker reports heap kills
-   without the error_logger report and catches every raise. Rule text stays out of
-   Rules.Server's status and crash reports: keep every callback (`init/1` and each
-   `handle_*`) behind `scrubbed/1`, and keep sources out of new state fields or
-   messages unless `format_status/1` redacts them.
+   can be the very secret an UNSET removes). Validation errors are logged the same
+   way, never by message: a message can quote rule text. The rule worker reports
+   heap kills without the error_logger report and catches every raise. Rule text
+   stays out of Rules.Server's status and crash reports: keep every callback
+   (`init/1` and each `handle_*`) behind `scrubbed/1`, and keep sources out of new
+   state fields or messages unless `format_status/1` redacts them.
 6. Validation is whole-set and a write is refused only for errors it adds
    (`Rules.RuleSet.new_errors/2`, ignoring lines), so broken sets stay repairable.
 7. Rules fail closed: a statement that raises, or an event over its time or heap

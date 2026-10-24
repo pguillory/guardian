@@ -40,6 +40,34 @@ defmodule Rules.ServerTest do
     assert [{:error, _}] = Engine.ingest_events("bad", [%{}])
   end
 
+  test "invalid rules are logged by file, line and kind, never by rule text" do
+    s3 = FakeS3.start()
+    on_exit(fn -> FakeS3.stop(s3) end)
+    marker = "MARKER#{System.unique_integer([:positive])}"
+    table = unique_table("rules_log")
+    FakeS3.put_object(s3, "#{table}/a.gsql", "SET x = 1 #{marker}")
+    FakeS3.put_object(s3, "#{table}/b.gsql", "SET y = 1 + 1 WEEK")
+    FakeS3.put_object(s3, "#{table}/c.gsql", <<"SET z = '", 0xFF, "'">>)
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        {:ok, _} = restart_server(FakeS3.store(s3))
+        Logger.flush()
+      end)
+
+    # A file-level error (not UTF-8) has no line.
+    assert log =~
+             "Rules: 3 invalid: #{table}/a.gsql line 1 (parse); " <>
+               "#{table}/b.gsql line 1 (parse); #{table}/c.gsql (encoding)"
+
+    refute log =~ marker
+    refute log =~ "WEEK"
+
+    # The message itself, with the rule text it quotes, still reaches the caller.
+    assert {:invalid, message} = Rules.lookup(table)
+    assert message =~ marker
+  end
+
   test "a misconfigured store refuses startup at once; an unreachable one after retrying" do
     s3 = FakeS3.start()
     on_exit(fn -> FakeS3.stop(s3) end)

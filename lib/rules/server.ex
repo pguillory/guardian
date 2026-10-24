@@ -624,12 +624,17 @@ defmodule Rules.Server do
 
   defp log_errors([]), do: :ok
 
+  # By file, line and kind only: a message can quote rule text (the token a parse
+  # error got, say), and rules can hold secrets. The rule tools return the messages.
   defp log_errors(errors) do
     Logger.warning(
       "Rules: #{length(errors)} invalid: " <>
-        Enum.map_join(Enum.take(errors, 5), "; ", & &1.message)
+        Enum.map_join(Enum.take(errors, 5), "; ", &error_location/1)
     )
   end
+
+  defp error_location(%{file: file, line: nil, kind: kind}), do: "#{file} (#{kind})"
+  defp error_location(%{file: file, line: line, kind: kind}), do: "#{file} line #{line} (#{kind})"
 
   defp log_poll_failure(state, message) do
     now = System.monotonic_time(:millisecond)

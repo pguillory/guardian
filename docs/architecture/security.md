@@ -699,6 +699,10 @@ Where data goes:
      formatted log keeps write replies, whose validation messages can quote up to
      40 characters of a rule; turning it on takes a remote shell, which reads any
      state anyway.
+   - Invalid rules found at boot or on a reload are logged by file, line and kind only
+     (`orders/fix.gsql line 3 (parse)`), never by message: a validation message can
+     quote up to 40 characters of a rule. The rule tools still return the full
+     messages to the authenticated caller.
    - A query process killed by the heap guard produces the VM's kill report, which
      names the process and its heap sizes, not its contents (5.2.2).
    - With query keys allowed, an MCP request that uses one logs one info line naming
