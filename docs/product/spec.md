@@ -727,14 +727,13 @@ Listed here because they change what a user sees:
    capped, but a query's total memory is not: GROUP BY state, column data, and many
    processes together can still exhaust a machine's memory and lose its unpersisted
    events.
-5. `system_stats` rows lack a node identity.
-6. A column labeled from `INTERVAL n WEEK` cannot be re-parsed.
-7. `users.name` does not find the list column `users..name`.
-8. Edge cases in value handling, flattening, and corrupt-file handling, such as a
+5. A column labeled from `INTERVAL n WEEK` cannot be re-parsed.
+6. `users.name` does not find the list column `users..name`.
+7. Edge cases in value handling, flattening, and corrupt-file handling, such as a
    list holding null beside a list of objects (`[null, [{"a": 1}]]`), which cannot be
    rebuilt for the result, slow flattening of lists of objects with many distinct
    keys, and a corrupt segment file that aborts the VM.
-9. The rule write lock is a lease in the store. A writer that stalls for more than a
+8. The rule write lock is a lease in the store. A writer that stalls for more than a
    minute after checking its lease, or a write the store applies more than a minute
    after the writer gave up, can leave a rule set that validation would have refused;
    loading then fails the affected table's events until it is fixed.

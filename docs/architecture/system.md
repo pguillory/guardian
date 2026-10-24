@@ -877,7 +877,9 @@ Guardian observes itself by writing ordinary tables through `Engine.log_event/2`
 
 1. `system_stats`: `SystemStats` ticks once a second on a monotonic schedule and
    writes Erlang VM counters. A failed write is skipped (warned once, until a write
-   succeeds) rather than crashing it every second. It has no node column.
+   succeeds) rather than crashing it every second. Each row's `host` is the
+   machine's hostname (on Fly.io, its machine ID), which tells a cluster's machines
+   apart when their hostnames differ; rows carry no Erlang node name.
 2. `web_requests` and `web_responses`: `Web.Logger`, synchronously in the request. A
    failed write is logged by kind and does not fail the request.
 3. `query_parse_errors`: `Web.Query.execute/3` catches `AST.ParseError`
@@ -1264,8 +1266,7 @@ The limits named above, in one place:
    concurrency limit (5.7).
 8. MCP: one slow MCP call blocks all MCP calls on the machine (6.3).
 9. JSON API: parse and resolve errors are a bare 500 (6.2).
-10. Built-in tables: `system_stats` has no node column (6.5).
-11. Parser: a label from `INTERVAL n WEEK` cannot be re-parsed (5.1).
+10. Parser: a label from `INTERVAL n WEEK` cannot be re-parsed (5.1).
 
 Design limits: one writable segment per table bounds per-table ingest rate (3.2); one
 scan worker per node per query (5.4); no replication (7); no directory fsync (4.3);

@@ -157,8 +157,10 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       Guardian was loading or shutting down, so tunnel requests failed instead of
       going to another machine; the connector now starts once Guardian listens and
       drains before Guardian stops (`docs/changes/fly-entry-drain.md`)
-- [ ] system-stats-node-column: `system_stats` rows carry no node identity, so a
-      cluster's metrics can't be told apart by machine
+- [x] system-stats-node-column: closed as already done: `system_stats` rows carry
+      `host`, the machine's hostname (on Fly.io, its machine ID), which tells a
+      cluster's machines apart when their hostnames differ; only the Erlang node
+      name is absent
 
 ## Tests
 
