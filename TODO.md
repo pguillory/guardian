@@ -124,12 +124,16 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       (`99999999999999999999`, or `-9223372036854775808`, which is minus applied to
       2^63) parsed, then failed evaluation; it is now the parse error "Number out of
       range" (`docs/changes/integer-literal-range.md`)
-- [ ] interval-arithmetic-overflow: an in-range `INTERVAL n WEEK` whose seconds
+- [x] interval-arithmetic-overflow: an in-range `INTERVAL n WEEK` whose seconds
       overflow int64 (`INTERVAL 15250284452472 WEEK`), constant arithmetic that
-      overflows (`15250284452472 * 604800`), and `interval('<huge>w')` fail the query
-      with "argument error" instead of giving null
+      overflows (`15250284452472 * 604800`), and `interval('<huge>w')` failed the
+      query with "argument error"; total-functions fixed it: such intervals are null,
+      and integer arithmetic wraps to int64
 - [ ] interval-round-trip: `INTERVAL 2 WEEK` unparses to `interval('2w')`, which does
       not parse (INTERVAL is a keyword), so its column label cannot be re-parsed
+- [ ] function-behaviour: an optional `Query.Function` behaviour for function
+      modules, with `eval2/2` as an optional callback, so the compiler checks a
+      module's entry points (`lib/query/function/CLAUDE.md`)
 - [ ] test-only-labels: `Query.labels/1` (SQL text) and the SHOW/DESC clauses of
       `Query.Resolver.labels/1` are reached only from tests, since the Resolver
       rewrites SHOW and DESC first; drop them and test SHOW/DESC labels through
