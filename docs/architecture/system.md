@@ -1176,7 +1176,8 @@ operational decisions:
    only a C toolchain; don't add a dependency that needs a system library without
    weighing the install cost.
 
-The image and local development use Elixir 1.19.6 on OTP 28.5.0.8.
+The image uses Elixir 1.19.6 on OTP 28.5.0.8. See the
+[development guide](../guides/development.md) for the local Homebrew toolchain.
 
 ## 11. Testing
 

@@ -113,6 +113,11 @@ Storage's shutdown budget plus the connector's drain (20 s at worst). The rest o
 
 ## Development
 
+Local Homebrew uses Elixir 1.19.3 with `erlang@28` (OTP 28.5.0.8); see
+[`docs/guides/development.md`](docs/guides/development.md) for setup and the
+OTP 28.2 crash fix. Stay on Elixir 1.19 / OTP 28 pending fixes for Elixir 1.20
+compiler warnings.
+
 ```sh
 mix format
 MIX_ENV=test mix compile --warnings-as-errors
