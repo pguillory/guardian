@@ -27,6 +27,29 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       folder or an S3-compatible bucket), run on API ingests before storage, managed
       through MCP tools with whole-set validation and a store-held write lock
       (`docs/changes/ingest-rules.md`)
+- [ ] rules-rollout: put rules into the maintainer's deployment (`fly.toml`), each
+      step only on the maintainer's go, and each after the one before is checked
+      1. Deploy: hold until the `:re` segfault investigation reports (a process killed
+         mid-`:re` run crashed the VM in testing; the rule worker kills at 1 s and at
+         its heap limit). Deploy with no `GUARDIAN_RULES_*` settings: rules use the
+         empty local folder `/data/rules`, and no table has rules, so ingest is
+         unchanged. Until the investigation clears, write no rules, since one
+         `write_rule` call makes the worker's kill paths live for that table. Checks:
+         the boot log line `Rules: 0 files for 0 tables from <local folder>`,
+         `/health`, `list_rules` empty, and ingest and queries as before.
+      2. Bucket: an R2 bucket and a bucket-scoped object read/write token, made by
+         the maintainer; the secret goes straight into the deployment's secrets,
+         never printed or stored here. Check the credentials from the deployment's
+         own network as `docs/guides/rules.md` ("Switching an existing deployment to
+         a bucket") describes, conditional writes included (a second
+         `If-None-Match: *` create gets 412).
+      3. Switch: stage every `GUARDIAN_RULES_S3_*` setting (bucket, `https://`
+         endpoint, key ID and secret, plus a prefix if used) and apply them in one
+         restart.
+         Copy any rules from `/data/rules` into the bucket first. Checks: the boot log
+         names the bucket, `list_rules` shows the copied rules, and a test write and
+         delete through the MCP tools succeed. Rollback: remove them all together,
+         in one restart (removing some refuses startup); `/data/rules` stays.
 - [ ] rules-track-lookup: TRACK (counters) and LOOKUP statements; decide first where
       counter state lives (`docs/changes/ingest-rules.md`)
 - [x] rules-open-questions: the failure and invalid-at-boot defaults are confirmed
