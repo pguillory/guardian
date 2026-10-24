@@ -377,8 +377,9 @@ Writing:
    refused: a cluster needs a bucket.
 
 Startup: Guardian loads every rule before it loads stored events. A store it cannot
-reach is retried for a minute, then startup is refused; misconfigured store settings
-refuse startup at once.
+reach, or one that rate-limits it (HTTP 429), is retried for a minute, then startup is
+refused; misconfigured store settings refuse startup at once. A rule write the store
+rate-limits fails and saves nothing.
 
 ## 6. Data model
 

@@ -69,6 +69,69 @@ defmodule Rules.ServerTest do
     assert is_atom(Rules.lookup("t"))
   end
 
+  test "a rate-limited store at boot is retried, whether it limits the list or a fetch" do
+    s3 = FakeS3.start()
+    on_exit(fn -> FakeS3.stop(s3) end)
+    FakeS3.put_object(s3, "t/a.gsql", "SET x = 1")
+    # The list, then (after a retry) the list again and the fetch.
+    FakeS3.fault(s3, [{:status, 429}, nil, {:status, 429}])
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:ok, _} = restart_server(FakeS3.store(s3))
+      end)
+
+    # One retry for the list, one for the fetch.
+    assert log |> String.split("store unreachable (HTTP 429); retrying") |> length() == 3
+    assert is_atom(Rules.lookup("t"))
+  end
+
+  test "a rate-limited save or delete saves nothing and releases the lock" do
+    {s3, store} = s3_server()
+    table = unique_table("rules_429")
+    {:ok, _} = Rules.write_rule(table, "a", "SET x = 1")
+    module = Rules.lookup(table)
+
+    # With the lock object left released by the first write: the lock create (412),
+    # its read, the takeover, the list, then the save or delete; then the release.
+    for {fun, method, name} <- [
+          {fn -> Rules.write_rule(table, "b", "SET y = 2") end, "PUT", "b"},
+          {fn -> Rules.delete_rule(table, "a") end, "DELETE", "a"},
+        ] do
+      before = length(FakeS3.requests(s3))
+      FakeS3.fault(s3, [nil, nil, nil, nil, {:status, 429}])
+      assert fun.() == {:error, "store request failed (HTTP 429)"}
+
+      assert [%{method: ^method, path: rule_path}, %{method: "PUT", path: lock_path}] =
+               s3 |> FakeS3.requests() |> Enum.drop(before + 4)
+
+      assert String.ends_with?(rule_path, "/#{table}/#{name}.gsql")
+      assert String.ends_with?(lock_path, "/" <> Rules.Lock.key())
+    end
+
+    assert FakeS3.objects(s3) |> Map.keys() |> Enum.reject(&(&1 =~ "lock")) == [
+             "#{table}/a.gsql",
+           ]
+
+    {:ok, body, _meta} = Rules.Store.get(store, Rules.Lock.key())
+    assert Jason.decode!(body)["state"] == "released"
+    assert Rules.lookup(table) == module
+    assert {:ok, _} = Rules.write_rule(table, "b", "SET y = 2")
+  end
+
+  test "a running node keeps its rules when a reload is rate limited" do
+    {s3, _store} = s3_server()
+    table = unique_table("rules_429_reload")
+    {:ok, _} = Rules.write_rule(table, "a", "SET x = 1")
+    module = Rules.lookup(table)
+    FakeS3.put_object(s3, "#{table}/a.gsql", "SET x = 2")
+    FakeS3.fault(s3, {:status, 429})
+    assert {:error, message} = Rules.reload()
+    assert message =~ "HTTP 429"
+    assert Rules.lookup(table) == module
+    assert [{:ok, %{"x" => 1}}] = Engine.ingest_events(table, [%{}])
+  end
+
   test "a broken stored set can be repaired one file at a time; other tables stay writable" do
     {s3, _store} = s3_server()
     table = unique_table("rules_repair")

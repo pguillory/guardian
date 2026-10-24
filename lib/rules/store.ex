@@ -9,11 +9,14 @@ defmodule Rules.Store do
   failures are `{:error, reason}` with reason one of
 
   - `:not_found`, `:precondition_failed` (a conditional request lost)
-  - `{:unreachable, kind}`: could not talk to the store (connection, timeout, 5xx)
+  - `{:unreachable, kind}`: could not get an answer, and safe to retry (connection,
+    timeout, a 5xx on a read, or a read rate limited with 429); boot retries it
   - `{:misconfigured, kind}`: the store answered that the settings are wrong (bad
     credentials, missing bucket or folder)
   - `{:unknown, kind}`: a write whose outcome is unknown (its deadline passed or the
     connection dropped after sending)
+  - `{:failed, kind}`: the request failed in a known way and did not change the store
+    (a write rate limited with 429, another unexpected status, a local file error)
   """
 
   @type t :: {module(), term()}

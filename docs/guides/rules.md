@@ -4,9 +4,9 @@ Rules are files named `<table>/<name>.gsql` (the language is in the
 [product spec](../product/spec.md#51-rules)). Guardian reads them from one store: a
 local folder, or an S3-compatible bucket such as Cloudflare R2. It loads every rule at
 startup, after each write through the MCP rule tools, and once a minute, and never
-reads the store while ingesting. If the store is misconfigured or unreachable at
-startup (after about a minute of retries), Guardian refuses to start rather than run
-without its rules.
+reads the store while ingesting. If the store is misconfigured, or unreachable or
+rate-limiting at startup (after about a minute of retries), Guardian refuses to start
+rather than run without its rules.
 
 ## A local folder (the default)
 

@@ -5,8 +5,8 @@ defmodule Rules.Server do
   ## Startup
 
   `init/1` loads and validates every rule file before anything else in Guardian
-  starts (it is `Main`'s first child). An unreachable store is retried with backoff
-  for up to `@boot_retry_ms` (60 s), then startup is refused; a misconfigured store
+  starts (it is `Main`'s first child). An unreachable or rate-limiting (HTTP 429)
+  store is retried with backoff for up to `@boot_retry_ms` (60 s), then startup is refused; a misconfigured store
   refuses startup at once. A table whose stored rules fail validation is published as
   `{:invalid, message}`, so its events fail and other tables run normally.
 
@@ -134,9 +134,9 @@ defmodule Rules.Server do
 
   defp read_with_retry(state, deadline, backoff) do
     case read_set(state) do
-      {:error, {:unreachable, _kind}} = error ->
+      {:error, {:unreachable, kind}} = error ->
         if System.monotonic_time(:millisecond) + backoff < deadline do
-          Logger.warning("Rules: store unreachable; retrying in #{backoff} ms")
+          Logger.warning("Rules: store unreachable (#{kind}); retrying in #{backoff} ms")
           Process.sleep(backoff)
           read_with_retry(state, deadline, min(backoff * 2, 10_000))
         else

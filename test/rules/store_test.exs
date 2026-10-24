@@ -85,6 +85,19 @@ defmodule Rules.StoreTest do
     assert Store.list(store) == {:error, {:unreachable, "HTTP 503"}}
     FakeS3.fault(s3, {:status, 500})
     assert Store.put(store, "t/a.gsql", "x", :none) == {:error, {:unknown, "HTTP 500"}}
+
+    # Rate limited: a read can be retried, and a write is known not to have happened.
+    FakeS3.put_object(s3, "guardian/t/b.gsql", "SET x = 1")
+    assert {:ok, _, _} = Store.get(store, "t/b.gsql")
+    FakeS3.fault(s3, {:status, 429})
+    assert Store.list(store) == {:error, {:unreachable, "HTTP 429"}}
+    FakeS3.fault(s3, {:status, 429})
+    assert Store.get(store, "t/b.gsql") == {:error, {:unreachable, "HTTP 429"}}
+    FakeS3.fault(s3, {:status, 429})
+    assert Store.put(store, "t/a.gsql", "x", :none) == {:error, {:failed, "HTTP 429"}}
+    FakeS3.fault(s3, {:status, 429})
+    assert Store.delete(store, "t/b.gsql") == {:error, {:failed, "HTTP 429"}}
+    assert Map.keys(FakeS3.objects(s3)) == ["guardian/t/b.gsql"]
     FakeS3.fault(s3, {:delay, 1_000})
     assert {:error, {:unreachable, "timeout"}} = Store.list(store)
     FakeS3.fault(s3, {:delay, 1_000})

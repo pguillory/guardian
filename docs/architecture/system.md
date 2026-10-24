@@ -97,12 +97,12 @@ Main (one_for_one)
 Why this order:
 
 1. Rules.Server starts first: its `init` loads and validates the whole rule set from
-   the store (section 3.4), and an unreachable (after a minute of retries) or
-   misconfigured store refuses startup. Starting before Storage makes a bad store
-   fail in seconds instead of after every segment has loaded. It holds nothing the
-   ingest path needs between calls: the compiled rules are in `:persistent_term`, so
-   if it restarts, ingestion keeps the published rules and the new process reloads
-   in the background instead of failing again.
+   the store (section 3.4), and a store that is unreachable or rate-limiting (after a
+   minute of retries), or misconfigured, refuses startup. Starting before Storage
+   makes a bad store fail in seconds instead of after every segment has loaded. It
+   holds nothing the ingest path needs between calls: the compiled rules are in
+   `:persistent_term`, so if it restarts, ingestion keeps the published rules and the
+   new process reloads in the background instead of failing again.
 2. Storage starts next, and `LoadedSegments.init/1` loads every segment file on the
    volume before returning. Supervisors start children one at a time, so the HTTP
    listener does not exist until all stored data is loaded. That is what lets

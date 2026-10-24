@@ -236,7 +236,8 @@ JSON API rule endpoints in phase 1.
 
 1. Startup loads the rule set before anything else (Rules is the first child,
    ahead of Storage's segment loading, so a bad store fails in seconds). An
-   unreachable store is retried with backoff for up to 60 s, then refuses startup.
+   unreachable or rate-limited (HTTP 429) store is retried with backoff for up to
+   60 s, then refuses startup. A 429 on a save or delete means nothing was saved.
    A misconfigured store (partial settings, bad credentials, missing bucket)
    refuses startup at once. Errors name the cause, never a credential.
 2. A stored table whose rules fail validation at startup: see open question 2.

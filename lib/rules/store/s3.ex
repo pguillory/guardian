@@ -187,6 +187,10 @@ defmodule Rules.Store.S3 do
   defp status_reason(status, _) when status in [400, 401, 403, 404],
     do: {:misconfigured, "HTTP #{status}"}
 
+  # Rate limited: the store refused the request without processing it, so a read can
+  # be retried and a write's outcome is known (nothing saved).
+  defp status_reason(429, :write), do: {:failed, "HTTP 429"}
+  defp status_reason(429, _), do: {:unreachable, "HTTP 429"}
   defp status_reason(status, :write) when status >= 500, do: {:unknown, "HTTP #{status}"}
   defp status_reason(status, _) when status >= 500, do: {:unreachable, "HTTP #{status}"}
   defp status_reason(status, _), do: {:failed, "HTTP #{status}"}
