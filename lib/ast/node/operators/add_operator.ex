@@ -8,7 +8,17 @@ defmodule AST.Node.Operators.AddOperator do
     def eval(%@for{left: left, right: right}, context) do
       column1 = Query.Eval.eval(left, context)
       column2 = Query.Eval.eval(right, context)
-      ColumnOrConstant.map_or_nif(column1, column2, &@for.eval/2, &Column.add/2)
+      # A timestamp string plus seconds is evaluated per value: the NIF adds only
+      # numbers, giving null for a string and an integer.
+      if timestamp_and_seconds?(column1, column2) or timestamp_and_seconds?(column2, column1) do
+        ColumnOrConstant.map(column1, column2, &@for.eval/2)
+      else
+        ColumnOrConstant.map_or_nif(column1, column2, &@for.eval/2, &Column.add/2)
+      end
+    end
+
+    defp timestamp_and_seconds?(strings, ints) do
+      ColumnOrConstant.holds?(strings, :string) and ColumnOrConstant.holds?(ints, :integer)
     end
   end
 

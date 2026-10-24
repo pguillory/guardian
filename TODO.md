@@ -105,8 +105,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       integers wrap to 64 bits on both evaluation paths, aggregates that overflow are
       null, every value has a string form, and built strings are cut to 64 KiB; a
       query behavior change (`docs/changes/total-functions.md`)
-- [ ] timestamp-arithmetic-columns: a timestamp string plus or minus an integer adds
-      the seconds per event, but over two columns the NIF gives null; make them agree
+- [x] timestamp-arithmetic-columns: a timestamp string plus or minus an integer added
+      the seconds per event, but over two columns the NIF gave null; `+` and `-` now
+      evaluate per value when one column holds strings and the other integers
 - [ ] arm64-image: build and test linux/arm64 locally too, which
       should work now that Hyperscan is gone but has never been built
 - [ ] query-memory-bound: result sizes, string sizes, run time and each query

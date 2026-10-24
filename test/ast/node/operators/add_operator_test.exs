@@ -19,4 +19,19 @@ defmodule AddOperatorTest do
     assert eval("5 + '2024-01-02 03:04:05'") == "2024-01-02 03:04:10"
     assert eval("'asdf' + 5") == nil
   end
+
+  test "a timestamp plus seconds over two columns matches per-event evaluation" do
+    rows = [
+      %{t: "2020-01-01 00:00:00", n: 60},
+      %{t: "2020-01-02 00:00:00", n: -1},
+      %{t: "not a time", n: 1},
+      %{t: 5, n: 1},
+      %{t: "2020-01-01 00:00:00", n: 1.5},
+      %{t: nil, n: 1},
+    ]
+
+    expected = ["2020-01-01 00:01:00", "2020-01-01 23:59:59", nil, 6, nil, nil]
+    assert eval_segment_and_rows("t + n", rows) == {expected, expected}
+    assert eval_segment_and_rows("n + t", rows) == {expected, expected}
+  end
 end

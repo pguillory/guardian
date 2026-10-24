@@ -108,9 +108,10 @@ and `docs/reference/limitations.md` follow.
   out-of-range fields, interval strings at and past int64, an oversized port, invalid
   UTF-8, a mixed list, a list of lists, true, null), three ways: per event, a column
   against a constant, and over multi-row columns (the NIFs). Nothing raises, every
-  result is storable, and the three agree, except timestamp string `+`/`-` an integer over columns (TODO.md,
-  timestamp-arithmetic-columns), and `replace` against a constant (its pattern is read
-  only from a literal).
+  result is storable, and the three agree, except `replace` against a constant (its
+  pattern is read only from a literal). Timestamp string `+`/`-` an integer over
+  columns was a second exception until it was fixed (TODO.md,
+  timestamp-arithmetic-columns).
 - `test/query/numeric_test.exs`: wrapping on both paths, non-finite floats, domain
   errors, rounding at 2^63, the interval cases, the date range, ip and port inputs,
   list depth, comparisons at the boundaries, and a GROUP BY `sum` past the float

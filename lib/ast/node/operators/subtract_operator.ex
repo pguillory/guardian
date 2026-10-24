@@ -8,7 +8,13 @@ defmodule AST.Node.Operators.SubtractOperator do
     def eval(%@for{left: left, right: right}, context) do
       column1 = Query.Eval.eval(left, context)
       column2 = Query.Eval.eval(right, context)
-      ColumnOrConstant.map_or_nif(column1, column2, &@for.eval/2, &Column.subtract/2)
+      # A timestamp string minus seconds is evaluated per value: the NIF subtracts
+      # only numbers, giving null for a string and an integer.
+      if ColumnOrConstant.holds?(column1, :string) and ColumnOrConstant.holds?(column2, :integer) do
+        ColumnOrConstant.map(column1, column2, &@for.eval/2)
+      else
+        ColumnOrConstant.map_or_nif(column1, column2, &@for.eval/2, &Column.subtract/2)
+      end
     end
   end
 

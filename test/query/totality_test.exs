@@ -158,7 +158,7 @@ defmodule Query.TotalityTest do
           not deterministic? or :raised in results ->
             []
 
-          not same?(per_event, column_result) and not timestamp_arithmetic?(label, row) ->
+          not same?(per_event, column_result) ->
             [
               "#{context}: per event #{brief(per_event)}, over columns #{brief(column_result)}",
             ]
@@ -204,13 +204,6 @@ defmodule Query.TotalityTest do
       message = exception |> Exception.message() |> String.split("\n") |> hd()
       send(self(), {:raised, "#{context} raised #{message}"})
       raised
-  end
-
-  # Over columns, the NIF adds no seconds to a timestamp string, giving null: a known
-  # divergence recorded in TODO.md.
-  defp timestamp_arithmetic?(label, row) do
-    label in ["a + b", "a - b"] and
-      Enum.any?([row["a"], row["b"]], &(is_binary(&1) and Timestamp.from_string(&1) != :error))
   end
 
   defp substitute(%Identifier{name: name}, name, value), do: %Literal{value: value}
