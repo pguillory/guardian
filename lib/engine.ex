@@ -210,8 +210,23 @@ defmodule Engine do
       {:error, "internal error; the event may have been stored"}
   end
 
+  # The failure's kind and where it happened, never its message or the arguments in
+  # the stack trace: both can carry event values.
   defp log_ingest_failure(table, kind, reason, stack) do
-    Logger.error("Event ingestion failed for #{table}: " <> Exception.format(kind, reason, stack))
+    Logger.error(
+      "Event ingestion failed for #{table}: #{failure_kind(kind, reason, stack)}\n" <>
+        Exception.format_stacktrace(without_arguments(stack))
+    )
+  end
+
+  defp without_arguments(stack) do
+    Enum.map(stack, fn
+      {module, function, args, location} when is_list(args) ->
+        {module, function, length(args), Keyword.take(location, [:file, :line])}
+
+      {module, function, arity, location} ->
+        {module, function, arity, Keyword.take(location, [:file, :line])}
+    end)
   end
 
   # Identifiers that SQL cannot use as a plain table reference: tokenizer keywords and

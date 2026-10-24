@@ -12,7 +12,8 @@ Engine is Guardian's event-ingestion boundary.
   `{:ok, event}` or `{:error, message}` outcomes, continuing after each failure.
   Non-object events fail before storage. Unexpected failures before storage say the
   event was not stored; failures after storage starts say it may have been stored.
-  An explicit storage refusal says it was not stored. Exception details go to Logger.
+  An explicit storage refusal says it was not stored. A failure's kind and an
+  argument-free stack trace go to Logger.
   `Engine.ingest_event/2` retains its raising behavior for internal callers.
 - Both reject table names that SQL cannot address with `Engine.InvalidTableNameError`
   before writing: names must match `[a-z_][a-z0-9_]*`, be at most 64 bytes (segment
@@ -35,4 +36,6 @@ external service dependencies. HTTP `/api/json/send_events` and MCP
 through `Engine.log_event/2` and `Engine.try_log_event/2`: `SystemStats`, request
 logging and query parse errors use `try_log_event/2` and log only its failure kind;
 `Web.QueryParseErrors` also names its own caught failures with
-`Engine.failure_kind/3`. SQL queries are read-only.
+`Engine.failure_kind/3`. An ingestion crash is logged the same way, by its kind and
+a stack trace without arguments; never log an exception's message or a stack trace
+with arguments here, since both can carry event values. SQL queries are read-only.

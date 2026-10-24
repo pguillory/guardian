@@ -670,8 +670,10 @@ Where data goes:
      SQL fragments. Body failures (malformed JSON 400, too large 413, wrong content type
      415), a `/query` body without a string `query` (400), and an undecodable query
      string (400) are answered without printing.
-   - `Engine` logs `Exception.format/3` of any ingestion crash, and a stack trace can
-     carry the event values passed to the failing function.
+   - `Engine` logs an ingestion crash by table, failure kind (`Engine.failure_kind/3`)
+     and stack trace with each call's arguments replaced by its arity, so neither the
+     exception's message nor the event values passed to the failing function are
+     printed.
    - A `web_requests`, `web_responses`, `system_stats`, `query_parse_errors` or
      `queries` write
      that fails is logged with the table and the failure's kind only (an exception

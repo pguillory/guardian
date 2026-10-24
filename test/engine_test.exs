@@ -164,13 +164,21 @@ defmodule EngineTest do
 
     log =
       ExUnit.CaptureLog.capture_log(fn ->
-        assert Engine.ingest_events(table, [%{{:bad, :key} => 1}, %{"value" => 2}]) == [
+        assert Engine.ingest_events(table, [
+                 %{{:bad, "ingest-log-marker"} => "ingest-log-marker"},
+                 %{"value" => 2},
+               ]) == [
                  {:error, "internal error before storage; the event was not stored"},
                  {:ok, %{"value" => 2}},
                ]
       end)
 
-    assert log =~ "FunctionClauseError"
+    # The kind and the stack trace, never the event's contents (the failing call's
+    # argument is the key) or the exception's message.
+    assert log =~ "Event ingestion failed for #{table}: FunctionClauseError"
+    assert log =~ "lib/"
+    refute log =~ "ingest-log-marker"
+    refute log =~ ":bad"
     assert Storage.dump_table(table) == [%{"value" => 2}]
   end
 
@@ -246,7 +254,7 @@ defmodule EngineTest do
                }
       end)
 
-    assert log =~ "time out"
+    assert log =~ "exit :timeout"
     assert Storage.dump_table(table) == [%{"value" => 1}, %{"value" => 2}]
   end
 
