@@ -31,5 +31,8 @@ aliases, parentheses, splats, cases, and operators. Statement nodes are document
 `statements/CLAUDE.md`.
 
 Aggregate calls are planned specially by the query planner rather than evaluated as
-ordinary scalar functions. Aliases are used by SELECT. LOOKUP is not part of the language yet (it is planned as
-a rule statement).
+ordinary scalar functions. Aliases are used by SELECT. TRACK and LOOKUP have rule
+statement nodes, parsed only through `parse_rules/1`; `Rules.RuleSet` still rejects
+both until counter execution is enabled. Their traversal visits output fields,
+counter and table names as identifiers too. Compute dependency reads from input
+expressions, not from a walk over the whole statement.

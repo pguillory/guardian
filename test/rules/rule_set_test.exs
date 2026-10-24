@@ -76,6 +76,46 @@ defmodule Rules.RuleSetTest do
     assert messages(%{"t/a.gsql" => "SET a = b AS c"}) == ["t/a.gsql line 1: rules cannot use AS"]
   end
 
+  test "parsed counter statements remain explicitly unsupported, with no executable table plan" do
+    validation =
+      RuleSet.validate(%{
+        "t/a.gsql" =>
+          "SET x = 1;\nTRACK c = count() BY ip LAST '1h';\nLOOKUP prior = c BY ip; UNSET password",
+        "u/a.gsql" => "SET x = 2",
+      })
+
+    assert {:error, errors} = validation.tables["t"]
+
+    assert Enum.map(errors, & &1.message) == [
+             "t/a.gsql line 2: TRACK statements are not supported yet",
+             "t/a.gsql line 3: LOOKUP statements are not supported yet",
+           ]
+
+    assert errors == validation.errors
+    assert {:ok, %Rules.Plan{}} = validation.tables["u"]
+
+    relocated_and_rewritten =
+      RuleSet.validate(%{
+        "t/a.gsql" =>
+          "\n\nTRACK other = sum(amount) LAST '2h'; LOOKUP changed = other FROM elsewhere",
+      })
+
+    assert RuleSet.new_errors(errors, relocated_and_rewritten.errors) == []
+  end
+
+  test "unsupported counters take precedence over scalar validation within their file" do
+    files = %{"t/a.gsql" => "SET x = count(); TRACK c = count() LAST '1h'"}
+    before = RuleSet.validate(files)
+    assert messages(files) == ["t/a.gsql line 1: TRACK statements are not supported yet"]
+
+    repaired = RuleSet.validate(%{"t/a.gsql" => "SET x = count()"})
+
+    assert [%{kind: :expression, message: message}] =
+             RuleSet.new_errors(before.errors, repaired.errors)
+
+    assert message == "t/a.gsql line 1: rules cannot use aggregate functions"
+  end
+
   test "rejects parse errors, bad paths, built-in tables and oversized files" do
     assert messages(%{
              "t/a.gsql" => "SET = 1",

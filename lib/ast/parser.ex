@@ -37,10 +37,12 @@ defmodule AST.Parser do
 
   alias AST.Node.Statements.DescStatement
   alias AST.Node.Statements.LetStatement
+  alias AST.Node.Statements.LookupStatement
   alias AST.Node.Statements.NullStatement
   alias AST.Node.Statements.SelectStatement
   alias AST.Node.Statements.SetStatement
   alias AST.Node.Statements.ShowTablesStatement
+  alias AST.Node.Statements.TrackStatement
   alias AST.Node.Statements.UnsetStatement
 
   # Infix and postfix operators, tightest-binding tier first. An operator's syntax is its
@@ -125,12 +127,13 @@ defmodule AST.Parser do
   end
 
   @doc """
-  Parses a rule file: statements (`SET field = expr [WHERE cond]`, `UNSET path [WHERE
-  cond]`) separated by semicolons, empty statements allowed. Returns
+  Parses a rule file: SET, UNSET, TRACK and LOOKUP statements separated by
+  semicolons, empty statements allowed. TRACK/LOOKUP syntax is parsed but
+  `Rules.RuleSet` rejects it until counter execution is enabled. Returns
   `[{statement, line}]`, `line` being the 1-based line the statement starts on.
   Raises `AST.ParseError`.
 
-  The statement words (SET, UNSET, and later TRACK, LOOKUP and LAST) are recognized
+  The statement words (SET, UNSET, TRACK, LOOKUP and LAST) are recognized
   by position only, not as tokenizer keywords, so they stay usable as column and
   table names in queries and in rules (`SET set = last`).
   """
@@ -178,15 +181,44 @@ defmodule AST.Parser do
         {where_expr, tokens} = maybe_parse_rule_where(tokens)
         {%UnsetStatement{field: field, where_expr: where_expr}, tokens}
 
-      [{:identifier, word} | _] when word in ["track", "lookup"] ->
-        throw {:parse_error, "#{String.upcase(word)} statements are not supported yet", tokens}
+      [{:identifier, "track"} | tokens] ->
+        {field, tokens} = parse_rule_field!(tokens, :track)
+        tokens = parse_punctuation!(tokens, "=")
+        {aggregate_expr, tokens} = parse_rule_aggregate!(tokens)
+        {by_exprs, tokens} = maybe_parse_rule_by(tokens)
+        {where_expr, tokens} = maybe_parse_rule_where(tokens)
+        {last_expr, tokens} = parse_rule_last!(tokens)
+
+        {%TrackStatement{
+           field: field,
+           aggregate_expr: aggregate_expr,
+           by_exprs: by_exprs,
+           where_expr: where_expr,
+           last_expr: last_expr,
+         }, tokens}
+
+      [{:identifier, "lookup"} | tokens] ->
+        {field, tokens} = parse_rule_field!(tokens, :lookup)
+        tokens = parse_punctuation!(tokens, "=")
+        {counter, tokens} = parse_rule_name!(tokens, "counter name")
+        {from_table, tokens} = maybe_parse_rule_from(tokens)
+        {by_exprs, tokens} = maybe_parse_rule_by(tokens)
+        {where_expr, tokens} = maybe_parse_rule_where(tokens)
+
+        {%LookupStatement{
+           field: field,
+           counter: counter,
+           from_table: from_table,
+           by_exprs: by_exprs,
+           where_expr: where_expr,
+         }, tokens}
 
       _ ->
-        throw {:expected, "SET or UNSET statement", tokens}
+        throw {:expected, "rule statement", tokens}
     end
   end
 
-  # SET takes a top-level field name; UNSET also takes an object path (`user.password`)
+  # Output fields are top-level; UNSET also takes an object path (`user.password`)
   # but not list boundaries (`..`).
   defp parse_rule_field!(tokens, kind) do
     case tokens do
@@ -197,8 +229,10 @@ defmodule AST.Parser do
           String.contains?(name, "\"") ->
             throw {:parse_error, "Rule field names cannot be quoted", tokens}
 
-          kind == :set and length(segments) > 1 ->
-            throw {:parse_error, "SET takes a top-level field name, not a path", tokens}
+          kind != :unset and length(segments) > 1 ->
+            throw {:parse_error,
+                   "#{kind |> Atom.to_string() |> String.upcase()} takes a top-level field name, not a path",
+                   tokens}
 
           "" in segments ->
             throw {:parse_error, "UNSET takes an object path without list boundaries", tokens}
@@ -211,6 +245,45 @@ defmodule AST.Parser do
         throw {:expected, "field name", tokens}
     end
   end
+
+  defp parse_rule_name!(tokens, label) do
+    case tokens do
+      [{:identifier, name} | rest] ->
+        if String.contains?(name, ".") do
+          throw {:parse_error, "#{String.capitalize(label)} must be an identifier without dots",
+                 tokens}
+        end
+
+        {%AST.Node.Identifier{name: name}, rest}
+
+      _ ->
+        throw {:expected, label, tokens}
+    end
+  end
+
+  defp parse_rule_aggregate!(tokens) do
+    case maybe_parse_function_call(tokens) do
+      {%AST.Node.AggregateFunctionCall{}, _tokens} = result -> result
+      _ -> throw {:expected, "aggregate function call", tokens}
+    end
+  end
+
+  defp maybe_parse_rule_by([{:keyword, "BY"} | tokens]), do: parse_expression_list!(tokens)
+  defp maybe_parse_rule_by(tokens), do: {[], tokens}
+
+  defp maybe_parse_rule_from([{:keyword, "FROM"} | tokens]),
+    do: parse_rule_name!(tokens, "table name")
+
+  defp maybe_parse_rule_from(tokens), do: {nil, tokens}
+
+  defp parse_rule_last!([{:identifier, "last"} | tokens]) do
+    case tokens do
+      [{:string, value} | rest] -> {%Literal{value: value}, rest}
+      _ -> throw {:expected, "interval string", tokens}
+    end
+  end
+
+  defp parse_rule_last!(tokens), do: throw({:expected, "LAST clause", tokens})
 
   defp maybe_parse_rule_where(tokens) do
     case tokens do

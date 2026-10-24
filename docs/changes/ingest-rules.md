@@ -3,7 +3,9 @@
 Status: phase 1 (SET and UNSET) done. Counter C1 (the node-local ETS store),
 C2 (bounded cluster ownership) and C3 (aggregate operators) are implemented.
 TRACK and LOOKUP's settled v1 design and reviewed four-piece implementation plan
-are below; C4 and the statements themselves are not yet built.
+are below. C4a adds parsed TRACK/LOOKUP syntax, canonical source and traversal;
+Rules.RuleSet still rejects both statements, so counters are not yet available in
+active rules. The remaining C4 work is split below.
 The phase 1 open questions were settled on the recommendations below.
 Each was first kept switchable through app env (`:rules_on_failure`,
 `:rules_invalid_at_boot`); once confirmed, the switches and the alternatives they
@@ -44,7 +46,7 @@ reviewed, diffed and backed up like code.
    one. Expressions and conditions are the query language's scalar expressions (all
    scalar functions, operators, CASE). Aggregates are rejected anywhere in a
    statement, WHERE included.
-4. Counter v1 adds these forms (not yet built):
+4. Counter v1 adds these forms (syntax parsed; validation/execution not yet built):
 
    ```sql
    TRACK logins_last_hour = count() BY ip LAST '1h'
@@ -333,8 +335,9 @@ JSON API rule endpoints in phase 1.
 
 ## TRACK and LOOKUP: settled v1 design and implementation plan
 
-This extends the completed SET/UNSET work. The implementation is four separate
-commits, C1 through C4. C2 and C3 depend on C1; C4 depends on both. The grammar
+This extends the completed SET/UNSET work. The implementation has four pieces,
+C1 through C4; C4 is split into sequential commits below. C2 and C3 depend on C1;
+C4 depends on both. The grammar
 above stays unchanged. There is no Memcached, sidecar, persistence, backfill,
 hot-key sharding, replication, or client deduplication in this version.
 
@@ -581,9 +584,24 @@ allowlist: count/0, count/1, count_distinct/1, sum/1, min/1, max/1, avg/1.
 
 ### C4: rule integration and product behavior
 
-C1 follow-ups assigned to C4: improve expiry reclamation beyond the current
-256-key/second sweep, and isolate counter crash loops from the main supervisor's
-restart intensity. These are recorded here rather than folded into C2 ownership.
+C4 is split into C4a/b/c. C4a is implemented: contextual TRACK/LOOKUP AST parsing,
+canonical source and source-order traversal, with an explicit RuleSet refusal
+before executable steps are built. Product spec impact: none; active rules still
+support only SET/UNSET. Canonical source normalizes count(*) to count(), just as
+the query parser does. The syntax parser currently uses the query aggregate
+registry/arity checks; the counter allowlist, scalar arguments/BY/WHERE, interval
+bounds and FROM table validity remain validation work. Dependency reads must come
+from input clauses, not whole-statement traversal (which also visits names).
+
+Remaining order:
+
+1. C4b: whole-set validation, dependency graph, resolved definition identities and
+   coherent reloads. Keep counter statements unavailable until execution lands.
+2. Prerequisite (C1 follow-ups): improve quiet expiry beyond the current
+   256-key/second sweep and isolate counter crash loops from the main supervisor's
+   restart intensity.
+3. C4c: execution, buckets, private arrival metadata, budgets/configuration and the
+   full user-visible documentation obligations below. Only then enable statements.
 
 1. Add contextual TRACK/LOOKUP AST nodes, parsing and canonical source output.
    Validate aggregate name/arity, scalar inputs/BY/WHERE, LAST bounds, referenced

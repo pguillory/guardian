@@ -62,8 +62,13 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       2. [x] C2: consistent owner hashing, bounded remote operations and fail open
       3. [x] C3: mergeable count, distinct (HyperLogLog), sum, min, max and avg
       4. [ ] C4: TRACK/LOOKUP grammar, validation, bucket policy and rule execution
-         Also improve quiet expiry throughput and isolate counter restart failures
-         from the main supervisor's restart intensity.
+         C4 is split into C4a/b/c; active counter statements remain unavailable.
+         1. [x] C4a: parsed syntax, AST, canonical source and traversal; RuleSet
+           explicitly rejects counter statements before building executable steps
+         2. [ ] C4b: validation, dependencies, resolved identities and coherent reloads
+         3. [ ] Prerequisite: improve quiet expiry throughput and isolate counter
+           restart failures from the main supervisor's restart intensity
+         4. [ ] C4c: execution, buckets, arrival metadata, limits/config and product docs
 - [x] rules-open-questions: the failure and invalid-at-boot defaults are confirmed
       and their switches (`:rules_on_failure`, `:rules_invalid_at_boot`) removed
 - [x] rules-server-redaction: Rules.Server's formatted status and crash reports

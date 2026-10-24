@@ -13,7 +13,9 @@ defmodule Rules.RuleSet do
   that only moves lines does not make an old error new (`new_errors/2`).
   """
 
+  alias AST.Node.Statements.LookupStatement
   alias AST.Node.Statements.SetStatement
+  alias AST.Node.Statements.TrackStatement
   alias AST.Node.Statements.UnsetStatement
 
   @max_file_bytes 64 * 1024
@@ -199,17 +201,24 @@ defmodule Rules.RuleSet do
   end
 
   defp parse_source(key, table, source) do
-    statements =
-      source
-      |> AST.Parser.parse_rules()
-      |> Enum.with_index()
-      |> Enum.map(fn {{statement, line}, index} ->
-        statement(table, key, line, index, statement)
-      end)
+    parsed = AST.Parser.parse_rules(source)
 
-    case Enum.flat_map(statements, &expression_errors/1) do
-      [] -> {:ok, table, statements}
-      errors -> {:error, table, errors}
+    case unsupported_statement_errors(key, table, parsed) do
+      [] ->
+        statements =
+          parsed
+          |> Enum.with_index()
+          |> Enum.map(fn {{statement, line}, index} ->
+            statement(table, key, line, index, statement)
+          end)
+
+        case Enum.flat_map(statements, &expression_errors/1) do
+          [] -> {:ok, table, statements}
+          errors -> {:error, table, errors}
+        end
+
+      errors ->
+        {:error, table, errors}
     end
   rescue
     e in AST.ParseError ->
@@ -220,6 +229,25 @@ defmodule Rules.RuleSet do
     e ->
       kind = inspect(e.__struct__)
       {:error, table, [error(key, nil, :parse, kind, "could not be parsed (#{kind})", table)]}
+  end
+
+  # Syntax lands before execution. Refuse counters before converting AST nodes to
+  # executable steps; remove this gate when counter validation and runtime land.
+  defp unsupported_statement_errors(key, table, parsed) do
+    Enum.flat_map(parsed, fn {statement, line} ->
+      word =
+        case statement do
+          %TrackStatement{} -> "TRACK"
+          %LookupStatement{} -> "LOOKUP"
+          _ -> nil
+        end
+
+      if word do
+        [error(key, line, :unsupported, word, "#{word} statements are not supported yet", table)]
+      else
+        []
+      end
+    end)
   end
 
   defp statement(table, key, line, index, %SetStatement{} = statement) do

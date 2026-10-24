@@ -51,9 +51,11 @@ Rules to keep:
    limit, fails the event; a table whose stored rules are invalid at boot is published
    as invalid (its events fail, other tables run) rather than refusing startup. There are
    no switches for either (`docs/changes/ingest-rules.md`, open questions 1 and 2).
-8. Statement words are contextual (see `lib/ast/CLAUDE.md`); TRACK and LOOKUP will be
-   new statement kinds in the same grammar, plan and dependency graph. Where TRACK
-   counter state lives is settled in the change document: Counters.Store provides
+8. Statement words are contextual (see `lib/ast/CLAUDE.md`); TRACK and LOOKUP have
+   parsed AST nodes, but Rules.RuleSet validation explicitly rejects both before
+   building steps. Their validation, plan, dependency graph and runtime are still
+   pending. Where TRACK counter state lives is settled in the change document:
+   Counters.Store provides
    node-local ETS storage, Counters.Cluster provides bounded cluster ownership,
    and Counters.Aggregate provides pure mergeable operators. Rule integration
    follows separately. Counter failures will fail open without changing SET/UNSET's

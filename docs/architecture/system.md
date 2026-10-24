@@ -304,7 +304,9 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    are matched by position, not reserved). `Rules.RuleSet.validate/1` takes the whole
    set and returns each table's `Rules.Plan` (SETs in dependency order, then UNSETs,
    identical duplicates merged) or its errors: parse errors, paths and limits,
-   aggregates, a field defined two ways, SET cycles. It is pure.
+   aggregates, a field defined two ways, SET cycles. TRACK/LOOKUP syntax is parsed
+   into AST nodes but explicitly refused here before building executable steps;
+   counter validation and execution are pending. It is pure.
 2. Compilation: `Rules.Compiler` turns a plan into a module from a fixed template,
    each statement one call to `Rules.Runtime` with the statement as an escaped literal
    (expressions run through the scalar evaluator, `Query.Eval` on an event map). Names
@@ -353,7 +355,7 @@ invalid set, which loading then handles per table (spec section 12).
 ### 3.5 Counter storage foundation
 
 `Counters.Store` is the node-local foundation for the reviewed TRACK/LOOKUP design
-in `docs/changes/ingest-rules.md`; the statements themselves are not implemented.
+in `docs/changes/ingest-rules.md`; counter rule execution is not implemented.
 It adds no external service or per-event work to today's SET/UNSET rules.
 
 One GenServer owns a private ETS set of values and reference CAS tokens, plus

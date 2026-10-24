@@ -4,10 +4,12 @@ The AST parses Guardian's SQL-like query language, traverses query trees, and co
 nodes back to source.
 
 Supported top-level statements include SELECT, SHOW TABLES, DESC, LET, and empty
-statements. Rule files have their own entry point, `AST.Parser.parse_rules/1`: SET and
-UNSET statements (`SetStatement`, `UnsetStatement`), each with its 1-based line. Their
-words (SET, UNSET, and the planned TRACK, LOOKUP, LAST) are matched by position as
-identifiers, never added as tokenizer keywords, so they stay valid column and table
+statements. Rule files have their own entry point, `AST.Parser.parse_rules/1`: SET,
+UNSET, TRACK and LOOKUP statements, each with its 1-based line. TRACK/LOOKUP have
+AST nodes, canonical source and traversal, but `Rules.RuleSet` explicitly rejects
+them until counter validation and execution land. Their words (SET, UNSET, TRACK,
+LOOKUP, LAST) are matched by position as identifiers, never added as tokenizer
+keywords, so they stay valid column and table
 names. A query cannot contain a rule statement, and a rule file cannot contain a query. UPDATE, INSERT,
 and DELETE are intentionally absent; API ingestion uses `/api/json/send_events` and data leaves the
 store only through `Storage.SegmentExpiration`. `INSERT`, `INTO`, `VALUES`, and
