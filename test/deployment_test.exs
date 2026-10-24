@@ -197,57 +197,373 @@ defmodule DeploymentTest do
     fly_toml = File.read!(Path.expand("../fly.toml", __DIR__))
     assert fly_toml =~ ~r/^  GUARDIAN_ALLOW_QUERY_API_KEY = "true"$/m
     assert fly_toml =~ ~r/^  GUARDIAN_QUERY_MAX_HEAP_MB = "0"$/m
-    assert fly_toml =~ ~r/^kill_timeout = 120$/m
+    assert fly_toml =~ ~r/^kill_timeout = 150$/m
   end
 
   describe "fly-start" do
     @fly_start Path.expand("../bin/fly-start", __DIR__)
 
-    # Fakes for bin/guardian and cloudflared. The fake connector records what it
-    # was given and ends its restart loop; the fake Guardian waits briefly for
-    # that record, then reports its own environment.
+    # Fakes for bin/guardian and cloudflared. Each appends what happens to it to
+    # events.log. Before the script starts, a fake /proc/net/tcp6 holds only decoys:
+    # port 8080 not listening, and port 8081 listening. The fake Guardian records its
+    # PID, then "listens" by adding a LISTEN line for $GUARDIAN_PORT (default 8080) to
+    # $FAKE_LISTEN_TABLE (default tcp6). FAKE_GUARDIAN picks its behavior: exit-early
+    # exits 7 at once, never-listen never listens, exit-later exits 5 once the
+    # connector has started, exit-during-drain exits 6 once the connector is draining;
+    # otherwise it runs until SIGTERM and exits 3.
+    # FAKE_CLOUDFLARED: crash exits at once every time, crash-once exits at once the
+    # first time only, hang ignores SIGTERM; otherwise it drains on SIGTERM and exits.
     defp fly_start_fakes(directory) do
-      marker = Path.join(directory, "cloudflared.out")
+      log = Path.join(directory, "events.log")
+      proc_net = Path.join(directory, "proc_net")
+      File.mkdir_p!(proc_net)
+      zero = String.duplicate("0", 32)
 
-      write_executable(
-        directory,
-        "cloudflared",
-        "#!/bin/sh\nprintf '%s token=%s\\n' \"$*\" \"$TUNNEL_TOKEN\" > '#{marker}'\nkill $PPID\n"
-      )
+      File.write!(Path.join(proc_net, "tcp6"), """
+        sl  local_address                         rem_address                           st
+         0: #{zero}:1F90 #{zero}:0000 06
+         1: #{zero}:1F91 #{zero}:0000 0A
+      """)
 
       write_executable(directory, "guardian", """
       #!/bin/sh
-      i=0
-      while [ ! -f '#{marker}' ] && [ $i -lt 100 ]; do sleep 0.1; i=$((i + 1)); done
-      printf 'guardian %s token=%s\\n' "$1" "${TUNNEL_TOKEN:-none}"
+      trap 'echo "guardian term" >> "#{log}"; exit 3' TERM
+      echo $$ > "#{directory}/guardian.pid"
+      echo "guardian $1 token=${TUNNEL_TOKEN:-none}" >> "#{log}"
+      case "${FAKE_GUARDIAN:-}" in
+        exit-early) echo "guardian exit" >> "#{log}"; exit 7 ;;
+        never-listen) while :; do sleep 0.1; done ;;
+      esac
+      sleep 0.5
+      echo "guardian listening" >> "#{log}"
+      port=$(printf '%04X' "${GUARDIAN_PORT:-8080}")
+      printf '   2: %s:%s %s:0000 0A\\n' #{zero} "$port" #{zero} \\
+        >> "#{proc_net}/${FAKE_LISTEN_TABLE:-tcp6}"
+      if [ "${FAKE_GUARDIAN:-}" = exit-during-drain ]; then
+        until grep -q '^cloudflared term' "#{log}"; do sleep 0.02; done
+        echo "guardian exit" >> "#{log}"
+        exit 6
+      fi
+      if [ "${FAKE_GUARDIAN:-}" = exit-later ]; then
+        until grep -q '^cloudflared start' "#{log}"; do sleep 0.1; done
+        echo "guardian exit" >> "#{log}"
+        exit 5
+      fi
+      while :; do sleep 0.1; done
       """)
 
-      [
+      write_executable(directory, "cloudflared", """
+      #!/bin/sh
+      if [ "${FAKE_CLOUDFLARED:-}" = hang ]; then
+        trap 'echo "cloudflared term ignored" >> "#{log}"' TERM
+      else
+        trap 'echo "cloudflared term" >> "#{log}"; sleep 0.3; echo "cloudflared exit" >> "#{log}"; exit 0' TERM
+      fi
+      echo "cloudflared start $* token=$TUNNEL_TOKEN" >> "#{log}"
+      crashed="#{directory}/cloudflared.crashed"
+      if [ "${FAKE_CLOUDFLARED:-}" = crash ] ||
+         { [ "${FAKE_CLOUDFLARED:-}" = crash-once ] && [ ! -f "$crashed" ]; }; then
+        touch "$crashed"
+        echo "cloudflared exit" >> "#{log}"
+        exit 1
+      fi
+      while :; do sleep 0.1; done
+      """)
+
+      env = [
         {"GUARDIAN_START_BIN", Path.join(directory, "guardian")},
         {"CLOUDFLARED_BIN", Path.join(directory, "cloudflared")},
+        {"FLY_START_PROC_NET", proc_net},
+        {"FLY_START_CONNECTOR_KILL_AFTER", nil},
+        {"GUARDIAN_PORT", nil},
+        {"GUARDIAN_TUNNEL", nil},
+        {"FAKE_GUARDIAN", nil},
+        {"FAKE_CLOUDFLARED", nil},
+        {"FAKE_LISTEN_TABLE", nil},
+        {"TUNNEL_TOKEN", nil},
       ]
+
+      {env, log}
     end
 
-    test "without a tunnel token starts only Guardian", %{directory: directory} do
-      env = fly_start_fakes(directory)
+    # Starts bin/fly-start with `overrides` on top of `env`, returning the task that
+    # yields {output, status} and the script's PID.
+    defp start_fly_start(directory, env, overrides) do
+      env = Enum.reduce(overrides, env, fn {k, v}, acc -> List.keystore(acc, k, 0, {k, v}) end)
+      pid_file = Path.join(directory, "fly-start.pid")
 
-      assert {"guardian start token=none\n", 0} =
-               System.cmd("sh", [@fly_start], env: [{"TUNNEL_TOKEN", nil} | env])
+      task =
+        Task.async(fn ->
+          System.cmd("sh", ["-c", ~S(echo $$ > "$0"; exec sh "$1"), pid_file, @fly_start],
+            env: env,
+            stderr_to_stdout: true
+          )
+        end)
 
-      refute File.exists?(Path.join(directory, "cloudflared.out"))
+      eventually(fn -> File.exists?(pid_file) and File.read!(pid_file) =~ ~r/^\d+\n$/ end)
+      pid = pid_file |> File.read!() |> String.trim()
+
+      # If a test fails before the script ends, kill the fakes it started: only
+      # processes whose command line names this test's own directory. The script then
+      # ends on its own, as Guardian is gone.
+      pattern = String.replace(directory <> "/", ".", "\\.")
+      on_exit(fn -> System.cmd("pkill", ["-KILL", "-f", pattern], stderr_to_stdout: true) end)
+
+      {task, pid}
     end
 
-    test "with a tunnel token starts the connector, which alone keeps the token", %{
+    defp run_fly_start(directory, env, overrides) do
+      {task, _pid} = start_fly_start(directory, env, overrides)
+      Task.await(task, 20_000)
+    end
+
+    defp events(log) do
+      if File.exists?(log), do: log |> File.read!() |> String.split("\n", trim: true), else: []
+    end
+
+    defp wait_for_event(log, prefix) do
+      eventually(fn -> Enum.any?(events(log), &String.starts_with?(&1, prefix)) end)
+    end
+
+    defp eventually(check, tries \\ 200) do
+      cond do
+        check.() -> :ok
+        tries == 0 -> flunk("condition not reached")
+        true -> Process.sleep(50) && eventually(check, tries - 1)
+      end
+    end
+
+    defp signal(pid, name), do: {_, 0} = System.cmd("kill", ["-#{name}", pid])
+
+    @connector_start "cloudflared start --no-autoupdate tunnel --metrics 127.0.0.1:20241 " <>
+                       "--management-diagnostics=false --grace-period 10s run " <>
+                       "token=tunnel-secret"
+
+    test "without a tunnel token execs Guardian", %{directory: directory} do
+      {env, log} = fly_start_fakes(directory)
+      {task, pid} = start_fly_start(directory, env, [{"FAKE_GUARDIAN", "exit-early"}])
+
+      assert {"", 7} = Task.await(task, 20_000)
+      assert events(log) == ["guardian start token=none", "guardian exit"]
+      # Same process: the script replaced itself with Guardian.
+      assert File.read!(Path.join(directory, "guardian.pid")) == pid <> "\n"
+    end
+
+    test "GUARDIAN_TUNNEL=off starts only Guardian, without the token", %{
       directory: directory,
     } do
-      env = fly_start_fakes(directory)
+      {env, log} = fly_start_fakes(directory)
 
-      assert {"guardian start token=none\n", 0} =
-               System.cmd("sh", [@fly_start], env: [{"TUNNEL_TOKEN", "tunnel-secret"} | env])
+      overrides = [
+        {"TUNNEL_TOKEN", "tunnel-secret"},
+        {"GUARDIAN_TUNNEL", "off"},
+        {"FAKE_GUARDIAN", "exit-early"},
+      ]
 
-      assert File.read!(Path.join(directory, "cloudflared.out")) ==
-               "--no-autoupdate tunnel --metrics 127.0.0.1:20241 " <>
-                 "--management-diagnostics=false run token=tunnel-secret\n"
+      assert {"", 7} = run_fly_start(directory, env, overrides)
+      assert events(log) == ["guardian start token=none", "guardian exit"]
+    end
+
+    test "starts the connector once Guardian listens, and drains it before stopping " <>
+           "Guardian on SIGTERM",
+         %{directory: directory} do
+      {env, log} = fly_start_fakes(directory)
+      {task, pid} = start_fly_start(directory, env, [{"TUNNEL_TOKEN", "tunnel-secret"}])
+
+      wait_for_event(log, "cloudflared start")
+      signal(pid, "TERM")
+
+      assert {"", 3} = Task.await(task, 20_000)
+
+      assert events(log) == [
+               "guardian start token=none",
+               "guardian listening",
+               @connector_start,
+               "cloudflared term",
+               "cloudflared exit",
+               "guardian term",
+             ]
+    end
+
+    test "SIGINT drains the connector too, and the IPv4 table and GUARDIAN_PORT count",
+         %{directory: directory} do
+      {env, log} = fly_start_fakes(directory)
+
+      {task, pid} =
+        start_fly_start(directory, env, [
+          {"TUNNEL_TOKEN", "tunnel-secret"},
+          {"GUARDIAN_PORT", "9090"},
+          {"FAKE_LISTEN_TABLE", "tcp"},
+        ])
+
+      wait_for_event(log, "cloudflared start")
+      signal(pid, "INT")
+
+      assert {"", 3} = Task.await(task, 20_000)
+
+      assert events(log) == [
+               "guardian start token=none",
+               "guardian listening",
+               @connector_start,
+               "cloudflared term",
+               "cloudflared exit",
+               "guardian term",
+             ]
+    end
+
+    test "a connector that ignores SIGTERM is killed, then Guardian stops", %{
+      directory: directory,
+    } do
+      {env, log} = fly_start_fakes(directory)
+
+      {task, pid} =
+        start_fly_start(directory, env, [
+          {"TUNNEL_TOKEN", "tunnel-secret"},
+          {"FAKE_CLOUDFLARED", "hang"},
+          {"FLY_START_CONNECTOR_KILL_AFTER", "1"},
+        ])
+
+      wait_for_event(log, "cloudflared start")
+      signal(pid, "TERM")
+
+      # The shell may report the kill ("Killed: 9").
+      assert {_output, 3} = Task.await(task, 20_000)
+
+      assert events(log) == [
+               "guardian start token=none",
+               "guardian listening",
+               @connector_start,
+               "cloudflared term ignored",
+               "guardian term",
+             ]
+    end
+
+    test "a connector that exits is started again", %{directory: directory} do
+      {env, log} = fly_start_fakes(directory)
+
+      {task, pid} =
+        start_fly_start(directory, env, [
+          {"TUNNEL_TOKEN", "tunnel-secret"},
+          {"FAKE_CLOUDFLARED", "crash-once"},
+        ])
+
+      eventually(fn -> Enum.count(events(log), &(&1 == @connector_start)) == 2 end)
+      signal(pid, "TERM")
+
+      assert {"", 3} = Task.await(task, 20_000)
+
+      assert events(log) == [
+               "guardian start token=none",
+               "guardian listening",
+               @connector_start,
+               "cloudflared exit",
+               @connector_start,
+               "cloudflared term",
+               "cloudflared exit",
+               "guardian term",
+             ]
+    end
+
+    test "Guardian exiting while the connector drains passes on its status", %{
+      directory: directory,
+    } do
+      {env, log} = fly_start_fakes(directory)
+
+      {task, pid} =
+        start_fly_start(directory, env, [
+          {"TUNNEL_TOKEN", "tunnel-secret"},
+          {"FAKE_GUARDIAN", "exit-during-drain"},
+        ])
+
+      wait_for_event(log, "cloudflared start")
+      signal(pid, "TERM")
+
+      assert {"", 6} = Task.await(task, 20_000)
+
+      assert events(log) == [
+               "guardian start token=none",
+               "guardian listening",
+               @connector_start,
+               "cloudflared term",
+               "guardian exit",
+               "cloudflared exit",
+             ]
+    end
+
+    test "Guardian exiting before it listens ends the script with its status", %{
+      directory: directory,
+    } do
+      {env, log} = fly_start_fakes(directory)
+      overrides = [{"TUNNEL_TOKEN", "tunnel-secret"}, {"FAKE_GUARDIAN", "exit-early"}]
+
+      assert {"", 7} = run_fly_start(directory, env, overrides)
+      assert events(log) == ["guardian start token=none", "guardian exit"]
+    end
+
+    test "SIGTERM before Guardian listens stops Guardian and starts no connector", %{
+      directory: directory,
+    } do
+      {env, log} = fly_start_fakes(directory)
+
+      {task, pid} =
+        start_fly_start(directory, env, [
+          {"TUNNEL_TOKEN", "tunnel-secret"},
+          {"FAKE_GUARDIAN", "never-listen"},
+        ])
+
+      wait_for_event(log, "guardian start")
+      # Long enough for the connector loop to check the decoys more than once.
+      Process.sleep(2_500)
+      signal(pid, "TERM")
+
+      assert {"", 3} = Task.await(task, 20_000)
+      assert events(log) == ["guardian start token=none", "guardian term"]
+    end
+
+    test "SIGTERM while the connector waits to restart starts no new connector", %{
+      directory: directory,
+    } do
+      {env, log} = fly_start_fakes(directory)
+
+      {task, pid} =
+        start_fly_start(directory, env, [
+          {"TUNNEL_TOKEN", "tunnel-secret"},
+          {"FAKE_CLOUDFLARED", "crash"},
+        ])
+
+      wait_for_event(log, "cloudflared exit")
+      started = System.monotonic_time(:millisecond)
+      signal(pid, "TERM")
+
+      assert {"", 3} = Task.await(task, 20_000)
+      # Well inside the 5 s pause: the pause was cut short, not waited out.
+      assert System.monotonic_time(:millisecond) - started < 4_000
+
+      assert events(log) == [
+               "guardian start token=none",
+               "guardian listening",
+               @connector_start,
+               "cloudflared exit",
+               "guardian term",
+             ]
+    end
+
+    test "Guardian exiting on its own stops the connector and passes on its status", %{
+      directory: directory,
+    } do
+      {env, log} = fly_start_fakes(directory)
+      overrides = [{"TUNNEL_TOKEN", "tunnel-secret"}, {"FAKE_GUARDIAN", "exit-later"}]
+
+      assert {"", 5} = run_fly_start(directory, env, overrides)
+
+      assert events(log) == [
+               "guardian start token=none",
+               "guardian listening",
+               @connector_start,
+               "guardian exit",
+               "cloudflared term",
+               "cloudflared exit",
+             ]
     end
   end
 

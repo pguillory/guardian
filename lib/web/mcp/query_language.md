@@ -86,6 +86,11 @@ SELECT path, count() FROM web_requests WHERE timestamp > date_sub(now(), INTERVA
   backslash escapes: `\'`, `\\`, `\/`, `\b`, `\f`, `\n`, `\r`, `\t`, and `\uXXXX`
   (four hex digits; a character outside the Basic Multilingual Plane is a surrogate
   pair, as in JSON).
+- Integer literals run from 0 to 9223372036854775807 (64-bit; minus is an operator,
+  not part of the literal). A larger one, anywhere including `LIMIT` and
+  `INTERVAL n UNIT`, is the parse error "Number out of range", like a float too large
+  to represent (`1e400`). Write the smallest 64-bit integer as
+  `-9223372036854775807 - 1`.
 - Arithmetic: `+ - * /`, unary `-`. String concatenation: `||`. Integers are 64-bit
   and wrap around on overflow (`9223372036854775807 + 1` is `-9223372036854775808`).
 - Comparison: `= != < <= > >=`, `<=>` (null-safe equal), `IS`, `IS NOT`.

@@ -18,6 +18,7 @@ Everything is set through environment variables. Only `GUARDIAN_API_KEY` is requ
 | `GUARDIAN_RULES_S3_BUCKET`, `GUARDIAN_RULES_S3_ENDPOINT`, `GUARDIAN_RULES_S3_ACCESS_KEY_ID`, `GUARDIAN_RULES_S3_SECRET_ACCESS_KEY` | (unset) | Keep rules in an S3-compatible bucket instead, as a cluster needs. Set all four or none; the secret belongs with your other secrets. See [Rule storage](../guides/rules.md). |
 | `GUARDIAN_RULES_S3_REGION`, `GUARDIAN_RULES_S3_PREFIX` | `auto`, none | Optional bucket settings: the signing region, and a key prefix ending in `/` (letters, digits and `. _ ~ / -` only). |
 | `TUNNEL_TOKEN` | (unset) | Optional: starts a Cloudflare Tunnel connector beside Guardian (see [Fly.io: optional Cloudflare Tunnel](../guides/fly.md#optional-cloudflare-tunnel)). |
+| `GUARDIAN_TUNNEL` | (unset: on) | `off` keeps the tunnel connector from starting on this machine even when `TUNNEL_TOKEN` is set. |
 
 How these combine into a deployment: [single node](../guides/single-node.md),
 [a cluster on any machines](../guides/cluster.md), and [Fly.io](../guides/fly.md).

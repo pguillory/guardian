@@ -149,8 +149,8 @@ defmodule StorageTest do
     {:ok, %{shutdown: mutable}} = :supervisor.get_childspec(Storage, MutableSegments)
     {:ok, %{shutdown: persisted}} = :supervisor.get_childspec(Storage, PersistedSegments)
 
-    # Longer than the 5 s default, leaving 20 s of the 120 s Fly kill_timeout for the
-    # rest of the application to stop.
+    # Longer than the 5 s default, within the 150 s Fly kill_timeout less the tunnel
+    # connector's drain (20 s at worst), with room for the rest of the application to stop.
     assert is_integer(mutable) and mutable > 5_000
     assert is_integer(persisted) and persisted > 5_000
     assert mutable + persisted <= 100_000

@@ -321,6 +321,15 @@ defmodule QueryTest do
     assert run("select (userid as alias) from #{table}") == [[1]]
   end
 
+  test "the smallest int64 is written as an expression" do
+    assert run("select -9223372036854775807 - 1") == [[-9_223_372_036_854_775_808]]
+    assert run("select 9223372036854775807") == [[9_223_372_036_854_775_807]]
+
+    assert_raise AST.ParseError, ~r/Number out of range/, fn ->
+      run("select -9223372036854775808")
+    end
+  end
+
   test "labels" do
     assert labels("select foo, bar") == ["foo", "bar"]
     assert labels("select foo as bar") == ["bar"]

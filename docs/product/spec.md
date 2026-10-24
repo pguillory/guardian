@@ -432,6 +432,11 @@ the shipped surface:
    character, no escape; linear time; a pattern over 1,000 characters besides `%` gives
    null), `RLIKE` (Perl-compatible regular expressions), `CASE`, `INTERVAL n UNIT`,
    list literals.
+   Integer literals have no sign (minus is an operator) and run from 0 to
+   9223372036854775807, the largest 64-bit integer. A larger one, in an expression,
+   `LIMIT` or `INTERVAL n UNIT`, is the parse error "Number out of range", as is a
+   float too large to represent. The smallest 64-bit integer is written
+   `-9223372036854775807 - 1`.
    Precedence, tightest first: `* /`; `+ - ||`; comparisons, `IS [NOT]`,
    `[NOT] LIKE|ILIKE|RLIKE`, `IN`; `BETWEEN`; `NOT`; `AND`; `OR`. So `NOT a = b` is
    `NOT (a = b)`, as in standard SQL.
@@ -618,7 +623,7 @@ Request bodies, API keys, and MCP traffic are not logged in `web_requests` or
 3. Crash window: Events not yet on disk are lost if the machine crashes hard. A
    normal stop (SIGTERM) tries to persist in-memory segments within a 90-second
    budget, about 110 seconds for the whole stop, so whatever stops Guardian must wait
-   longer than that before killing it (the Fly configuration allows 120 seconds);
+   longer than that before killing it (the Fly configuration allows 150 seconds);
    anything not written by then is lost. One segment whose pack raises an error during
    shutdown currently aborts persistence of the rest.
 4. Startup: A machine loads every segment in its data directory before it serves

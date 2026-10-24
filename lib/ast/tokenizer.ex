@@ -3,6 +3,8 @@ defmodule AST.Tokenizer do
 
   @whitespace [?\s, ?\n, ?\r, ?\t]
   @digits ?0..?9
+  @max_int64 9_223_372_036_854_775_807
+  @max_int64_digits @max_int64 |> Integer.to_string() |> byte_size()
   @ident_characters Enum.concat([?0..?9, ?a..?z, ?A..?Z, [?_]])
   @keywords ~w[
     AND
@@ -218,7 +220,13 @@ defmodule AST.Tokenizer do
   defp evaluate_token(:null, _raw_token), do: {:ok, {:null, nil}}
   defp evaluate_token(false, _raw_token), do: {:ok, {false, false}}
   defp evaluate_token(true, _raw_token), do: {:ok, {true, true}}
-  defp evaluate_token(:integer, raw_token), do: {:ok, {:integer, String.to_integer(raw_token)}}
+
+  defp evaluate_token(:integer, raw_token) do
+    case evaluate_integer(raw_token) do
+      {:ok, integer} -> {:ok, {:integer, integer}}
+      :error -> {:error, "Number out of range", 0}
+    end
+  end
 
   defp evaluate_token(:float, raw_token) do
     case evaluate_float(raw_token) do
@@ -240,6 +248,29 @@ defmodule AST.Tokenizer do
 
   defp evaluate_token(:punctuation, raw_token), do: {:ok, {:punctuation, raw_token}}
   defp evaluate_token(type, _raw_token) when type in [:comment, :whitespace], do: :skip
+
+  # Integer literals are unsigned (minus is an operator) and must fit in int64, so they
+  # run from 0 to 9223372036854775807; the smallest int64 is `-9223372036854775807 - 1`.
+  # Leading zeros are skipped and the significant digits counted before converting, so
+  # a huge literal is `:error` without building a bignum.
+  defp evaluate_integer(source) do
+    digits = skip_leading_zeros(source)
+
+    cond do
+      digits == "" ->
+        {:ok, 0}
+
+      byte_size(digits) > @max_int64_digits ->
+        :error
+
+      true ->
+        integer = String.to_integer(digits)
+        if integer <= @max_int64, do: {:ok, integer}, else: :error
+    end
+  end
+
+  defp skip_leading_zeros(<<?0, rest::binary>>), do: skip_leading_zeros(rest)
+  defp skip_leading_zeros(source), do: source
 
   # `1.` is the float 1.0 and `1e5` the float 100000.0, as in standard SQL.
   # String.to_float needs digits on both sides of a dot, so the mantissa is completed

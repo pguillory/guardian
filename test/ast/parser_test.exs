@@ -152,6 +152,24 @@ defmodule ParserTest do
              name: "interval",
              args: [%AST.Node.Literal{value: "1h"}],
            }
+
+    assert parse("interval 9223372036854775807 week") == %AST.Node.FunctionCall{
+             name: "interval",
+             args: [%AST.Node.Literal{value: "9223372036854775807w"}],
+           }
+
+    assert_parse_error("interval 9223372036854775808 week", "         ^", "Number out of range")
+  end
+
+  test "integer literals outside int64 are parse errors in every position" do
+    assert_parse_error(
+      "select 1 limit 9223372036854775808",
+      "               ^",
+      "Number out of range"
+    )
+
+    assert_parse_error("select 99999999999999999999", "       ^", "Number out of range")
+    assert_parse_error("select -9223372036854775808", "        ^", "Number out of range")
   end
 
   test "parse parenthesized expression" do

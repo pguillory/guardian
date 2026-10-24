@@ -3,7 +3,21 @@
 # TUNNEL_TOKEN secret is set, a cloudflared connector beside it. The optional
 # connector opens an outbound Cloudflare Tunnel, for reaching Guardian from
 # Cloudflare Workers through a Workers VPC binding instead of the public edge.
-# Without the secret, this is exactly `guardian start`.
+# Without the secret, or with GUARDIAN_TUNNEL=off, this is exactly `guardian start`.
+#
+# With the connector, this script stays in front of Guardian so the connector only
+# serves while Guardian does. Cloudflare sends tunnel requests to a connector, not to
+# a healthy origin, so a connector up while Guardian is still loading its segments or
+# is shutting down would fail those requests instead of letting another machine's
+# connector take them:
+#
+# 1. The connector starts only once Guardian listens on its port, which it does only
+#    after loading every segment.
+# 2. On SIGTERM or SIGINT, the connector stops first, draining in-flight requests for
+#    up to its grace period (and killed if it hangs), and only then does Guardian get
+#    SIGTERM. Fly's kill_timeout covers both (fly.toml).
+# 3. If Guardian exits on its own, the connector stops and the script exits with
+#    Guardian's status, so the machine restarts.
 #
 # Keep the connector here, never in rel/env.sh.eex: env.sh runs for every
 # bin/guardian invocation (remote, rpc over fly ssh), which would start more
@@ -12,26 +26,156 @@ set -eu
 
 guardian="${GUARDIAN_START_BIN:-/app/bin/guardian}"
 cloudflared="${CLOUDFLARED_BIN:-/usr/local/bin/cloudflared}"
+# Where the kernel lists TCP sockets; tests point it elsewhere.
+proc_net="${FLY_START_PROC_NET:-/proc/net}"
+port="${GUARDIAN_PORT:-8080}"
 
-if [ -n "${TUNNEL_TOKEN:-}" ]; then
-  # The connector reads the token from its environment and never logs it
-  # (the machine env still holds it too, for fly ssh sessions). If cloudflared exits, it starts
-  # again after a pause; the loop ends with the machine.
-  #
-  # --metrics pins cloudflared's metrics listener to loopback whatever the build's
-  # default (all interfaces in builds for virtual environments).
-  # --management-diagnostics=false keeps /debug/pprof and /metrics off the tunnel's
-  # remote management service. Both are `tunnel` options, so they go before `run`.
-  (
-    while :; do
-      "$cloudflared" --no-autoupdate tunnel --metrics 127.0.0.1:20241 \
-        --management-diagnostics=false run || true
-      sleep 5
-    done
-  ) &
+# Seconds a draining connector gets before it is killed, so a hung cloudflared can't
+# hold up Guardian's own shutdown; tests shorten it.
+connector_kill_after="${FLY_START_CONNECTOR_KILL_AFTER:-20}"
+
+# Guardian's environment never holds the token. (The unset first keeps an inherited,
+# exported variable of the same name from carrying it to Guardian.)
+unset tunnel_token
+tunnel_token="${TUNNEL_TOKEN:-}"
+unset TUNNEL_TOKEN
+
+if [ -z "$tunnel_token" ] || [ "${GUARDIAN_TUNNEL:-}" = "off" ]; then
+  # exec, so Guardian receives Fly's SIGTERM directly.
+  exec "$guardian" start
 fi
 
-# Guardian's environment never holds the token. exec, so Guardian receives
-# Fly's SIGTERM directly, as before.
-unset TUNNEL_TOKEN
-exec "$guardian" start
+# True once a socket in state LISTEN (0A) is bound to Guardian's port, read from
+# /proc/net/tcp and tcp6 (the runtime image has no curl or wget).
+listening() {
+  hex=$(printf ':%04X' "$port")
+  for table in "$proc_net/tcp" "$proc_net/tcp6"; do
+    [ -r "$table" ] || continue
+    while read -r _ local_address _ state _; do
+      case "$local_address" in
+        *"$hex") [ "$state" = "0A" ] && return 0 ;;
+      esac
+    done <"$table"
+  done
+  return 1
+}
+
+guardian_pid=""
+connector_loop=""
+stopped=""
+
+stop_connector() {
+  [ -n "$connector_loop" ] || return 0
+  kill -TERM "$connector_loop" 2>/dev/null || true
+  while kill -0 "$connector_loop" 2>/dev/null; do
+    wait "$connector_loop" || true
+  done
+}
+
+# The shutdown runs in the trap itself, not on a flag checked later: a signal that
+# arrives just before a wait would otherwise go unhandled until Fly's hard kill.
+# Connector first, then Guardian; once only.
+shutdown() {
+  [ -z "$stopped" ] || return 0
+  stopped=1
+  stop_connector
+  [ -z "$guardian_pid" ] || kill -TERM "$guardian_pid" 2>/dev/null || true
+}
+trap shutdown TERM INT
+
+"$guardian" start &
+guardian_pid=$!
+# A signal that arrived before $guardian_pid was set.
+[ -z "$stopped" ] || kill -TERM "$guardian_pid" 2>/dev/null || true
+
+# The connector loop: waits for Guardian's listener, then runs cloudflared, starting
+# it again 5 s after it exits. On SIGTERM it stops cloudflared (which drains) and
+# exits without starting another.
+if [ -z "$stopped" ]; then
+  (
+    stop=""
+    connector=""
+    pause=""
+    watchdog=""
+
+    # Sleeps for $1 seconds in a way SIGTERM cuts short.
+    pause_for() {
+      sleep "$1" &
+      pause=$!
+      [ -z "$stop" ] || kill -TERM "$pause" 2>/dev/null || true
+      wait "$pause" || true
+      pause=""
+    }
+
+    # Kills the connector if it is still draining after $connector_kill_after seconds.
+    arm_watchdog() {
+      [ -n "$connector" ] && [ -z "$watchdog" ] || return 0
+      (
+        trap 'kill "$pause" 2>/dev/null; exit 0' TERM
+        sleep "$connector_kill_after" &
+        pause=$!
+        wait "$pause"
+        kill -KILL "$connector"
+      ) >/dev/null 2>&1 &
+      # (Its output goes to /dev/null, so even a stray sleep holds no one's pipe.)
+      watchdog=$!
+    }
+
+    # Stops whichever is running: cloudflared (which drains) or a pause, so no stray
+    # sleep outlives the script. The kill after each `$!` below covers a SIGTERM that
+    # arrived before the variable was set.
+    trap 'stop=1; kill -TERM $connector $pause 2>/dev/null || true; arm_watchdog' TERM
+
+    while [ -z "$stop" ] && ! listening; do
+      pause_for 1
+    done
+
+    while [ -z "$stop" ]; do
+      # --metrics pins cloudflared's metrics listener to loopback whatever the build's
+      # default (all interfaces in builds for virtual environments).
+      # --management-diagnostics=false keeps /debug/pprof and /metrics off the
+      # tunnel's remote management service. --grace-period bounds the drain on
+      # SIGTERM. All are `tunnel` options, so they go before `run`. The connector
+      # reads the token from its environment and never logs it (the machine env
+      # still holds it too, for fly ssh sessions).
+      TUNNEL_TOKEN="$tunnel_token" "$cloudflared" --no-autoupdate tunnel \
+        --metrics 127.0.0.1:20241 --management-diagnostics=false \
+        --grace-period 10s run &
+      connector=$!
+      if [ -n "$stop" ]; then
+        kill -TERM "$connector" 2>/dev/null || true
+        arm_watchdog
+      fi
+      # wait returns early when the trap runs; wait again until cloudflared is gone.
+      while kill -0 "$connector" 2>/dev/null; do
+        wait "$connector" || true
+      done
+      connector=""
+      [ -z "$watchdog" ] || kill -TERM "$watchdog" 2>/dev/null || true
+      [ -z "$stop" ] || break
+      pause_for 5
+    done
+  ) &
+  connector_loop=$!
+  # A signal that arrived before $connector_loop was set.
+  [ -z "$stopped" ] || stop_connector
+fi
+
+# wait returns early (above 128) when a trap runs, so loop until Guardian is gone.
+status=0
+while :; do
+  if wait "$guardian_pid"; then status=0; else status=$?; fi
+  kill -0 "$guardian_pid" 2>/dev/null || break
+done
+# A wait cut short by the trap returns above 128 even when Guardian then exited during
+# the trap (the shell reaped it while waiting for the connector). Its real status is
+# still recorded: one more wait returns it, or 127 if the last wait already did.
+if [ "$status" -gt 128 ]; then
+  if wait "$guardian_pid"; then status=0; else
+    last=$?
+    [ "$last" -eq 127 ] || status=$last
+  fi
+fi
+
+stop_connector
+exit "$status"

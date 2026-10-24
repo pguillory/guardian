@@ -120,6 +120,9 @@ Invariants and argument:
    apply. Fly's edge controls do not: no `force_https` redirect, no edge TLS, and the
    `hard_limit` concurrency bound doesn't count this traffic. Such requests reach
    Guardian from `127.0.0.1`, so `web_requests.remote_ip` shows that, not the Worker.
+   The script starts the connector only once Guardian listens and stops it before
+   Guardian on shutdown, and `GUARDIAN_TUNNEL=off` keeps it from starting at all; in
+   every case the token is unset before Guardian starts.
 
 Gaps:
 
@@ -615,7 +618,7 @@ and the boundary is whatever protects those. Guardian adds nothing on top.
 | --- | --- | --- | --- |
 | `GUARDIAN_API_KEY` | process environment (on Fly, a Fly secret); app env `:guardian, :api_key` | operators; callers who hold it | set the new value and restart (`fly secrets set` restarts) |
 | `RELEASE_COOKIE` | process environment (on Fly, a Fly secret); node memory | operators; peers | set the new value and restart; all nodes must share it |
-| `TUNNEL_TOKEN` (optional) | process environment (on Fly, a Fly secret, also visible in `fly ssh` sessions); `bin/fly-start` unsets it before starting Guardian, so Guardian's process doesn't hold it | operators; whoever administers the operator's Cloudflare account | rotate the tunnel's token on Cloudflare, then set the new value and restart |
+| `TUNNEL_TOKEN` (optional) | process environment (on Fly, a Fly secret, also visible in `fly ssh` sessions); `bin/fly-start` unsets it before starting Guardian, so Guardian's process doesn't hold it; the script's shell and connector loop keep it, as cloudflared does | operators; whoever administers the operator's Cloudflare account | rotate the tunnel's token on Cloudflare, then set the new value and restart |
 | `GUARDIAN_RULES_S3_ACCESS_KEY_ID`, `GUARDIAN_RULES_S3_SECRET_ACCESS_KEY` (optional) | process environment (on Fly, Fly secrets); read once by `Rules.Config` into a closure held by Rules.Server and `:persistent_term`, never application config; requests carry only an MFA for signing, and store errors name only a kind | operators; whoever administers the bucket's account | create a new bucket-scoped token, set both values and restart, then revoke the old token |
 | Build-time cookie | `releases/COOKIE` in the release and image | anyone with the image or release | per build; used only by a single node (6.4) |
 

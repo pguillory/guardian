@@ -171,10 +171,48 @@ defmodule TokenizerTest do
           # scanner error wins over an earlier evaluation error.
           {"SELECT 1e400 #", "Unexpected character", 0, 13},
           {"SELECT '\\q' #", "Unexpected character", 0, 12},
+          {"SELECT 99999999999999999999 #", "Unexpected character", 0, 28},
+          # An integer literal outside int64 is reported at the start of its raw token,
+          # leading zeros included.
+          {"SELECT 9223372036854775808", "Number out of range", 0, 7},
+          {"SELECT 'é', 9223372036854775808", "Number out of range", 0, 13},
+          {"SELECT 1\n, 0009223372036854775808", "Number out of range", 1, 2},
+          {"SELECT -9223372036854775808", "Number out of range", 0, 8},
         ] do
       assert catch_error(tokenize(source)) == %ParseError{reason: reason, row: row, col: col},
              inspect(source)
     end
+  end
+
+  test "integer literals are unsigned int64" do
+    max = 9_223_372_036_854_775_807
+    assert tokenize("9223372036854775807") == [integer: max]
+    assert tokenize("0009223372036854775807") == [integer: max]
+    assert tokenize("9223372036854775806") == [integer: max - 1]
+    assert tokenize("0000000000000000000001") == [integer: 1]
+    assert tokenize("000") == [integer: 0]
+    assert tokenize(String.duplicate("0", 100)) == [integer: 0]
+    assert tokenize("-9223372036854775807") == [punctuation: "-", integer: max]
+
+    for source <- [
+          "9223372036854775808",
+          "0009223372036854775808",
+          "9999999999999999999",
+          "10000000000000000000",
+          "99999999999999999999",
+          "1234567890123456789012345",
+        ] do
+      assert %ParseError{reason: "Number out of range", row: 0, col: 0} =
+               catch_error(tokenize(source)),
+             source
+    end
+  end
+
+  test "a huge integer literal is rejected without converting it" do
+    source = String.duplicate("9", 1_000_000)
+    {micros, error} = :timer.tc(fn -> catch_error(tokenize(source)) end)
+    assert %ParseError{reason: "Number out of range", col: 0} = error
+    assert micros < 1_000_000
   end
 
   test "errors" do

@@ -62,11 +62,13 @@ defmodule Storage do
   # PersistedSegments writes them all to disk, so they must stop in that order (reverse
   # child order below). The default 5 s worker shutdown can kill either mid-way and lose
   # acknowledged events, so give them more time. They must fit inside the platform's stop
-  # timeout (Fly `kill_timeout`, 120 s) with room left for the other children. FullSegments
-  # and LoadedSegments trap exits and stop their segments in `terminate/2` within the
-  # default 5 s each (about 12 ms for 1,100 loaded segments), so the worst case is 110 s,
-  # leaving 10 s for the children of Main that stop before Storage (they normally stop
-  # at once). Past its budget, a manager is killed and its links kill its segments.
+  # timeout (Fly `kill_timeout`, 150 s, of which the tunnel connector's drain in
+  # bin/fly-start takes up to 10 s, and 20 s at worst, before Guardian gets SIGTERM)
+  # with room left for the other children. FullSegments and LoadedSegments trap exits
+  # and stop their segments in `terminate/2` within the default 5 s each (about 12 ms
+  # for 1,100 loaded segments), so the worst case is 110 s, leaving at least 20 s for
+  # the children of Main that stop before Storage (they normally stop at once). Past
+  # its budget, a manager is killed and its links kill its segments.
   @mutable_segments_shutdown_ms 10_000
   @persisted_segments_shutdown_ms 90_000
 

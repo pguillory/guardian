@@ -108,8 +108,8 @@ keeps active; don't drop them without the maintainer's say-so. `GUARDIAN_API_KEY
 `RELEASE_COOKIE` are Fly secrets, plus the optional `TUNNEL_TOKEN` that starts the
 Cloudflare Tunnel connector (`bin/fly-start`, the image's entry point); segments live on
 a per-machine volume at `GUARDIAN_DATA_DIR=/data`. Keep Fly's `kill_timeout` above
-Storage's shutdown budget. The rest of `bin/` is development tooling (`pre-commit`,
-`install-git-hooks`). `examples/docker-compose.yml` is an unverified three-node example.
+Storage's shutdown budget plus the connector's drain (20 s at worst). The rest of
+`bin/` is development tooling (`pre-commit`, `install-git-hooks`). `examples/docker-compose.yml` is an unverified three-node example.
 
 ## Development
 
