@@ -2,9 +2,9 @@
 
 Status: phase 1 (SET and UNSET) done. TRACK and LOOKUP are designed here so they fit
 later, but are not built. The open questions were settled on the recommendations
-below, each kept switchable through app env (`:rules_on_failure`,
-`:rules_invalid_at_boot`) while they are confirmed. Rollout to a deployment is
-separate.
+below. Each was first kept switchable through app env (`:rules_on_failure`,
+`:rules_invalid_at_boot`); once confirmed, the switches and the alternatives they
+selected were removed. Rollout to a deployment is separate.
 
 ## Problem
 
@@ -346,6 +346,9 @@ a risk score, `is_suspicious` from an `RLIKE` on the lowercased message) and an
 with its result table showing the computed columns and no stored password.
 
 ## Open questions
+
+Settled: 1 and 2 on their recommendations, with the alternatives removed; 3 on its
+recommendation.
 
 1. A statement that raises, or a batch over its heap or time limit. Recommended:
    fail closed, so the event is not stored and its result is an error naming the

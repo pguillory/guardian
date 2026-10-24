@@ -288,13 +288,12 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    map per row. `Rules.Runtime` resolves reads (exact key, else the first
    case-insensitive match in byte order), applies WHERE (true only), SET (remove the
    whole field in any case, then put) and UNSET (remove the path in any case and
-   everything beneath). A statement that raises fails the event by default
-   (`:rules_on_failure`).
+   everything beneath). A statement that raises fails the event.
 5. Loading: at boot, then on every write and every minute. The store is listed, and
    objects whose ETag changed are fetched with `If-Match` on the listed ETag (a change
-   in between restarts the read). A table invalid at boot is published as invalid
-   (`:rules_invalid_at_boot` can refuse startup instead); a running node keeps a
-   table's previous good module if its stored copy turns invalid.
+   in between restarts the read). A table invalid at boot is published as invalid; a
+   running node keeps a table's previous good module if its stored copy turns
+   invalid.
 6. Writes (`Rules.Server`): take the lock, an object in the store (`Rules.Lock`:
    `If-None-Match: *` create, 120 s lease judged by the store's own clock, takeover of
    an expired or released lock with `If-Match`, ownership-safe release), read the set
@@ -1038,8 +1037,6 @@ these except through the variables above:
 | `query_max_result_bytes` | 64 MiB | `Query.Limits` |
 | `query_time_limit_ms` | 30,000 | `Query.run/1` (`Query.Limits`) |
 | `query_parse_errors_per_hour` | 60 | `Web.QueryParseErrors` (tests raise it) |
-| `rules_on_failure` | `:reject` | `Rules.Runtime`, `Rules.Runner`: a failing statement or an event over its limit fails the event; `:skip` passes it on |
-| `rules_invalid_at_boot` | `:fail_table` | `Rules.Server`: a table invalid at boot fails its events; `:refuse_startup` refuses startup |
 | `rules_store` | from the variables above | `Rules.Config` (tests set a store directly) |
 | `rules_poll_ms`, `rules_time_limit_ms`, `rules_boot_retry_ms`, `rules_reclaim_after_ms`, `rules_lock_lease_ms`, `rules_save_margin_ms`, `rules_s3_receive_timeout_ms`, `rules_s3_write_deadline_ms` | 60,000; 1,000; 60,000; 30,000; 120,000; 80,000; 15,000; 20,000 | `lib/rules` (tests shorten them) |
 | `persisted_segment_cache_ms` | 600,000 | `Storage.PersistedSegments`: how long a written segment's in-memory copy serves before it is stopped (tests shorten it); a value that is not a positive integer stops Storage from starting |

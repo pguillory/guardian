@@ -39,11 +39,10 @@ Rules to keep:
    without the error_logger report and catches every raise.
 6. Validation is whole-set and a write is refused only for errors it adds
    (`Rules.RuleSet.new_errors/2`, ignoring lines), so broken sets stay repairable.
-7. Two behaviors are switchable through app env (the defaults are decided; removing
-   the switches is a follow-up):
-   `:rules_on_failure` (`:reject`, the default, fails the event; `:skip` passes it on
-   without that statement) and `:rules_invalid_at_boot` (`:fail_table`, the default,
-   publishes the table as invalid; `:refuse_startup`). Keep both easy to flip.
+7. Rules fail closed: a statement that raises, or an event over its time or heap
+   limit, fails the event; a table whose stored rules are invalid at boot is published
+   as invalid (its events fail, other tables run) rather than refusing startup. There are
+   no switches for either (`docs/changes/ingest-rules.md`, open questions 1 and 2).
 8. Statement words are contextual (see `lib/ast/CLAUDE.md`); TRACK and LOOKUP will be
    new statement kinds in the same grammar, plan and dependency graph. Where TRACK
    counter state lives is not decided; don't add state here without that decision.

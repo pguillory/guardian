@@ -29,8 +29,8 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       (`docs/changes/ingest-rules.md`)
 - [ ] rules-track-lookup: TRACK (counters) and LOOKUP statements; decide first where
       counter state lives (`docs/changes/ingest-rules.md`)
-- [ ] rules-open-questions: confirm the failure and invalid-at-boot defaults
-      (`:rules_on_failure`, `:rules_invalid_at_boot`) and remove the switch not chosen
+- [x] rules-open-questions: the failure and invalid-at-boot defaults are confirmed
+      and their switches (`:rules_on_failure`, `:rules_invalid_at_boot`) removed
 - [ ] engine-single-flatten: Engine flattens each ingested event twice (store, then
       check the returned event); skip the check for events without atom keys
 - [ ] fix-unflatten-nil-list-items: unflattening a list holding nil beside a list of

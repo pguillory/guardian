@@ -12,10 +12,9 @@ defmodule Rules.Runtime do
     beneath it.
   - WHERE applies a statement only when it evaluates to `true`.
 
-  A statement that raises: with `:guardian, :rules_on_failure` `:reject` (the default)
-  it raises `Rules.Runtime.Failure` naming the file and line, and the event is not
-  stored; with `:skip` the statement leaves the row as it was and the event goes on.
-  Either way the failure is logged by kind only (`note_failure/3`), never a value.
+  A statement that raises raises `Rules.Runtime.Failure` naming the file and line, and
+  the event is not stored. The failure is logged by kind only (`note_failure/3`),
+  never a value.
   """
 
   alias Storage.Flattening
@@ -40,7 +39,7 @@ defmodule Rules.Runtime do
   end
 
   def set(row, index, step) do
-    guard(row, step, fn ->
+    guard(step, fn ->
       context = context(row, index, step.reads)
 
       if applies?(context, step.where_expr) do
@@ -53,7 +52,7 @@ defmodule Rules.Runtime do
   end
 
   def unset(row, index, step) do
-    guard(row, step, fn ->
+    guard(step, fn ->
       if applies?(context(row, index, step.reads), step.where_expr) do
         remove_path(row, step.field)
       else
@@ -89,17 +88,13 @@ defmodule Rules.Runtime do
     end
   end
 
-  defp guard(row, step, fun) do
+  defp guard(step, fun) do
     fun.()
   catch
     kind, reason ->
       failure_kind = Engine.failure_kind(kind, reason, __STACKTRACE__)
       note_failure(step.file, step.line, failure_kind)
-
-      case Application.get_env(:guardian, :rules_on_failure, :reject) do
-        :skip -> row
-        :reject -> raise Failure, file: step.file, line: step.line, kind: failure_kind
-      end
+      raise Failure, file: step.file, line: step.line, kind: failure_kind
   end
 
   defp applies?(_context, nil), do: true

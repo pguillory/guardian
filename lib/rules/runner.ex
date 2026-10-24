@@ -12,9 +12,7 @@ defmodule Rules.Runner do
   The worker reads the table's compiled module once per row (`Rules.lookup/1`), so a
   reload between rows applies to the rows after it; each row sees one rule set.
 
-  Outcomes: `{:ok, row}`, or `{:error, message}` for a row that must not be stored. With
-  `:guardian, :rules_on_failure` set to `:skip`, a row over its limits is passed on
-  unchanged instead (see `Rules.Runtime`).
+  Outcomes: `{:ok, row}`, or `{:error, message}` for a row that must not be stored.
   """
 
   def time_limit_ms, do: Application.get_env(:guardian, :rules_time_limit_ms, 1_000)
@@ -50,20 +48,20 @@ defmodule Rules.Runner do
     acc
   end
 
-  defp collect([{row, index} | rest], table, acc, ref, pid, monitor) do
+  defp collect([{_row, index} | rest], table, acc, ref, pid, monitor) do
     receive do
       {^ref, ^index, result} ->
         collect(rest, table, [result | acc], ref, pid, monitor)
 
       {:DOWN, ^monitor, :process, ^pid, _reason} ->
         flush(ref)
-        run_from(rest, table, [over_limit(table, row, "worker exit") | acc])
+        run_from(rest, table, [over_limit(table, "worker exit") | acc])
     after
       time_limit_ms() ->
         Process.exit(pid, :kill)
         Process.demonitor(monitor, [:flush])
         flush(ref)
-        run_from(rest, table, [over_limit(table, row, "time limit") | acc])
+        run_from(rest, table, [over_limit(table, "time limit") | acc])
     end
   end
 
@@ -76,17 +74,9 @@ defmodule Rules.Runner do
     end
   end
 
-  defp over_limit(table, row, kind) do
+  defp over_limit(table, kind) do
     Rules.Runtime.note_failure("#{table}/", "-", kind)
-
-    case Application.get_env(:guardian, :rules_on_failure, :reject) do
-      :skip ->
-        {:ok, row}
-
-      :reject ->
-        {:error,
-         "rules for #{table} exceeded their time or memory limit; the event was not stored"}
-    end
+    {:error, "rules for #{table} exceeded their time or memory limit; the event was not stored"}
   end
 
   defp apply_rules(table, row) do

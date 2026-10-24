@@ -8,9 +8,7 @@ defmodule Rules.Server do
   starts (it is `Main`'s first child). An unreachable store is retried with backoff
   for up to `@boot_retry_ms` (60 s), then startup is refused; a misconfigured store
   refuses startup at once. A table whose stored rules fail validation is published as
-  `{:invalid, message}`, so its events fail and other tables run normally; with
-  `:guardian, :rules_invalid_at_boot` set to `:refuse_startup`, startup is refused
-  instead.
+  `{:invalid, message}`, so its events fail and other tables run normally.
 
   If this process restarts while Guardian runs, the published set (in
   `:persistent_term`) keeps serving and the store is re-read in the background, so a
@@ -111,29 +109,22 @@ defmodule Rules.Server do
     case read_with_retry(state, deadline, 1_000) do
       {:ok, files} ->
         validation = RuleSet.validate(sources(files))
+        state = reserve_pool(state, MapSet.new())
 
-        if validation.errors != [] and
-             Application.get_env(:guardian, :rules_invalid_at_boot, :fail_table) ==
-               :refuse_startup do
-          {:stop, {:invalid_rules, Enum.map(validation.errors, & &1.message)}}
-        else
-          state = reserve_pool(state, MapSet.new())
+        case activate(state, validation, :boot) do
+          {:ok, state} ->
+            log_errors(validation.errors)
 
-          case activate(state, validation, :boot) do
-            {:ok, state} ->
-              log_errors(validation.errors)
+            Logger.info(
+              "Rules: #{map_size(files)} files for #{map_size(state.hashes)} tables " <>
+                "from #{Rules.Store.describe(state.store)}"
+            )
 
-              Logger.info(
-                "Rules: #{map_size(files)} files for #{map_size(state.hashes)} tables " <>
-                  "from #{Rules.Store.describe(state.store)}"
-              )
+            schedule_poll()
+            {:ok, %{state | files: files}}
 
-              schedule_poll()
-              {:ok, %{state | files: files}}
-
-            {:error, message} ->
-              {:stop, {:rules_compile, message}}
-          end
+          {:error, message} ->
+            {:stop, {:rules_compile, message}}
         end
 
       {:error, reason} ->

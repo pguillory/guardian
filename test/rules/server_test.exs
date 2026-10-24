@@ -40,17 +40,6 @@ defmodule Rules.ServerTest do
     assert [{:error, _}] = Engine.ingest_events("bad", [%{}])
   end
 
-  test "with rules_invalid_at_boot :refuse_startup, an invalid stored set refuses startup" do
-    s3 = FakeS3.start()
-    on_exit(fn -> FakeS3.stop(s3) end)
-    FakeS3.put_object(s3, "bad/a.gsql", "SET")
-
-    ExUnit.CaptureLog.capture_log(fn ->
-      assert {:error, {:invalid_rules, ["bad/a.gsql line 1: " <> _]}} =
-               restart_server(FakeS3.store(s3), rules_invalid_at_boot: :refuse_startup)
-    end)
-  end
-
   test "a misconfigured store refuses startup at once; an unreachable one after retrying" do
     s3 = FakeS3.start()
     on_exit(fn -> FakeS3.stop(s3) end)

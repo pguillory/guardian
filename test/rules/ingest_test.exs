@@ -163,17 +163,6 @@ defmodule Rules.IngestTest do
     assert Storage.dump_table(table) == [%{"a" => evil}]
   end
 
-  test "with rules_on_failure :skip, a raising statement leaves its field and the event is stored" do
-    table = unique_table("rules_skip")
-    put_env(:rules_on_failure, :skip)
-    with_rules(%{"#{table}/r.gsql" => "SET ok = 1; SET x = test_raise(a)"})
-
-    ExUnit.CaptureLog.capture_log(fn ->
-      assert [{:ok, %{"ok" => 1} = reported}] = ingest(table, [%{"a" => "boom"}])
-      refute Map.has_key?(reported, "x")
-    end)
-  end
-
   defmodule SlowRules do
     def apply(%{"sleep" => ms} = row) do
       Process.sleep(ms)
