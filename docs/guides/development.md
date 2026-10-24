@@ -42,15 +42,43 @@ Existing BEAM processes retain their original runtime until restarted. Use a
 scratch checkout for isolated builds: Guardian's native compilation writes to
 `priv/` even with a separate `MIX_BUILD_PATH`.
 
-## Building and testing
+## Setup
 
 ```sh
 mix deps.get
+bin/install-git-hooks
+```
+
+`mix deps.get` fetches the dev dependencies too, and the formatter needs them
+(`freedom_formatter` is a dev-only plugin), so run it without `--only`.
+`bin/install-git-hooks` links `bin/pre-commit` as the repository's pre-commit hook.
+
+## Checks
+
+These are Guardian's only checks: there is no hosted CI, and none may be added. The
+pre-commit hook checks staged whitespace (`git diff-index --check --cached`) and then
+runs, on the working tree:
+
+```sh
+mix format --check-formatted
+MIX_ENV=test mix compile --warnings-as-errors
 mix test --warnings-as-errors
 ```
 
-`iex -S mix` and `mix run` need `GUARDIAN_API_KEY` (32 bytes or more) in the
-environment and serve HTTP on port 8080. Tests use their own fixed configuration.
-Before committing, run `bin/install-git-hooks` once; the hook checks formatting,
-compiles with warnings as errors, and runs the suite. See
-[CONTRIBUTING.md](../../CONTRIBUTING.md).
+Run `mix format` to fix formatting. Run the full suite after every change. The
+multi-node tests start peer nodes, which need `epmd`; the tests start it themselves
+when it isn't running, and in a sandbox that blocks that, run `epmd -daemon` first.
+Tests need no external services (no PostgreSQL, Memcached or GeoIP files) and no API
+key of your own: they use their own fixed configuration. Tests tagged `:large`
+allocate gigabytes and are excluded; run them by hand with `mix test --only large`.
+
+## Running locally
+
+`iex -S mix`, `mix run --no-halt` and `make console` need `GUARDIAN_API_KEY` of at least 32
+bytes in the environment, for example
+`export GUARDIAN_API_KEY="$(openssl rand -hex 32)"`, and serve HTTP on port 8080.
+
+## Docker image architectures
+
+The image's architecture support is stated once, in
+[system.md section 10.1](../architecture/system.md#101-build).

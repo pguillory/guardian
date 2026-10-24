@@ -169,6 +169,10 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       (`docs/changes/elixir-120-compatibility.md`)
 - [x] no-ci: remove hosted CI; the local pre-commit hook checks formatting,
       compilation, and the full suite (`docs/changes/no-ci.md`)
+- [x] dev-docs-consolidate: the check commands, setup and hook installation were
+      repeated in CLAUDE.md, CONTRIBUTING.md, system.md and the development guide, and
+      arm64 status in README.md, the single-node guide, the Dockerfile and system.md;
+      the development guide and system.md 10.1 are now their one homes
 - [ ] peer-start-stall: a test peer's `:peer.start` has occasionally exceeded its 15 s
       boot wait in loaded full-suite runs; cause unknown
 - [x] segment-rollover-flake: SegmentTest "maximum age size rollover cancels the

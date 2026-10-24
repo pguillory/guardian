@@ -113,21 +113,14 @@ Storage's shutdown budget plus the connector's drain (20 s at worst). The rest o
 
 ## Development
 
-Local Homebrew uses Elixir 1.19.3 with `erlang@28` (OTP 28.5.0.8); see
-[`docs/guides/development.md`](docs/guides/development.md) for setup and the
-OTP 28.2 crash fix. Guardian's own source compiles with warnings as errors on
-Elixir 1.19 and 1.20 with OTP 28; the installed runtime and Docker pins remain unchanged.
-
-```sh
-mix format
-MIX_ENV=test mix compile --warnings-as-errors
-mix test --warnings-as-errors
-```
+Local Homebrew uses Elixir 1.19.3 with `erlang@28` (OTP 28.5.0.8).
+[`docs/guides/development.md`](docs/guides/development.md) is the one home for the
+toolchain (including the OTP 28.2 crash fix), setup, hook installation and the
+checks: read it before running or changing them. Run `mix format` first; the
+pre-commit hook runs the checks the guide lists.
 
 Tests must not require PostgreSQL, Memcached, GeoIP files, or other external services.
 No CI: never add GitHub Actions or other hosted CI; tests run locally at commit time.
-The pre-commit hook checks staged whitespace, formatting, compilation, and the full
-test suite. See `docs/guides/development.md` for hook setup.
 
 Key subsystem documentation:
 

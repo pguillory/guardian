@@ -1,8 +1,7 @@
 # syntax=docker/dockerfile:1
 # ADD --checksum needs Dockerfile frontend 1.6 or later; the line above selects it.
-# Guardian release image. See docs/guides/fly.md. Supported architecture:
-# linux/amd64; linux/arm64 has a cloudflared stage and no x86-only dependency, but is
-# not yet tested.
+# Guardian release image. See docs/guides/fly.md. Supported architectures: see
+# docs/architecture/system.md section 10.1.
 #
 # Build locally, for the host's own architecture, with:
 #   docker build --build-arg GIT_COMMIT=$(git rev-parse HEAD) .

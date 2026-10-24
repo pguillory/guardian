@@ -238,7 +238,7 @@ linked above, so it learns the syntax without your help. A session looks like th
 ## Quickstart
 
 Run a single node in Docker. The supported image architecture is linux/amd64; arm64
-should build but is untested (see [the single-node guide](docs/guides/single-node.md)).
+is untested (see [system.md 10.1](docs/architecture/system.md#101-build)).
 
 ```sh
 docker build -t guardian .
@@ -293,8 +293,8 @@ Using it:
 
 Working on it:
 
-- [Building and development](docs/guides/development.md): prerequisites and tests.
-  See also [CONTRIBUTING.md](CONTRIBUTING.md).
+- [Building and development](docs/guides/development.md): prerequisites, setup, the
+  commit checks and running locally. See also [CONTRIBUTING.md](CONTRIBUTING.md).
 - Product docs: the [overview](docs/product/overview.md) (one sentence, one
   paragraph, one page) and the full [product spec](docs/product/spec.md).
 - How it's built: the [system architecture](docs/architecture/system.md). What it
