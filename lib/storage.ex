@@ -49,8 +49,6 @@ defmodule Storage do
   alias Storage.PersistedSegments
   alias Storage.Schema
   alias Storage.Segment
-  alias Storage.Segment.Registration
-  require Registration
   require SegmentID
   use Supervisor
 

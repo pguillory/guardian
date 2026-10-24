@@ -155,7 +155,8 @@ defmodule EngineTest do
 
     assert Storage.dump_table(table) == [first, last]
     assert Engine.ingest_events(table, []) == []
-    assert_raise FunctionClauseError, fn -> Engine.ingest_event(table, nil) end
+    # Exercise invalid input at runtime without a compile-time type warning.
+    assert_raise FunctionClauseError, fn -> apply(Engine, :ingest_event, [table, nil]) end
   end
 
   test "a preparation exception is reported as not stored and the batch continues" do

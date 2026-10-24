@@ -46,29 +46,19 @@ defmodule Timestamp do
   end
 
   def from_string(string) do
-    case DateTime.from_iso8601(string) do
-      {:ok, datetime} ->
+    # Preserve the existing naive parsing; timezone offsets need a separate fix
+    # (TODO.md: timestamp-offsets).
+    case NaiveDateTime.from_iso8601(string) do
+      {:ok, naive_datetime} ->
         timestamp =
-          datetime
-          |> DateTime.to_naive()
+          naive_datetime
           |> NaiveDateTime.truncate(:second)
           |> NaiveDateTime.to_string()
 
         {:ok, timestamp}
 
       _ ->
-        case NaiveDateTime.from_iso8601(string) do
-          {:ok, naive_datetime} ->
-            timestamp =
-              naive_datetime
-              |> NaiveDateTime.truncate(:second)
-              |> NaiveDateTime.to_string()
-
-            {:ok, timestamp}
-
-          _ ->
-            :error
-        end
+        :error
     end
   end
 end

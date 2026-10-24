@@ -115,8 +115,8 @@ Storage's shutdown budget plus the connector's drain (20 s at worst). The rest o
 
 Local Homebrew uses Elixir 1.19.3 with `erlang@28` (OTP 28.5.0.8); see
 [`docs/guides/development.md`](docs/guides/development.md) for setup and the
-OTP 28.2 crash fix. Stay on Elixir 1.19 / OTP 28 pending fixes for Elixir 1.20
-compiler warnings.
+OTP 28.2 crash fix. Guardian's own source compiles with warnings as errors on
+Elixir 1.19 and 1.20 with OTP 28; the installed runtime and Docker pins remain unchanged.
 
 ```sh
 mix format

@@ -20,7 +20,8 @@ defmodule AST.Node.FunctionCall do
           Code.ensure_loaded!(mod)
 
           if function_exported?(mod, :eval2, 2) do
-            mod.eval2(context, expr)
+            # eval2 is optional; the type checker cannot narrow modules by the export check.
+            apply(mod, :eval2, [context, expr])
           else
             eval_per_row(context, mod, args, arity)
           end

@@ -1,7 +1,5 @@
 defmodule Storage.Column do
-  alias Storage.Column.Metadata
   alias Storage.Column.NIF
-  require Metadata
 
   def new do
     new(0)

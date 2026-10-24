@@ -145,9 +145,9 @@ defmodule Storage.SegmentFile do
       binary_part(serialized_segment, @primary_header_size, secondary_header_size)
 
     <<
-      keys_column::binary-size(keys_column_size),
-      _counts_columns::binary-size(counts_columns_size),
-      sizes_column::binary-size(sizes_column_size)
+      keys_column::binary-size(^keys_column_size),
+      _counts_columns::binary-size(^counts_columns_size),
+      sizes_column::binary-size(^sizes_column_size)
     >> = secondary_header
 
     keys = keys_column |> Column.to_list()

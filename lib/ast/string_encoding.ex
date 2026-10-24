@@ -16,7 +16,8 @@ defmodule AST.StringEncoding do
   """
   @spec decode_string(binary()) :: {:ok, String.t()} | {:error, String.t(), non_neg_integer()}
   def decode_string(literal) do
-    <<?', inner::binary-size(byte_size(literal) - 2), ?'>> = literal
+    inner_size = byte_size(literal) - 2
+    <<?', inner::binary-size(^inner_size), ?'>> = literal
 
     case decode(inner, inner, "") do
       {:ok, string} ->

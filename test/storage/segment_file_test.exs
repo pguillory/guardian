@@ -45,7 +45,8 @@ defmodule Storage.SegmentFileTest do
 
   describe "filename/2" do
     test "rejects a segment ID that is not a binary" do
-      assert_raise FunctionClauseError, fn -> SegmentFile.filename("events", 123) end
+      # Exercise invalid input at runtime without a compile-time type warning.
+      assert_raise FunctionClauseError, fn -> apply(SegmentFile, :filename, ["events", 123]) end
     end
 
     test "generates correct filename format" do

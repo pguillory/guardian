@@ -107,7 +107,7 @@ defmodule Storage.SegmentFileGoldenTest do
 
     {columns, <<>>} =
       Enum.map_reduce(sizes, secondary, fn size, rest ->
-        <<column::binary-size(size), rest::binary>> = rest
+        <<column::binary-size(^size), rest::binary>> = rest
         {Column.to_list(column), rest}
       end)
 

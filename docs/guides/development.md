@@ -8,6 +8,11 @@
 - a C toolchain
 - `epmd`, which ships with Erlang, for the multi-node tests
 
+Guardian's own source compiles with warnings as errors on Elixir 1.19 and 1.20
+with OTP 28 (checked on 1.19.3 and 1.20.4). The installed runtime and image pins
+above remain unchanged. Some dependencies still emit warnings on a fresh build;
+see [the compatibility change](../changes/elixir-120-compatibility.md).
+
 ## Local Homebrew runtime
 
 Use `erlang@28`, not the unversioned `erlang` formula, which now tracks OTP 29.

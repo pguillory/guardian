@@ -365,7 +365,12 @@ defmodule Web.QueryLogTest do
       :ok = QueryLog.record("SELECT last", {:ok, 0}, info(), server: server)
       :ok = QueryLog.sync(server)
 
-      written = for _ <- 1..1001, do: assert_receive({:written, row}) && row
+      written =
+        for _ <- 1..1001 do
+          assert_receive {:written, row}
+          row
+        end
+
       dropped = written |> Enum.map(& &1["dropped_before"]) |> Enum.sum()
       assert dropped == 3
 

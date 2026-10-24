@@ -86,6 +86,8 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Queries
 
+- [ ] timestamp-offsets: timestamp parsing discards nonzero ISO8601 timezone offsets;
+      normalize them to UTC in a separate behavior change
 - [x] regex-on-re-drop-jq: `replace()` with growing or overlapping matches aborted the
       VM in the Hyperscan NIF; regular expressions now run on `:re` with backtracking
       limits, and jq() and the Hyperscan and libjq dependencies are gone
@@ -154,6 +156,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Tests
 
+- [x] elixir-120-compatibility: compile Guardian with warnings as errors and run the
+      full suite on Elixir 1.19 and 1.20 without changing runtime pins
+      (`docs/changes/elixir-120-compatibility.md`)
 - [x] no-ci: remove hosted CI; the local pre-commit hook checks formatting,
       compilation, and the full suite (`docs/changes/no-ci.md`)
 - [ ] peer-start-stall: a test peer's `:peer.start` has occasionally exceeded its 15 s

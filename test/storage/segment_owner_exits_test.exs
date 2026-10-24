@@ -308,7 +308,8 @@ defmodule Storage.SegmentOwnerExitsTest do
     assert Segment.exit_kind({crash, {GenServer, :call, ["row data"]}}) == "ArgumentError"
     assert Segment.exit_kind({{:shutdown, "row data"}, {GenServer, :call, []}}) == ":shutdown"
     assert Storage.exit_kind({crash, {GenServer, :call, []}}) == "ArgumentError"
-    assert Segment.normal_exit?(:normal) and Segment.normal_exit?(:shutdown)
+    assert Segment.normal_exit?(:normal)
+    assert Segment.normal_exit?(:shutdown)
     assert Segment.normal_exit?({:shutdown, :x})
     refute Segment.normal_exit?(:boom)
   end

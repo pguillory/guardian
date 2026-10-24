@@ -28,8 +28,6 @@ defmodule Web.MCP.Server do
 
   alias Anubis.Server.Response
 
-  require Logger
-
   @query_language_uri "guardian://query-language"
   @query_language_path Path.join(__DIR__, "query_language.md")
   @external_resource @query_language_path
