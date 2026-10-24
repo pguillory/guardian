@@ -44,6 +44,17 @@ defmodule Counters.RuntimeTest do
     assert_receive {:DOWN, ^ref, :process, ^pid, _}
   end
 
+  defp crash_subtree(subtree) do
+    crash(subtree)
+    # DOWN can precede linked child cleanup. Production retries transient name
+    # conflicts with backoff; tests forcing immediate retries must first let the
+    # old generation release every registered process/table name.
+    eventually(fn ->
+      Enum.all?(@names, &(Process.whereis(&1) == nil)) and
+        :ets.whereis(:counter_runtime_cluster) == :undefined
+    end)
+  end
+
   defp await_down(owner) do
     eventually(fn ->
       state = :sys.get_state(owner)
@@ -131,7 +142,7 @@ defmodule Counters.RuntimeTest do
 
     log =
       capture_log(fn ->
-        crash(:sys.get_state(owner).subtree)
+        crash_subtree(:sys.get_state(owner).subtree)
         state = await_down(owner)
         refute Counters.Supervisor.available?(@counters)
         assert :erlang.read_timer(state.retry_timer) in 1..15_000
@@ -168,8 +179,9 @@ defmodule Counters.RuntimeTest do
           if next_delay == 60_000 do
             :sys.replace_state(owner, &%{&1 | counters: @counters})
             recovered = fire_timer(owner, :retry_timer, :retry)
+            assert is_pid(recovered.subtree)
             assert recovered.next_delay == 60_000
-            crash(recovered.subtree)
+            crash_subtree(recovered.subtree)
             down = await_down(owner)
             assert :erlang.read_timer(down.retry_timer) in 15_001..60_000
             assert down.next_delay == 120_000
@@ -186,17 +198,18 @@ defmodule Counters.RuntimeTest do
         assert state.next_delay == 240_000
         # A short-lived recovery must retain the escalated delay, and its canceled
         # healthy timer must not reset the backoff during the next outage.
-        crash(state.subtree)
+        crash_subtree(state.subtree)
         down = await_down(owner)
         assert :erlang.read_timer(down.retry_timer) in 15_001..240_000
         send(owner, {:timeout, state.healthy_timer, :healthy})
         assert :sys.get_state(owner).next_delay == 240_000
         state = fire_timer(owner, :retry_timer, :retry)
+        assert is_pid(state.subtree)
         assert :erlang.read_timer(state.healthy_timer) in 1..60_000
         assert fire_timer(owner, :healthy_timer, :healthy).next_delay == 15_000
 
         # A failure after the healthy interval uses the initial delay again.
-        crash(:sys.get_state(owner).subtree)
+        crash_subtree(:sys.get_state(owner).subtree)
         state = await_down(owner)
         assert :erlang.read_timer(state.retry_timer) in 1..15_000
         assert state.next_delay == 30_000
@@ -213,7 +226,7 @@ defmodule Counters.RuntimeTest do
     old = :sys.get_state(owner)
 
     capture_log(fn ->
-      crash(old.subtree)
+      crash_subtree(old.subtree)
       down = await_down(owner)
       send(owner, {:timeout, old.healthy_timer, :healthy})
       send(owner, {:timeout, nil, :retry})
@@ -223,6 +236,7 @@ defmodule Counters.RuntimeTest do
       assert :sys.get_state(owner) == down
 
       recovered = fire_timer(owner, :retry_timer, :retry)
+      assert is_pid(recovered.subtree)
       send(owner, {:timeout, down.retry_timer, :retry})
       send(owner, {:timeout, nil, :retry})
       send(owner, {:EXIT, old.subtree, :shutdown})
@@ -234,9 +248,9 @@ defmodule Counters.RuntimeTest do
     {root, owner, _sibling} = start_runtime()
 
     capture_log(fn ->
-      crash(:sys.get_state(owner).subtree)
+      crash_subtree(:sys.get_state(owner).subtree)
       await_down(owner)
-      fire_timer(owner, :retry_timer, :retry)
+      assert is_pid(fire_timer(owner, :retry_timer, :retry).subtree)
     end)
 
     pids = for name <- @names, do: Process.whereis(name)
@@ -321,7 +335,7 @@ defmodule Counters.RuntimeTest do
       capture_log(fn ->
         send(owner, {:EXIT, subtree, {:unexpected, "PRIVATE"}})
         await_down(owner)
-        crash(subtree)
+        crash_subtree(subtree)
         assert is_pid(fire_timer(owner, :retry_timer, :retry).subtree)
       end)
 
