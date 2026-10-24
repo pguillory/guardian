@@ -16,8 +16,8 @@ deliberately invalid inputs dynamically, and separate assertions from expression
 the compiler can prove always succeed.
 
 The dead timestamp branch exposed a separate bug: nonzero ISO8601 offsets are
-discarded by the existing fallback. Fixing that changes results and is tracked as
-`timestamp-offsets` in TODO.md, outside this compatibility change.
+discarded by the existing fallback. Fixing that changes results, so it was done
+separately, outside this compatibility change (`docs/changes/timestamp-offsets.md`).
 
 The local runtime and Docker pins remain unchanged. Compatibility checks use the
 official Elixir 1.20.4 `elixir-otp-28.zip` release from

@@ -417,6 +417,17 @@ written by Guardian's own tables and returned by `now()`, so string comparison a
 sorting are chronological when every value follows it. Guardian does not parse or
 enforce time formats on ingest.
 
+Time arithmetic (`date_add`, `date_sub`, a timestamp `+` or `-` seconds, and
+`to_seconds`) reads an ISO 8601 date and time in the extended form
+`YYYY-MM-DDTHH:MM:SS`, with `T` or a space between date and time, optional
+fractional seconds (dropped), and an optional UTC offset (`Z`, `+02:00`, `+0200`,
+`+02`), which is applied, so `2026-10-01T19:35:00+02:00` is `2026-10-01 17:35:00`.
+A time without an offset is taken as UTC. A timestamp result is always UTC
+`YYYY-MM-DD HH:MM:SS`; `to_seconds` gives seconds since 1970 UTC. Other forms (a date
+alone, the basic `YYYYMMDD` form, week or ordinal dates), an offset it can't read, and
+a UTC time outside years 0000 to 9999 give null. Comparison and sorting stay plain
+string operations, so they don't apply offsets.
+
 ## 7. Queries
 
 Full reference: [`query_language.md`](../../lib/web/mcp/query_language.md). Summary of

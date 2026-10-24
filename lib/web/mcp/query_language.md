@@ -79,6 +79,14 @@ SELECT count() FROM web_requests WHERE timestamp >= '2026-10-01 00:00:00' AND ti
 SELECT path, count() FROM web_requests WHERE timestamp > date_sub(now(), INTERVAL 1 HOUR) GROUP BY path
 ```
 
+Time arithmetic (`date_add`, `date_sub`, timestamp `+` or `-` seconds, `to_seconds`)
+reads ISO 8601 `YYYY-MM-DDTHH:MM:SS`, with `T` or a space, optional fractional
+seconds (dropped) and an optional UTC offset (`Z`, `+02:00`, `+0200`, `+02`), which it
+applies: `date_add('2026-10-01T19:35:00+02:00', 0)` is `'2026-10-01 17:35:00'`. A time
+without an offset is UTC. Timestamp results are UTC `YYYY-MM-DD HH:MM:SS` and
+`to_seconds` gives seconds since 1970 UTC; other forms (a date alone, say) give
+null. Comparisons and sorting compare the strings as they are, offsets and all.
+
 ## Expressions
 
 - Literals: integers, floats (`1.5`, `1.`, and with an exponent `1e20`, `2.5E-3`),

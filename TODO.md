@@ -86,8 +86,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Queries
 
-- [ ] timestamp-offsets: timestamp parsing discards nonzero ISO8601 timezone offsets;
-      normalize them to UTC in a separate behavior change
+- [x] timestamp-offsets: time arithmetic discarded a nonzero ISO 8601 UTC offset
+      (`19:35:00+02:00` read as 19:35 UTC); it now applies the offset
+      (`docs/changes/timestamp-offsets.md`)
 - [x] regex-on-re-drop-jq: `replace()` with growing or overlapping matches aborted the
       VM in the Hyperscan NIF; regular expressions now run on `:re` with backtracking
       limits, and jq() and the Hyperscan and libjq dependencies are gone
