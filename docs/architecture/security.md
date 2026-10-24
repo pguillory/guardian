@@ -680,6 +680,20 @@ Where data goes:
      last message and state, which can hold event data. A segment file that fails to
      load is not a crash: its process stops with a `:shutdown` reason naming only the
      failure's kind, so no crash report carries the file's bytes.
+   - Rules.Server's crash reports and formatted status never carry rule text (rules
+     can hold secrets, such as a value a SET compares against): `format_status/1`
+     keeps only each file's ETag, in the state and in past states in the debug log,
+     and replaces a write's source with `:redacted`; `init/1`, `handle_call/3` and
+     `handle_info/2` re-raise a failure as an error naming only its kind, with a
+     stack of arities, because OTP adds the raw stack, arguments included, after
+     `format_status/1`. `Rules.Server.write/3` turns the call's exit into an error
+     without logging the exit reason, which carries the message. Proc_lib and
+     supervisor reports (which include the message queue) are SASL reports, which
+     Logger drops in this configuration. One gap, by design: with `:sys.log/2` on,
+     `:sys.get_status/1` also returns OTP's raw debug log, unredacted, and the
+     formatted log keeps write replies, whose validation messages can quote up to
+     40 characters of a rule; turning it on takes a remote shell, which reads any
+     state anyway.
    - A query process killed by the heap guard produces the VM's kill report, which
      names the process and its heap sizes, not its contents (5.2.2).
    - With query keys allowed, an MCP request that uses one logs one info line naming

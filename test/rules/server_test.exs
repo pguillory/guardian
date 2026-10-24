@@ -132,6 +132,92 @@ defmodule Rules.ServerTest do
     assert [{:ok, %{"x" => 1}}] = Engine.ingest_events(table, [%{}])
   end
 
+  test ":sys.get_status shows rule files' ETags, never their text" do
+    {s3, _store} = s3_server()
+    marker = "MARKER-#{System.unique_integer([:positive])}"
+    table = unique_table("rules_status")
+    {:ok, _} = Rules.write_rule(table, "a", "SET x = '#{marker}'")
+    assert inspect(:sys.get_state(Rules.Server), limit: :infinity) =~ marker
+
+    status = inspect(:sys.get_status(Rules.Server), limit: :infinity, printable_limit: :infinity)
+    refute status =~ marker
+    assert status =~ FakeS3.objects(s3)["#{table}/a.gsql"].etag
+
+    # With debug logging on, the log holds each message and the state after it. The
+    # server's formatted status (the last item) redacts them; the raw debug options
+    # `:sys` returns beside it are OTP's own (see docs/architecture/security.md).
+    :ok = :sys.log(Rules.Server, true)
+    {:ok, _} = Rules.write_rule(table, "b", "SET y = '#{marker}'")
+    assert :ok = Rules.reload()
+    {:ok, log} = :sys.log(Rules.Server, :get)
+    assert inspect(log, limit: :infinity, printable_limit: :infinity) =~ marker
+
+    {:status, _pid, _module, [_pdict, _sys_state, _parent, _debug, formatted]} =
+      :sys.get_status(Rules.Server)
+
+    # What a crash report formats: the state, the last message and the debug log.
+    report =
+      Rules.Server.format_status(%{
+        state: :sys.get_state(Rules.Server),
+        message: {:"$gen_call", {self(), make_ref()}, {:write, table, "c", marker}},
+        log: log,
+        reason: :normal,
+      })
+
+    :ok = :sys.log(Rules.Server, false)
+    formatted = inspect(formatted, limit: :infinity, printable_limit: :infinity)
+    assert formatted =~ "Logged events"
+    refute formatted =~ marker
+    refute inspect(report, limit: :infinity, printable_limit: :infinity) =~ marker
+  end
+
+  defmodule CrashingStore do
+    @moduledoc false
+    # A store whose saves crash the rule server with the source in the exception:
+    # in its message, or as the argument of a function clause that does not match.
+    def list(_config), do: {:ok, []}
+    def get(_config, _key, _etag), do: {:error, :not_found}
+    def delete(_config, _key), do: :ok
+    def describe(_config), do: "crashing store"
+
+    def put(_config, "_" <> _lock, _body, _condition), do: {:ok, "lock"}
+    def put(_config, "t/ok.gsql", _source, _condition), do: {:ok, "saved"}
+    def put(_config, "t/clause.gsql", source, _condition), do: clause(source)
+    def put(_config, _key, source, _condition), do: raise("cannot save #{source}")
+
+    defp clause(:never), do: :ok
+  end
+
+  test "a crash while writing never logs the source: not the message, state or reason" do
+    {:ok, _} = restart_server({CrashingStore, nil})
+    # A saved rule, in the state and in the debug log the first crash reports. Two
+    # crashes only: a third within 5 s would exceed Main's restart intensity.
+    saved = "MARKER-#{System.unique_integer([:positive])}"
+    :ok = :sys.log(Rules.Server, true)
+    assert {:ok, _} = Rules.write_rule("t", "ok", "SET x = '#{saved}'")
+    assert inspect(:sys.get_state(Rules.Server), limit: :infinity) =~ saved
+
+    for name <- ["clause", "raise"] do
+      marker = "MARKER-#{System.unique_integer([:positive])}"
+      pid = Process.whereis(Rules.Server)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          assert Rules.write_rule("t", name, "SET x = '#{marker}'") ==
+                   {:error, "the rule server is unavailable; retry"}
+
+          wait_until(fn -> Process.whereis(Rules.Server) not in [nil, pid] end)
+          Logger.flush()
+        end)
+
+      assert log =~ "Rules.Server"
+      assert log =~ "details redacted"
+      assert log =~ ":redacted"
+      refute log =~ marker
+      refute log =~ saved
+    end
+  end
+
   test "a broken stored set can be repaired one file at a time; other tables stay writable" do
     {s3, _store} = s3_server()
     table = unique_table("rules_repair")

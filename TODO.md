@@ -31,6 +31,8 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       counter state lives (`docs/changes/ingest-rules.md`)
 - [x] rules-open-questions: the failure and invalid-at-boot defaults are confirmed
       and their switches (`:rules_on_failure`, `:rules_invalid_at_boot`) removed
+- [x] rules-server-redaction: Rules.Server's formatted status and crash reports
+      never show rule text (`format_status/1`, and callbacks re-raise only a kind)
 - [x] rules-s3-loopback-http: the S3 rule store endpoint accepts `http://` only for
       `localhost`, 127.0.0.0/8 or `[::1]`; any other host must use `https://`
 - [x] rules-store-429: a rate-limited (HTTP 429) rule store at boot is retried like

@@ -6,9 +6,10 @@ defmodule Rules.Server do
 
   `init/1` loads and validates every rule file before anything else in Guardian
   starts (it is `Main`'s first child). An unreachable or rate-limiting (HTTP 429)
-  store is retried with backoff for up to `@boot_retry_ms` (60 s), then startup is refused; a misconfigured store
-  refuses startup at once. A table whose stored rules fail validation is published as
-  `{:invalid, message}`, so its events fail and other tables run normally.
+  store is retried with backoff for up to `@boot_retry_ms` (60 s), then startup is
+  refused; a misconfigured store refuses startup at once. A table whose stored rules
+  fail validation is published as `{:invalid, message}`, so its events fail and
+  other tables run normally.
 
   If this process restarts while Guardian runs, the published set (in
   `:persistent_term`) keeps serving and the store is re-read in the background, so a
@@ -43,6 +44,20 @@ defmodule Rules.Server do
   and soft-purged; its name returns to the pool only once the purge succeeds. On a
   restart, names in the published map are in use and any other loaded name is
   retired.
+
+  ## Status and crash reports
+
+  Rule text never appears in a crash report or in this server's part of
+  `:sys.get_status/1` (`format_status/1`): every file, in the state or in a past
+  state in the debug log, keeps only its ETag, and a write message's source is
+  replaced by `:redacted`. `init/1`, `handle_call/3` and `handle_info/2` re-raise
+  whatever they raise as an error naming only the kind, with a stack of arities,
+  since an exception's message or fields and the top frame's arguments can hold a
+  source (the report's stack is not passed through `format_status/1`). `write/3`
+  turns the call's exit into an error without logging the exit reason, which
+  carries the message. With `:sys.log/2` turned on, `:sys.get_status/1` also returns
+  OTP's raw debug log beside the formatted status, unredacted; that needs a remote
+  shell, which `:sys.get_state/1` already gives everything.
   """
 
   use GenServer
@@ -79,7 +94,9 @@ defmodule Rules.Server do
   def poll_ms, do: Application.get_env(:guardian, :rules_poll_ms, 60_000)
 
   @impl true
-  def init(_opts) do
+  def init(opts), do: scrubbed(fn -> start(opts) end)
+
+  defp start(_opts) do
     if :ets.whereis(@failure_log_table) == :undefined do
       :ets.new(@failure_log_table, [:named_table, :public, :set])
     end
@@ -173,21 +190,27 @@ defmodule Rules.Server do
     %{state | free: free, retired: Map.new(loaded, &{&1, :pending})}
   end
 
+  # Every callback runs through scrubbed/1, so a crash report never shows a rule
+  # source from an exception or a stack frame's arguments.
   @impl true
-  def handle_call(:reload, _from, state) do
+  def handle_call(request, from, state), do: scrubbed(fn -> call(request, from, state) end)
+
+  @impl true
+  def handle_info(message, state), do: scrubbed(fn -> info(message, state) end)
+
+  defp call(:reload, _from, state) do
     case reload_state(state) do
       {:ok, state} -> {:reply, :ok, state}
       {:error, message, state} -> {:reply, {:error, message}, state}
     end
   end
 
-  def handle_call({:write, table, name, source}, _from, state) do
+  defp call({:write, table, name, source}, _from, state) do
     {reply, state} = write_rule(state, table, name, source)
     {:reply, reply, state}
   end
 
-  @impl true
-  def handle_info(:poll, state) do
+  defp info(:poll, state) do
     state =
       case reload_state(state) do
         {:ok, state} -> state
@@ -198,7 +221,7 @@ defmodule Rules.Server do
     {:noreply, state}
   end
 
-  def handle_info({:reclaim, module}, state) do
+  defp info({:reclaim, module}, state) do
     {:noreply, reclaim(state, module)}
   end
 
@@ -547,6 +570,53 @@ defmodule Rules.Server do
         end
     end
   end
+
+  ## Status and crash reports
+
+  @impl true
+  def format_status(status), do: Map.new(status, fn {key, value} -> {key, redact(value)} end)
+
+  # However nested, in the state, the message, or the debug log (whose entries hold
+  # past states and messages): a write request's source, and each file's source.
+  defp redact({:write, table, name, source}) when is_binary(source),
+    do: {:write, table, name, :redacted}
+
+  defp redact(tuple) when is_tuple(tuple),
+    do: tuple |> Tuple.to_list() |> Enum.map(&redact/1) |> List.to_tuple()
+
+  defp redact([head | tail]), do: [redact(head) | redact(tail)]
+  defp redact(%_{} = struct), do: struct
+  defp redact(%{etag: _, source: _} = file), do: Map.take(file, [:etag])
+  defp redact(map) when is_map(map), do: Map.new(map, fn {k, v} -> {k, redact(v)} end)
+  defp redact(term), do: term
+
+  # Re-raises anything a callback raises, throws or exits with as an error naming only
+  # its kind, with a stack of arities and locations: the exception's message and
+  # fields, and the top frame's arguments, can hold a source.
+  defp scrubbed(fun) do
+    fun.()
+  catch
+    kind, reason ->
+      stack = Enum.map(__STACKTRACE__, &redact_frame/1)
+      message = "Rules.Server crashed: #{kind} #{reason_kind(reason)} (details redacted)"
+      :erlang.raise(:error, %RuntimeError{message: message}, stack)
+  end
+
+  defp reason_kind(%{__exception__: true, __struct__: module}), do: inspect(module)
+  defp reason_kind(atom) when is_atom(atom), do: inspect(atom)
+
+  defp reason_kind(tuple)
+       when is_tuple(tuple) and tuple_size(tuple) > 0 and is_atom(elem(tuple, 0)),
+       do: inspect(elem(tuple, 0))
+
+  defp reason_kind(_reason), do: "term"
+
+  defp redact_frame({module, function, args, location}) do
+    arity = if is_list(args), do: length(args), else: args
+    {module, function, arity, Keyword.take(location, [:file, :line])}
+  end
+
+  defp redact_frame(frame), do: frame
 
   ## Logging
 
