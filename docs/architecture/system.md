@@ -78,6 +78,7 @@ The design follows from the product commitments (spec section 1):
 Main (one_for_one)
 ├── Rules.Server                     loads the rule store, publishes compiled rules, polls each minute
 ├── Counters.Store                   ephemeral node-local ETS counter storage (rules integration pending)
+├── Counters.Cluster                 bounded owner routing and node-local cooldown (rules integration pending)
 ├── Storage (supervisor, rest_for_one)
 │   ├── Storage.Schema               per-table schema of loaded segments
 │   ├── Storage.LoadedSegments       mmap'd segment files; loads all at boot, rescans each minute
@@ -106,7 +107,8 @@ Why this order:
    `:persistent_term`, so if it restarts, ingestion keeps the published rules and the
    new process reloads in the background instead of failing again.
 2. Counters.Store starts after Rules.Server, with empty private ETS tables. It does
-   no loading and is independent of rule compilation and event storage. Storage
+   no loading and is independent of rule compilation and event storage.
+   Counters.Cluster starts next with empty cooldown ETS and membership monitoring. Storage
    starts next, and `LoadedSegments.init/1` loads every segment file on the
    volume before returning. Supervisors start children one at a time, so the HTTP
    listener does not exist until all stored data is loaded. That is what lets
@@ -371,12 +373,49 @@ more than once, and inline data can be counted twice. At
 capacity the owner discards roughly the oldest half of keys, repeating as needed;
 updates do not refresh insertion order. The budget bounds resident entries and
 indexes, not temporary copies, mailboxes or other VM memory. Eviction can stall
-this single owner; later cluster routing will bound waits and fail open.
+this single owner; cluster routing bounds waits and fails open.
 
 Calls default to 50 ms and carry a local monotonic deadline. A queued request whose
 deadline passed returns a timeout without mutating. Execution that has already
 begun can still finish after its caller times out, so uncertain increments must not
 be retried. Errors and formatted status disclose no keys or values.
+
+`Counters.Cluster`, independently supervised after Store and before Storage,
+provides internal owner routing; TRACK/LOOKUP statements remain pending. It takes
+one connected-member snapshot per event, without Storage readiness RPCs, then
+chooses the highest SHA-256 rendezvous score for `{identity, group}` and node name.
+Its explicit typed encoding is independent of Erlang external-term format and
+preserves integer/float and signed-zero distinctions. All buckets share one owner;
+up to four bucket reads fit one Store turn. Remote operations call Store directly
+on that owner, preserving terms and CAS references, never re-routing or failing
+over to another owner. Booting or older peers without the endpoint fail open.
+
+The internal API exposes `new_batch/0` and `new_event/2` for the future rule caller.
+One event has a 100 ms wall-clock counter phase; operations use at most 50 ms and
+skip without dispatch below 10 ms remaining. A shared atomics handle reserves from
+250 ms of failed-call wait per batch, survives rule-worker replacement, and refunds
+healthy calls fully (including misses/CAS conflicts). Failed calls refund unused
+allowance; a killed caller conservatively spends its outstanding reservation.
+This event wall-clock deadline is deliberately stricter than summing call time.
+The current SET/UNSET ingest path does not invoke these APIs yet.
+
+A local guard monitors the caller and links a worker that may block in distribution
+flow control. Both local and remote calls use the same bounded path. Deadline or
+caller death kills the worker; caller cleanup revokes the reply alias, consumes the
+guard's DOWN and flushes already delivered replies. Local requests retain the
+original deadline; remote endpoints translate remaining milliseconds to their own
+monotonic clock. Transit before endpoint receipt and already dispatched mutations
+can outlive the wait; uncertain increments are never replayed.
+
+An independent public ETS table holds one-second cooldowns for suspect owners,
+including the local Store. Unavailability marks immediately; timeouts mark only
+with at least 25 ms allowance. Budget skips and definite Store errors never mark.
+Reads/cooldown updates never wait for the routing GenServer. It monitors membership
+and prunes expired/departed entries, at least once per second; no user key goes in
+this map. Restarting routing clears cooldowns; while absent, operations fail fast.
+Membership changes, divergent membership views, restarts, eviction and uncertain
+late writes can lose or split counts. Availability takes precedence over precision;
+there is no replication, migration or partition recovery protocol.
 
 ## 4. Storage engine
 

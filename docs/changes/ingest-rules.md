@@ -1,8 +1,9 @@
 # ingest-rules: SET and UNSET rules run on incoming events, stored as files
 
-Status: phase 1 (SET and UNSET) done. Counter C1 (the node-local ETS store) is
-implemented. TRACK and LOOKUP's settled v1 design and reviewed four-piece
-implementation plan are below; C2–C4 and the statements themselves are not yet built.
+Status: phase 1 (SET and UNSET) done. Counter C1 (the node-local ETS store) and
+C2 (bounded cluster ownership) are implemented. TRACK and LOOKUP's settled v1
+design and reviewed four-piece implementation plan are below; C3–C4 and the
+statements themselves are not yet built.
 The phase 1 open questions were settled on the recommendations below.
 Each was first kept switchable through app env (`:rules_on_failure`,
 `:rules_invalid_at_boot`); once confirmed, the switches and the alternatives they
@@ -472,6 +473,21 @@ internal app setting; the user-facing environment setting belongs to C4.
 
 ### C2: counter ownership and bounded cluster operations
 
+Implemented as `Counters.Cluster`. Product spec impact: none; no statements are
+enabled until C4. `new_batch/0` provides a shared atomics failure budget kept outside
+replaceable workers; `new_event/2` captures membership and starts a conservative
+100 ms wall-clock counter phase. Each operation atomically reserves its allowance,
+refunds successful calls completely (including misses/CAS conflict), and charges
+actual failed wait up to that reservation. Caller death retains the outstanding
+reservation, preserving the bound across replacement. The 100 ms wall-clock phase
+also charges time between calls, deliberately stricter than call-time accounting.
+Explicit canonical typed hashing avoids dependence on ETF/OTP encoding and preserves
+signed zero. JSON lists/maps and nested tuples are defined; unsupported terms are
+rejected. Remote endpoints preserve native values/reference tokens, and guard/worker
+cleanup bounds flow-control stalls and discards late replies. Mixed-version peers
+without the endpoint fail open. C1 expiry throughput and supervisor crash isolation
+are follow-up work for C4 rather than part of this ownership change.
+
 Build `Counters.Cluster` over C1. Use rendezvous hashing (consistent ownership when
 members change), selecting the highest stable hash of {routing key, node}. Capture
 the member list once per event from this node and its connected peers. Do not call
@@ -547,6 +563,10 @@ allowlist: count/0, count/1, count_distinct/1, sum/1, min/1, max/1, avg/1.
    Product spec impact: none until C4. Historical aggregate sharing is follow-up.
 
 ### C4: rule integration and product behavior
+
+C1 follow-ups assigned to C4: improve expiry reclamation beyond the current
+256-key/second sweep, and isolate counter crash loops from the main supervisor's
+restart intensity. These are recorded here rather than folded into C2 ownership.
 
 1. Add contextual TRACK/LOOKUP AST nodes, parsing and canonical source output.
    Validate aggregate name/arity, scalar inputs/BY/WHERE, LAST bounds, referenced

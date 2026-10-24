@@ -69,7 +69,8 @@ Summary; the full description is `docs/architecture/system.md`.
 
 The runtime consists of Rules.Server (loads the rule store first; an unreachable or
 misconfigured store refuses startup), Counters.Store (node-local ephemeral ETS
-storage; TRACK/LOOKUP integration is pending), Storage, SystemStats, Web.QueryParseErrors (records query
+storage), Counters.Cluster (bounded owner routing and cooldown; TRACK/LOOKUP
+integration is pending), Storage, SystemStats, Web.QueryParseErrors (records query
 parse failures), Web.QueryLog (records every API query in `queries`),
 Web.IngestIdempotency (short-lived, node-local client-key receipts), Web, and
 Cluster (DNS peer discovery

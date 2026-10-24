@@ -59,9 +59,11 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       and reviewed four-piece plan in `docs/changes/ingest-rules.md`
       1. [x] C1: node-local ETS get/get_many/gets/cas/incr, per-key TTLs, memory
          budget and oldest-half eviction
-      2. [ ] C2: consistent owner hashing, bounded remote operations and fail open
+      2. [x] C2: consistent owner hashing, bounded remote operations and fail open
       3. [ ] C3: mergeable count, distinct (HyperLogLog), sum, min, max and avg
       4. [ ] C4: TRACK/LOOKUP grammar, validation, bucket policy and rule execution
+         Also improve quiet expiry throughput and isolate counter restart failures
+         from the main supervisor's restart intensity.
 - [x] rules-open-questions: the failure and invalid-at-boot defaults are confirmed
       and their switches (`:rules_on_failure`, `:rules_invalid_at_boot`) removed
 - [x] rules-server-redaction: Rules.Server's formatted status and crash reports

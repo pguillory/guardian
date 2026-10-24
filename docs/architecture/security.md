@@ -385,8 +385,22 @@ and no single request that takes the service down or destroys stored data.
    cleaned in bounded sweeps. Operations have local deadlines and scrubbed failures;
    formatted status redacts state, messages, logs and reasons, and callback crashes
    replace exception details and stack arguments with fixed text/arities. This is
-   internal infrastructure only: TRACK/LOOKUP rules and remote routing are not yet
-   implemented, and the current ingest path does not call the counter store.
+   internal infrastructure only: TRACK/LOOKUP rules are not yet implemented, and
+   the current ingest path does not call the counter store. `Counters.Cluster`
+   routes native terms to one owner through the existing fully trusted Erlang
+   distribution boundary (section 6), without another API or authorization layer.
+   It captures connected members without readiness RPCs. Calls are bounded at
+   50 ms, within a 100 ms event phase and a shared 250 ms failed-wait batch budget;
+   killed callers retain reservations conservatively. A guard kills its linked
+   RPC worker even under distribution flow control, and caller cleanup revokes
+   aliases and flushes replies. Remote endpoints translate remaining duration
+   onto their own clocks; already dispatched mutations can still complete late.
+   A separate member-keyed ETS cooldown suppresses unavailable owners for a second,
+   and timed-out owners only with at least 25 ms allowance; definite failures and
+   budget skips never mark owners. No group keys or values are retained there.
+   RPC exceptions become fixed error atoms.
+   Membership disagreement/loss, restarts, eviction and uncertain writes can lose
+   or split counts; these counters are advisory, never durable enforcement limits.
 
 ### 5.2 Gaps
 
@@ -545,7 +559,9 @@ Invariants and argument:
    lists. But any node with the cookie and network access can connect inbound, and
    `Cluster` then treats it as a member (`connected_nodes/0` is this node plus every
    peer in `Node.list()` that answers `Storage.ready?/0` with `true`, with no name or
-   deployment allowlist). Membership is therefore exactly invariants 1 and 2.
+   deployment allowlist). Counter routing instead uses this node plus `Node.list()`
+   without Storage readiness checks (5.1.9), so a visible non-Guardian peer can own
+   keys that then fail open. Membership is therefore exactly invariants 1 and 2.
 4. A misnamed node fails at boot rather than silently never joining: with
    `DNS_CLUSTER_QUERY` set, `Cluster.discovery_child_spec/1` refuses a node whose host
    is not an IP literal, is loopback, or is not written exactly as `:inet.ntoa/1`

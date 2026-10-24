@@ -9,6 +9,7 @@ defmodule Main do
     children = [
       Rules.Server,
       Counters.Store,
+      Counters.Cluster,
       Storage,
       SystemStats,
       Web.QueryParseErrors,
