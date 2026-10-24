@@ -14,9 +14,7 @@ defmodule Rules.RuleSet do
   """
 
   alias AST.Node.Statements.LookupStatement
-  alias AST.Node.Statements.SetStatement
   alias AST.Node.Statements.TrackStatement
-  alias AST.Node.Statements.UnsetStatement
 
   @max_file_bytes 64 * 1024
   @max_files 1_000
@@ -209,7 +207,7 @@ defmodule Rules.RuleSet do
           parsed
           |> Enum.with_index()
           |> Enum.map(fn {{statement, line}, index} ->
-            statement(table, key, line, index, statement)
+            Rules.Step.new(table, key, line, index, statement)
           end)
 
         case Enum.flat_map(statements, &expression_errors/1) do
@@ -250,76 +248,9 @@ defmodule Rules.RuleSet do
     end)
   end
 
-  defp statement(table, key, line, index, %SetStatement{} = statement) do
-    %{
-      table: table,
-      file: key,
-      line: line,
-      index: index,
-      kind: :set,
-      field: statement.field.name,
-      value_expr: statement.value_expr,
-      where_expr: statement.where_expr,
-      reads: reads([statement.value_expr, statement.where_expr]),
-      source: AST.unparse(statement),
-    }
-  end
-
-  defp statement(table, key, line, index, %UnsetStatement{} = statement) do
-    %{
-      table: table,
-      file: key,
-      line: line,
-      index: index,
-      kind: :unset,
-      field: statement.field.name,
-      value_expr: nil,
-      where_expr: statement.where_expr,
-      reads: reads([statement.where_expr]),
-      source: AST.unparse(statement),
-    }
-  end
-
-  # Field names an expression reads, in first-read order.
-  defp reads(exprs) do
-    exprs
-    |> Enum.reject(&is_nil/1)
-    |> Enum.flat_map(fn expr ->
-      {_expr, names} =
-        AST.prewalk(expr, [], fn
-          %AST.Node.Identifier{name: name} = node, names -> {node, [name | names]}
-          node, names -> {node, names}
-        end)
-
-      Enum.reverse(names)
-    end)
-    |> Enum.uniq()
-  end
-
-  # Nodes that parse as expressions but cannot be evaluated on one event.
-  @not_scalar [
-    {AST.Node.AggregateFunctionCall, "aggregate functions"},
-    {AST.Node.Splat, "*"},
-    {AST.Node.As, "AS"},
-    {AST.Node.Ascending, "ASC"},
-    {AST.Node.Descending, "DESC"},
-  ]
-
   defp expression_errors(statement) do
-    [statement.value_expr, statement.where_expr]
-    |> Enum.reject(&is_nil/1)
-    |> Enum.flat_map(fn expr ->
-      {_expr, found} =
-        AST.prewalk(expr, [], fn %mod{} = node, found ->
-          case List.keyfind(@not_scalar, mod, 0) do
-            {_mod, what} -> {node, [what | found]}
-            nil -> {node, found}
-          end
-        end)
-
-      found
-    end)
-    |> Enum.uniq()
+    statement
+    |> Rules.Validation.scalar_errors()
     |> Enum.map(fn what ->
       error(
         statement.file,
@@ -378,10 +309,8 @@ defmodule Rules.RuleSet do
     end)
   end
 
-  # SET statements form a dependency graph: a SET depends on every other SET whose
-  # field it reads (a read of `user.name` reads the top-level field `user`).
   defp cycle_errors(table, statements) do
-    case order_sets(Enum.filter(statements, &(&1.kind == :set))) do
+    case Rules.DependencyGraph.order(Enum.filter(statements, &(&1.kind == :set))) do
       {:ok, _ordered} ->
         []
 
@@ -404,7 +333,7 @@ defmodule Rules.RuleSet do
 
   defp plan(table, statements) do
     statements = Enum.uniq_by(statements, &{&1.kind, &1.field, &1.source})
-    {:ok, sets} = order_sets(Enum.filter(statements, &(&1.kind == :set)))
+    {:ok, sets} = Rules.DependencyGraph.order(Enum.filter(statements, &(&1.kind == :set)))
     unsets = Enum.filter(statements, &(&1.kind == :unset))
     steps = sets ++ unsets
     # File and line too: compiled modules report them when a statement fails.
@@ -413,42 +342,8 @@ defmodule Rules.RuleSet do
     %Rules.Plan{table: table, steps: steps, hash: Base.encode16(hash, case: :lower)}
   end
 
-  # Kahn's algorithm, always taking the earliest ready statement (by file, then
-  # position), so independent statements run in file-name then statement order.
-  defp order_sets(sets) do
-    by_field = Map.new(sets, &{&1.field, &1})
-
-    deps =
-      Map.new(sets, fn set ->
-        fields =
-          set.reads
-          |> Enum.map(&top_level/1)
-          |> Enum.filter(&(Map.has_key?(by_field, &1) and &1 != set.field))
-          |> MapSet.new()
-
-        {set.field, fields}
-      end)
-
-    order(Enum.sort_by(sets, &{&1.file, &1.index}), deps, [])
-  end
-
-  defp order([], _deps, acc), do: {:ok, Enum.reverse(acc)}
-
-  defp order(pending, deps, acc) do
-    case Enum.find(pending, &(MapSet.size(Map.fetch!(deps, &1.field)) == 0)) do
-      nil ->
-        {:cycle, pending}
-
-      ready ->
-        deps =
-          Map.new(deps, fn {field, fields} -> {field, MapSet.delete(fields, ready.field)} end)
-
-        order(List.delete(pending, ready), deps, [ready | acc])
-    end
-  end
-
   @doc "The top-level field of a field name or path (`user` for `user.name`)."
-  def top_level(name), do: name |> String.split(".", parts: 2) |> hd()
+  defdelegate top_level(name), to: Rules.DependencyGraph
 
   defp error(file, line, kind, detail, message, table) do
     location = if line, do: "#{file} line #{line}", else: file

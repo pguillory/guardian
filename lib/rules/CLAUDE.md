@@ -12,6 +12,9 @@ Modules:
   message}` for a table whose stored rules fail validation.
 - `Rules.RuleSet`: parses (`AST.Parser.parse_rules/1`) and validates a whole set,
   every table together, into one `Rules.Plan` per table. Pure: no reads, no state.
+- `Rules.Step`: typed per-kind inputs and read derivation.
+- `Rules.Validation`: scalar checks.
+- `Rules.DependencyGraph`: deterministic field ordering.
 - `Rules.Compiler`: a plan into a generated module from a fixed template, with the
   statements as escaped literals. No rule text becomes code.
 - `Rules.Runtime`: what generated modules call for each statement (reads, SET, UNSET,

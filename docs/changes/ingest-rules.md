@@ -595,6 +595,10 @@ registry/arity checks; the counter allowlist, scalar arguments/BY/WHERE, interva
 bounds and FROM table validity remain validation work. Dependency reads must come
 from input clauses, not whole-statement traversal (which also visits names).
 
+Implemented: the C4b prerequisite separates typed SET/UNSET steps, scalar checks and field
+dependency ordering from RuleSet orchestration. It preserves validation errors,
+execution order and counter refusal. Product spec impact: none.
+
 Remaining order:
 
 1. C4b: whole-set validation, dependency graph, resolved definition identities and

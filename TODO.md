@@ -66,6 +66,7 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
          1. [x] C4a: parsed syntax, AST, canonical source and traversal; RuleSet
            explicitly rejects counter statements before building executable steps
          2. [ ] C4b: validation, dependencies, resolved identities and coherent reloads
+           - [x] Prerequisite: separate typed steps, scalar validation and dependency ordering
          3. [x] Prerequisite: quiet expiry catches up in immediate pages and
            reclaims expiry before live eviction; counter crash loops are isolated
            from Main, with automatic backoff recovery and availability metrics

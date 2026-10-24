@@ -28,19 +28,14 @@ defmodule Rules.Compiler do
   def compile(module, %Rules.Plan{} = plan) do
     steps =
       Enum.map(plan.steps, fn step ->
-        literal =
-          Macro.escape(%{
-            file: step.file,
-            line: step.line,
-            field: step.field,
-            value_expr: step.value_expr,
-            where_expr: step.where_expr,
-            reads: step.reads,
-          })
+        literal = Macro.escape(literal_value(step))
 
         case step.kind do
-          :set -> quote(do: state = Rules.Runtime.set(state, unquote(literal)))
-          :unset -> quote(do: state = Rules.Runtime.unset(state, unquote(literal)))
+          :set ->
+            quote(do: state = Rules.Runtime.set(state, unquote(literal)))
+
+          :unset ->
+            quote(do: state = Rules.Runtime.unset(state, unquote(literal)))
         end
       end)
 
@@ -64,4 +59,7 @@ defmodule Rules.Compiler do
   rescue
     e -> {:error, inspect(e.__struct__)}
   end
+
+  defp literal_value(step),
+    do: Map.take(step, [:file, :line, :field, :value_expr, :where_expr, :reads])
 end

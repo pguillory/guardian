@@ -322,7 +322,9 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    identical duplicates merged) or its errors: parse errors, paths and limits,
    aggregates, a field defined two ways, SET cycles. TRACK/LOOKUP syntax is parsed
    into AST nodes but explicitly refused here before building executable steps;
-   counter validation and execution are pending. It is pure.
+   counter validation and execution are pending. It is pure. Typed SET/UNSET steps
+   (`Rules.Step`), scalar checks (`Rules.Validation`) and dependency ordering
+   (`Rules.DependencyGraph`) are separate from rule-set orchestration.
 2. Compilation: `Rules.Compiler` turns a plan into a module from a fixed template,
    each statement one call to `Rules.Runtime` with the statement as an escaped literal
    (expressions run through the scalar evaluator, `Query.Eval` on an event map). Names
