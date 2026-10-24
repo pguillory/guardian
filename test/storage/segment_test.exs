@@ -294,7 +294,9 @@ defmodule SegmentTest do
     end
 
     test "size rollover cancels the timer and ignores already delivered expiry" do
-      {:ok, segment} = start_link(capacity: 2, max_age_ms: 100, max_age_owner: self())
+      # A max age the test cannot reach, so the segment fills by size however slow the
+      # host is; the expiry is delivered by hand below.
+      {:ok, segment} = start_link(capacity: 2, max_age_ms: 60_000, max_age_owner: self())
       :ok = segment_append(segment, %{"a" => 1})
       timer = :sys.get_state(segment).age_timer
 

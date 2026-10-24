@@ -165,7 +165,7 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       compilation, and the full suite (`docs/changes/no-ci.md`)
 - [ ] peer-start-stall: a test peer's `:peer.start` has occasionally exceeded its 15 s
       boot wait in loaded full-suite runs; cause unknown
-- [ ] segment-rollover-flake: SegmentTest "maximum age size rollover cancels the
-      timer and ignores already delivered expiry" failed once under heavy load (an
-      append expected `{:ok, :full}` got `{:error, :full}`); possibly the 100 ms
-      maximum age expiring between the two appends
+- [x] segment-rollover-flake: SegmentTest "maximum age size rollover cancels the
+      timer and ignores already delivered expiry" failed under heavy load (an append
+      expected `{:ok, :full}` got `{:error, :full}`) when its 100 ms maximum age
+      expired between the two appends; it now uses a maximum age it cannot reach
