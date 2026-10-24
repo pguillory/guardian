@@ -15,6 +15,7 @@ Everything is set through environment variables. Only `GUARDIAN_API_KEY` is requ
 | `RELEASE_COOKIE` | (required when clustered) | The Erlang distribution secret, shared by every node. It grants code execution on all of them. |
 | `GUARDIAN_DIST_PORT` | (unset: a random port) | Pins the server's Erlang distribution port, so a firewall needs only that port and epmd's 4369. |
 | `TUNNEL_TOKEN` | (unset) | Optional: starts a Cloudflare Tunnel connector beside Guardian (see [Fly.io: optional Cloudflare Tunnel](../guides/fly.md#optional-cloudflare-tunnel)). |
+| `GUARDIAN_TUNNEL` | (unset: on) | `off` keeps the tunnel connector from starting on this machine even when `TUNNEL_TOKEN` is set. |
 
 How these combine into a deployment: [single node](../guides/single-node.md),
 [a cluster on any machines](../guides/cluster.md), and [Fly.io](../guides/fly.md).

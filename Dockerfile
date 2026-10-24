@@ -97,5 +97,6 @@ COPY bin/fly-start /app/fly-start
 # Runs as root: Fly volumes mount root-owned, and each Fly Machine is its own VM whose
 # only workload is Guardian.
 EXPOSE 8080
-# bin/fly-start runs `guardian start`, plus the tunnel connector when TUNNEL_TOKEN is set.
+# bin/fly-start runs `guardian start`, plus the tunnel connector when TUNNEL_TOKEN is set
+# (unless GUARDIAN_TUNNEL=off).
 CMD ["/app/fly-start"]

@@ -99,6 +99,10 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       instructions (0.16 cannot send them)
 - [ ] auth-failure-visibility: failed authentication is not logged or rate limited,
       and the key's length is observable through timing
+- [x] fly-entry-drain: the Fly entry point kept the tunnel connector up while
+      Guardian was loading or shutting down, so tunnel requests failed instead of
+      going to another machine; the connector now starts once Guardian listens and
+      drains before Guardian stops (`docs/changes/fly-entry-drain.md`)
 - [ ] system-stats-node-column: `system_stats` rows carry no node identity, so a
       cluster's metrics can't be told apart by machine
 

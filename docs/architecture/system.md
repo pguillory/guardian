@@ -128,8 +128,10 @@ reloads what is on disk. Shutdown needs the managers' budgets in sequence: up to
 for MutableSegments, 90 s for PersistedSegments, and the default 5 s each for
 FullSegments and LoadedSegments (stopping about 1,100 loaded segments took 12 ms on the
 development Mac), 110 s in all. A deployment must give the VM longer than that between
-SIGTERM and a kill: on Fly, `fly.toml`'s 120-second `kill_timeout` leaves 10 s for the
-processes that stop before Storage.
+SIGTERM and a kill: on Fly, `fly.toml`'s 150-second `kill_timeout` covers it after
+`bin/fly-start` has drained the tunnel connector (up to 10 s, and 20 s at worst before
+it is killed; section 10.1), leaving at least 20 s for the processes that stop before
+Storage.
 
 `Main` uses the default restart intensity (3 restarts in 5 seconds). The release starts
 the application as permanent, so if Storage or Web keeps crashing the VM exits, and the
@@ -920,7 +922,8 @@ requests.
    writable segment (10 s budget), PersistedSegments writes everything queued (90 s
    budget), and FullSegments and LoadedSegments stop their segments (5 s each), about
    110 s in all. Whatever stops the VM must wait longer than that before killing it:
-   on Fly, `fly.toml`'s 120-second `kill_timeout`, which must stay above the budgets.
+   on Fly, `fly.toml`'s 150-second `kill_timeout`, which must stay above the budgets
+   plus the tunnel connector's drain (10 seconds, 20 at worst).
 4. Crash: a VM crash or out-of-memory kill loses everything not yet written: normally
    about the last hour of each table on that machine plus any persistence lag, with no
    hard upper bound while writes are failing or queued. A host crash or power loss can
@@ -951,7 +954,7 @@ Environment variables:
 | --- | --- | --- |
 | `GUARDIAN_API_KEY` | `config/runtime.exs` | The API key. Required outside tests, at least 32 bytes. |
 | `GUARDIAN_ALLOW_QUERY_API_KEY` | `config/runtime.exs` | `true` also accepts the key as the `api_key` query parameter; `false` or unset (the default) never decodes the query string for a key. Any other value fails boot. |
-| `GUARDIAN_PORT` | `config/runtime.exs` | HTTP port, 1 to 65535. Default 8080. Tests use an OS-chosen port. |
+| `GUARDIAN_PORT` | `config/runtime.exs`, `bin/fly-start` | HTTP port, 1 to 65535. Default 8080. Tests use an OS-chosen port. |
 | `GUARDIAN_QUERY_MAX_HEAP_MB` | `config/runtime.exs` | Heap limit of each query process, in MiB (5.7). Default 256; `0` turns it off. |
 | `GUARDIAN_DATA_DIR` | `config/runtime.exs` (prod) | Data directory; segments go in `segments/` under it. Default `/root/data`; `/data` in the image and on Fly. Must be writable, and on Fly must be a mounted volume, or boot fails. |
 | `GUARDIAN_MUTABLE_SEGMENT_MAX_AGE_MS` | `config/runtime.exs` | Writable segment age before handoff. Default 3,600,000. |
@@ -961,6 +964,7 @@ Environment variables:
 | `GUARDIAN_DIST_PORT` | `rel/env.sh.eex` | Pins the server's distribution listen port, 1 to 65535. Unset means a random port. |
 | `FLY_PRIVATE_IP`, `FLY_APP_NAME` | `rel/env.sh.eex`, `config/runtime.exs` | Set by Fly. Their presence selects the Fly preset (section 7) and the volume check. |
 | `TUNNEL_TOKEN` | `bin/fly-start` | Optional. Starts the cloudflared connector (10.1); Guardian's own process never sees it. |
+| `GUARDIAN_TUNNEL` | `bin/fly-start` | `off` keeps the connector from starting even with `TUNNEL_TOKEN` set (the token is still kept from Guardian), for a machine that should take no tunnel traffic. Any other value, or unset, leaves it on. |
 
 Application environment (`:guardian`), with code defaults; deployments set none of
 these except through the variables above:
@@ -1005,12 +1009,34 @@ image is plain Debian with only the runtime libraries, the release, and a pinned
 checksummed cloudflared binary for the target architecture (one `FROM scratch` stage
 per architecture, selected by `TARGETARCH`). Its
 CMD is `bin/fly-start`, which starts Guardian (it works the same off Fly). When
-`TUNNEL_TOKEN` is set, it also starts a cloudflared connector beside Guardian: an
-outbound Cloudflare Tunnel, so the operator's Cloudflare Workers can reach Guardian
-through a Workers VPC binding instead of the public edge (security.md B1b). It unsets
-the token before starting Guardian, and the connector stays in that script rather than
-`rel/env.sh.eex`, which runs for every `bin/guardian` command (`remote`, `rpc`) and
-would start more connectors. The image runs as root, because Fly volumes mount
+`TUNNEL_TOKEN` is set (and `GUARDIAN_TUNNEL` is not `off`), it also runs a cloudflared
+connector beside Guardian: an outbound Cloudflare Tunnel, so the operator's Cloudflare
+Workers can reach Guardian through a Workers VPC binding instead of the public edge
+(security.md B1b). It unsets the token before starting Guardian, and the connector
+stays in that script rather than `rel/env.sh.eex`, which runs for every `bin/guardian`
+command (`remote`, `rpc`) and would start more connectors.
+
+Cloudflare sends a tunnel request to one of the tunnel's connectors, not to a healthy
+origin, so the script keeps the connector serving only while Guardian does. Without a
+connector it simply `exec`s `guardian start`. With one, it stays in front of Guardian:
+
+1. It starts Guardian, then the connector only once a socket is listening on
+   Guardian's port (read from `/proc/net/tcp` and `tcp6`; the image has no HTTP
+   client). The listener opens only after every segment has loaded (section 2.1).
+2. On SIGTERM or SIGINT it stops the connector first, which drains in-flight requests
+   for up to its 10-second `--grace-period` and disconnects; then it sends Guardian
+   SIGTERM and exits with Guardian's status.
+3. If Guardian exits on its own, it stops the connector and exits with Guardian's
+   status, so the machine restarts. A connector that exits is started again after 5
+   seconds; a stop during that pause starts no new one.
+
+A request longer than the drain can still be cut off, a connector still draining after
+20 seconds is killed so Guardian's own shutdown isn't held up, and a crash skips the
+drain. That a drained connector's new requests go to another machine's connector
+follows from Cloudflare's replica routing; it has not yet been observed on a
+multi-machine deploy.
+
+The image runs as root, because Fly volumes mount
 root-owned and each Fly Machine is a VM whose only workload is Guardian. CI and Fly
 build linux/amd64; linux/arm64 has its cloudflared stage but has not been built yet
 (TODO.md ci-arm64-image).
@@ -1026,7 +1052,8 @@ operational decisions:
 3. A health check on `GET /health` every 15 seconds, with a 10-minute grace period
    because boot loads every segment. Deploy with a matching `--wait-timeout`.
 4. A volume `guardian_data` at `/data` (10 GB initial, 14 daily snapshots kept).
-5. `SIGTERM` with a 120-second `kill_timeout`, so the shutdown persist can finish.
+5. `SIGTERM` with a 150-second `kill_timeout`, so the connector's drain and the
+   shutdown persist can both finish.
 6. Rolling deploys, one machine at a time, because a volume attaches to one machine.
    No release command, since any machine running the image joins the cluster.
 7. VM size `shared-cpu-1x` with 1 GB, one machine; `fly deploy` keeps the current

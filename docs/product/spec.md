@@ -504,7 +504,7 @@ Request bodies, API keys, and MCP traffic are not logged in `web_requests` or
 3. Crash window: Events not yet on disk are lost if the machine crashes hard. A
    normal stop (SIGTERM) tries to persist in-memory segments within a 90-second
    budget, about 110 seconds for the whole stop, so whatever stops Guardian must wait
-   longer than that before killing it (the Fly configuration allows 120 seconds);
+   longer than that before killing it (the Fly configuration allows 150 seconds);
    anything not written by then is lost. One segment whose pack raises an error during
    shutdown currently aborts persistence of the rest.
 4. Startup: A machine loads every segment in its data directory before it serves

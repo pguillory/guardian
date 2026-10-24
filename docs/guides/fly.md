@@ -88,5 +88,19 @@ binding instead of the public edge. The same API key applies. Without the token,
 entry point is exactly `guardian start`. Import the token from a protected source
 (`fly secrets import --stage`) rather than typing it on a command line.
 
+Every machine of the app gets the secret, so each runs its own connector, and
+Cloudflare sends each request to one of them. The entry point keeps a machine's
+connector up only while its Guardian serves: the connector starts once Guardian
+listens (after loading its segments), and on shutdown it stops before Guardian does,
+draining in-flight requests for up to 10 seconds (it is killed if it takes longer
+than 20), so new requests can go to another machine's connector in the meantime.
+`kill_timeout` (150 s) covers the drain and Guardian's own shutdown.
+
+To keep one machine out of tunnel traffic, set `GUARDIAN_TUNNEL=off` in that
+machine's own environment (`fly machine update <id> --env GUARDIAN_TUNNEL=off`, which
+restarts it). A later `fly deploy` that includes the machine rebuilds its environment
+from `fly.toml` and drops the setting, so exclude it (`--exclude-machines <id>`) for as
+long as it should stay out.
+
 See also the [configuration reference](../reference/configuration.md) and
 [known limitations](../reference/limitations.md).
