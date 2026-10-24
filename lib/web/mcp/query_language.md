@@ -79,13 +79,15 @@ SELECT count() FROM web_requests WHERE timestamp >= '2026-10-01 00:00:00' AND ti
 SELECT path, count() FROM web_requests WHERE timestamp > date_sub(now(), INTERVAL 1 HOUR) GROUP BY path
 ```
 
-Time arithmetic (`date_add`, `date_sub`, timestamp `+` or `-` seconds, `to_seconds`)
-reads ISO 8601 `YYYY-MM-DDTHH:MM:SS`, with `T` or a space, optional fractional
-seconds (dropped) and an optional UTC offset (`Z`, `+02:00`, `+0200`, `+02`), which it
-applies: `date_add('2026-10-01T19:35:00+02:00', 0)` is `'2026-10-01 17:35:00'`. A time
-without an offset is UTC. Timestamp results are UTC `YYYY-MM-DD HH:MM:SS` and
-`to_seconds` gives seconds since 1970 UTC; other forms (a date alone, say) give
-null. Comparisons and sorting compare the strings as they are, offsets and all.
+Time arithmetic (`date_add`/`adddate`, `date_sub`/`subdate`, timestamp `+` or `-`
+seconds, `to_seconds`/`unix_timestamp`) accepts only UTC `YYYY-MM-DD HH:MM:SS`:
+exactly 19 bytes with a space. Numeric offsets (`+02:00`, `-0500`, `+02`, even
+`+00:00`) give null, with no conversion. A `T` separator, trailing `Z`, fractional
+seconds and other formats also give null. Calendar fields must be valid and years
+must be 0000 to 9999; arithmetic outside that range gives null. Timestamp results
+use the same UTC format, and `to_seconds` gives seconds since 1970 UTC. `date(ts)`
+and `format_timestamp` also require the space-separated format without a suffix.
+Comparisons and sorting compare the strings as they are.
 
 ## Expressions
 

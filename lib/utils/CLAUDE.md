@@ -7,6 +7,7 @@ way, and put a helper with a single user next to that user instead.
 
 - `SegmentID` creates sortable 32-byte hex identifiers containing a timestamp.
 - `Timestamp.now/0` is UTC, formatted `YYYY-MM-DD HH:MM:SS`. `Timestamp.from_string/1`
-  and `to_seconds/1` read ISO 8601 `YYYY-MM-DDTHH:MM:SS` and apply a UTC offset.
+  and `to_seconds/1` accept only that exact UTC format: no `T`, `Z`, fractional
+  seconds or numeric offsets. They validate calendar fields and years 0000 to 9999.
 
 Utility changes should include focused unit tests.

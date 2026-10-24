@@ -36,7 +36,7 @@ defmodule Timestamp do
   end
 
   @doc """
-  Seconds since 1970-01-01 00:00:00 UTC of an ISO 8601 date and time (see
+  Seconds since 1970-01-01 00:00:00 UTC of a `YYYY-MM-DD HH:MM:SS` timestamp (see
   `from_string/1`). Raises `ArgumentError` on a string it can't read.
   """
   def to_seconds(timestamp) do
@@ -52,38 +52,21 @@ defmodule Timestamp do
   end
 
   @doc """
-  An ISO 8601 date and time as Guardian's UTC `YYYY-MM-DD HH:MM:SS`, or `:error`.
-  The date and time may be split by `T` or a space and may carry fractional seconds
-  (dropped). A UTC offset (`Z`, `+02:00`, `+0200` or `+02`) is applied, so
-  `19:35:00+02:00` is `17:35:00`; without one the time is taken as UTC already. A
-  string with an offset Elixir can't read, or whose UTC time falls outside years
-  0000 to 9999, is `:error`.
+  Validates Guardian's UTC `YYYY-MM-DD HH:MM:SS` format, returning `{:ok, string}`
+  or `:error`. Only this exact format is accepted: no `T`, `Z`, fractional seconds
+  or numeric UTC offsets. Calendar fields must be valid, with years 0000 to 9999.
   """
   def from_string(string) do
     case parse(string) do
-      {:ok, naive_datetime} ->
-        timestamp =
-          naive_datetime
-          |> NaiveDateTime.truncate(:second)
-          |> NaiveDateTime.to_string()
-
-        {:ok, timestamp}
-
-      :error ->
-        :error
+      {:ok, _naive_datetime} -> {:ok, string}
+      :error -> :error
     end
   end
 
-  defp parse(string) when is_binary(string) do
-    result =
-      case DateTime.from_iso8601(string) do
-        {:ok, datetime, _offset} -> {:ok, DateTime.to_naive(datetime)}
-        {:error, :missing_offset} -> NaiveDateTime.from_iso8601(string)
-        {:error, _} -> :error
-      end
-
-    case result do
-      {:ok, %NaiveDateTime{year: year} = naive_datetime} when year in 0..9999 ->
+  # Require the canonical format before ISO parsing, which otherwise accepts alternatives.
+  defp parse(match() = string) do
+    case NaiveDateTime.from_iso8601(string) do
+      {:ok, naive_datetime} ->
         {:ok, naive_datetime}
 
       _ ->

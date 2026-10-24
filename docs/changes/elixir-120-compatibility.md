@@ -15,9 +15,10 @@ Test-only compatibility changes pin the golden file's external size, invoke
 deliberately invalid inputs dynamically, and separate assertions from expressions
 the compiler can prove always succeed.
 
-The dead timestamp branch exposed a separate bug: nonzero ISO8601 offsets are
-discarded by the existing fallback. Fixing that changes results, so it was done
-separately, outside this compatibility change (`docs/changes/timestamp-offsets.md`).
+The dead timestamp branch exposed a separate bug: nonzero ISO8601 offsets were
+discarded by the existing fallback. This was addressed separately, outside this
+compatibility change; time arithmetic now accepts only Guardian's UTC format and
+rejects offsets (`docs/changes/timestamp-offsets.md`).
 
 The local runtime and Docker pins remain unchanged. Compatibility checks use the
 official Elixir 1.20.4 `elixir-otp-28.zip` release from

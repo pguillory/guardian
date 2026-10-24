@@ -45,7 +45,8 @@ defmodule Web.MCP.Server do
   columns (user.name; users..name for a list of objects). A missing column is null. \
   Timestamps are plain strings, UTC by convention (not enforced), formatted \
   'YYYY-MM-DD HH:MM:SS', so when values share that format, string comparison and \
-  sorting are chronological. Examples: \
+  sorting are chronological. Time arithmetic accepts only that UTC format, without \
+  offsets, T, Z or fractional seconds; other formats return null. Examples: \
   SELECT status, count() FROM web_responses WHERE timestamp >= '2026-10-01 00:00:00' \
   GROUP BY status ORDER BY count() DESC LIMIT 10; \
   SELECT path FROM web_requests WHERE timestamp > date_sub(now(), INTERVAL 1 HOUR) LIMIT 20. \

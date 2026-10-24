@@ -52,7 +52,7 @@ The details are in [Known limitations](docs/reference/limitations.md).
 ## What using it looks like
 
 Send events over HTTP. Each one is any JSON object; Guardian adds nothing, so stamp
-your own `timestamp`:
+your own UTC `timestamp` as `YYYY-MM-DD HH:MM:SS`, without an offset:
 
 ```sh
 curl -s https://guardian.example.com/api/json/send_events \
@@ -78,8 +78,9 @@ curl -s https://guardian.example.com/api/json/query \
 {"status": 200, "columns": ["user.plan", "requests", "errors"], "rows": [["pro", 4, 1], ["free", 2, 1]]}
 ```
 
-The slowest endpoints over the last hour (timestamps are UTC strings by convention, so
-ranges are plain comparisons):
+The slowest endpoints over the last hour (timestamps are UTC strings by convention,
+so ranges are plain comparisons). Time arithmetic accepts only `YYYY-MM-DD HH:MM:SS`;
+offsets, `T`, `Z`, fractional seconds and other formats return null:
 
 ```sql
 SELECT path, count(), avg(duration_ms), max(duration_ms)
