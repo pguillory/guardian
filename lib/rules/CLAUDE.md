@@ -15,7 +15,11 @@ Modules:
 - `Rules.Compiler`: a plan into a generated module from a fixed template, with the
   statements as escaped literals. No rule text becomes code.
 - `Rules.Runtime`: what generated modules call for each statement (reads, SET, UNSET,
-  failures).
+  failures), threading a `Rules.RowIndex` through the statements.
+- `Rules.RowIndex`: the event's row, with a trie of its keys by lowercase object path
+  and a map of lowercase spelling to present keys, so a statement costs what it
+  touches rather than a pass over every column. Its tests check it against the old
+  scan, reimplemented in the test.
 - `Rules.Runner`: runs a batch in a worker under the heap limit, 1 s per event.
 - `Rules.Store` (`Local`, `S3`): the files. `Rules.Lock`: the write lock in the store.
 - `Rules.Config`: chooses the store from the environment.

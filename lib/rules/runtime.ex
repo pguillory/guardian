@@ -4,11 +4,11 @@ defmodule Rules.Runtime do
   (dot-notation keys, as Storage stores it).
 
   - Reads: a field the row lacks is null. Names match ignoring case: an exact key wins,
-    otherwise the first case-insensitive match in byte order (`index/1`). Rules read
+    otherwise the first case-insensitive match in byte order (`Rules.RowIndex`). Rules read
     the flattened row, so an object field has no value of its own.
-  - `set/3` replaces the whole top-level field, removing every column under it in any
+  - `set/2` replaces the whole top-level field, removing every column under it in any
     case (`X`, `x.y`, `x..y`), then stores the value under the statement's spelling.
-  - `unset/3` removes every column matching the path ignoring case, and every column
+  - `unset/2` removes every column matching the path ignoring case, and every column
     beneath it.
   - WHERE applies a statement only when it evaluates to `true`.
 
@@ -17,7 +17,7 @@ defmodule Rules.Runtime do
   never a value.
   """
 
-  alias Storage.Flattening
+  alias Rules.RowIndex
   require Logger
 
   defmodule Failure do
@@ -30,33 +30,34 @@ defmodule Rules.Runtime do
     end
   end
 
-  @doc "The row's keys grouped by their lowercase spelling, each group sorted."
-  def index(row) do
-    row
-    |> Map.keys()
-    |> Enum.group_by(&String.downcase/1)
-    |> Map.new(fn {lower, keys} -> {lower, Enum.sort(keys)} end)
-  end
+  @doc "The state a compiled module threads through its statements, for `row`."
+  def start(row), do: RowIndex.new(row)
 
-  def set(row, index, step) do
+  @doc "The row once every statement has run."
+  def finish(%RowIndex{row: row}), do: row
+
+  def set(index, step) do
     guard(step, fn ->
-      context = context(row, index, step.reads)
+      index = RowIndex.ensure(index)
+      context = context(index, step.reads)
 
       if applies?(context, step.where_expr) do
         value = Query.Evaluation.eval(context, step.value_expr)
-        row |> remove_field(step.field) |> Map.put(step.field, value)
+        RowIndex.put_field(index, step.field, value)
       else
-        row
+        index
       end
     end)
   end
 
-  def unset(row, index, step) do
+  def unset(index, step) do
     guard(step, fn ->
-      if applies?(context(row, index, step.reads), step.where_expr) do
-        remove_path(row, step.field)
+      index = RowIndex.ensure(index)
+
+      if applies?(context(index, step.reads), step.where_expr) do
+        RowIndex.remove(index, String.split(step.field, "."))
       else
-        row
+        index
       end
     end)
   end
@@ -102,44 +103,12 @@ defmodule Rules.Runtime do
 
   # The row, plus each name the statement reads that has no exact key, under that
   # name, from its case-insensitive match.
-  defp context(row, index, reads) do
+  defp context(%RowIndex{row: row} = index, reads) do
     Enum.reduce(reads, row, fn name, context ->
-      if Map.has_key?(row, name) do
-        context
-      else
-        case Enum.find(Map.get(index, name, []), &Map.has_key?(row, &1)) do
-          nil -> context
-          key -> Map.put(context, name, Map.fetch!(row, key))
-        end
+      case RowIndex.fetch(index, name) do
+        {:ok, value} -> Map.put(context, name, value)
+        :error -> context
       end
     end)
   end
-
-  defp remove_field(row, field) do
-    Map.reject(row, fn {key, _value} -> top_level_keys(key) |> hd() |> lower_eq(field) end)
-  end
-
-  defp remove_path(row, path) do
-    segments = String.split(path, ".")
-
-    Map.reject(row, fn {key, _value} ->
-      keys = top_level_keys(key)
-
-      length(keys) >= length(segments) and
-        Enum.zip_with(segments, keys, &lower_eq(&2, &1)) |> Enum.all?()
-    end)
-  end
-
-  # The object keys before the column's first list boundary: ["user", "name"] for
-  # `user.name` and for `user.name..x`.
-  defp top_level_keys(key) do
-    if String.contains?(key, ["\"", "."]) do
-      [keys | _] = Flattening.decode_path(key)
-      keys
-    else
-      [key]
-    end
-  end
-
-  defp lower_eq(key, lower), do: String.downcase(key) == lower
 end

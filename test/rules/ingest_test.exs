@@ -112,6 +112,15 @@ defmodule Rules.IngestTest do
     assert %{"b" => 3} = two
   end
 
+  test "rules that all skip leave an event alone, whatever its keys" do
+    table = unique_table("rules_skip_keys")
+    with_rules(%{"#{table}/r.gsql" => "SET x = 1 WHERE false; UNSET y WHERE false"})
+    # Storage.Flattening cannot decode this key's flattened form; no skipped rule
+    # may decode it.
+    event = %{"a.\\" => 1, "b" => 2}
+    assert [{:ok, ^event}] = ingest(table, [event])
+  end
+
   test "values a rule produces are validated like incoming ones" do
     table = unique_table("rules_invalid_value")
     # A field name over Storage.Value.max_key_size/0 bytes cannot be stored.

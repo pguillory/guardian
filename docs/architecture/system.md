@@ -288,7 +288,12 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    map per row. `Rules.Runtime` resolves reads (exact key, else the first
    case-insensitive match in byte order), applies WHERE (true only), SET (remove the
    whole field in any case, then put) and UNSET (remove the path in any case and
-   everything beneath). A statement that raises fails the event.
+   everything beneath). A statement that raises fails the event. At the first
+   statement it indexes the row (`Rules.RowIndex`): each lowercase spelling's present
+   keys in order, and, at the first SET or UNSET that applies, a trie of keys by
+   lowercase object path. A SET or UNSET then touches only the keys it removes and a
+   read is a lookup, so an event's rules cost about its columns plus its statements,
+   each times a log factor, rather than columns times statements.
 5. Loading: at boot, then on every write and every minute. The store is listed, and
    objects whose ETag changed are fetched with `If-Match` on the listed ETag (a change
    in between restarts the read). A table invalid at boot is published as invalid; a

@@ -317,6 +317,15 @@ JSON API rule endpoints in phase 1.
    the published map stay in use, and any other loaded name is retired, not freed.
 6. A reload recompiles only tables whose statements changed. Later, a table whose
    LOOKUPs read a TRACK that changed is recompiled with it.
+7. Running a statement does not scan the row. At the first statement the runtime
+   indexes the event's flattened row once: a trie of its keys by lowercase
+   top-level object path, and each lowercase spelling's present keys in byte order.
+   SET and UNSET then remove one subtree and a read is a lookup, so 1,000 statements
+   on an event with 100,000 columns cost about the columns once, not their product.
+   The trie is built at the first statement that applies, since it decodes every
+   key, so an event whose statements all skip decodes none. (The first build scanned
+   every key per applied SET and UNSET, and a read without an exact key walked that
+   name's case variants, removed ones included.)
 
 ### Product spec impact
 

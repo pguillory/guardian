@@ -31,6 +31,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       counter state lives (`docs/changes/ingest-rules.md`)
 - [x] rules-open-questions: the failure and invalid-at-boot defaults are confirmed
       and their switches (`:rules_on_failure`, `:rules_invalid_at_boot`) removed
+- [x] rules-row-index: each SET and UNSET scanned every column of the event, and a
+      read without an exact key walked that name's case variants, present or removed;
+      the row is now indexed once per event
 - [ ] engine-single-flatten: Engine flattens each ingested event twice (store, then
       check the returned event); skip the check for events without atom keys
 - [ ] fix-unflatten-nil-list-items: unflattening a list holding nil beside a list of
