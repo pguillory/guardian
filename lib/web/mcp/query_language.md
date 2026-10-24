@@ -181,7 +181,8 @@ input or part of one (`to_string` of a string, `substr`, the trims, `if`,
   always 24-hour)
 - Hashes and IDs: `md5(s)`, `sha1(s)`, `sha256(s)`, `sha512(s)`, `generate_uuid()`
 - URLs and email: `url_scheme(u)`, `url_host(u)`, `url_port(u)`, `url_path(u)`,
-  `url_fragment(u)`, `email_username(e)`, `email_domain(e)`, `ip_to_integer(ip)`
+  `url_fragment(u)`, `email_username(e)`, `email_domain(e)`, `ip_to_integer(ip)` (an IPv4
+  address; null for anything else, including a string over 64 bytes)
 - Other: `cosine_similarity(a, b)` compares two numeric lists
 - There is no `jq()`: calling it is a parse error. Nested fields of ingested JSON
   objects are already columns (`payload.user.id`; see "Data model").
