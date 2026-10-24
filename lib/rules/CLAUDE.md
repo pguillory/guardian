@@ -53,7 +53,10 @@ Rules to keep:
    no switches for either (`docs/changes/ingest-rules.md`, open questions 1 and 2).
 8. Statement words are contextual (see `lib/ast/CLAUDE.md`); TRACK and LOOKUP will be
    new statement kinds in the same grammar, plan and dependency graph. Where TRACK
-   counter state lives is not decided; don't add state here without that decision.
+   counter state lives is settled in the change document: Counters.Store provides
+   node-local ETS storage; clustering, aggregates and rule integration follow as
+   separate pieces. Counter failures will fail open without changing SET/UNSET's
+   fail-closed behavior. Read the reviewed plan before implementing those pieces.
 
 Tests use `RulesTestHelper` (shared server, so `async: false`) and `FakeS3`, which
 checks SigV4 with its own implementation of the canonical request.

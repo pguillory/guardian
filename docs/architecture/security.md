@@ -376,6 +376,17 @@ and no single request that takes the service down or destroys stored data.
    `[::1]`; `Rules.Config` refuses anything else at startup), so no one on the
    network path can read rule text or rewrite the rules a node loads. The name
    `localhost` relies on the machine's own resolver mapping it to loopback.
+9. Counter storage foundation: `Counters.Store` owns private ETS with a 64 MiB
+   default budget for resident entries/indexes, conservatively charging serialized
+   payload sizes and any larger backing allocation retained by a nested binary or
+   bitstring slice, as well as ETS memory, to include off-heap binaries. Fixed empty
+   overhead, mailboxes and temporary copies are outside this budget. At capacity
+   it drops roughly the oldest half of keys; expiry is checked before access and
+   cleaned in bounded sweeps. Operations have local deadlines and scrubbed failures;
+   formatted status redacts state, messages, logs and reasons, and callback crashes
+   replace exception details and stack arguments with fixed text/arities. This is
+   internal infrastructure only: TRACK/LOOKUP rules and remote routing are not yet
+   implemented, and the current ingest path does not call the counter store.
 
 ### 5.2 Gaps
 
@@ -712,6 +723,10 @@ Where data goes:
      formatted log keeps write replies, whose validation messages can quote up to
      40 characters of a rule; turning it on takes a remote shell, which reads any
      state anyway.
+   - Counters.Store's formatted status and callback failures redact keys and values
+     (5.1.9). Ordinary operations do not log their arguments or returned values.
+     Like Rules.Server, OTP's raw sys debug options and proc_lib mailbox reports
+     are outside this formatting; this configuration drops SASL reports.
    - Invalid rules found at boot or on a reload are logged by file, line and kind only
      (`orders/fix.gsql line 3 (parse)`), never by message: a validation message can
      quote up to 40 characters of a rule. The rule tools still return the full

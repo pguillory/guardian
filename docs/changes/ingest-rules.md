@@ -1,8 +1,10 @@
 # ingest-rules: SET and UNSET rules run on incoming events, stored as files
 
-Status: phase 1 (SET and UNSET) done. TRACK and LOOKUP are designed here so they fit
-later, but are not built. The open questions were settled on the recommendations
-below. Each was first kept switchable through app env (`:rules_on_failure`,
+Status: phase 1 (SET and UNSET) done. Counter C1 (the node-local ETS store) is
+implemented. TRACK and LOOKUP's settled v1 design and reviewed four-piece
+implementation plan are below; C2–C4 and the statements themselves are not yet built.
+The phase 1 open questions were settled on the recommendations below.
+Each was first kept switchable through app env (`:rules_on_failure`,
 `:rules_invalid_at_boot`); once confirmed, the switches and the alternatives they
 selected were removed. Rollout to a deployment is separate.
 
@@ -41,7 +43,7 @@ reviewed, diffed and backed up like code.
    one. Expressions and conditions are the query language's scalar expressions (all
    scalar functions, operators, CASE). Aggregates are rejected anywhere in a
    statement, WHERE included.
-4. Later, not built now, the same grammar takes:
+4. Counter v1 adds these forms (not yet built):
 
    ```sql
    TRACK logins_last_hour = count() BY ip LAST '1h'
@@ -55,7 +57,7 @@ reviewed, diffed and backed up like code.
 ```text
 rule_file   := [statement] (';' [statement])*
 statement   := set | unset                        -- phase 1
-             | track | lookup                     -- later
+             | track | lookup                     -- counter v1
 set         := SET field '=' expr [WHERE expr]
 unset       := UNSET path [WHERE expr]
 track       := TRACK name '=' aggregate_call [BY expr (',' expr)*] [WHERE expr] LAST string
@@ -125,13 +127,11 @@ path        := identifier, dots allowed, no list boundaries ('..')
    values.
 9. A reload while a batch runs may apply new rules to its later events; each event
    sees one consistent rule set.
-10. Rules have no external calls and no state. TRACK will need counter state; where
-    it lives is explicitly deferred.
-11. Direction for TRACK and LOOKUP (notes, not a design): a rule must never error
-    or run slow because of the rule itself, so their semantics are constrained
-    rather than checked at run time. A LOOKUP of a missing key gives null (or 0 for
-    a count); BY is an exact key, not a pattern; counters live in memory in fixed
-    time buckets with a cap on keys; and each update is O(1).
+10. SET and UNSET have no external calls or state. Counter v1 adds ephemeral state
+    on Guardian nodes, with bounded peer calls and fail-open counter operations
+    (see the counter design below). It adds no external runtime service.
+11. Counter availability failures never reject an event. This exception does not
+    relax SET/UNSET failure handling or skip UNSETs, including secret removal.
 
 ### Validation
 
@@ -155,11 +155,11 @@ result lists the errors that remain. Errors, each naming the file and line:
    go in one statement with CASE or `if()`;
 4. SET statements on one table form a cycle (`SET a = b; SET b = a`). A self-read is
    not a cycle.
-5. Later: a LOOKUP must resolve to a TRACK of that name on its own table or its FROM
-   table, and deleting a TRACK a LOOKUP uses is rejected. A LOOKUP defines a field
-   in its table's field namespace. A TRACK names a counter; whether it also writes
-   the counter's value onto the event, as the old engine's did, is decided with
-   TRACK. The intent is that TRACK sees the row after SETs and before UNSETs.
+5. Counter v1: a LOOKUP must resolve to a TRACK of that name on its own table or
+   its FROM table, with the same number of BY expressions. Deleting a referenced
+   TRACK is rejected. TRACK and LOOKUP both define fields in the same namespace as
+   SET. Their expression dependencies join the field graph, with the phase
+   restrictions in the counter design below.
 
 A stored set can still turn out invalid (a hand edit of the store, a build that
 removes a function, or the lock race below). Loading handles that per table (see
@@ -317,8 +317,9 @@ JSON API rule endpoints in phase 1.
    returns to the pool; if the soft purge fails, it is retried later, never forced.
 5. After a Rules process restart, the pool is rebuilt from what is loaded: names in
    the published map stay in use, and any other loaded name is retired, not freed.
-6. A reload recompiles only tables whose statements changed. Later, a table whose
-   LOOKUPs read a TRACK that changed is recompiled with it.
+6. A reload recompiles only tables whose statements changed. Counter v1 also
+   recompiles tables whose LOOKUPs reference changed TRACK definitions, publishing
+   their resolved counter identities atomically with the new definitions.
 7. Running a statement does not scan the row. At the first statement the runtime
    indexes the event's flattened row once: a trie of its keys by lowercase
    top-level object path, and each lowercase spelling's present keys in byte order.
@@ -329,7 +330,288 @@ JSON API rule endpoints in phase 1.
    every key per applied SET and UNSET, and a read without an exact key walked that
    name's case variants, removed ones included.)
 
-### Product spec impact
+## TRACK and LOOKUP: settled v1 design and implementation plan
+
+This extends the completed SET/UNSET work. The implementation is four separate
+commits, C1 through C4. C2 and C3 depend on C1; C4 depends on both. The grammar
+above stays unchanged. There is no Memcached, sidecar, persistence, backfill,
+hot-key sharding, replication, or client deduplication in this version.
+
+### Counter behavior
+
+1. TRACK updates its named counter and writes the resolved window value into the
+   event under that name. A successful update includes the current event: the
+   50th login sees 50. LOOKUP only reads, writes under its own field name, and can
+   name a counter on another table using FROM. Query execution reads the recorded
+   event fields, never live counters.
+2. Every LOOKUP on an event completes its counter reads before any of that
+   event's TRACK updates. Thus a LOOKUP of the same counter excludes that event,
+   independent of file or statement order. This is a per-event barrier, not a
+   global snapshot: other events may update between individual reads.
+3. BY expressions make an exact ordered tuple of typed values; omitted BY is the
+   empty tuple (one global group for that counter). Null components are valid and
+   share a null group; strings and numbers remain distinct. Hashing uses a stable
+   encoding of that tuple, never atoms created from input. Integer 1 and float 1.0
+   are distinct keys; cross-table LOOKUPs need matching types as well as values.
+   LOOKUP supplies its own values and must match the TRACK's grouping arity.
+4. WHERE false or null skips the statement, preserves its incoming output field,
+   and for TRACK does not update. A missing/expired bucket supplies the aggregate's
+   empty state. Missing results are 0 for count and count distinct, and null for
+   sum, min, max and avg. A skipped value is not a store failure.
+5. Scalar expressions keep existing total-function behavior. count() counts every
+   matching event; count(expr) counts non-null values; count_distinct(expr) uses
+   HyperLogLog at precision 8. Sum and avg skip non-numeric values; min and max use
+   the query engine's ordering and skip nulls. Numeric wrapping/overflow follows
+   existing query aggregates. Approximation and loss can also make counts lower.
+6. A failed counter read or update writes the aggregate's missing result into its
+   output field and continues the other rules. It never preserves an untrusted
+   incoming counter value as if a read had succeeded. A statement skipped by WHERE
+   still preserves its field. There are no event retries or rollback: a client
+   resubmission counts again, and a later rule/storage failure can leave an earlier
+   TRACK update counted. Client idempotency is separate follow-up work.
+
+### Time buckets and identity
+
+1. Record a private arrival time once per event in Engine.ingest_events before
+   rule execution, carried as metadata outside the row. Caller fields and SETs
+   cannot supply or overwrite it. Use Unix milliseconds for bucket coordinates
+   shared between nodes; use monotonic time for local deadlines and TTLs. Every
+   counter on the event uses that same arrival time. Node clock synchronization
+   remains an operator responsibility; there is no event-time or late-event mode.
+2. LAST is a positive integral interval in the existing interval-string form
+   (`s`, `m`, `h`, `d`, `w`), bounded to 365 days. In milliseconds let W be the
+   window and B = ceil(W / 3). Write only bucket floor(arrival / B).
+3. Read buckets floor((arrival - W) / B) through floor(arrival / B), inclusive:
+   at most four reads, including the current bucket. Choose overcount at the
+   boundary: keep all of the oldest intersecting bucket, including events up to
+   B milliseconds older than the requested window. No proportional weighting.
+   For a 30-minute window, B is 10 minutes and the value can include almost
+   40 minutes. This describes bucket bias, not a guaranteed numeric upper bound:
+   sum may be negative, HyperLogLog is approximate, and eviction/loss undercounts.
+4. Each bucket expires at bucket_end + W. Compute a positive remaining TTL from
+   that fixed expiry when issuing a write; do not extend retention by a fresh
+   full window on each update. If the expiry has already passed, omit the update
+   and use the missing result rather than inventing a positive TTL. An unchanged
+   state skips its write and does not refresh TTL. Old definition keys disappear
+   by TTL or eviction.
+5. Identity is {table, counter name, SHA-256(canonical TRACK source)}. Canonical
+   source is parsed/unparsed, ignoring file, line, whitespace and comments, but
+   including aggregate, expressions, WHERE and LAST. A semantic edit or rename
+   starts fresh; moving an identical definition between files does not.
+6. Store key is {counter identity, typed group tuple, bucket number}. Owner routing
+   hashes only {counter identity, group tuple}, so all window buckets share an
+   owner. Compiled LOOKUPs carry their target TRACK's resolved definition hash.
+
+### C1: node-local key-value store
+
+Build `Counters.Store`, an independently supervised GenServer owning private ETS
+tables: a key/value set, an insertion-order index, and an expiry index. The
+process serializes operations, making increments and CAS atomic without exposing
+ETS or adding a library/service. Start it after Rules.Server and before Storage;
+rule loading does not touch counters. A store restart clears only counters.
+
+Contract (server defaults to Counters.Store, tests may use an unnamed PID):
+
+```text
+get(key, opts)                     -> {:ok, value} | :not_found | {:error, reason}
+get_many(keys, opts)               -> {:ok, [get_result]} | {:error, reason}
+gets(key, opts)                    -> {:ok, value, token} | :not_found | {:error, reason}
+cas(key, expected, value, ttl_ms, opts)
+                                  -> :ok | {:error, :conflict | reason}
+incr(key, delta, ttl_ms, opts)      -> {:ok, new_integer} | {:error, reason}
+```
+
+1. get_many accepts at most four keys, returning get results in input order from
+   one store turn (including duplicate keys). `expected = :missing` creates only
+   an absent/expired key. A token is opaque and
+   unique for every successful mutation, including increments; never reusable
+   after expiry, eviction, recreation or a process restart. Stale CAS conflicts;
+   it never recreates an absent key. incr creates an absent key with delta and
+   rejects an existing non-integer. Increments are unbounded store integers;
+   aggregate resolution applies the storage-safe numeric policy.
+2. TTL is a positive integer in milliseconds and starts when a mutation executes.
+   Successful mutations replace the TTL; reads and conflicts do not refresh it.
+   Expiry is checked before every access; a periodic, bounded sweep reclaims quiet
+   expired keys. Replacing a value removes its previous expiry entry. Creation
+   time/order survives updates; eviction is FIFO, not LRU.
+3. Default memory budget: 64 MiB per node, overridable through app env
+   `:counter_memory_budget_bytes` and the start option `:memory_budget_bytes`.
+   Charge ETS table memory plus the serialized size of keys/values to include
+   off-heap binaries conservatively, including larger backing allocations retained
+   by slices anywhere in keys/values (shared backing/inline data may be counted
+   more than once). The
+   budget covers resident counter entries/indexes, not process mailboxes, temporary
+   copies, the rest of the VM or fixed empty-table overhead.
+4. On reaching the budget, remove roughly the oldest half of keys. If unusually
+   large survivors still exceed it, repeat; a value too large to fit alone is
+   refused as `:too_large`. Eviction is deliberately crude and can lose live
+   counts. If the updated key itself is among the oldest keys evicted, return
+   `{:error, :evicted}`: definite counter loss, not an uncertain RPC outcome.
+   `:too_large` is also a definite failure: the up-front payload check preserves
+   existing keys, but a value that fits that check and exceeds capacity with ETS
+   overhead can lose its previous value and evict other keys before being removed.
+   Expose aggregate stats for tests/diagnostics, never keys or values.
+   Ordinary key access does not scan the store; bulk eviction is the exceptional
+   capacity path and can stall the single store process. C2's timeout/cooldown
+   covers that stall. Expiry sweeping works in bounded batches through its index.
+   This single process serializes all local traffic; sharding is deferred.
+5. Calls default to a 50 ms timeout, return a scrubbed error for timeout/dead store,
+   and carry a local monotonic deadline checked before executing a queued request.
+   A timeout after a mutation began is an uncertain outcome, never retried as an
+   increment. Timed-out requests not yet begun must not mutate later.
+6. Malformed requests return errors without crashing the owner. Formatted status
+   and failure logs must not disclose keys/values. Tests cover misses versus a
+   stored nil, TTL boundaries and renewal, quiet expiry, CAS conflicts, absent-key
+   races, ABA across expiry/eviction/restart, exact concurrent increments,
+   budget/oldest-half behavior, large binaries, and unavailable/expired requests.
+
+C1 changes no rule syntax or current user-visible rule behavior. Product spec
+impact: none. Update the system supervision/store description, subsystem guidance,
+the change status and TODO. Runtime configuration documentation can describe this
+internal app setting; the user-facing environment setting belongs to C4.
+
+### C2: counter ownership and bounded cluster operations
+
+Build `Counters.Cluster` over C1. Use rendezvous hashing (consistent ownership when
+members change), selecting the highest stable hash of {routing key, node}. Capture
+the member list once per event from this node and its connected peers. Do not call
+`Cluster.connected_nodes/0` on the ingest path: its storage-readiness RPCs can wait
+5 seconds. A booting/unavailable owner fails open like any other failure.
+
+1. All C1 operations route to the selected owner's local store. Support fetching
+   the up-to-four bucket keys in one bounded owner request where practical; the
+   local store contract remains usable for each key. Never route remote work back
+   through another routing layer. Preserve native terms and CAS tokens over RPC.
+2. Default operation deadline is 50 ms. C4 shares one 100 ms counter budget across
+   the event and one 250 ms failed-counter-wait budget across the whole ingest
+   batch, below the existing 1-second per-event rule limit. Every call spends the
+   event budget; only time spent in calls that fail, time out or have uncertain
+   outcomes spends the batch budget. Successful healthy calls do not spend the
+   batch budget, so large healthy batches keep counting every event. Each request
+   uses the smaller remaining budget. The batch budget survives rule-worker
+   replacement. Once exhausted, later counter statements use missing results
+   without waiting for the store. Do not issue a call with less than 10 ms
+   remaining; use the missing result without marking the owner suspect.
+   A remote endpoint translates a remaining
+   duration into its own monotonic deadline, rather than comparing monotonic
+   timestamps from different VMs. Avoid RPC paths that wait synchronously for
+   distribution flow control past the deadline; bound the caller with a helper
+   process where needed and leave no lingering caller helper. Transit time before
+   the remote endpoint sees a request is not covered by its local deadline, and
+   killing the caller helper cannot cancel an already-dispatched remote mutation.
+   Such uncertain late writes are accepted and never retried.
+3. After a timeout or uncertain/unavailable operation, mark that owner suspect in
+   a small node-local cooldown map for one second. During cooldown, including for
+   the local store, fail immediately instead of accumulating more queued calls.
+   A timeout marks an owner suspect only if that call had at least a 25 ms
+   allowance; a tiny remaining event budget must not cause a node-wide cooldown
+   of an otherwise healthy owner. Local eviction stalls may therefore suspend
+   all counter operations routed to that store for a second, by design.
+   This state is independent of the counter store, keyed only by current members,
+   and expires/cleans up without growing with user group keys. No retries onto
+   another node, state migration, replication, readiness round trips
+   or recovery protocol. Membership changes may lose counts and split membership
+   views may create divergent state. An uncertain increment is never retried.
+   Partitions must not block ingest; perfect partition semantics are deferred.
+4. Test deterministic/order-independent ownership, small membership changes,
+   same-group bucket colocation, native remote get/gets/cas/incr, peer loss, slow
+   and booting owners, short elapsed time, cooldown/recovery, and no helper/message
+   leaks. Test a long batch against a frozen peer and an overloaded/evicting local
+   owner: failed counter wait stays within the fixed batch budget, rather than
+   growing with event count. Also test large batches against healthy local and
+   peer owners: every event is counted and successful call time never exhausts the
+   batch budget. Use only
+   local test peers. Document the availability/precision tradeoff and trust
+   boundary. Product spec impact: none until statements are enabled in C4.
+
+### C3: mergeable aggregate operators
+
+Build a counter aggregate interface independent of query execution:
+`create(operator, values)`, `merge(operator, left, right)`,
+`resolve(operator, state)`, and `default(operator)` (always an empty state).
+`resolve(default)` supplies the documented missing result. Operators are a fixed
+allowlist: count/0, count/1, count_distinct/1, sum/1, min/1, max/1, avg/1.
+
+1. Count uses an integer; avg keeps {sum, count}; distinct keeps a bounded Hypex
+   precision-8 sketch. Skip writes when merging leaves state unchanged. Share
+   existing numeric and ordering helpers where correct, but do not alter query
+   GROUP BY behavior or its precision-14 distinct implementation in this piece.
+2. C4 uses one incr for ordinary count, and gets/create/merge/cas for other
+   aggregates. A missing key uses CAS with :missing, never unconditional overwrite.
+   Retry only definitive CAS conflicts, at most three attempts and within the
+   event deadline; drop the update on exhaustion. Do not retry RPC failures or
+   uncertain outcomes. Merge states across window buckets, then resolve once.
+3. Test empty states, null/mixed values, merge identity and associativity within
+   floating-point tolerance, partitioned merging, numeric overflow, avg weighting,
+   HLL fixed precision/size and cardinality error, and unchanged-state detection.
+   Product spec impact: none until C4. Historical aggregate sharing is follow-up.
+
+### C4: rule integration and product behavior
+
+1. Add contextual TRACK/LOOKUP AST nodes, parsing and canonical source output.
+   Validate aggregate name/arity, scalar inputs/BY/WHERE, LAST bounds, referenced
+   definitions and grouping arity, field conflicts, identical TRACK deduplication
+   (one increment even if copied into several files), and dependencies across all
+   files/tables. Aggregates remain invalid in SET, WHERE and nested expressions.
+2. Build the field dependency graph for SET/TRACK/LOOKUP, retaining self-reads of
+   incoming fields. Reject cycles and any LOOKUP whose inputs or WHERE transitively
+   depend on a TRACK output: that would require a TRACK before the LOOKUP barrier.
+   Run LOOKUPs and their prerequisite SETs first, then remaining SETs/TRACKs in
+   dependency order, then all UNSETs. Independent order stays deterministic. SETs
+   can use TRACK results (for example a blocking decision) and TRACKs can use SET
+   and LOOKUP results. An all-SET/UNSET table preserves its current ordering.
+3. Capture arrival metadata and membership at event entry, bind target definition
+   hashes into immutable compiled plans, and include those hashes in recompile
+   dependencies. Old in-flight modules keep their old identities; publishing a
+   changed TRACK and its LOOKUP dependents remains atomic per node. If an invalid
+   reload retains a target table's prior good plan, dependents retain a coherent
+   prior target identity as well.
+4. Complete every event's LOOKUP reads before TRACK writes; for a successful TRACK
+   use the state returned by its own current-bucket mutation plus other buckets,
+   so concurrent updates cannot make it omit its own event. No global atomic read
+   of all buckets is promised. Bound all calls/CAS attempts by the shared event
+   and failed-wait batch budgets, honoring the per-owner cooldown. On exhaustion
+   later counter statements use missing results
+   while SET/UNSET still execute, with existing failures remaining fail closed.
+5. Add `GUARDIAN_COUNTER_MEMORY_MB` (positive integer, default 64) through runtime
+   configuration, converting to C1's byte budget. Invalid explicit configuration
+   refuses startup. Test config and document restarts, loss, boundary bias, duplicate
+   submissions and the fact that counters are advisory rather than durable limits.
+6. Product spec impact: overview's rule forms/state and counter non-feature;
+   spec section 5.1 syntax, ordering, defaults, failure semantics and counters;
+   section 5's private arrival metadata clarification (no automatic stored field);
+   section 10's ownership/loss behavior and section 11's counter non-feature.
+   Update rules/API/MCP references, the rules guide, architecture/security,
+   limitations, configuration and applicable CLAUDE.md files together. Do not
+   claim TRACK/LOOKUP are available in earlier pieces.
+7. Test parser round trips/contextual names; rejected definitions/dependencies;
+   statement-order independence; the 50th-event example and LOOKUP=49/TRACK=50;
+   cross-table/group lookups; SET-derived groups and SET decisions from TRACK;
+   WHERE skipping, null groups, all operators, bucket boundaries and expiry;
+   forged caller timestamps; expired-before-issue writes; identical TRACK copies;
+   edited-definition resets and coherent dependent invalid reloads;
+   contention, stopped/slow stores and peers, budget exhaustion with many rules;
+   bounded failed counter wait across long batches with stalled owners, healthy
+   large batches counting every event, recovery after
+   cooldown, UNSET secret removal after counter failure; duplicate events and partial
+   side effects; HTTP/MCP return_keys and stored historical values. Keep all tests
+   independent of external services.
+
+### Review, checks and deferred work
+
+Review this whole-feature plan independently with Claude and Codex before C1
+implementation. Each piece then gets its own implementation checks and independent
+Claude/Codex staged-diff review before its normal commit. Run mix format first,
+warning-free test compilation, targeted tests, and the full suite/pre-commit checks
+as documented in the development guide. No deployments, WIP commits, amend, rebase
+or force push.
+
+Deferred: persistent counters/recovery, backfill, stronger partition semantics,
+hot-key sharding, shared query aggregate implementations, client idempotency keys,
+and richer operators such as last-N lists. Record distinct follow-ups instead of
+expanding the four pieces.
+
+## Phase 1 product spec impact (completed)
 
 1. `overview.md`: replace "Guardian has no rule engine, alerting, or blocking" with
    ingest-time SET/UNSET rules stored as files; keep "no alerting".

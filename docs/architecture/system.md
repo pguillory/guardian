@@ -77,6 +77,7 @@ The design follows from the product commitments (spec section 1):
 ```text
 Main (one_for_one)
 ├── Rules.Server                     loads the rule store, publishes compiled rules, polls each minute
+├── Counters.Store                   ephemeral node-local ETS counter storage (rules integration pending)
 ├── Storage (supervisor, rest_for_one)
 │   ├── Storage.Schema               per-table schema of loaded segments
 │   ├── Storage.LoadedSegments       mmap'd segment files; loads all at boot, rescans each minute
@@ -104,7 +105,9 @@ Why this order:
    holds nothing the ingest path needs between calls: the compiled rules are in
    `:persistent_term`, so if it restarts, ingestion keeps the published rules and the
    new process reloads in the background instead of failing again.
-2. Storage starts next, and `LoadedSegments.init/1` loads every segment file on the
+2. Counters.Store starts after Rules.Server, with empty private ETS tables. It does
+   no loading and is independent of rule compilation and event storage. Storage
+   starts next, and `LoadedSegments.init/1` loads every segment file on the
    volume before returning. Supervisors start children one at a time, so the HTTP
    listener does not exist until all stored data is loaded. That is what lets
    `GET /health` double as a readiness check at boot (spec section 4.3), and it is why
@@ -345,6 +348,36 @@ validated on a write is serialized by the lease but not fenced: a writer stalled
 its lease, or a request applied long after it was abandoned, can still leave an
 invalid set, which loading then handles per table (spec section 12).
 
+### 3.5 Counter storage foundation
+
+`Counters.Store` is the node-local foundation for the reviewed TRACK/LOOKUP design
+in `docs/changes/ingest-rules.md`; the statements themselves are not implemented.
+It adds no external service or per-event work to today's SET/UNSET rules.
+
+One GenServer owns a private ETS set of values and reference CAS tokens, plus
+ordered indexes of insertion order and expiry. It serializes get, gets, CAS and
+increment operations, including create-if-missing CAS and create-on-increment.
+get_many reads up to four keys in one turn. A successful mutation renews the key's
+positive millisecond TTL and replaces its token. Reads do neither; expiry is
+checked before access and a periodic sweep removes up to 256 expired keys per turn.
+TTL uses local monotonic time. A restart clears this store without restarting
+Storage or Rules.Server.
+
+The default 64 MiB app setting `:counter_memory_budget_bytes` charges ETS table
+memory in bytes above empty-table overhead, plus serialized key/value payloads and
+any larger backing allocations retained by nested binary/bitstring slices, to
+include off-heap binaries conservatively. Shared backing allocations can be counted
+more than once, and inline data can be counted twice. At
+capacity the owner discards roughly the oldest half of keys, repeating as needed;
+updates do not refresh insertion order. The budget bounds resident entries and
+indexes, not temporary copies, mailboxes or other VM memory. Eviction can stall
+this single owner; later cluster routing will bound waits and fail open.
+
+Calls default to 50 ms and carry a local monotonic deadline. A queued request whose
+deadline passed returns a timeout without mutating. Execution that has already
+begun can still finish after its caller times out, so uncertain increments must not
+be retried. Errors and formatted status disclose no keys or values.
+
 ## 4. Storage engine
 
 `lib/storage/CLAUDE.md` is the authoritative description of the segment lifecycle
@@ -544,6 +577,8 @@ Memory on a machine is roughly:
    a small process per file.
 4. Queries: rows in flight, GROUP BY state, sort buffers, and results, bounded only
    partly (section 5.7).
+5. Counter storage: resident ephemeral entries/indexes within the configured
+   budget, plus mailbox/temporary copies outside it (section 3.5).
 
 Nothing bounds the number of active tables or keys per segment, so memory is the effective limit. An
 out-of-memory kill skips the graceful shutdown and loses every unpersisted event on
@@ -1073,6 +1108,7 @@ these except through the variables above:
 | `query_max_result_rows` | 100,000 | `Query.Limits` |
 | `query_max_result_bytes` | 64 MiB | `Query.Limits` |
 | `query_time_limit_ms` | 30,000 | `Query.run/1` (`Query.Limits`) |
+| `counter_memory_budget_bytes` | 64 MiB | `Counters.Store`: resident ephemeral entries/indexes (3.5); a non-positive or non-integer value refuses startup |
 | `query_parse_errors_per_hour` | 60 | `Web.QueryParseErrors` (tests raise it) |
 | `rules_store` | from the variables above | `Rules.Config` (tests set a store directly) |
 | `rules_poll_ms`, `rules_time_limit_ms`, `rules_boot_retry_ms`, `rules_reclaim_after_ms`, `rules_lock_lease_ms`, `rules_save_margin_ms`, `rules_s3_receive_timeout_ms`, `rules_s3_write_deadline_ms` | 60,000; 1,000; 60,000; 30,000; 120,000; 80,000; 15,000; 20,000 | `lib/rules` (tests shorten them) |
