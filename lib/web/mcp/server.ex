@@ -84,7 +84,7 @@ defmodule Web.MCP.Server do
     )
     |> register_tool("send_events",
       description:
-        "Ingest JSON events into a table, returning {status: 200, results: [...]} with one ordered success/event or failure/error per input. Failures do not stop later events; an error may say the event may have been stored. Table names must match [a-z_][a-z0-9_]*, be at most 64 characters, and exclude SQL keywords, null, true, false, current_date, current_timestamp, and schema. Use stable field names: put data in values, not object keys (for example, {customer_id: 123}, not {123: true}).",
+        "Ingest JSON events into a table, returning {status: 200, results: [...]} with one ordered success/event or failure/error per input. Failures do not stop later events; an error may say the event may have been stored. Optional idempotency_key suppresses matching retries on this node for 10 seconds after completion, returning {status: 200, duplicate: true, failed_events: N} without results. Protection can be lost on eviction, overload or restart; retries on another node are not protected. Changed requests, pending requests and unknown outcomes are tool errors. MCP calls can queue behind an earlier call. Table names must match [a-z_][a-z0-9_]*, be at most 64 characters, and exclude SQL keywords, null, true, false, current_date, current_timestamp, and schema. Use stable field names: put data in values, not object keys (for example, {customer_id: 123}, not {123: true}).",
       input_schema: %{
         table: {:required, :string, description: "Destination table name"},
         events: {:required, {:list, {:map, :any}}, description: "JSON event objects to ingest"},
@@ -92,6 +92,10 @@ defmodule Web.MCP.Server do
           {{:oneof, [{:list, :string}, {:literal, nil}]},
            description:
              "Fields to return for successful events; omitted or null returns all, [] returns none"},
+        idempotency_key:
+          {{:oneof, [:string, {:literal, nil}]},
+           description:
+             "Optional retry key: 1–128 UTF-8 bytes, scoped to this table on this node; reuse only with identical events and return_keys"},
       }
     )
     |> register_tool("list_rules",
@@ -168,6 +172,7 @@ defmodule Web.MCP.Server do
       case Web.Ingest.send_events(params) do
         {:ok, result} -> Response.tool() |> Response.json(result)
         {:error, message} -> Response.tool() |> Response.error(message)
+        {:error, _status, message} -> Response.tool() |> Response.error(message)
       end
 
     {:reply, response, frame}

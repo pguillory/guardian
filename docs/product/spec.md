@@ -147,12 +147,20 @@ CORS is enabled on these routes.
   out); `[]` returns `{}`. The event is the one stored, after rules
   ([section 5.1](#51-rules)), so this is how a client reads a field a rule computed,
   such as `is_blocked`.
-- A request-level error (bad table, `events` not a list, bad `return_keys`) returns
+- `idempotency_key` is optional: omitted or null preserves ordinary ingestion;
+  otherwise it must be a nonempty UTF-8 string of at most 128 bytes. Matching
+  retries can return a receipt instead of event results; see [section 5](#5-ingestion)
+  item 9 and
+  [the API reference](../reference/api.md#retrying-a-batch).
+- A request-level error (bad table, `events` not a list, bad `return_keys` or
+  `idempotency_key`) returns
   400 with `{"status": 400, "info": "..."}` before any event is stored. A body that is
   malformed JSON gets 400 (`info` "malformed JSON body"), one over 8 MB gets 413, and
   one declared with a non-JSON content type gets 415. A request with no content type is not parsed, so
   `send_events` sees no fields and returns 400, and so does `query`.
-- Otherwise the response is 200 with one result per input event, in order, even if
+- An idempotency conflict (changed contents, in-flight processing or an unknown
+  outcome) returns 409 with `{"status":409,"info":"..."}` without another write.
+- Otherwise a new batch's response is 200 with one result per input event, in order, even if
   every event failed:
 
 ```json
@@ -200,7 +208,8 @@ authenticated like the JSON API. It offers:
    Parse errors are also recorded in `query_parse_errors`
    ([section 8](#8-built-in-tables)) with the same message; recording never changes
    the tool result.
-2. Tool `send_events` with `table`, `events`, and optional `return_keys`. Same
+2. Tool `send_events` with `table`, `events`, and optional `return_keys` and
+   `idempotency_key`. Same
    semantics and result shape as HTTP. Request-level errors are MCP tool errors and
    nothing is stored. Event items are not schema-checked by the MCP layer, so a
    non-object item fails on its own rather than rejecting the batch.
@@ -295,7 +304,26 @@ goes through the same validation and storage.
 8. Size: HTTP request bodies are limited by Plug's default parser limit (8 MB); a
    larger body gets 413. MCP has the same 8 MB limit. Very large events with many
    distinct keys in lists of objects can be slow to flatten.
-9. Duplicates: Guardian does not deduplicate. A retried event is stored twice.
+9. Duplicates: without an idempotency key, a retried event is stored twice. A key
+   identifies one batch per table on one node, shared across HTTP and MCP. For ten
+   seconds after processing completes, a matching retry returns
+   `{"status":200,"duplicate":true,"failed_events":N}` without running rules or
+   storing again. It has no `results` array; N counts failed events, including
+   uncertain storage outcomes. Mixed and all-failed batches are remembered too.
+   Retry only known failed subsets with a new key; uncertain events may duplicate.
+   Events and return_keys must have matching decoded values (object key order is
+   ignored, but number types and list order matter; omitted/null return_keys match).
+   Changed requests and in-flight duplicates get HTTP 409 or MCP tool errors.
+   Retry promptly after an in-flight conflict. MCP calls may queue or time out
+   before reaching this check because its tool server is shared. A caller that
+   aborts unexpectedly leaves an unknown-outcome conflict for ten seconds: events
+   may have been stored. In-flight keys do not expire while their caller lives.
+   At most 10,000 keys are held per node across all tables; capacity evicts the
+   oldest completed entries first, shortening protection. If all slots are in
+   flight, or the coordinator is unavailable or slow, ingestion proceeds without
+   protection and logs an info message. Restarts forget keys. Another node does
+   not know the key. Expiry, eviction, fail-open operation and restarts can allow
+   duplicates; Guardian provides no exactly-once guarantee or internal event retries.
 10. Rules: events sent through the ingest APIs run their table's rules after
     validation and before storage ([section 5.1](#51-rules)). Guardian's own writes to
     built-in tables do not.
@@ -709,7 +737,8 @@ These are deliberately absent.
 4. No joins, subqueries, or cross-table queries.
 5. No replication or cross-machine redundancy.
 6. No PostgreSQL, Memcached, MaxMind, or other external service dependency.
-7. No server-side timestamps, IDs, or deduplication.
+7. No server-side timestamps or IDs. Deduplication is limited to short-lived,
+   best-effort idempotency-key receipts ([section 5](#5-ingestion)).
 8. No web UI.
 
 ## 12. Known gaps

@@ -12,6 +12,7 @@ defmodule Main do
       SystemStats,
       Web.QueryParseErrors,
       Web.QueryLog,
+      Web.IngestIdempotency,
       Web,
       Cluster.discovery_child_spec(),
     ]

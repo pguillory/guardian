@@ -9,6 +9,11 @@ Guardian's MCP endpoint exposes these tools:
   an empty list returns no fields, and a selected key the event lacks is null.
   Failures do not stop later events, and uncertain storage failures say the event may
   have been stored.
+  Optional idempotency_key shares HTTP's per-table/node receipt cache. Completed
+  retries return `{status: 200, duplicate: true, failed_events: N}` without results;
+  changed requests, pending claims and unknown outcomes are tool errors. MCP calls
+  can queue/time out before this check because Anubis serializes them. Keep schema,
+  tool description and `Web.Ingest` validation consistent.
 - `list_rules`, `read_rule`, `write_rule`, `delete_rule`: manage rule files through
   `Rules`. A rejected or failed write is a tool error carrying the messages; a saved
   one returns `saved`, `remaining_errors` and `nodes_not_yet_reloaded`. The
@@ -54,7 +59,7 @@ dispatch (`super` is unavailable: Anubis appends its default at `@before_compile
 Both are Anubis internals; recheck on an upgrade.
 
 `send_events` validates requests explicitly before writes, returning MCP tool errors
-with messages for invalid tables, events lists, or return_keys. Its advertised schema
+with messages for invalid tables, events lists, return_keys or idempotency_key. Its advertised schema
 is descriptive: runtime event items must reach Engine unchanged, including non-object
 items which fail individually. Avoid typed Anubis validation that rejects mixed batches
 or filters arbitrary event keys. Document table-name rules and stable object keys in

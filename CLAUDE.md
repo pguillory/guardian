@@ -69,7 +69,8 @@ Summary; the full description is `docs/architecture/system.md`.
 
 The runtime consists of Rules.Server (loads the rule store first; an unreachable or
 misconfigured store refuses startup), Storage, SystemStats, Web.QueryParseErrors (records query
-parse failures), Web.QueryLog (records every API query in `queries`), Web, and
+parse failures), Web.QueryLog (records every API query in `queries`),
+Web.IngestIdempotency (short-lived, node-local client-key receipts), Web, and
 Cluster (DNS peer discovery
 through `DNS_CLUSTER_QUERY`; `<app>.internal` by default on Fly.io). Schema lookups (SHOW TABLES, DESC, the `schema` virtual table, SELECT *) fan
 out to every connected node through `Cluster.Metadata`.
@@ -132,4 +133,4 @@ Key subsystem documentation:
 - `lib/web/CLAUDE.md`
 - `lib/rules/CLAUDE.md`
 
-Last updated: 2026-10-23
+Last updated: 2026-10-24

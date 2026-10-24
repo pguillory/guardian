@@ -19,7 +19,8 @@ gets a 400, a body over 8 MB a 413, and an unsupported content type a 415.
 }
 ```
 
-The response returns one result per input event, in order:
+The response to a new batch returns one result per input event, in order (a
+[matching keyed retry](#retrying-a-batch) gets a receipt instead):
 
 ```json
 {
@@ -34,8 +35,8 @@ Events are inserted independently:
   continue.
 - If a storage call fails unexpectedly, its error says the event may have been stored.
 - Valid requests return 200 even if every event fails.
-- Invalid tables, missing or non-list `events`, and malformed `return_keys` return 400
-  with `info`, before any event is stored.
+- Invalid tables, missing or non-list `events`, and malformed `return_keys` or
+  `idempotency_key` return 400 with `info`, before any event is stored.
 - Optional `return_keys` must be a list of strings and filters what successful events
   return. Omitting it or passing `null` returns all fields; a listed field the event
   doesn't have comes back as `null`.
@@ -50,6 +51,56 @@ keywords, `null`, `true`, `false`, `current_date`, `current_timestamp` and `sche
 Use stable object keys, and put data in values (`{"customer_id": 123}`, not
 `{"123": true}`). Guardian adds no timestamp: each producer stamps its own, by
 convention a UTC `timestamp` string (`YYYY-MM-DD HH:MM:SS`) and a `time_ms` number.
+
+### Retrying a batch
+
+Supply an optional `idempotency_key` in the JSON body (or the MCP tool arguments):
+
+```json
+{
+  "table": "requests",
+  "events": [{"path": "/", "status": 200}],
+  "idempotency_key": "request-7dbe8a"
+}
+```
+
+The key must be a nonempty UTF-8 string of at most 128 bytes. Omitted or `null`
+keeps ordinary ingestion, including duplicates on retry. Keys are scoped to a
+table on one node, shared by HTTP and MCP. Use a unique key for each logical batch.
+
+The first call returns the usual `results`. For ten seconds after it completes,
+a matching retry gets this receipt without running rules or storing events again:
+
+```json
+{"status": 200, "duplicate": true, "failed_events": 0}
+```
+
+The receipt has no `results` array or computed event values. `failed_events` counts
+the original batch's failed events, including any whose storage outcome was
+uncertain. Mixed and all-failed batches are remembered too: a receipt acknowledges
+processing, not that every event was stored. To retry known failures, send only the
+failed events under a new key. An uncertain failure may have stored its event;
+resubmitting it under a new key can duplicate it.
+
+Reuse the same key only with matching decoded JSON values for `events` and
+`return_keys`: object field order is ignored, but number types (`1` versus `1.0`)
+and list order matter. Omitted and null `return_keys` match. Changed contents get
+HTTP 409 with `info` (or an MCP tool error). Invalid keys get HTTP 400/tool errors
+before any event is stored or key claimed.
+
+While the original is running, a retry that reaches the ingest handler gets HTTP
+409/tool error saying it is in flight; retry the same request promptly. MCP calls
+share one server and may first queue behind the original or time out. If the
+original aborts unexpectedly, retries get an unknown-outcome conflict for ten
+seconds: events may have been stored. Guardian never automatically retries them.
+
+Protection is best effort. Retries must reach the same node; another node has no
+record of the key. Restarts (including a receipt-coordinator restart) forget keys.
+The cache holds at most 10,000 keys across tables. At capacity it evicts the oldest
+completed entries, which can shorten the ten-second window. If every slot is still
+in flight, or the coordinator is unavailable or slow, valid ingestion proceeds
+without protection and logs a fixed info message. Expiry, eviction, fail-open
+operation and restarts can allow duplicates; this is not an exactly-once guarantee.
 
 ## Querying
 
@@ -80,8 +131,9 @@ The MCP endpoint at `/mcp` (Streamable HTTP) exposes these tools:
 
 - `query`: runs one SQL query, given as `sql`, and returns rows as JSON objects.
 - `send_events`: ingests a `table`, an `events` list of JSON objects, and optional
-  `return_keys`. Its result has the same `{status: 200, results: [...]}` shape as
-  HTTP. Invalid requests return an MCP tool error before anything is stored.
+  `return_keys` and `idempotency_key`. Its result has the same ordered results or
+  duplicate receipt as HTTP (see [Retrying a batch](#retrying-a-batch)). Invalid
+  requests and idempotency conflicts return an MCP tool error.
 - `list_rules`, `read_rule`, `write_rule`, `delete_rule`: manage rule files
   (`table` and `name`, plus `source` to write). A write is checked against the whole
   rule set and refused, with the errors, if it would add one; a saved write returns

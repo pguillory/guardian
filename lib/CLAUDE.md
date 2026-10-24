@@ -5,9 +5,12 @@ The `lib/` directory contains the event store, query engine, and network interfa
 ## Top-level modules
 
 - `Main`: starts Rules.Server (first, so a bad rule store fails startup fast),
-  Storage, SystemStats, Web.QueryParseErrors, Web.QueryLog, Web, and
+  Storage, SystemStats, Web.QueryParseErrors, Web.QueryLog, Web.IngestIdempotency,
+  Web, and
   DNS peer discovery (only when `DNS_CLUSTER_QUERY` is set; on Fly.io it defaults to
   `<app>.internal`).
+- `Web.IngestIdempotency`: bounded node-local client-key receipts, started before
+  Web. It holds only metadata and never runs ingestion; unavailability fails open.
 - `Engine`: validates and ingests events, running the table's rules on API ingests.
 - `Rules`: ingest-time SET/UNSET rules stored as files (`lib/rules/CLAUDE.md`).
 - `Storage`: custom columnar segment storage.

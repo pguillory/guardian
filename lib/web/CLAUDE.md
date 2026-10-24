@@ -33,6 +33,20 @@ the table's rules, so return_keys is how a client reads a computed field. Valid 
 `{success: false, error: ...}`. Events are independent: a failure does not stop the
 rest, and uncertain storage failures say the event may have been stored.
 
+Optional `idempotency_key` (null or 1–128 UTF-8 bytes) wraps Engine in
+`Web.IngestIdempotency`: per-table, node-local claims, ten-second completed receipts,
+10,000 total entries. Completed retries return `{status: 200, duplicate: true,
+failed_events: N}` without results, including mixed/all-failed batches. Changed
+contents, in-flight duplicates and unknown outcomes return HTTP 409/MCP tool errors.
+The digest includes events and return_keys; absent/null return_keys are equivalent.
+Capacity evicts oldest completed entries first; all-pending capacity, coordinator
+failure or a 100 ms call timeout fail open with an info log that contains no client
+data. Keep payloads and full replies out of coordinator state. Never expire a live
+pending claim. Catch every ingestion failure to mark uncertainty before reraising,
+since callers can be reused HTTP processes or Anubis's long-lived MCP server.
+Cancel timed-out claims on the exact pid with their caller-generated token.
+Restarts, expiry, eviction, fail-open operation and other nodes lose protection.
+
 JSON `/query` and the MCP `query` tool both run SQL through `Web.Query.execute/3`,
 which wraps `Query.execute/2` (resolve, require one statement, label columns from the
 pre-LET statement, run). Don't resolve or run queries in Web any other way. On an

@@ -268,6 +268,19 @@ make the server allocate memory and CPU to parse up to 8 MB of JSON per request.
 show a request without a valid key gets 401 with its body unread, including a 9 MB
 body. Key holders can still send 8 MB bodies, which is the product's ingestion limit.
 
+Ingest idempotency metadata is claimed only after authentication and shared request
+validation. The key is a nonempty UTF-8 body/tool string of at most 128 bytes,
+scoped to a table on this node, and is not a credential. The coordinator holds at
+most 10,000 independent copies of bounded keys/table names, SHA-256 request digests,
+tokens/monitors, status/count and expiry, never payloads or response events. Its
+formatted status redacts messages and past states as well as current keys. Operator
+debug tracing and raw process inspection still have the same full-memory authority
+as a remote shell. No keys/digests/events appear in its fixed fail-open info log or
+conflict messages. Capacity evicts completed entries; if all are pending or the
+coordinator fails or times out, valid ingestion proceeds unprotected. This protects
+availability at the cost of possible duplicate writes. Restart, expiry and retries
+on another node also lose protection; receipts are not a durability guarantee.
+
 ### 4.4 CORS
 
 CORSPlug runs with its defaults on `/api/json` only (not `/mcp`): any origin

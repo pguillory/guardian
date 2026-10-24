@@ -56,6 +56,7 @@ defmodule Web.MCP.ClientTest do
       assert Enum.sort(schema["required"]) == ["events", "table"]
       assert schema["properties"]["events"]["items"]["type"] == "object"
       assert %{"const" => nil} in schema["properties"]["return_keys"]["oneOf"]
+      assert %{"type" => "string"} in schema["properties"]["idempotency_key"]["oneOf"]
       assert ingest["description"] =~ "[a-z_][a-z0-9_]*"
       assert ingest["description"] =~ "not object keys"
 
@@ -196,6 +197,67 @@ defmodule Web.MCP.ClientTest do
       refute response["isError"] == true
       [%{"type" => "text", "text" => text}] = response["content"]
       Jason.decode!(text)
+    end
+
+    test "HTTP and MCP share same-node receipts and MCP conflicts are tool errors" do
+      MCPTestClient.start()
+      table = "mcp_retry_#{System.unique_integer([:positive])}"
+
+      params = %{
+        "table" => table,
+        "events" => [%{"value" => 1}],
+        "idempotency_key" => "cross-interface",
+      }
+
+      conn =
+        Plug.Test.conn(:post, "/api/json/send_events", params)
+        |> Plug.Conn.put_req_header("content-type", "application/json")
+        |> Plug.Conn.put_req_header("x-api-key", @api_key)
+        |> Web.MainRouter.call(nil)
+
+      assert conn.status == 200
+
+      assert send_events(params) |> decoded_result() ==
+               %{"status" => 200, "duplicate" => true, "failed_events" => 0}
+
+      assert send_events(Map.put(params, "events", [%{"value" => 2}]))["isError"] == true
+      assert send_events(Map.put(params, "idempotency_key", ""))["isError"] == true
+      assert Storage.dump_table(table) == params["events"]
+
+      other = Map.put(params, "idempotency_key", "mcp-first")
+      assert %{"results" => [_]} = send_events(other) |> decoded_result()
+
+      assert Web.Ingest.send_events(other) ==
+               {:ok, %{status: 200, duplicate: true, failed_events: 0}}
+
+      assert length(Storage.dump_table(table)) == 2
+    end
+
+    test "MCP reports pending HTTP claims as tool errors and acknowledges mixed failures" do
+      MCPTestClient.start()
+      table = "mcp_pending_#{System.unique_integer([:positive])}"
+      events = [%{"value" => 1}, nil]
+      token = make_ref()
+      digest = :crypto.hash(:sha256, :erlang.term_to_binary({events, nil}, [:deterministic]))
+
+      assert GenServer.call(Web.IngestIdempotency, {:claim, {table, "pending"}, digest, token}) ==
+               :claimed
+
+      params = %{"table" => table, "events" => events, "idempotency_key" => "pending"}
+      response = send_events(params)
+      assert response["isError"] == true
+      assert [%{"text" => message}] = response["content"]
+      assert message =~ "in flight"
+      assert Storage.dump_table(table) == []
+      GenServer.cast(Web.IngestIdempotency, {:cancel, token, self()})
+      # A call from the claimant orders cancellation before the tool retry.
+      _state = :sys.get_state(Web.IngestIdempotency)
+      assert %{"results" => [_, _]} = send_events(params) |> decoded_result()
+
+      assert send_events(params) |> decoded_result() ==
+               %{"status" => 200, "duplicate" => true, "failed_events" => 1}
+
+      assert Storage.dump_table(table) == [%{"value" => 1}]
     end
 
     test "ingests arbitrary nested keys and values unchanged and makes them queryable" do

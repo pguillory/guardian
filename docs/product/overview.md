@@ -60,7 +60,9 @@ queries.
 2. Writing: a request names a table and carries a list of events. Each event succeeds
    or fails on its own, and the response reports one ordered result per event. Values
    that cannot be stored are dropped from the event rather than failing it. Guardian
-   adds no timestamp or ID.
+   adds no timestamp or ID. An optional idempotency key gives matching retries on
+   the same node a short-lived receipt instead of inserting the batch again;
+   protection is best effort and resets on restart.
 3. Rules: a table can have rule files, `SET field = expr [WHERE cond]` and `UNSET
    field [WHERE cond]` statements, that compute or remove fields on each incoming
    event before it is stored (`SET is_blocked = true WHERE signal > 0.9`). The client

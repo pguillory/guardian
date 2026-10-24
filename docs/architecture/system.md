@@ -87,6 +87,7 @@ Main (one_for_one)
 ├── SystemStats                      one system_stats row per second
 ├── Web.QueryParseErrors             records query parse failures, asynchronously
 ├── Web.QueryLog                     records every API query in `queries`, asynchronously
+├── Web.IngestIdempotency            bounded, node-local client-keyed ingest receipts
 ├── Web (supervisor, rest_for_one)
 │   ├── Anubis.Server.Registry       MCP session registry
 │   ├── Web.MCP.Server               the Anubis MCP server process
@@ -172,6 +173,7 @@ Elixir), and `count_distinct` uses `hypex`, a HyperLogLog written in Elixir.
 ```text
 POST /api/json/send_events or MCP send_events
   -> Web.Ingest.send_events/1           request validation, result shaping
+       -> Web.IngestIdempotency.run/4   optional keyed claim/receipt around Engine
   -> Engine.ingest_events/2             table name check, then each event on its own
        -> Storage.Flattening.flatten_event/1
        -> drop invalid values and over-long keys
@@ -188,6 +190,29 @@ Internal writers go through `Engine.log_event/2`, which stringifies keys and cal
 which returns a failure as `{:error, kind}`, so a write that fails (Storage restarting,
 say) is skipped and logged by kind instead of crashing SystemStats, failing the
 request, or crashing the recorder.
+
+Client idempotency keys are checked only at `Web.Ingest`, shared by HTTP and MCP.
+The supervised `Web.IngestIdempotency` coordinator starts before Web and never runs
+ingestion itself. Its GenServer atomically claims `{table, key}` and monitors the
+caller; that caller runs Engine and synchronously records a compact completion
+before returning. Token and owner checks prevent stale completion/cancellation.
+Caught exceptions, throws or exits explicitly record uncertainty before reraising;
+monitoring alone cannot notice a failure caught by a reused HTTP/MCP process.
+
+Only independent copies of bounded table/key strings, a SHA-256 digest of
+deterministically encoded `{events, return_keys}`, tokens, monitors, status/count
+and expiry are kept. There are at most 10,000 entries. Completed and uncertain
+entries enter a monotonic expiry tree, cleared on claim and every second, and live
+for ten seconds after completion. Pending entries do not expire. At capacity the
+oldest completed entry is evicted first; with only pending entries left, the new
+batch runs unprotected. Coordinator calls time out after 100 ms and catch exits;
+unavailable claims fail open with a fixed info log, and completion failures do not
+hide results. Timed-out claims receive an ordered token cancellation on the exact
+coordinator pid, preventing a late claim from stranding a long-lived caller's slot.
+No payload or full response is retained. No state is replicated or persisted:
+retries on another node, cache eviction, expiry, fail-open operation and coordinator
+restarts can duplicate batches. See spec section 5 for receipt/conflict semantics.
+MCP's existing tool serialization can delay the check until the first call finishes.
 
 ### 3.1 Validation in Engine
 
@@ -256,8 +281,9 @@ packs a snapshot of it; `lib/storage/CLAUDE.md` covers the costs).
 
 1. No durability wait: a successful response means the row is in memory, not on disk.
    Spec section 9 item 3 states the crash window.
-2. No batching across events, no deduplication, no enrichment. Each event is its own
-   append call.
+2. No batching across events or enrichment. Each event is its own append call.
+   Duplicate suppression is limited to the optional short-lived client-key
+   receipts around Engine (section 3 above).
 3. No bound on flattening cost beyond the 8 MB request body. Engine also flattens
    each event twice.
 4. Request logging is synchronous: `Web.Logger` writes the `web_requests` row through

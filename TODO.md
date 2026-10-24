@@ -5,6 +5,11 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Storage and ingestion
 
+- [x] ingest-idempotency: optional client keys suppress matching same-node batch
+      retries with short-lived, bounded in-memory receipts; availability first
+      (`docs/changes/ingest-idempotency.md`)
+- [ ] ingest-idempotency-cluster: route keyed ingests to an owner so retries through
+      different nodes can share receipts; define membership/failure behavior
 - [ ] harden-shutdown-persist: a segment whose pack raises during shutdown (an
       unexpected reply such as `{:error, :not_frozen}` fails a match) aborts persistence
       of every remaining full segment

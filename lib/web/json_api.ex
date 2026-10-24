@@ -52,10 +52,18 @@ defmodule Web.JsonApi do
   The `return_keys` parameter filters each successful result's event. If omitted or
   null, all fields are returned. It must otherwise be a list of strings.
 
+  Optional `idempotency_key` is null or a nonempty UTF-8 string of at most 128
+  bytes, scoped to one table on this node. A matching retry within ten seconds of
+  completion returns `{status: 200, duplicate: true, failed_events: N}` without
+  results or another write. Changed events/return_keys, pending claims or unknown
+  outcomes return 409 with info. Capacity, expiry, unavailability, restarts and
+  other nodes can lose protection; see `docs/reference/api.md` for the contract.
+
   Ingestion is not atomic: an event failure does not stop later events. A failure
   after storage starts says the event may have been stored. Details are logged.
   Valid requests return 200 even if every event fails. Invalid tables, missing or
-  non-list events, and malformed return_keys return 400 before any event is stored.
+  non-list events, and malformed return_keys or idempotency_key return 400 before
+  any event is stored.
 
   ### POST /query
 
@@ -90,9 +98,14 @@ defmodule Web.JsonApi do
   {"status": 401, "info": "api_key required"}
   ```
 
-  **400 Bad Request** (`send_events` invalid table, events, or return_keys):
+  **400 Bad Request** (`send_events` invalid table, events, return_keys or idempotency_key):
   ```json
   {"status": 400, "info": "invalid table name \"a.b\": ..."}
+  ```
+
+  **409 Conflict** (`send_events` changed, in-flight or uncertain idempotency key):
+  ```json
+  {"status": 409, "info": "idempotency_key is still in flight; retry the same request promptly"}
   ```
 
   **400 Bad Request** (the `query` body is not a JSON object with a string `query`):
@@ -193,6 +206,9 @@ defmodule Web.JsonApi do
 
       {:error, message} ->
         send_json_resp(conn, 400, %{status: 400, info: message})
+
+      {:error, status, message} ->
+        send_json_resp(conn, status, %{status: status, info: message})
     end
   end
 
