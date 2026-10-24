@@ -91,15 +91,17 @@ defmodule Rules.RuleSet do
   | {:error, errors}}, errors: errors}`. A table with any error has no plan.
   """
   def validate(files) when is_map(files),
-    do: files |> prepare_set(false) |> Map.take([:tables, :errors])
+    do: files |> prepare(counters: false) |> Map.take([:tables, :errors])
 
   @doc """
   Prepares counter-aware plans without admitting them for execution. `candidates`
   are locally valid, unbound table plans; `tables` are resolved against the whole
   candidate set. Used by the pure activation selector and future rule execution.
-  Public writes and loading must continue using `validate/1` until C4c.
+  `counters: false` preserves public validation's counter refusal and precedence;
+  Server uses this mode until counter execution lands.
   """
-  def prepare(files) when is_map(files), do: prepare_set(files, true)
+  def prepare(files, opts \\ []) when is_map(files),
+    do: prepare_set(files, Keyword.get(opts, :counters, true))
 
   defp prepare_set(files, counters?) do
     keys = files |> Map.keys() |> Enum.sort()
@@ -255,7 +257,7 @@ defmodule Rules.RuleSet do
   end
 
   # Syntax lands before execution. Refuse counters before converting AST nodes to
-  # executable steps; remove this gate only when counter runtime lands in C4c.
+  # executable steps; remove this gate only when counter runtime lands in C4c2.
   defp unsupported_statement_errors(key, table, parsed) do
     Enum.flat_map(parsed, fn {statement, line} ->
       word =

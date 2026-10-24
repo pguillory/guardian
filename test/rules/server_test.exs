@@ -309,18 +309,141 @@ defmodule Rules.ServerTest do
     assert Rules.lookup(table) == good
   end
 
+  test "module metadata recovers the exact published plan, including regex and scalar literals" do
+    {_s3, _store} = s3_server()
+    table = unique_table("rules_metadata")
+
+    source =
+      "SET x = message RLIKE '^secret$'; SET y = CASE WHEN x THEN 'yes' ELSE 'no' END; UNSET password"
+
+    assert {:ok, _} = Rules.write_rule(table, "a", source)
+    module = Rules.lookup(table)
+    assert {:ok, expected} = Rules.RuleSet.validate(%{"#{table}/a.gsql" => source}).tables[table]
+    assert module.plan() == expected
+    assert module.hash() == expected.hash
+    assert module.table() == expected.table
+
+    assert module.apply(%{"message" => "secret", "password" => "hide"}) ==
+             %{"message" => "secret", "x" => true, "y" => "yes"}
+  end
+
+  test "writing an unrelated table reports retained failures without hiding or duplicating them" do
+    {s3, _store} = s3_server()
+    table = unique_table("rules_retained")
+    other = unique_table("rules_unrelated")
+    assert {:ok, _} = Rules.write_rule(table, "a", "SET x = 1; UNSET password")
+    module = Rules.lookup(table)
+    plan = module.plan()
+    FakeS3.put_object(s3, "#{table}/a.gsql", "SET x = nosuch(1)")
+
+    ExUnit.CaptureLog.capture_log(fn ->
+      assert {:ok, %{errors: [error], unconfirmed: []}} =
+               Rules.write_rule(other, "a", "SET x = 2")
+
+      assert error == "#{table}/a.gsql line 1: Invalid function nosuch"
+    end)
+
+    assert Rules.lookup(table) == module
+    assert module.plan() == plan
+    assert [{:ok, %{"x" => 1}}] = Engine.ingest_events(table, [%{"password" => "hide"}])
+    assert [{:ok, %{"x" => 2}}] = Engine.ingest_events(other, [%{}])
+  end
+
+  test "restart retains last published metadata through invalid reloads and switches after repair" do
+    {s3, _store} = s3_server()
+    table = unique_table("rules_restart_metadata")
+    other = unique_table("rules_restart_unrelated")
+    deleted = unique_table("rules_restart_deleted")
+    marker = "MARKER-#{System.unique_integer([:positive])}"
+    assert {:ok, _} = Rules.write_rule(table, "a", "SET x = '#{marker}'; UNSET password")
+    assert {:ok, _} = Rules.write_rule(other, "a", "SET x = 1")
+    assert {:ok, _} = Rules.write_rule(deleted, "a", "SET x = 1")
+    module = Rules.lookup(table)
+    plan = module.plan()
+    FakeS3.put_object(s3, "#{table}/a.gsql", "SET")
+    FakeS3.put_object(s3, "#{other}/a.gsql", "SET x = 2")
+    assert :ok = Rules.Store.delete(FakeS3.store(s3), "#{deleted}/a.gsql")
+
+    ExUnit.CaptureLog.capture_log(fn ->
+      assert :ok = Supervisor.terminate_child(Main, Rules.Server)
+      assert Rules.lookup(table) == module
+      assert module.plan() == plan
+      assert {:ok, _} = Supervisor.restart_child(Main, Rules.Server)
+      assert :ok = Rules.reload()
+    end)
+
+    assert Rules.lookup(table) == module
+    assert module.plan() == plan
+    refute module in :sys.get_state(Rules.Server).free
+    assert Rules.lookup(deleted) == nil
+    assert [{:ok, %{"x" => 2}}] = Engine.ingest_events(other, [%{}])
+    assert [{:ok, %{"x" => ^marker}}] = Engine.ingest_events(table, [%{"password" => "hide"}])
+
+    # Defense in depth: plans and bare steps carry expression constants, even if
+    # their canonical source is cleared. Formatting must redact both forms.
+    steps = Enum.map(plan.steps, &%{&1 | source: nil})
+    unredacted = %{state: %{plan: %{plan | steps: steps}, steps: steps}}
+    assert inspect(unredacted, limit: :infinity, printable_limit: :infinity) =~ marker
+    report = Rules.Server.format_status(unredacted)
+    refute inspect(report, limit: :infinity, printable_limit: :infinity) =~ marker
+    refute inspect(:sys.get_status(Rules.Server), limit: :infinity) =~ marker
+
+    # A successful repair switches code and metadata together.
+    assert {:ok, %{errors: []}} = Rules.write_rule(table, "a", "SET x = 3; UNSET password")
+    repaired = Rules.lookup(table)
+    refute repaired == module
+    refute repaired.plan().hash == plan.hash
+    assert [{:ok, %{"x" => 3}}] = Engine.ingest_events(table, [%{"password" => "hide"}])
+    assert module.plan() == plan
+  end
+
+  test "restart metadata stays available while the rule store cannot be reached" do
+    {s3, _store} = s3_server()
+    table = unique_table("rules_restart_outage")
+    assert {:ok, _} = Rules.write_rule(table, "a", "SET x = 1")
+    module = Rules.lookup(table)
+    plan = module.plan()
+    assert :ok = Supervisor.terminate_child(Main, Rules.Server)
+    FakeS3.fault(s3, {:status, 503})
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:ok, _} = Supervisor.restart_child(Main, Rules.Server)
+        assert %{stale: true, files: files} = :sys.get_state(Rules.Server)
+        assert files == %{}
+        Logger.flush()
+      end)
+
+    assert log =~ "Rules: reloading failed: store unreachable (HTTP 503)"
+
+    assert Rules.lookup(table) == module
+    assert module.plan() == plan
+    assert [{:ok, %{"x" => 1}}] = Engine.ingest_events(table, [%{}])
+    FakeS3.put_object(s3, "#{table}/a.gsql", "SET x = 2")
+    assert :ok = Rules.reload()
+    refute Rules.lookup(table).plan() == plan
+  end
+
   test "reload publishes nothing unless every changed table compiles" do
     {s3, _store} = s3_server()
     {:ok, _} = Rules.write_rule("t1", "a", "SET x = 1")
     {:ok, _} = Rules.write_rule("t2", "a", "SET x = 1")
     before = Rules.published()
+    metadata = Map.new(before, fn {table, module} -> {table, module.plan()} end)
 
     # Two changed tables and one free name: the second compile has no name.
     :sys.replace_state(Rules.Server, fn state -> %{state | free: Enum.take(state.free, 1)} end)
+    [free] = :sys.get_state(Rules.Server).free
     FakeS3.put_object(s3, "t1/a.gsql", "SET x = 2")
     FakeS3.put_object(s3, "t2/a.gsql", "SET x = 2")
     assert {:error, "no free rule module names" <> _} = Rules.reload()
     assert Rules.published() == before
+
+    assert Map.new(Rules.published(), fn {table, module} -> {table, module.plan()} end) ==
+             metadata
+
+    assert :code.is_loaded(free) == false
+    refute function_exported?(free, :plan, 0)
     assert [{:ok, %{"x" => 1}}] = Engine.ingest_events("t1", [%{}])
   end
 
@@ -338,6 +461,8 @@ defmodule Rules.ServerTest do
     loaded = Enum.count(Rules.Compiler.names(), &(:code.is_loaded(&1) != false))
     assert loaded <= 3
     refute Code.loaded?(held)
+    refute function_exported?(held, :plan, 0)
+    assert Rules.lookup(table).plan().table == table
     assert Rules.lookup(table).apply(%{}) == %{"x" => 40}
   end
 

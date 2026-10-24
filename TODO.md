@@ -73,6 +73,10 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
            from Main, with automatic backoff recovery and availability metrics
          4. [ ] C4c: execution, buckets, arrival metadata, limits/config, live coherent
            reloads/restart metadata and product docs
+           1. [x] C4c1: Server activation selection, bounded recoverable module-plan
+             metadata and unresolved-candidate compiler refusal; counters stay disabled
+           2. [ ] C4c2: execution/enabling, buckets, arrival metadata, budgets/config,
+             live counter reload/restart coverage and product/API/MCP/README docs
 - [x] rules-open-questions: the failure and invalid-at-boot defaults are confirmed
       and their switches (`:rules_on_failure`, `:rules_invalid_at_boot`) removed
 - [x] rules-server-redaction: Rules.Server's formatted status and crash reports

@@ -329,23 +329,34 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    It is pure. Typed per-kind steps (`Rules.Step`), scalar/counter checks
    (`Rules.Validation`) and dependency ordering
    (`Rules.DependencyGraph`) are separate from rule-set orchestration.
-   `Rules.Activation.select/2` is a pure preparation for future runtime reloads:
+   `Rules.Activation.select/2` selects plans for Server activation:
    invalid components of old/new LOOKUP dependencies retain prior plans together,
    including deleted targets/dependents. Tables without a previous valid plan in
    such components are invalid.
-   Valid unrelated components still activate. Server integration and recoverable
-   plan metadata are deferred to C4c; current SET/UNSET reload behavior is unchanged.
+   Valid unrelated components still activate. Server calls `prepare/2` with
+   `counters: false`, preserving the early public counter refusal; current SET/UNSET
+   behavior is unchanged. Local candidates have `resolved?: false`; only successful
+   whole-set resolution marks them ready for compilation.
 2. Compilation: `Rules.Compiler` turns a plan into a module from a fixed template,
    each statement one call to `Rules.Runtime` with the statement as an escaped literal
    (expressions run through the scalar evaluator, `Query.Eval` on an event map). Names
    come from a pool of 1,024 (`Rules.Compiled.M0`...), so atoms are bounded.
-   Compiler independently refuses plans containing TRACK or LOOKUP until C4c.
+   Compiler independently refuses unresolved candidates and LOOKUPs without bound
+   targets, and still refuses plans containing TRACK or LOOKUP until execution lands.
+   Each generated module exposes its exact resolved `plan/0` as escaped literal
+   data, including canonical source and AST constants, never executable rule text.
 3. Publication: one `:persistent_term` map of table to module, or `{:invalid,
    message}`. A reload compiles every changed table into free names first and
    publishes one new map only if all compiled, so a change is all or nothing on each
    node. A module the map stops using is retired, then after 30 s (rows run under a
    1 s limit) deleted and soft-purged; its name is reused only after the purge
-   succeeds. On a restart the pool is rebuilt from what is loaded.
+   succeeds. On a restart the pool is rebuilt from what is loaded. Activation reads
+   previous plans directly from the published modules, including after a Server
+   restart while the stored copy is invalid or unreachable. Successful deletions
+   still remove rules. Metadata is bounded by rule limits and the fixed module
+   pool, reclaimed with the code; no separate per-reload history/cache is kept.
+   Preparation errors and selected-table errors are combined for diagnostics,
+   while write admission compares only the stored sets' preparation errors.
 4. Running: `Rules.Runner` runs a batch in a worker with the query heap limit (without
    the error_logger report), sending each row's result back; a row over 1 s, or a
    worker that dies, fails that row and a new worker continues. The worker reads the

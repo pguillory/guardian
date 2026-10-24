@@ -18,8 +18,9 @@ defmodule Rules.Server do
   ## Reload and poll
 
   `reload/0` and a poll every 60 s re-read the store, fetching only objects whose ETag
-  changed. A table that turns invalid at runtime keeps its previous good rules (a new
-  table that is invalid is published as invalid). Nothing changes unless every
+  changed. Activation selects prior good plans for invalid dependency components
+  (a new table that is invalid is published as invalid). With counters disabled,
+  components are individual tables. Nothing changes unless every
   changed table compiles; then one map is published, switching every addition, change
   and deletion at once.
 
@@ -43,15 +44,18 @@ defmodule Rules.Server do
   and 30 s later (rows run under a 1 s limit, so no caller can still hold it) deleted
   and soft-purged; its name returns to the pool only once the purge succeeds. On a
   restart, names in the published map are in use and any other loaded name is
-  retired.
+  retired. Each generated module exposes its exact immutable plan; activation
+  recovers previous plans from those modules, including after a Server restart,
+  without reading the store or maintaining a separate history/cache of plans.
 
   ## Status and crash reports
 
   Rule text never appears in a crash report or in this server's part of
   `:sys.get_status/1` (`format_status/1`): every file, in the state or in a past
   state in the debug log, keeps only its ETag, and a write message's source is
-  replaced by `:redacted`. `init/1`, `handle_call/3` and `handle_info/2` re-raise
-  whatever they raise as an error naming only the kind, with a stack of arities,
+  replaced by `:redacted`. Plans and bare steps are redacted too, including AST
+  constants as well as canonical source. `init/1`, `handle_call/3` and `handle_info/2`
+  re-raise whatever they raise as an error naming only the kind, with a stack of arities,
   since an exception's message or fields and the top frame's arguments can hold a
   source (the report's stack is not passed through `format_status/1`). `write/3`
   turns the call's exit into an error without logging the exit reason, which
@@ -107,7 +111,7 @@ defmodule Rules.Server do
         # `files` is the set last activated (also the fetch cache); `stale` means the
         # published rules may not match it, so the next reload activates whatever it
         # reads even if the ETags are unchanged.
-        state = %{store: store, files: %{}, stale: false, hashes: %{}, free: [], retired: %{}}
+        state = %{store: store, files: %{}, stale: false, free: [], retired: %{}}
 
         case Rules.published() do
           nil -> boot(state)
@@ -125,22 +129,23 @@ defmodule Rules.Server do
 
     case read_with_retry(state, deadline, 1_000) do
       {:ok, files} ->
-        validation = RuleSet.validate(sources(files))
+        preparation = prepare(sources(files))
         state = reserve_pool(state, MapSet.new())
 
-        case activate(state, validation, :boot) do
-          {:ok, state} ->
-            log_errors(validation.errors)
+        case activate(state, preparation) do
+          {:ok, state, _errors} ->
+            table_count =
+              Enum.count(Rules.published(), fn {_table, module} -> is_atom(module) end)
 
             Logger.info(
-              "Rules: #{map_size(files)} files for #{map_size(state.hashes)} tables " <>
+              "Rules: #{map_size(files)} files for #{table_count} tables " <>
                 "from #{Rules.Store.describe(state.store)}"
             )
 
             schedule_poll()
             {:ok, %{state | files: files}}
 
-          {:error, message} ->
+          {:error, message, _errors} ->
             {:stop, {:rules_compile, message}}
         end
 
@@ -168,13 +173,8 @@ defmodule Rules.Server do
   defp restart(state, published) do
     in_use = published |> Map.values() |> Enum.filter(&is_atom/1) |> MapSet.new()
 
-    hashes =
-      for {table, module} <- published, is_atom(module), into: %{} do
-        {table, module.hash()}
-      end
-
     send(self(), :poll)
-    %{reserve_pool(state, in_use) | hashes: hashes, stale: true}
+    %{reserve_pool(state, in_use) | stale: true}
   end
 
   # Rebuilds the pool from what is loaded: names in use stay in use, any other loaded
@@ -276,18 +276,19 @@ defmodule Rules.Server do
 
   defp sources(files), do: Map.new(files, fn {key, file} -> {key, file.source} end)
 
+  # Keep the public counter gate until execution is implemented. Boot, reload and
+  # both sides of write validation must use the same preparation mode.
+  defp prepare(sources), do: RuleSet.prepare(sources, counters: false)
+
   defp reload_state(state) do
     case read_set(state) do
       {:ok, files} ->
         if not state.stale and etags(files) == etags(state.files) do
           {:ok, state}
         else
-          validation = RuleSet.validate(sources(files))
-          log_errors(validation.errors)
-
-          case activate(state, validation, :runtime) do
-            {:ok, state} -> {:ok, %{state | files: files, stale: false}}
-            {:error, message} -> {:error, message, state}
+          case activate(state, prepare(sources(files))) do
+            {:ok, state, _errors} -> {:ok, %{state | files: files, stale: false}}
+            {:error, message, _errors} -> {:error, message, state}
           end
         end
 
@@ -336,7 +337,7 @@ defmodule Rules.Server do
         # `state.files` stays the set last activated until a save activates `files`:
         # a reload compares ETags with it, so advancing it here without activating
         # would make the next reload skip rules another writer saved.
-        before = RuleSet.validate(sources(files))
+        before = prepare(sources(files))
 
         after_sources =
           case source do
@@ -344,7 +345,9 @@ defmodule Rules.Server do
             source -> Map.put(sources(files), key, source)
           end
 
-        validation = RuleSet.validate(after_sources)
+        validation = prepare(after_sources)
+        # Admission compares stored-set errors, never activation's retention or
+        # deferral diagnostics: broken sets must remain repairable file by file.
         new_errors = RuleSet.new_errors(before.errors, validation.errors)
 
         cond do
@@ -396,17 +399,16 @@ defmodule Rules.Server do
             do: Map.delete(files, key),
             else: Map.put(files, key, %{etag: etag, source: source})
 
-        {state, local_error} =
-          case activate(state, validation, :runtime) do
-            {:ok, state} -> {%{state | files: files, stale: false}, nil}
-            {:error, message} -> {%{state | stale: true}, message}
+        {state, local_error, errors} =
+          case activate(state, validation) do
+            {:ok, state, errors} -> {%{state | files: files, stale: false}, nil, errors}
+            {:error, message, errors} -> {%{state | stale: true}, message, errors}
           end
 
         unconfirmed = broadcast_reload()
         unconfirmed = if local_error, do: [node() | unconfirmed], else: unconfirmed
 
-        {{:ok, %{errors: Enum.map(validation.errors, & &1.message), unconfirmed: unconfirmed}},
-         state}
+        {{:ok, %{errors: Enum.map(errors, & &1.message), unconfirmed: unconfirmed}}, state}
 
       {:error, {:unknown, _kind} = reason} ->
         # The save may have happened: leave the lock to expire, so the next writer
@@ -451,27 +453,27 @@ defmodule Rules.Server do
 
   ## Activation
 
-  defp activate(state, validation, mode) do
+  defp activate(state, preparation) do
     published = Rules.published() || %{}
+    previous = published_plans(published)
+    selected = Rules.Activation.select(preparation, previous)
+    errors = activation_errors(preparation, selected)
+    log_errors(errors)
 
     {targets, to_compile} =
-      Enum.reduce(validation.tables, {%{}, []}, fn {table, result}, {targets, to_compile} ->
+      Enum.reduce(selected.tables, {%{}, []}, fn {table, result}, {targets, to_compile} ->
         current = Map.get(published, table)
 
         case result do
           {:ok, plan} ->
-            if is_atom(current) and current != nil and state.hashes[table] == plan.hash do
+            if is_atom(current) and current != nil and current.hash() == plan.hash do
               {Map.put(targets, table, current), to_compile}
             else
               {targets, [plan | to_compile]}
             end
 
           {:error, errors} ->
-            if mode == :runtime and is_atom(current) and current != nil do
-              {Map.put(targets, table, current), to_compile}
-            else
-              {Map.put(targets, table, {:invalid, invalid_message(errors)}), to_compile}
-            end
+            {Map.put(targets, table, {:invalid, invalid_message(errors)}), to_compile}
         end
       end)
 
@@ -484,11 +486,6 @@ defmodule Rules.Server do
 
         Rules.publish(tables)
 
-        hashes =
-          for {table, module} <- tables, is_atom(module), into: %{} do
-            {table, module.hash()}
-          end
-
         in_use = tables |> Map.values() |> Enum.filter(&is_atom/1) |> MapSet.new()
 
         retiring =
@@ -500,11 +497,29 @@ defmodule Rules.Server do
         Enum.each(retiring, &schedule_reclaim(&1, @reclaim_after_ms))
         retired = Enum.reduce(retiring, state.retired, &Map.put(&2, &1, :pending))
 
-        {:ok, %{state | free: free, hashes: hashes, retired: retired}}
+        {:ok, %{state | free: free, retired: retired}, errors}
 
       {:error, message} ->
-        {:error, message}
+        {:error, message, errors}
     end
+  end
+
+  # Published modules are the sole source of truth, also after a Server restart.
+  # The fixed pool bounds metadata lifetime; no per-reload registry accumulates.
+  defp published_plans(published) do
+    for {table, module} <- published, is_atom(module), into: %{}, do: {table, module.plan()}
+  end
+
+  defp activation_errors(preparation, selected) do
+    selected_errors =
+      Enum.flat_map(selected.tables, fn
+        {_table, {:error, errors}} -> errors
+        _ -> []
+      end)
+
+    (preparation.errors ++ selected_errors)
+    |> Enum.uniq()
+    |> Enum.sort_by(&{&1.file, &1.line || 0, &1.kind})
   end
 
   defp compile_all(state, [], compiled), do: {:ok, compiled, state.free}
@@ -585,6 +600,12 @@ defmodule Rules.Server do
     do: tuple |> Tuple.to_list() |> Enum.map(&redact/1) |> List.to_tuple()
 
   defp redact([head | tail]), do: [redact(head) | redact(tail)]
+  defp redact(%Rules.Plan{} = plan), do: Map.take(plan, [:table, :hash, :resolved?])
+
+  defp redact(%step{})
+       when step in [Rules.Step.Set, Rules.Step.Unset, Rules.Step.Track, Rules.Step.Lookup],
+       do: :redacted
+
   defp redact(%_{} = struct), do: struct
   defp redact(%{etag: _, source: _} = file), do: Map.take(file, [:etag])
   defp redact(map) when is_map(map), do: Map.new(map, fn {k, v} -> {k, redact(v)} end)

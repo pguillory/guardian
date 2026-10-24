@@ -51,7 +51,7 @@ defmodule Rules.Resolution do
       end)
 
     case errors do
-      [] -> {:ok, %{plan | steps: steps, hash: hash(plan.hash, steps)}}
+      [] -> {:ok, %{plan | steps: steps, hash: hash(plan.hash, steps), resolved?: true}}
       _ -> {:error, errors}
     end
   end

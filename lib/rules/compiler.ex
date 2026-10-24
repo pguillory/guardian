@@ -1,7 +1,12 @@
 defmodule Rules.Compiler do
   @moduledoc """
-  Compiles one table's `Rules.Plan` into a generated module with `apply/1`, which runs
-  the table's statements in order on a flattened row and returns the new row.
+  Compiles one table's resolved `Rules.Plan` into a generated module with `apply/1`,
+  which runs the table's statements in order on a flattened row and returns the new
+  row. `plan/0` recovers the exact immutable plan for reload selection after a
+  Server restart. Metadata lives and is reclaimed with its bounded pool module.
+  Unresolved candidates return `:unresolved_plan`; a LOOKUP without a bound target
+  returns `:unbound_lookup`. Counter plans still return `:unsupported_counters`
+  until execution lands.
 
   The module body comes only from the fixed template below: each statement becomes one
   call to `Rules.Runtime.set/2` or `unset/2` with the statement (field, expressions as
@@ -26,10 +31,18 @@ defmodule Rules.Compiler do
 
   @doc "Compiles and loads `plan` as `module`. Returns `:ok` or `{:error, kind}`."
   def compile(module, %Rules.Plan{} = plan) do
-    if Enum.any?(plan.steps, &(&1.kind in [:track, :lookup])) do
-      {:error, :unsupported_counters}
-    else
-      compile_supported(module, plan)
+    cond do
+      not plan.resolved? ->
+        {:error, :unresolved_plan}
+
+      Enum.any?(plan.steps, &match?(%Rules.Step.Lookup{target: nil}, &1)) ->
+        {:error, :unbound_lookup}
+
+      Enum.any?(plan.steps, &(&1.kind in [:track, :lookup])) ->
+        {:error, :unsupported_counters}
+
+      true ->
+        compile_supported(module, plan)
     end
   end
 
@@ -52,6 +65,7 @@ defmodule Rules.Compiler do
         @moduledoc false
         def table, do: unquote(plan.table)
         def hash, do: unquote(plan.hash)
+        def plan, do: unquote(Macro.escape(plan))
 
         def apply(row) do
           state = Rules.Runtime.start(row)

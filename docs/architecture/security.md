@@ -738,7 +738,13 @@ Where data goes:
    - Rules.Server's crash reports and formatted status never carry rule text (rules
      can hold secrets, such as a value a SET compares against): `format_status/1`
      keeps only each file's ETag, in the state and in past states in the debug log,
-     and replaces a write's source with `:redacted`; `init/1`, `handle_call/3` and
+     and replaces a write's source with `:redacted`. Plan structs retain only
+     table/hash/resolution status, and bare typed steps are redacted, so canonical
+     source and expression constants cannot escape through those structs either.
+     Compiled modules retain their exact resolved plan as escaped literal data
+     for reload/restart recovery; its lifetime is bounded by the fixed module pool
+     and normal code reclamation. Raw module/process inspection remains privileged
+     full-memory access. `init/1`, `handle_call/3` and
      `handle_info/2` re-raise a failure as an error naming only its kind, with a
      stack of arities, because OTP adds the raw stack, arguments included, after
      `format_status/1`. `Rules.Server.write/3` turns the call's exit into an error

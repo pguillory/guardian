@@ -21,6 +21,44 @@ defmodule Rules.CounterPlanTest do
   defp sources(plan), do: Enum.map(plan.steps, & &1.source)
   defp target(plan), do: Enum.find(plan.steps, &(&1.kind == :lookup)).target
 
+  test "local candidates cannot compile, including SET-only and forged unbound LOOKUP plans" do
+    for files <- [
+          %{"t/a.gsql" => "SET x = 1; UNSET password"},
+          %{"t/a.gsql" => "TRACK c = count() LAST '1h'; LOOKUP prior = c"},
+        ] do
+      preparation = RuleSet.prepare(files)
+      assert preparation.errors == []
+      {:ok, candidate} = preparation.candidates["t"]
+      {:ok, resolved} = preparation.tables["t"]
+      refute candidate.resolved?
+      assert resolved.resolved?
+      module = __MODULE__.CandidateProbe
+      before = :code.is_loaded(module)
+      assert Rules.Compiler.compile(module, candidate) == {:error, :unresolved_plan}
+      assert :code.is_loaded(module) == before
+
+      if Enum.any?(candidate.steps, &(&1.kind == :lookup)) do
+        assert Rules.Compiler.compile(module, %{candidate | resolved?: true}) ==
+                 {:error, :unbound_lookup}
+
+        assert :code.is_loaded(module) == before
+      end
+    end
+  end
+
+  test "counter-refusing preparation matches validation and preserves early refusal" do
+    files = %{
+      "t/a.gsql" => "SET x = count(); TRACK c = arbitrary(x) LAST '0s'",
+      "u/a.gsql" => "SET x = 1",
+    }
+
+    preparation = RuleSet.prepare(files, counters: false)
+    assert Map.take(preparation, [:tables, :errors]) == RuleSet.validate(files)
+    assert [%{kind: :unsupported}] = preparation.errors
+    assert {:ok, %{resolved?: false}} = preparation.candidates["u"]
+    assert {:ok, %{resolved?: true}} = preparation.tables["u"]
+  end
+
   test "counter preparation never enables public validation or compilation" do
     files = %{"t/a.gsql" => "TRACK c = count() LAST '1h'; LOOKUP prior = c"}
     plan = plan(files)

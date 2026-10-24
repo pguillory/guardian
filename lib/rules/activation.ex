@@ -1,14 +1,16 @@
 defmodule Rules.Activation do
   @moduledoc """
-  Pure selection for a future counter-aware reload. An invalid dependency
-  component retains its previous valid plans together, including deleted tables.
+  Pure selection for rule activation. An invalid dependency component retains its
+  previous valid plans together, including deleted tables.
   Tables without a previous valid plan in that component are invalid until the
   whole component validates. Empty previous plans select directed boot semantics.
 
   Edges include previous bound LOOKUP targets and new locally valid candidates,
   so an invalid dependent cannot strand an old identity when its target changes.
-  The live Server still uses counter-refusing validation until C4c integrates
-  this selector, module metadata recovery and counter execution together.
+  Server uses counter-refusing preparation until C4c2 adds execution. Its previous
+  plans come from the published modules' recoverable metadata, so selection also
+  preserves prior plans after Server restarts. With counters disabled, components
+  are individual tables.
   Selection returns tables/retained; the caller must combine preparation.errors
   with selected table errors so retained failures and deferral diagnostics survive.
   """

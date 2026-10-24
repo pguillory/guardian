@@ -5,7 +5,8 @@ C2 (bounded cluster ownership) and C3 (aggregate operators) are implemented.
 TRACK and LOOKUP's settled v1 design and reviewed four-piece implementation plan
 are below. C4a adds parsed TRACK/LOOKUP syntax, canonical source and traversal;
 Rules.RuleSet still rejects both statements, so counters are not yet available in
-active rules. The remaining C4 work is split below.
+active rules. C4c1 wires activation selection and recoverable module-plan metadata;
+counter execution/enabling remains C4c2. The remaining C4 work is split below.
 The phase 1 open questions were settled on the recommendations below.
 Each was first kept switchable through app env (`:rules_on_failure`,
 `:rules_invalid_at_boot`); once confirmed, the switches and the alternatives they
@@ -46,7 +47,7 @@ reviewed, diffed and backed up like code.
    one. Expressions and conditions are the query language's scalar expressions (all
    scalar functions, operators, CASE). Aggregates are rejected anywhere in a
    statement, WHERE included.
-4. Counter v1 adds these forms (syntax parsed; validation/execution not yet built):
+4. Counter v1 adds these forms (syntax and internal validation built; execution pending):
 
    ```sql
    TRACK logins_last_hour = count() BY ip LAST '1h'
@@ -324,7 +325,8 @@ JSON API rule endpoints in phase 1.
    recompiles tables whose LOOKUPs reference changed TRACK definitions, publishing
    their resolved counter identities atomically with the new definitions. Invalid
    runtime reloads retain whole connected dependency components of prior plans,
-   as specified in C4b below; live counter activation is deferred to C4c.
+   as specified in C4b below. Server selection and module metadata are implemented
+   in C4c1; live counter activation is deferred to C4c2.
 7. Running a statement does not scan the row. At the first statement the runtime
    indexes the event's flattened row once: a trie of its keys by lowercase
    top-level object path, and each lowercase spelling's present keys in byte order.
@@ -630,8 +632,8 @@ reload can switch it together. Unrelated components activate normally. At boot,
 with no previous plans, only directed target-invalidity propagation applies.
 
 Plan review narrowed C4b to these tested pure preparation/selection contracts.
-Server wiring, bounded recoverable plan metadata in compiled modules, and live
-atomic reload/restart coverage belong to C4c alongside counter compilation and
+Server wiring and bounded recoverable plan metadata are implemented in C4c1 below;
+live counter reload/restart coverage belongs to C4c2 alongside compilation and
 execution. Public `validate/1` still refuses counters before scalar checks within
 their file, and Compiler independently refuses prepared counter plans. Product
 spec impact: none; overview and spec continue to describe active SET/UNSET rules.
@@ -643,9 +645,37 @@ Remaining order:
 2. Prerequisite (C1 follow-ups), implemented: quiet expiry catches up in immediate
    pages and capacity reclaims expiry first; counter crash loops recover separately
    from Main as described below.
-3. C4c: execution, live coherent reloads/restart metadata, buckets, private arrival
+3. C4c1, implemented: Server activation selection and bounded recoverable module
+   metadata, with unresolved-plan safety. Product spec impact: none.
+4. C4c2: execution, live coherent counter reloads/restarts, buckets, private arrival
    metadata, budgets/configuration and the full user-visible documentation
    obligations below. Only then enable statements.
+
+C4c1 connects boot, reload and saved writes to `Rules.Activation.select/2`, using
+`RuleSet.prepare/2` with `counters: false` everywhere on the live path. The public
+unsupported-before-scalar precedence and Compiler's independent counter gate stay
+closed. Local candidates have `resolved?: false`; successful whole-set resolution
+marks plans resolved. Compiler rejects unresolved candidates before loading any
+code, and independently rejects a LOOKUP with no bound target, even if its plan
+is marked resolved.
+
+Each generated module exposes its exact resolved `plan/0`, including canonical
+source and AST literals, as escaped fixed-template data. Server derives previous
+plans directly from published modules for selection, including after restart;
+there is no separate metadata registry or hashes cache to drift from publication.
+The existing module pool and rule limits bound metadata; discard/reclaim removes
+metadata with code. Invalid stored copies retain previous good plans, unrelated
+changes and valid deletions still activate, and compilation failure publishes
+nothing. Preparation errors plus selected-table errors remain in logs and write
+results; write admission compares only raw stored-set errors to keep repairs valid.
+Formatted status redacts plans and bare steps, including expression constants.
+
+Coverage includes candidate refusal without module creation, exact plan round-trip
+with regex/scalar expressions, restart through invalid/unreachable stored copies,
+repair and unrelated changes/deletions, atomic pool-exhaustion rollback, metadata
+reclamation, and status redaction with secrets inside AST literals. Live counter
+dependency-component reload/restart tests remain C4c2; this slice does not bypass
+the counter gates to simulate execution. Overview and product spec stay unchanged.
 
 C4 runtime prerequisite implemented separately from rule integration: quiet expiry
 uses 256-entry pages with immediate continuation while expired entries remain;
