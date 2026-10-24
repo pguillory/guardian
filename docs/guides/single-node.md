@@ -3,7 +3,7 @@
 ## Docker
 
 Supported architecture: amd64; arm64 untested. `docker build` targets the host's own
-architecture. CI builds linux/amd64. Nothing in the build is x86-only and the image
+architecture. Nothing in the build is x86-only and the image
 fetches cloudflared for its target architecture, so linux/arm64 should build too, but
 it hasn't been tested yet.
 

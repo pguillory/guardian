@@ -22,12 +22,13 @@ bin/install-git-hooks
 
 ## Checks
 
-The pre-commit hook runs the same checks as CI:
+The pre-commit hook checks staged whitespace and runs these checks locally at every
+commit:
 
 ```sh
 mix format --check-formatted
 MIX_ENV=test mix compile --warnings-as-errors
-mix test
+mix test --warnings-as-errors
 ```
 
 The multi-node tests start peer nodes, which need `epmd`. The tests start it

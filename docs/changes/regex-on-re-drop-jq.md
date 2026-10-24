@@ -46,7 +46,7 @@ No known caller used `RLIKE`, `replace()` or `jq()`.
 3. The image needs no system libraries beyond OpenSSL and libstdc++, and nothing in
    the build is x86-only any more. cloudflared now comes from one pinned, checksummed
    stage per architecture (both hashes checked against the release notes), so
-   linux/arm64 should build. That is untested so far (TODO.md ci-arm64-image).
+   linux/arm64 should build. That is untested so far (TODO.md arm64-image).
 
 Differences users could notice compared with Hyperscan:
 - RLIKE is about 3 to 10 times slower: 2.5 to 10 µs a row on 89-byte strings,
@@ -77,4 +77,5 @@ Differences users could notice compared with Hyperscan:
   limit instead of a jq error.
 - The full `mix test` suite passes.
 - Docker builds: not run locally (no container runtime on the development machine).
-  CI's docker job builds amd64; arm64 is untested.
+  At the time, the CI workflow included an amd64 Docker build; arm64 is untested.
+  Hosted CI has since been removed (`docs/changes/no-ci.md`).

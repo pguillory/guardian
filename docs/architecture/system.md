@@ -1108,9 +1108,9 @@ follows from Cloudflare's replica routing; it has not yet been observed on a
 multi-machine deploy.
 
 The image runs as root, because Fly volumes mount
-root-owned and each Fly Machine is a VM whose only workload is Guardian. CI and Fly
-build linux/amd64; linux/arm64 has its cloudflared stage but has not been built yet
-(TODO.md ci-arm64-image).
+root-owned and each Fly Machine is a VM whose only workload is Guardian. Fly builds
+linux/amd64; linux/arm64 has its cloudflared stage but has not been built yet
+(TODO.md arm64-image).
 
 ### 10.2 Fly configuration
 
@@ -1180,8 +1180,10 @@ The image and local development use Elixir 1.19.6 on OTP 28.5.0.8.
 
 ## 11. Testing
 
-Run the suite with `mix test` (the pre-commit hook in `bin/pre-commit` also checks
-formatting and compiles with warnings as errors). About 150 test files cover:
+Tests run locally at commit time, with no hosted CI. The pre-commit hook in
+`bin/pre-commit` checks staged whitespace and formatting, compiles with warnings as
+errors, and runs the full suite with `mix test --warnings-as-errors`. About 150 test
+files cover:
 
 1. Units per subsystem: tokenizer and parser round trips, every operator, function,
    and aggregation, the column NIF (including golden outputs in

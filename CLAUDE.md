@@ -116,12 +116,13 @@ Storage's shutdown budget plus the connector's drain (20 s at worst). The rest o
 ```sh
 mix format
 MIX_ENV=test mix compile --warnings-as-errors
-mix test
+mix test --warnings-as-errors
 ```
 
 Tests must not require PostgreSQL, Memcached, GeoIP files, or other external services.
-CI (`.github/workflows/ci.yml`) runs the same checks plus a docker build, with no
-secrets.
+No CI: never add GitHub Actions or other hosted CI; tests run locally at commit time.
+The pre-commit hook checks staged whitespace, formatting, compilation, and the full
+test suite. See `docs/guides/development.md` for hook setup.
 
 Key subsystem documentation:
 

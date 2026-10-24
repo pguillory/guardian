@@ -105,7 +105,7 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       query behavior change (`docs/changes/total-functions.md`)
 - [ ] timestamp-arithmetic-columns: a timestamp string plus or minus an integer adds
       the seconds per event, but over two columns the NIF gives null; make them agree
-- [ ] ci-arm64-image: CI builds only the amd64 image; build linux/arm64 too, which
+- [ ] arm64-image: build and test linux/arm64 locally too, which
       should work now that Hyperscan is gone but has never been built
 - [ ] query-memory-bound: result sizes, string sizes, run time and each query
       process's heap are bounded, but a query's total memory is not (GROUP BY state in
@@ -154,6 +154,8 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Tests
 
+- [x] no-ci: remove hosted CI; the local pre-commit hook checks formatting,
+      compilation, and the full suite (`docs/changes/no-ci.md`)
 - [ ] peer-start-stall: a test peer's `:peer.start` has occasionally exceeded its 15 s
       boot wait in loaded full-suite runs; cause unknown
 - [ ] segment-rollover-flake: SegmentTest "maximum age size rollover cancels the

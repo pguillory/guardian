@@ -237,7 +237,7 @@ linked above, so it learns the syntax without your help. A session looks like th
 
 ## Quickstart
 
-Run a single node in Docker. The image is built in CI for linux/amd64; arm64
+Run a single node in Docker. The supported image architecture is linux/amd64; arm64
 should build but is untested (see [the single-node guide](docs/guides/single-node.md)).
 
 ```sh

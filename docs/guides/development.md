@@ -11,7 +11,7 @@
 
 ```sh
 mix deps.get
-mix test
+mix test --warnings-as-errors
 ```
 
 `iex -S mix` and `mix run` need `GUARDIAN_API_KEY` (32 bytes or more) in the
