@@ -104,7 +104,9 @@ defmodule Storage.Flattening do
   end
 
   # Encodes a path like [["a", "b"], ["c"]] to dot notation "a.b..c"
-  # Keys containing dots or empty strings are quoted: [["a", "b.c"]] -> "a.\"b.c\""
+  # Keys containing dots or quotes, and empty keys, are quoted:
+  # [["a", "b.c"]] -> "a.\"b.c\"". Inside quotes a backslash or quote is escaped
+  # with a backslash, so a key ending in a backslash can't swallow the closing quote.
   def encode_path([[key]]), do: encode_key(key)
   def encode_path([[key | keys] | rest]), do: encode_key(key) <> "." <> encode_path([keys | rest])
   def encode_path([[] | rest]), do: "." <> encode_path(rest)
@@ -114,7 +116,7 @@ defmodule Storage.Flattening do
 
   defp encode_key(key) do
     if String.contains?(key, ".") or String.contains?(key, "\"") do
-      escaped = String.replace(key, "\"", "\\\"")
+      escaped = key |> String.replace("\\", "\\\\") |> String.replace("\"", "\\\"")
       "\"#{escaped}\""
     else
       key
@@ -155,7 +157,10 @@ defmodule Storage.Flattening do
     end
   end
 
-  # Parse a quoted key until closing quote
+  # Parse a quoted key until closing quote. A backslash escapes a backslash or a
+  # quote; before any other character it is itself (names stored before backslashes
+  # were escaped).
+  defp parse_quoted_key("\\\\" <> rest, acc), do: parse_quoted_key(rest, acc <> "\\")
   defp parse_quoted_key("\\\"" <> rest, acc), do: parse_quoted_key(rest, acc <> "\"")
   defp parse_quoted_key("\"" <> rest, acc), do: {acc, rest}
 

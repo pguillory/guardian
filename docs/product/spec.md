@@ -406,9 +406,11 @@ Clients should keep keys stable and put data in values (`{"customer_id": 123}`, 
 Nested objects are flattened into dotted column names: `{"user": {"name": "Bob"}}` is
 the column `user.name`. A list of objects adds one dot per list level:
 `{"users": [{"name": "Bob"}, {"name": "Joe"}]}` stores `users..name` as
-`["Bob", "Joe"]`. Lists of scalars are stored as list values. Queries see the flat
-columns; an ingest result normally returns the event in its nested shape (see the
-exceptions in [section 5](#5-ingestion)).
+`["Bob", "Joe"]`. A key that contains a dot or a double quote, or is empty, is written
+in double quotes within the column name, with a backslash before each `"` and `\`
+in it: `{"a.b": {"c": 1}}` is the column `"a.b".c`. Lists of scalars are stored as
+list values. Queries see the flat columns; an ingest result normally returns the event
+in its nested shape (see the exceptions in [section 5](#5-ingestion)).
 
 ### 6.4 Time
 

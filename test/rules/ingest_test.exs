@@ -246,6 +246,14 @@ defmodule Rules.IngestTest do
              ingest(table, [%{"x" => 1}, 5])
   end
 
+  test "an event with a key ending in a backslash is stored when a rule changes a field" do
+    table = unique_table("rules_backslash_key")
+    with_rules(%{"#{table}/r.gsql" => "SET y = 2"})
+
+    assert [{:ok, %{"a.\\" => 1, "y" => 2}}] = ingest(table, [%{"a.\\" => 1}])
+    assert {:ok, ["y"], [[2]]} = Query.execute("SELECT y FROM #{table}")
+  end
+
   test "Guardian's own writes to built-in tables never run rules, and rules for them are refused" do
     assert {:error, {:rejected, [message]}} = Rules.write_rule("queries", "r", "SET x = 1")
     assert message =~ "built-in table"

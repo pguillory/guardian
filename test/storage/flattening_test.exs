@@ -511,6 +511,13 @@ defmodule Storage.FlatteningTest do
       assert encode_path([["a\"b"]]) == "\"a\\\"b\""
     end
 
+    test "backslashes in quoted keys are escaped" do
+      assert encode_path([["a.\\"]]) == "\"a.\\\\\""
+      assert encode_path([["a\\\"b"]]) == "\"a\\\\\\\"b\""
+      # A key that needs no quotes keeps its backslashes as they are.
+      assert encode_path([["a\\b"]]) == "a\\b"
+    end
+
     test "empty string keys are quoted" do
       assert encode_path([[""]]) == "\"\""
       assert encode_path([["a", ""]]) == "a.\"\""
@@ -545,6 +552,15 @@ defmodule Storage.FlatteningTest do
       assert decode_path("\"a\\\"b\"") == [["a\"b"]]
     end
 
+    test "escaped backslashes in keys" do
+      assert decode_path("\"a.\\\\\"") == [["a.\\"]]
+      assert decode_path("\"a.\\\\\"..b") == [["a.\\"], ["b"]]
+    end
+
+    test "a backslash before another character is itself, as stored before escaping" do
+      assert decode_path("\"a.\\b\"") == [["a.\\b"]]
+    end
+
     test "empty string keys" do
       assert decode_path("\"\"") == [[""]]
       assert decode_path("a.\"\"") == [["a", ""]]
@@ -563,6 +579,11 @@ defmodule Storage.FlatteningTest do
         [[""]],
         [["a", "b.c", "d"]],
         [["x"], ["y.z"], ["w"]],
+        [["a.\\"]],
+        [["a.\\"], ["b"]],
+        [["\\\""]],
+        [["a.\\\\b"]],
+        [["\\.", "\"\\"], ["\\"]],
       ]
 
       for path <- paths do
@@ -573,6 +594,11 @@ defmodule Storage.FlatteningTest do
   end
 
   describe "flatten_event/unflatten_event" do
+    test "a key ending in a backslash round-trips" do
+      event = %{"a.\\" => 1, "b" => %{"c.\\" => [%{"d\\" => 2}]}}
+      assert event |> flatten_event() |> unflatten_event() == event
+    end
+
     test "simple scalar fields" do
       assert_flatten_event(%{"a" => 1}, %{"a" => 1})
       assert_flatten_event(%{"a" => 1, "b" => 2}, %{"a" => 1, "b" => 2})
