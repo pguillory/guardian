@@ -322,7 +322,9 @@ JSON API rule endpoints in phase 1.
    the published map stay in use, and any other loaded name is retired, not freed.
 6. A reload recompiles only tables whose statements changed. Counter v1 also
    recompiles tables whose LOOKUPs reference changed TRACK definitions, publishing
-   their resolved counter identities atomically with the new definitions.
+   their resolved counter identities atomically with the new definitions. Invalid
+   runtime reloads retain whole connected dependency components of prior plans,
+   as specified in C4b below; live counter activation is deferred to C4c.
 7. Running a statement does not scan the row. At the first statement the runtime
    indexes the event's flattened row once: a trie of its keys by lowercase
    top-level object path, and each lowercase spelling's present keys in byte order.
@@ -591,23 +593,59 @@ canonical source and source-order traversal, with an explicit RuleSet refusal
 before executable steps are built. Product spec impact: none; active rules still
 support only SET/UNSET. Canonical source normalizes count(*) to count(), just as
 the query parser does. The syntax parser currently uses the query aggregate
-registry/arity checks; the counter allowlist, scalar arguments/BY/WHERE, interval
-bounds and FROM table validity remain validation work. Dependency reads must come
+registry/arity checks. C4b now validates the counter allowlist, scalar
+arguments/BY/WHERE, interval bounds and FROM table validity. Dependency reads come
 from input clauses, not whole-statement traversal (which also visits names).
 
-Implemented: the C4b prerequisite separates typed SET/UNSET steps, scalar checks and field
-dependency ordering from RuleSet orchestration. It preserves validation errors,
-execution order and counter refusal. Product spec impact: none.
+Implemented: the C4b prerequisite separates typed SET/UNSET steps, scalar checks
+and field dependency ordering from RuleSet orchestration. It preserves validation
+errors, execution order and counter refusal. Product spec impact: none.
+
+C4b implemented: internal `Rules.RuleSet.prepare/1` returns locally valid unbound
+candidates plus whole-set resolved plans. It validates the `Counters.Aggregate`
+allowlist, scalar clauses (including nested aggregate refusal), positive integral
+LAST totals through the existing s/m/h/d/w interval parser, the 365-day bound,
+FROM tables, TRACK targets and grouping arity. Signed/compound interval terms
+retain the existing parser's semantics; the final total must be positive.
+Identical canonical definitions deduplicate, all output kinds share one field
+namespace, self-reads use incoming fields, and UNSETs remain last. LOOKUPs and
+their prerequisite SETs run before remaining SETs/TRACKs; a LOOKUP's input clauses
+cannot depend transitively on a TRACK output. Target names add no field execution
+edge, whether the target is on this table or another one.
+
+TRACK identities hash only canonical source and carry table/name, while plan
+hashes also include diagnostic locations and bound target definitions. Invalid
+targets propagate to dependents to a fixed point with stable error details that
+do not depend on a target's broken contents. Reciprocal cross-table references
+are valid: resolution uses definition identities rather than target plan hashes.
+
+`Rules.Activation.select/2` is pure and accepts previous resolved plans. At runtime,
+components are the undirected union of old bound LOOKUP edges and new locally valid
+candidate edges. If any table is invalid, the whole component retains its previous
+valid plans unchanged. This covers an invalid target with valid changed dependents
+and an invalid dependent with a valid changed target. Deleting a table or TRACK in
+a retained component is deferred too. Tables without a previous valid plan that
+join a retained component are marked invalid, with a diagnostic naming the component cause, until a fully valid
+reload can switch it together. Unrelated components activate normally. At boot,
+with no previous plans, only directed target-invalidity propagation applies.
+
+Plan review narrowed C4b to these tested pure preparation/selection contracts.
+Server wiring, bounded recoverable plan metadata in compiled modules, and live
+atomic reload/restart coverage belong to C4c alongside counter compilation and
+execution. Public `validate/1` still refuses counters before scalar checks within
+their file, and Compiler independently refuses prepared counter plans. Product
+spec impact: none; overview and spec continue to describe active SET/UNSET rules.
 
 Remaining order:
 
-1. C4b: whole-set validation, dependency graph, resolved definition identities and
-   coherent reloads. Keep counter statements unavailable until execution lands.
+1. C4b, implemented: whole-set validation, dependency graph, resolved definition
+   identities and pure coherent reload selection. Counter statements remain unavailable.
 2. Prerequisite (C1 follow-ups), implemented: quiet expiry catches up in immediate
    pages and capacity reclaims expiry first; counter crash loops recover separately
    from Main as described below.
-3. C4c: execution, buckets, private arrival metadata, budgets/configuration and the
-   full user-visible documentation obligations below. Only then enable statements.
+3. C4c: execution, live coherent reloads/restart metadata, buckets, private arrival
+   metadata, budgets/configuration and the full user-visible documentation
+   obligations below. Only then enable statements.
 
 C4 runtime prerequisite implemented separately from rule integration: quiet expiry
 uses 256-entry pages with immediate continuation while expired entries remain;
@@ -647,8 +685,8 @@ The complete C4 contract:
    hashes into immutable compiled plans, and include those hashes in recompile
    dependencies. Old in-flight modules keep their old identities; publishing a
    changed TRACK and its LOOKUP dependents remains atomic per node. If an invalid
-   reload retains a target table's prior good plan, dependents retain a coherent
-   prior target identity as well.
+   reload retains a table's prior good plan, its whole old/new dependency component
+   retains coherent prior plans as described in C4b above.
 4. Complete every event's LOOKUP reads before TRACK writes; for a successful TRACK
    use the state returned by its own current-bucket mutation plus other buckets,
    so concurrent updates cannot make it omit its own event. No global atomic read

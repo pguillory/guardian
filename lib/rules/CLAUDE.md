@@ -12,9 +12,14 @@ Modules:
   message}` for a table whose stored rules fail validation.
 - `Rules.RuleSet`: parses (`AST.Parser.parse_rules/1`) and validates a whole set,
   every table together, into one `Rules.Plan` per table. Pure: no reads, no state.
+  `prepare/1` checks counter semantics and returns unbound candidates plus resolved
+  plans; public writes/loads still use counter-refusing `validate/1`.
 - `Rules.Step`: typed per-kind inputs and read derivation.
-- `Rules.Validation`: scalar checks.
+- `Rules.Validation`: scalar, counter aggregate, interval and FROM checks.
 - `Rules.DependencyGraph`: deterministic field ordering.
+- `Rules.Resolution`: immutable target definitions and fixed-point invalidity.
+- `Rules.CounterDefinition`: immutable target metadata and window/bucket sizes.
+- `Rules.Activation`: pure coherent reload selection; Server integration is C4c.
 - `Rules.Compiler`: a plan into a generated module from a fixed template, with the
   statements as escaped literals. No rule text becomes code.
 - `Rules.Runtime`: what generated modules call for each statement (reads, SET, UNSET,
@@ -56,10 +61,13 @@ Rules to keep:
    no switches for either (`docs/changes/ingest-rules.md`, open questions 1 and 2).
 8. Statement words are contextual (see `lib/ast/CLAUDE.md`); TRACK and LOOKUP have
    parsed AST nodes, but Rules.RuleSet validation explicitly rejects both before
-   building steps. Their validation, plan, dependency graph and runtime are still
-   pending. Where TRACK counter state lives is settled in the change document:
-   Counters.Store provides
-   node-local ETS storage, Counters.Cluster provides bounded cluster ownership,
+   building executable steps. Counter-aware preparation validates plans, orders
+   expression dependencies and binds definition identities. Compiler independently
+   refuses counter plans. The pure activation selector retains prior dependency
+   components on invalid reloads; wiring it into Server, recoverable module
+   metadata and execution remain C4c. Where TRACK counter state lives is settled
+   in the change document: Counters.Store provides node-local ETS storage,
+   Counters.Cluster provides bounded cluster ownership,
    and Counters.Aggregate provides pure mergeable operators. Rule integration
    follows separately. Counter failures will fail open without changing SET/UNSET's
    fail-closed behavior. Read the reviewed plan before implementing those pieces.

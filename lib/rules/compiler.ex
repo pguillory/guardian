@@ -26,6 +26,14 @@ defmodule Rules.Compiler do
 
   @doc "Compiles and loads `plan` as `module`. Returns `:ok` or `{:error, kind}`."
   def compile(module, %Rules.Plan{} = plan) do
+    if Enum.any?(plan.steps, &(&1.kind in [:track, :lookup])) do
+      {:error, :unsupported_counters}
+    else
+      compile_supported(module, plan)
+    end
+  end
+
+  defp compile_supported(module, plan) do
     steps =
       Enum.map(plan.steps, fn step ->
         literal = Macro.escape(literal_value(step))

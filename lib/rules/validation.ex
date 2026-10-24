@@ -1,5 +1,71 @@
 defmodule Rules.Validation do
-  @moduledoc "Pure expression checks, separate from rule-set error orchestration."
+  @moduledoc "Pure per-step expression/counter checks and diagnostic construction."
+
+  def errors(step) do
+    Enum.map(scalar_errors(step), fn what ->
+      error(step, :expression, "#{step.field}: #{what}", "rules cannot use #{what}")
+    end) ++ counter_errors(step)
+  end
+
+  defp counter_errors(%Rules.Step.Track{} = step) do
+    operator_errors =
+      if step.operator in Counters.Aggregate.operators() do
+        []
+      else
+        [
+          error(
+            step,
+            :counter_aggregate,
+            step.field,
+            "TRACK requires count, count_distinct, sum, min, max or avg with a supported arity"
+          ),
+        ]
+      end
+
+    window_errors =
+      if step.window_ms do
+        []
+      else
+        [
+          error(
+            step,
+            :counter_window,
+            step.field,
+            "LAST must have a positive integral total of at most 365 days (s, m, h, d, w)"
+          ),
+        ]
+      end
+
+    operator_errors ++ window_errors
+  end
+
+  defp counter_errors(%Rules.Step.Lookup{} = step) do
+    case Rules.RuleSet.check_table(step.target_table) do
+      :ok ->
+        []
+
+      {:error, _} ->
+        [error(step, :counter_table, step.field, "FROM must use a valid ingested-table name")]
+    end
+  end
+
+  defp counter_errors(_step), do: []
+
+  def error(step, kind, detail, message),
+    do: error(step.file, step.line, kind, detail, message, step.table)
+
+  def error(file, line, kind, detail, message, table) do
+    location = if line, do: "#{file} line #{line}", else: file
+
+    %{
+      table: table,
+      file: file,
+      line: line,
+      kind: kind,
+      detail: detail,
+      message: "#{location}: #{message}",
+    }
+  end
 
   @not_scalar [
     {AST.Node.AggregateFunctionCall, "aggregate functions"},

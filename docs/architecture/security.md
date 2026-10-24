@@ -387,8 +387,10 @@ and no single request that takes the service down or destroys stored data.
    formatted status redacts state, messages, logs and reasons, and callback crashes
    replace exception details and stack arguments with fixed text/arities. This is
    internal infrastructure only: TRACK/LOOKUP syntax is parsed but RuleSet rejects
-   it before building executable steps; the current ingest path does not call the
-   counter store. `Counters.Cluster`
+   it before building executable steps; Compiler also refuses prepared counter
+   plans. Internal pure preparation validates counter semantics and resolves
+   identities without evaluating expressions or accessing counter state. The
+   current ingest path does not call the counter store. `Counters.Cluster`
    routes native terms to one owner through the existing fully trusted Erlang
    distribution boundary (section 6), without another API or authorization layer.
    It captures connected members without readiness RPCs. Calls are bounded at

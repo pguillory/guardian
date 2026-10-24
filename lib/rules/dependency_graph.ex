@@ -1,26 +1,64 @@
 defmodule Rules.DependencyGraph do
   @moduledoc """
-  Field dependency ordering using Kahn's algorithm, always taking the earliest
-  ready statement by file then position. A read of `user.name` depends on the
+  Field dependency ordering using Kahn's algorithm. LOOKUPs and their prerequisites
+  take priority; within each phase the earliest ready statement runs by file then
+  position. A read of `user.name` depends on the
   definition of `user`; a statement's read of its own field reads the incoming
   value and adds no dependency.
   """
 
   def order(steps) do
-    by_field = Map.new(steps, &{&1.field, &1})
+    deps = dependencies(steps)
 
-    deps =
-      Map.new(steps, fn step ->
-        fields =
-          step.reads
-          |> Enum.map(&top_level/1)
-          |> Enum.filter(&(Map.has_key?(by_field, &1) and &1 != step.field))
-          |> MapSet.new()
-
-        {step.field, fields}
+    first_phase =
+      steps
+      |> Enum.filter(&(&1.kind == :lookup))
+      |> Enum.reduce(MapSet.new(), fn step, acc ->
+        MapSet.union(acc, ancestors(step.field, deps, MapSet.new()))
       end)
 
-    order(Enum.sort_by(steps, &{&1.file, &1.index}), deps, [])
+    ordered =
+      Enum.sort_by(steps, &{if(&1.field in first_phase, do: 0, else: 1), &1.file, &1.index})
+
+    order(ordered, deps, [])
+  end
+
+  @doc "LOOKUPs whose input expressions transitively read TRACK outputs on this table."
+  def barrier_violations(steps) do
+    deps = dependencies(steps)
+    tracks = steps |> Enum.filter(&(&1.kind == :track)) |> MapSet.new(& &1.field)
+
+    Enum.filter(steps, fn step ->
+      step.kind == :lookup and
+        not MapSet.disjoint?(
+          MapSet.delete(ancestors(step.field, deps, MapSet.new()), step.field),
+          tracks
+        )
+    end)
+  end
+
+  defp dependencies(steps) do
+    by_field = Map.new(steps, &{&1.field, &1})
+
+    Map.new(steps, fn step ->
+      fields =
+        step.reads
+        |> Enum.map(&top_level/1)
+        |> Enum.filter(&(Map.has_key?(by_field, &1) and &1 != step.field))
+        |> MapSet.new()
+
+      {step.field, fields}
+    end)
+  end
+
+  defp ancestors(field, deps, visited) do
+    if field in visited do
+      visited
+    else
+      Enum.reduce(Map.fetch!(deps, field), MapSet.put(visited, field), fn dep, seen ->
+        ancestors(dep, deps, seen)
+      end)
+    end
   end
 
   @doc "The top-level field of a field name or path."

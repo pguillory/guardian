@@ -321,14 +321,25 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    set and returns each table's `Rules.Plan` (SETs in dependency order, then UNSETs,
    identical duplicates merged) or its errors: parse errors, paths and limits,
    aggregates, a field defined two ways, SET cycles. TRACK/LOOKUP syntax is parsed
-   into AST nodes but explicitly refused here before building executable steps;
-   counter validation and execution are pending. It is pure. Typed SET/UNSET steps
-   (`Rules.Step`), scalar checks (`Rules.Validation`) and dependency ordering
+   into AST nodes but explicitly refused here before building executable steps.
+   Internal `prepare/1` validates counter operators/scalar clauses/windows/targets,
+   orders SET/TRACK/LOOKUP expression dependencies with a LOOKUP-before-TRACK
+   barrier, and binds immutable definition identities through `Rules.Resolution`.
+   Invalid target tables propagate to dependent plans to a fixed point.
+   It is pure. Typed per-kind steps (`Rules.Step`), scalar/counter checks
+   (`Rules.Validation`) and dependency ordering
    (`Rules.DependencyGraph`) are separate from rule-set orchestration.
+   `Rules.Activation.select/2` is a pure preparation for future runtime reloads:
+   invalid components of old/new LOOKUP dependencies retain prior plans together,
+   including deleted targets/dependents. Tables without a previous valid plan in
+   such components are invalid.
+   Valid unrelated components still activate. Server integration and recoverable
+   plan metadata are deferred to C4c; current SET/UNSET reload behavior is unchanged.
 2. Compilation: `Rules.Compiler` turns a plan into a module from a fixed template,
    each statement one call to `Rules.Runtime` with the statement as an escaped literal
    (expressions run through the scalar evaluator, `Query.Eval` on an event map). Names
    come from a pool of 1,024 (`Rules.Compiled.M0`...), so atoms are bounded.
+   Compiler independently refuses plans containing TRACK or LOOKUP until C4c.
 3. Publication: one `:persistent_term` map of table to module, or `{:invalid,
    message}`. A reload compiles every changed table into free names first and
    publishes one new map only if all compiled, so a change is all or nothing on each

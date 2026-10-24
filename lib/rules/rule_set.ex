@@ -59,15 +59,21 @@ defmodule Rules.RuleSet do
 
   @doc "Checks a table and file name for a rule file: `:ok` or `{:error, message}`."
   def check_path(table, name) do
+    with :ok <- check_table(table) do
+      if valid_name?(name),
+        do: :ok,
+        else: {:error, "rule file names must match [a-z0-9_][a-z0-9_-]* and be at most 64 bytes"}
+    end
+  end
+
+  @doc "Checks whether a table name is eligible for ingest rules and counter targets."
+  def check_table(table) do
     cond do
       not Engine.valid_table_name?(table) ->
         {:error, Exception.message(%Engine.InvalidTableNameError{table: table})}
 
       table in @builtin_tables ->
         {:error, "#{table} is a built-in table; rules run only on ingested events"}
-
-      not valid_name?(name) ->
-        {:error, "rule file names must match [a-z0-9_][a-z0-9_-]* and be at most 64 bytes"}
 
       true ->
         :ok
@@ -84,12 +90,23 @@ defmodule Rules.RuleSet do
   Validates `files` (store key => source). Returns `%{tables: %{table => {:ok, plan}
   | {:error, errors}}, errors: errors}`. A table with any error has no plan.
   """
-  def validate(files) when is_map(files) do
+  def validate(files) when is_map(files),
+    do: files |> prepare_set(false) |> Map.take([:tables, :errors])
+
+  @doc """
+  Prepares counter-aware plans without admitting them for execution. `candidates`
+  are locally valid, unbound table plans; `tables` are resolved against the whole
+  candidate set. Used by the pure activation selector and future rule execution.
+  Public writes and loading must continue using `validate/1` until C4c.
+  """
+  def prepare(files) when is_map(files), do: prepare_set(files, true)
+
+  defp prepare_set(files, counters?) do
     keys = files |> Map.keys() |> Enum.sort()
 
     {parsed, errors} =
       Enum.reduce(keys, {%{}, []}, fn key, {parsed, errors} ->
-        case parse_file(key, Map.fetch!(files, key)) do
+        case parse_file(key, Map.fetch!(files, key), counters?) do
           {:ok, table, statements} ->
             {Map.update(parsed, table, [{key, statements}], &(&1 ++ [{key, statements}])), errors}
 
@@ -112,6 +129,9 @@ defmodule Rules.RuleSet do
         end
       end)
 
+    candidates = tables
+    tables = Rules.Resolution.resolve(candidates)
+
     table_errors =
       Enum.flat_map(tables, fn
         {_table, {:error, table_errors}} -> table_errors
@@ -120,7 +140,12 @@ defmodule Rules.RuleSet do
 
     untabled = Enum.filter(errors ++ set_errors, &(&1.table == nil))
     all = Enum.uniq(untabled ++ table_errors)
-    %{tables: tables, errors: Enum.sort_by(all, &{&1.file, &1.line || 0, &1.kind})}
+
+    %{
+      tables: tables,
+      candidates: candidates,
+      errors: Enum.sort_by(all, &{&1.file, &1.line || 0, &1.kind}),
+    }
   end
 
   @doc "An error's identity ignoring its line: file, kind and detail."
@@ -163,7 +188,7 @@ defmodule Rules.RuleSet do
     file_errors ++ table_errors
   end
 
-  defp parse_file(key, source) do
+  defp parse_file(key, source, counters?) do
     case parse_key(key) do
       :ignore ->
         {:error, nil, []}
@@ -184,7 +209,7 @@ defmodule Rules.RuleSet do
             {:error, table, [error(key, nil, :encoding, "utf8", "is not UTF-8 text", table)]}
 
           true ->
-            parse_source(key, table, source)
+            parse_source(key, table, source, counters?)
         end
     end
   end
@@ -198,10 +223,10 @@ defmodule Rules.RuleSet do
     end
   end
 
-  defp parse_source(key, table, source) do
+  defp parse_source(key, table, source, counters?) do
     parsed = AST.Parser.parse_rules(source)
 
-    case unsupported_statement_errors(key, table, parsed) do
+    case if(counters?, do: [], else: unsupported_statement_errors(key, table, parsed)) do
       [] ->
         statements =
           parsed
@@ -210,7 +235,7 @@ defmodule Rules.RuleSet do
             Rules.Step.new(table, key, line, index, statement)
           end)
 
-        case Enum.flat_map(statements, &expression_errors/1) do
+        case Enum.flat_map(statements, &Rules.Validation.errors/1) do
           [] -> {:ok, table, statements}
           errors -> {:error, table, errors}
         end
@@ -230,7 +255,7 @@ defmodule Rules.RuleSet do
   end
 
   # Syntax lands before execution. Refuse counters before converting AST nodes to
-  # executable steps; remove this gate when counter validation and runtime land.
+  # executable steps; remove this gate only when counter runtime lands in C4c.
   defp unsupported_statement_errors(key, table, parsed) do
     Enum.flat_map(parsed, fn {statement, line} ->
       word =
@@ -245,21 +270,6 @@ defmodule Rules.RuleSet do
       else
         []
       end
-    end)
-  end
-
-  defp expression_errors(statement) do
-    statement
-    |> Rules.Validation.scalar_errors()
-    |> Enum.map(fn what ->
-      error(
-        statement.file,
-        statement.line,
-        :expression,
-        "#{statement.field}: #{what}",
-        "rules cannot use #{what}",
-        statement.table
-      )
     end)
   end
 
@@ -285,7 +295,21 @@ defmodule Rules.RuleSet do
         []
       end
 
-    limit_errors ++ conflict_errors(table, statements) ++ cycle_errors(table, statements)
+    barrier_errors =
+      statements
+      |> Enum.reject(&(&1.kind == :unset))
+      |> Rules.DependencyGraph.barrier_violations()
+      |> Enum.map(
+        &Rules.Validation.error(
+          &1,
+          :counter_barrier,
+          &1.field,
+          "LOOKUP inputs cannot depend on TRACK outputs"
+        )
+      )
+
+    limit_errors ++
+      conflict_errors(table, statements) ++ cycle_errors(table, statements) ++ barrier_errors
   end
 
   defp conflict_errors(table, statements) do
@@ -310,7 +334,7 @@ defmodule Rules.RuleSet do
   end
 
   defp cycle_errors(table, statements) do
-    case Rules.DependencyGraph.order(Enum.filter(statements, &(&1.kind == :set))) do
+    case Rules.DependencyGraph.order(Enum.reject(statements, &(&1.kind == :unset))) do
       {:ok, _ordered} ->
         []
 
@@ -333,9 +357,9 @@ defmodule Rules.RuleSet do
 
   defp plan(table, statements) do
     statements = Enum.uniq_by(statements, &{&1.kind, &1.field, &1.source})
-    {:ok, sets} = Rules.DependencyGraph.order(Enum.filter(statements, &(&1.kind == :set)))
+    {:ok, ordered} = Rules.DependencyGraph.order(Enum.reject(statements, &(&1.kind == :unset)))
     unsets = Enum.filter(statements, &(&1.kind == :unset))
-    steps = sets ++ unsets
+    steps = ordered ++ unsets
     # File and line too: compiled modules report them when a statement fails.
     identity = Enum.map(steps, &{&1.file, &1.line, &1.source})
     hash = :crypto.hash(:sha256, :erlang.term_to_binary(identity))
@@ -346,15 +370,6 @@ defmodule Rules.RuleSet do
   defdelegate top_level(name), to: Rules.DependencyGraph
 
   defp error(file, line, kind, detail, message, table) do
-    location = if line, do: "#{file} line #{line}", else: file
-
-    %{
-      table: table,
-      file: file,
-      line: line,
-      kind: kind,
-      detail: detail,
-      message: "#{location}: #{message}",
-    }
+    Rules.Validation.error(file, line, kind, detail, message, table)
   end
 end
