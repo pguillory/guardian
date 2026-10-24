@@ -276,9 +276,13 @@ defmodule Query.ColumnOrConstant do
     |> list_or_constant_to_column_or_constant()
   end
 
+  # `func` takes the list of a row's values, one per column.
   def map_n(columns, func) do
-    n_to_list_or_constant(columns)
-    |> map(func)
+    case n_to_list_or_constant(columns) do
+      %Constant{value: values} = constant -> %Constant{constant | value: func.(values)}
+      rows -> SuperList.map(rows, func)
+    end
+    |> list_or_constant_to_column_or_constant()
   end
 
   def map_or_nif(%Constant{} = constant1, map_func, nif_func)

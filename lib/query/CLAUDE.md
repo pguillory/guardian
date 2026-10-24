@@ -48,8 +48,8 @@ memory: GROUP BY state (ETS), column data (NIF native memory) and shared binarie
 not counted, GC checks can overshoot, and many processes can each reach it.
 `Query.Regex.replace/3` on a value over 16 KiB runs in its own unlinked helper with
 the same cap, or 256 MiB when the setting is 0, so a worker's peak can roughly double
-during a replace; a helper heap kill becomes a `Query.Error` in the caller, not a
-`:killed` exit.
+during a replace; a helper heap kill gives null for that value, not a `:killed`
+exit.
 Query code reads stored segments only by ID, and only in `Query.Evaluation`:
 `snapshot!/1` calls `Storage.segment_row_count/1` and `read_column/2` calls
 `Storage.get_column/2` (no timeout). Both turn
@@ -70,5 +70,6 @@ which reports the first exception to the query and skips the rest of that worker
 work; the query then raises it as `Query.Error`. The guard keeps row values out of
 crash reports.
 Raise `Query.Error` with an actionable message for failures caused by the query
-itself (limits, a regular expression over its backtracking limit); the JSON API
-answers it with 400.
+itself (result and time limits); the JSON API answers it with 400. Functions and
+operators never raise on a value: they give null, and strings they build are cut to
+`Query.Text`'s cap (`lib/query/function/CLAUDE.md`, "Totality").

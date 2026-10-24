@@ -132,24 +132,19 @@ defmodule Query.Function.GenerateUUID do
 end
 ```
 
-### Pattern 5: Variable Arity (Recursive Rewrite)
+### Pattern 5: Variable Arity (One Call Over Every Argument)
 
-For functions that accept multiple arities, rewrite to binary operations:
+For functions that accept many arities, evaluate every argument and combine each row's
+values in one call with `ColumnOrConstant.map_n/2`. Don't fold through nested
+two-argument calls: a function that builds a capped string must see the whole join to
+stop at its first cut (`Query.Text.form_cut/2`).
 
 ```elixir
 defmodule Query.Function.Concat do
-  # concat/2
-  def eval2(context, %AST.Node.FunctionCall{args: [expr1, expr2]}) do
-    # ... base case
-  end
-
-  # concat/3+ - rewrite concat(a,b,c) as concat(concat(a,b), c)
-  def eval2(context, %AST.Node.FunctionCall{args: [expr1, expr2, expr3 | exprs]}) do
-    expr_1_expr_2 = %AST.Node.FunctionCall{name: "concat", args: [expr1, expr2]}
-    Query.Eval.eval(
-      %AST.Node.FunctionCall{name: "concat", args: [expr_1_expr_2, expr3 | exprs]},
-      context
-    )
+  def eval2(context, %AST.Node.FunctionCall{args: exprs}) do
+    exprs
+    |> Enum.map(&Query.Eval.eval(&1, context))
+    |> ColumnOrConstant.map_n(&join/1)
   end
 end
 ```
@@ -283,8 +278,9 @@ Then register in `lib/query/function.ex`:
 ## Totality
 
 Every function and operator is total: on any input it returns a value storage can
-hold, or `nil`. It never raises, and never returns a bignum, a non-finite float, or a
-list nested deeper than a list of lists. `Query.Numeric` states the rules:
+hold, or `nil`. It never raises, and never returns a bignum, a non-finite float, a
+list nested deeper than a list of lists, or a built string over 64 KiB.
+`Query.Numeric` states the number rules and `Query.Text` the string rules:
 
 - An integer result wraps to int64 with `Query.Numeric.wrap/1`, matching the column
   NIF's wrapping `+ - *` (`src/column.c`), so both evaluation paths agree.
@@ -292,6 +288,13 @@ list nested deeper than a list of lists. `Query.Numeric` states the rules:
   `:error, :badarith` and return `nil`.
 - A result with no good value (division by zero, a domain error, a rounded float
   outside int64, `Query.Numeric.int64_or_nil/1`) is `nil`.
+- A function that builds a string longer than its inputs cuts it to the string cap
+  with `Query.Text.cap/1` (or stops building at `Query.Text.max_bytes/0`); one that
+  returns an input or part of one needs no cap. A value becomes a string through
+  `Query.Text.form/2`, never `Kernel.to_string/1`, which raises on some lists. A
+  function whose result is a transformed input (`replace`, `lower`) caps it even when
+  it is no longer than the input. Joining pieces stops at the first one
+  `Query.Text.form_cut/2` cut, so the result is a prefix of the whole.
 - `Query.ColumnOrConstant.list_or_constant_to_column_or_constant/1` turns any
   remaining unstorable value into `nil` as the result is built, a backstop rather
   than a substitute for the rules above.

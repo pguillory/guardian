@@ -47,12 +47,10 @@ defmodule RlikeOperatorTest do
     assert eval("s rlike 'é'", s: <<97, 255>>) == nil
   end
 
-  test "catastrophic backtracking fails the query" do
-    error =
-      assert_raise Query.Error, fn ->
-        eval("s rlike '(a+)+$'", s: String.duplicate("a", 40) <> "b")
-      end
-
-    assert error.message =~ "backtracking limit"
+  test "past the backtracking limit, RLIKE and NOT RLIKE are null" do
+    evil = String.duplicate("a", 40) <> "b"
+    assert eval("s rlike '(a+)+$'", s: evil) == nil
+    assert eval("s not rlike '(a+)+$'", s: evil) == nil
+    assert eval("s rlike '(a+)+$'", s: "aa") == true
   end
 end

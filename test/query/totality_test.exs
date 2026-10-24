@@ -37,6 +37,8 @@ defmodule Query.TotalityTest do
     "http://example.com:99999999999999999999/",
     "a",
     <<0xFF, 0xFE>>,
+    # Past the string cap, ending in a character the cap can split.
+    String.duplicate("a", Query.Text.max_bytes() - 1) <> "é",
     [1, nil, "a"],
     [[1]],
   ]
@@ -45,9 +47,11 @@ defmodule Query.TotalityTest do
   @nondeterministic ~w[curdate/0 current_date/0 current_timestamp/0 date/0 generate_uuid/0
                        now/0 random/0]
 
-  # String building can still raise (lists in concat, the string cap in lpad/rpad);
-  # the string forms and cap come in a later change.
-  @not_yet_total ["a || b"] ++ for(n <- 2..9, do: "concat/#{n}") ++ ["lpad/2", "rpad/2"]
+  # Functions that can return an input string, or part of one, uncut (lpad and rpad
+  # when no padding is needed).
+  @passthrough ~w[to_string/1 substr/2 substr/3 trim/1 ltrim/1 rtrim/1 reverse/1 if/2 if/3
+                  coalesce/1 coalesce/2 coalesce/3 coalesce/4 lpad/2 rpad/2 url_path/1] ++
+                 ["CASE WHEN a THEN b ELSE a END"]
 
   @operators [
     "a + b",
@@ -108,8 +112,6 @@ defmodule Query.TotalityTest do
     assert failures == [], Enum.join(Enum.take(failures, 100_000), "\n")
   end
 
-  defp check(label, _expr, _names, _opts) when label in @not_yet_total, do: []
-
   defp check(label, expr, names, deterministic: deterministic?) do
     pairs = for a <- @values, b <- @values, do: %{"a" => a, "b" => b}
     pairs = if "b" in names, do: pairs, else: Enum.uniq_by(pairs, & &1["a"])
@@ -118,7 +120,7 @@ defmodule Query.TotalityTest do
     columns = eval_snapshot(label, expr, pairs)
 
     for {row, column_result} <- Enum.zip(pairs, columns) do
-      context = "#{label} with #{inspect(row)}"
+      context = "#{label} with #{brief(row)}"
 
       per_event =
         eval_or_flunk(context, :raised, fn -> Query.Evaluation.eval(row, expr) end)
@@ -136,11 +138,20 @@ defmodule Query.TotalityTest do
 
       results = [per_event, column_result, against_constant]
 
+      # A built string is within the cap. Only a function that returns an input, or
+      # part of one, can give more (@passthrough).
+      max_string =
+        if label in @passthrough,
+          do: row |> Map.values() |> Enum.filter(&is_binary/1) |> Enum.map(&byte_size/1),
+          else: []
+
+      max_string = Enum.max([Query.Text.max_bytes() | max_string])
+
       unstorable =
         for result <- results,
             result != :raised,
-            not storable?(result),
-            do: "#{context} gave #{inspect(result)}"
+            not storable?(result) or (is_binary(result) and byte_size(result) > max_string),
+            do: "#{context} gave #{brief(result)}"
 
       disagreements =
         cond do
@@ -149,16 +160,15 @@ defmodule Query.TotalityTest do
 
           not same?(per_event, column_result) and not timestamp_arithmetic?(label, row) ->
             [
-              "#{context}: per event #{inspect(per_event)}, " <>
-                "over columns #{inspect(column_result)}",
+              "#{context}: per event #{brief(per_event)}, over columns #{brief(column_result)}",
             ]
 
           # replace/3 reads its pattern only from a literal: a constant `b` is a
           # different query from a column `b`.
           label != "replace/3" and not same?(per_event, against_constant) ->
             [
-              "#{context}: per event #{inspect(per_event)}, " <>
-                "against a constant #{inspect(against_constant)}",
+              "#{context}: per event #{brief(per_event)}, " <>
+                "against a constant #{brief(against_constant)}",
             ]
 
           true ->
@@ -220,6 +230,8 @@ defmodule Query.TotalityTest do
 
   defp storable?(value) when is_integer(value), do: int64?(value)
   defp storable?(value), do: Storage.Value.valid?(value)
+
+  defp brief(term), do: inspect(term, limit: 5, printable_limit: 40)
 
   # Equal and the same type, so 1 and 1.0 differ (0.0 and -0.0 don't).
   defp same?(a, b) when is_float(a) and is_float(b), do: a == b

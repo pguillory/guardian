@@ -9,8 +9,7 @@ defmodule Query.Limits do
     merge of an ORDER BY ... LIMIT. Rows scanned or aggregated are not counted, so
     aggregates over big tables are unaffected. ORDER BY with a LIMIT above the row cap
     is refused up front, since each machine would hold that many rows.
-  - String functions (`lpad`, `rpad`, `concat`, `||`, `replace`) refuse to build a
-    string over `:query_max_string_bytes` (16 MiB).
+  - Strings that functions build are cut to 64 KiB (`Query.Text`), never refused.
   - Time: a query may run for at most `:query_time_limit_ms` (30 s). `Query.run/1`
     then stops it on every machine and raises. Nothing else bounds a query's running
     time: query stages and segment reads wait as long as they need to.
@@ -23,8 +22,8 @@ defmodule Query.Limits do
 
     `replace` on a value over 16 KiB runs in its own helper process with the same cap
     (256 MiB when the limit is off), so a value's match offsets stay bounded even with
-    the limit off; a helper killed by it fails the query with an error saying the
-    value matched too many times (`Query.Regex.replace/3`).
+    the limit off; a helper killed by it gives null for that value
+    (`Query.Regex.replace/3`).
 
   Exceeding a bound raises `Query.Error` with what to change. These cover the common
   accidental cases, not total query memory: the heap limit is per process and checked
@@ -37,9 +36,6 @@ defmodule Query.Limits do
 
   def max_result_bytes,
     do: Application.get_env(:guardian, :query_max_result_bytes, 64 * 1024 * 1024)
-
-  def max_string_bytes,
-    do: Application.get_env(:guardian, :query_max_string_bytes, 16 * 1024 * 1024)
 
   @doc """
   The per-process heap limit in MiB (`:query_max_heap_mb`), or 0 when it is off.
@@ -131,20 +127,6 @@ defmodule Query.Limits do
       raise Query.Error,
         message:
           "ORDER BY with LIMIT #{limit} exceeds the #{max_rows}-row result cap; lower the LIMIT"
-    end
-
-    :ok
-  end
-
-  @doc """
-  Raises unless a string of `size` bytes is within the string cap.
-  """
-  def check_string_size!(function, size) do
-    max = max_string_bytes()
-
-    if size > max do
-      raise Query.Error,
-        message: "#{function} would build a string of #{size} bytes, over the #{max}-byte limit"
     end
 
     :ok

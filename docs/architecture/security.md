@@ -365,8 +365,8 @@ and no single request that takes the service down or destroys stored data.
    Hyperscan NIF used before aborted the node from `replace` whenever a pattern's
    reported matches grew or overlapped (`[0-9]+` on "123"). PCRE accepts
    backreferences and lookaround, which make heavy backtracking easy to write, so:
-   - CPU: every run carries `match_limit` 1,000,000, hitting which fails the query
-     with an error. The limit counts per start position, so a value can still cost
+   - CPU: every run carries `match_limit` 1,000,000, hitting which gives null for
+     that value. The limit counts per start position, so a value can still cost
      seconds (`a*[^a]` on 40 KB of `a` took 2.7 s without tripping it); the 30-second
      query time limit is the real bound. `:re` yields to the scheduler, so a long
      match does not block one.
@@ -383,24 +383,26 @@ and no single request that takes the service down or destroys stored data.
      matches); a larger value is replaced in a helper process whose heap is capped at
      the query heap limit, or 256 MiB when that is off (`GUARDIAN_QUERY_MAX_HEAP_MB=0`),
      so the list stays bounded either way. A value that needs more (about 600,000
-     matches at 256 MiB) fails the query with an error. The cap is a heap budget
+     matches at 256 MiB) gives null. The cap is a heap budget
      checked at garbage collection, so it can overshoot somewhat, and it counts
      neither PCRE's native frames (bounded above) nor the result binary (bounded by
-     the 16 MiB string cap). The helper's heap is on top of its caller's, so a worker's
+     the 64 KiB string cap). The helper's heap is on top of its caller's, so a worker's
      peak can roughly double during a replace, and with the setting at 0 many workers
      can each have a 256 MiB helper at once. The per-value match bound scales with the
      setting.
 2. Per-query resource bounds are partial. A query may return at most 100,000 rows and
    about 64 MiB, counted where rows collect on the machine running the query (the
    result, the input of an in-memory ORDER BY, the merge of ORDER BY ... LIMIT);
-   ORDER BY with a LIMIT above the cap is refused; `lpad`, `rpad`, `concat`, `||`, and
-   `replace` refuse strings over 16 MiB; regular expressions
-   have a backtracking limit (5.2.1). A query is stopped on every machine after 30 seconds
+   ORDER BY with a LIMIT above the cap is refused; strings that functions build are cut
+   to 64 KiB per value, though a whole column of them (to_string of a big non-string
+   column, say) is rows times that in binaries the heap limit doesn't count; regular
+   expressions have a backtracking limit, past which a value gives null (item 1). A query is stopped on every machine after 30 seconds
    (`query_time_limit_ms`), which bounds how long it holds memory and CPU but not how
-   much memory it takes first. Exceeding one fails the query with an error. These
-   cover the common accidental cases (a SELECT without LIMIT over a big table,
-   `lpad('x', 2000000000)`). Numeric functions return null rather than fail or build
-   an unbounded integer (`factorial(100000000)` is null; `docs/changes/total-functions.md`).
+   much memory it takes first. Exceeding a result or time bound fails the query with an
+   error. These cover the common accidental cases (a SELECT without LIMIT over a big
+   table). Functions return null or a cut string rather than fail or build an
+   unbounded value (`factorial(100000000)` is null, `lpad('x', 2000000000)` is 64 KiB;
+   `docs/changes/total-functions.md`).
 
    A heap guard covers part of the rest. `GUARDIAN_QUERY_MAX_HEAP_MB` (default 256,
    `0` turns it off) sets Erlang's `max_heap_size` on the query process and on every

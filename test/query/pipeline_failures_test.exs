@@ -100,8 +100,8 @@ defmodule Query.PipelineFailuresTest do
 
     for _ <- 1..10, query <- queries, do: run_sql(query)
 
-    assert_raise Query.Error, ~r/backtracking limit/, fn ->
-      run_sql("SELECT replace('#{String.duplicate("a", 40)}b', '(a+)+$', 'x') FROM #{table}")
+    assert_raise Query.Error, ~r/test_raise/, fn ->
+      run_sql("SELECT test_raise(v) FROM #{table}")
     end
 
     assert Process.info(self(), :messages) == {:messages, []}

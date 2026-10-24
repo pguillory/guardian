@@ -1,26 +1,12 @@
 defmodule Query.Function.Normalize do
-  def eval(value) when is_binary(value) do
-    String.normalize(value, :nfc)
-  end
+  # Normalization can lengthen text (NFD of é is three bytes from two), so the result
+  # is cut to the string cap.
+  @forms %{"NFC" => :nfc, "NFD" => :nfd, "NFKC" => :nfkc, "NFKD" => :nfkd}
 
-  def eval(_) do
-    nil
-  end
+  def eval(value), do: eval(value, "NFC")
 
-  def eval(value, "NFD") when is_binary(value) do
-    String.normalize(value, :nfd)
-  end
-
-  def eval(value, "NFC") when is_binary(value) do
-    String.normalize(value, :nfc)
-  end
-
-  def eval(value, "NFKD") when is_binary(value) do
-    String.normalize(value, :nfkd)
-  end
-
-  def eval(value, "NFKC") when is_binary(value) do
-    String.normalize(value, :nfkc)
+  def eval(value, form) when is_binary(value) and is_map_key(@forms, form) do
+    value |> String.normalize(Map.fetch!(@forms, form)) |> Query.Text.cap()
   end
 
   def eval(_, _) do

@@ -25,4 +25,36 @@ defmodule IlikeOperatorTest do
     assert eval("'quick BROWN fox' ilike '%brown%'") == true
     assert eval("'quick brown fox' ilike '%BROWN%'") == true
   end
+
+  describe "long values and LIKE equivalence" do
+    @max Query.Text.max_bytes()
+
+    test "matches a long value exactly as LIKE matches its lowercase" do
+      long = String.duplicate("A", @max) <> "Needle"
+      assert eval("a ILIKE '%needle'", a: long) == true
+      assert eval("a NOT ILIKE '%needle'", a: long) == false
+      assert eval("a ILIKE b", a: long, b: "%NEEDLE") == true
+
+      # lower() is cut to the cap, so it would lose the match.
+      assert eval("lower(a) LIKE '%needle'", a: long) == false
+    end
+
+    test "agrees with LIKE on lowercased text, including invalid UTF-8" do
+      for {value, pattern} <- [
+            {"ÉCOLE", "%école"},
+            {"Straße", "STRASSE"},
+            {<<0xFF, ?A>>, "%a"},
+            {"abc", <<?A, 0xFF>>},
+            {"x", "_"},
+          ] do
+        expected =
+          AST.Node.Operators.LikeOperator.eval(String.downcase(value), String.downcase(pattern))
+
+        assert eval("a ILIKE b", a: value, b: pattern) == expected
+        assert AST.Node.Operators.IlikeOperator.eval(value, pattern) == expected
+      end
+
+      assert eval("a ILIKE b", a: 1, b: "1") == nil
+    end
+  end
 end

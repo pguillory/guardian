@@ -143,9 +143,14 @@ logarithm of zero or less, a float too large to represent (`1e308 * 10`), `round
 date arithmetic outside years 0000 to 9999, and a list nested deeper than a list of
 lists.
 
-Most functions return null when an argument has the wrong type. `concat` and `||`
-turn numbers and booleans into strings, but don't handle lists: a list argument gives
-an error or a meaningless result.
+Functions return null when an argument has the wrong type.
+
+A string a function builds is cut to 64 KiB, at a character boundary: the results of
+`concat`, `||`, `lpad` and `rpad` when they pad, `replace`, `to_string` of a
+non-string, `lower`, `upper`, `normalize` and `format_timestamp`. `replace`, `lower`,
+`upper` and `normalize` cut even a value they don't lengthen. Functions that return an
+input or part of one (`to_string` of a string, `substr`, the trims, `if`,
+`coalesce`) are not cut.
 
 - Math: `abs(x)`, `ceil(x)`, `floor(x)`, `round(x)`, `div(a, b)`, `mod(a, b)`,
   `power(a, b)`, `sqrt(x)`, `exp(x)`, `log(x)`, `log2(x)`, `log10(x)`,
@@ -154,12 +159,14 @@ an error or a meaningless result.
   `upper(s)`, `trim(s)`, `ltrim(s)`, `rtrim(s)`, `lpad(s, n)`, `rpad(s, n)`,
   `reverse(s)`, `substr(s, start)`, `substr(s, start, count)` (start is 1-based),
   `replace(s, 'regex', replacement)`, `normalize(s)`, `normalize(s, 'NFC')` (also
-  NFD, NFKC, NFKD). `lpad`, `rpad`, `concat`, `||`, and `replace` fail the query
-  rather than build a string over 16 MiB.
+  NFD, NFKC, NFKD). `concat` and `||` treat null as the empty string and turn any
+  other value into its string form, as `to_string` does.
 - Conditionals: `if(cond, x)`, `if(cond, x, y)`, `coalesce(a, ...)` (1 to 4 arguments)
-- Types: `type(x)`; `to_string(x)` and `to_boolean(x)` return x when it already is a
-  string or boolean, else null (they don't convert). To turn a value into a string,
-  use `concat(x, '')` or `x || ''` (scalars only)
+- Types: `type(x)`; `to_string(x)` gives x's string form: a string as it is, an
+  integer in decimal, a float in its shortest round-trip form (`1.0e300`), `true` or
+  `false`, a list as compact JSON-style text (`[1,null,"a",[2.5]]`, invalid UTF-8 in
+  its strings as U+FFFD), and null for null. `to_boolean(x)` returns x when it is a
+  boolean, else null
 - Time: `now()`, `current_timestamp`, `date()`, `curdate()`, `current_date` (today as
   `YYYY-MM-DD`), `date(ts)` (the date part of a timestamp), `date_add(ts, seconds)`,
   `adddate(ts, seconds)`, `date_sub(ts, seconds)`, `subdate(ts, seconds)`,
@@ -195,10 +202,12 @@ an error or a meaningless result.
   `'Xb'`. The replacement is inserted literally: `&`, `\1` and `$1` have no special
   meaning. A pattern that can match the empty string inserts the replacement at each
   empty match, as Perl does: `replace('abc', 'x*', '-')` is `'-a-b-c-'`.
-- `replace` fails the query if a match would split a character, which only `\C`
-  can do.
+- `replace` is null if a match would split a character, which only `\C` can do.
+  It is also null on a value with too many matches to hold (millions of empty
+  matches of a pattern like `x*` on a large value).
 - A pattern may have at most 32 capturing groups; use `(?:...)` for the rest.
 - A pattern that backtracks too much on some value, such as `(a+)+$` against a long
   run of `a`s, or a repeated group over a very long value (`^(?:\w+\s)*$` over
-  20,000 words), fails the query with "regular expression too complex". Simplify the
-  pattern, for example by removing nested quantifiers.
+  20,000 words), gives null on that value: `RLIKE` and `NOT RLIKE` are both null, so
+  WHERE drops the row, and `replace` is null. Simplify the pattern, for example by
+  removing nested quantifiers.

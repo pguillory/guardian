@@ -115,8 +115,9 @@ defmodule Query.Function.FormatTimestamp do
     eval_format(format, timestamp, [output | c])
   end
 
+  # A long format can name more than the string cap holds.
   defp eval_format("", _timestamp, output) do
-    IO.iodata_to_binary(output)
+    output |> IO.iodata_to_binary() |> Query.Text.cap()
   end
 
   defp month_abbreviation(month) do

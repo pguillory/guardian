@@ -1,9 +1,7 @@
 defmodule Query.Function.ReplaceTest do
   use Query.EvaluationTestCase, async: true
 
-  defp query_error(source, row \\ %{}) do
-    assert_raise Query.Error, fn -> eval(source, row) end
-  end
+  @max Query.Text.max_bytes()
 
   test "replace function" do
     assert eval("replace('abcde', '[bd]', '_')") === "a_c_e"
@@ -73,9 +71,9 @@ defmodule Query.Function.ReplaceTest do
     assert eval("replace(s, 'a', 'x')", s: "abc") === "xbc"
   end
 
-  test "a match that splits a character fails the query" do
-    assert query_error(~S"replace('é', '^\\C', 'X')").message =~ "part of a character"
-    assert query_error(~S"replace('aé', '\\C', 'X')").message =~ "part of a character"
+  test "a match that splits a character is null" do
+    assert eval(~S"replace('é', '^\\C', 'X')") === nil
+    assert eval(~S"replace('aé', '\\C', 'X')") === nil
   end
 
   test "a pattern with too many capturing groups is a parse error" do
@@ -86,17 +84,27 @@ defmodule Query.Function.ReplaceTest do
     assert error.reason =~ "more than 32 capturing groups"
   end
 
-  test "backtracking too deep fails the query" do
+  test "backtracking too deep is null" do
     groups = String.duplicate("()", Query.Regex.max_groups())
     s = String.duplicate("a", 200_000) <> "x"
-    error = query_error("replace(s, '(*NO_START_OPT)^(?:#{groups}a)*$', 'x')", s: s)
-    assert error.message =~ "backtracking limit"
+    assert eval("replace(s, '(*NO_START_OPT)^(?:#{groups}a)*$', 'x')", s: s) === nil
   end
 
-  test "catastrophic backtracking fails the query" do
-    error = query_error("replace(s, '(a+)+$', 'x')", s: String.duplicate("a", 40) <> "b")
-    assert error.message =~ "regular expression too complex"
-    assert error.message =~ "backtracking limit"
+  test "catastrophic backtracking is null" do
+    assert eval("replace(s, '(a+)+$', 'x')", s: String.duplicate("a", 40) <> "b") === nil
+  end
+
+  test "the result is cut to the string cap, at a character boundary" do
+    s = String.duplicate("a", 1_000)
+    result = eval("replace(s, 'a', r)", s: s, r: String.duplicate("é", 100))
+    assert byte_size(result) == @max
+    assert result == String.duplicate("é", div(@max, 2))
+
+    # One byte over the cap after the last match, and no match at all.
+    s = String.duplicate("b", @max) <> "a"
+    assert eval("replace(s, 'a', 'c')", s: s) == String.duplicate("b", @max)
+    assert eval("replace(s, 'x', 'c')", s: s) == String.duplicate("b", @max)
+    assert eval("replace(s, 'b', '')", s: s) == "a"
   end
 
   describe "a value over 16 KiB, replaced in a capped helper process" do
@@ -119,19 +127,19 @@ defmodule Query.Function.ReplaceTest do
       assert eval("replace(s, '[0-9]+', '')", s: s) === String.duplicate("ab  é😀  ", 2_000)
     end
 
-    test "errors and nulls are the same as for a small value" do
+    test "nulls and the cap are the same as for a small value" do
       s = String.duplicate("é", 10_000)
-      assert query_error(~S"replace(s, '\\C', 'X')", s: s).message =~ "part of a character"
+      assert eval(~S"replace(s, '\\C', 'X')", s: s) === nil
       assert eval("replace(s, 'a', 'x')", s: String.duplicate("a", 20_000) <> <<255>>) === nil
 
-      # 10,000 matches of 2 KB each make 20 MB.
-      error =
-        query_error("replace(s, 'a', r)",
+      # 10,000 matches of 2 KB each would make 20 MB; splicing stops at the cap.
+      result =
+        eval("replace(s, 'a', r)",
           s: String.duplicate("ab", 10_000),
           r: String.duplicate("x", 2_048)
         )
 
-      assert error.message =~ "over the 16777216-byte limit"
+      assert byte_size(result) == @max
     end
   end
 end

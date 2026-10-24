@@ -1,35 +1,37 @@
 defmodule Query.Function.Concat do
   alias Query.ColumnOrConstant
 
-  # concat/2
-  def eval2(context, %AST.Node.FunctionCall{args: [expr1, expr2]}) do
-    column1 = Query.Eval.eval(expr1, context)
-    column2 = Query.Eval.eval(expr2, context)
-    ColumnOrConstant.map(column1, column2, &__MODULE__.eval/2)
+  def eval2(context, %AST.Node.FunctionCall{args: exprs}) do
+    exprs |> Enum.map(&Query.Eval.eval(&1, context)) |> eval_columns()
   end
 
-  # concat/3+
-  def eval2(context, %AST.Node.FunctionCall{args: [expr1, expr2, expr3 | exprs]}) do
-    expr_1_expr_2 = %AST.Node.FunctionCall{name: "concat", args: [expr1, expr2]}
+  @doc false
+  # Shared with `||`, which joins a whole chain of operands in one call.
+  def eval_columns([column1, column2]), do: ColumnOrConstant.map(column1, column2, &eval/2)
+  def eval_columns(columns), do: ColumnOrConstant.map_n(columns, &join/1)
 
-    Query.Eval.eval(
-      %AST.Node.FunctionCall{name: "concat", args: [expr_1_expr_2, expr3 | exprs]},
-      context
-    )
+  def eval(value1, value2), do: join([value1, value2])
+
+  @doc """
+  The values joined: null is the empty string, any other value its string form
+  (`Query.Text`). The result is cut to the string cap, and nothing past the cap is
+  rendered. Joining stops at the first value cut, so the result is always a prefix of
+  the whole join.
+  """
+  def join(values), do: join(values, Query.Text.max_bytes(), [])
+
+  defp join([], _budget, acc), do: finish(acc)
+  defp join([nil | values], budget, acc), do: join(values, budget, acc)
+
+  defp join([value | values], budget, acc) do
+    case Query.Text.form_cut(value, budget) do
+      {string, false} -> join(values, budget - byte_size(string), [string | acc])
+      {string, true} -> finish([string | acc])
+    end
   end
 
-  def eval(value1, value2) do
-    string1 = to_string(value1)
-    string2 = to_string(value2)
-    Query.Limits.check_string_size!("concat", byte_size(string1) + byte_size(string2))
-    string1 <> string2
-  end
-
-  def eval(value1, value2, value3) do
-    value1 |> eval(value2) |> eval(value3)
-  end
-
-  def eval(value1, value2, value3, value4) do
-    value1 |> eval(value2) |> eval(value3) |> eval(value4)
-  end
+  # One piece is returned as it is, without a copy.
+  defp finish([]), do: ""
+  defp finish([string]), do: string
+  defp finish(acc), do: acc |> Enum.reverse() |> IO.iodata_to_binary()
 end

@@ -132,30 +132,44 @@ defmodule Rules.IngestTest do
 
   test "a statement that raises fails its event (fail closed), naming the file and line" do
     table = unique_table("rules_raise")
-    with_rules(%{"#{table}/r.gsql" => "SET ok = 1;\nSET x = a RLIKE '(a+)+$'"})
-    evil = String.duplicate("a", 5_000) <> "b"
+    # No real function raises; test_raise/1 (test build only) does on any value.
+    with_rules(%{"#{table}/r.gsql" => "SET ok = 1;\nSET x = test_raise(a)"})
+    secret = "secret-#{System.unique_integer([:positive])}"
 
     log =
       ExUnit.CaptureLog.capture_log(fn ->
-        assert [{:error, message}, {:ok, %{"ok" => 1, "x" => true}}] =
-                 ingest(table, [%{"a" => evil}, %{"a" => "aa"}])
+        assert [{:error, message}, {:ok, %{"ok" => 1, "b" => 1}}] =
+                 ingest(table, [%{"a" => secret}, %{"b" => 1}])
 
         assert message =~ "rule #{table}/r.gsql line 2 failed"
         assert message =~ "the event was not stored"
+        refute message =~ secret
       end)
 
-    refute log =~ evil
-    assert Storage.dump_table(table) == [%{"a" => "aa", "ok" => 1, "x" => true}]
+    refute log =~ secret
+    assert Storage.dump_table(table) == [%{"b" => 1, "ok" => 1}]
+  end
+
+  test "a regular expression past its backtracking limit gives null, not a failure" do
+    table = unique_table("rules_regex_limit")
+
+    with_rules(%{
+      "#{table}/r.gsql" => "SET x = a RLIKE '(a+)+$'; SET y = replace(a, '(a+)+$', '')",
+    })
+
+    evil = String.duplicate("a", 5_000) <> "b"
+    assert [{:ok, reported}] = ingest(table, [%{"a" => evil}])
+    assert %{"x" => nil, "y" => nil} = reported
+    assert Storage.dump_table(table) == [%{"a" => evil}]
   end
 
   test "with rules_on_failure :skip, a raising statement leaves its field and the event is stored" do
     table = unique_table("rules_skip")
     put_env(:rules_on_failure, :skip)
-    with_rules(%{"#{table}/r.gsql" => "SET ok = 1; SET x = a RLIKE '(a+)+$'"})
-    evil = String.duplicate("a", 5_000) <> "b"
+    with_rules(%{"#{table}/r.gsql" => "SET ok = 1; SET x = test_raise(a)"})
 
     ExUnit.CaptureLog.capture_log(fn ->
-      assert [{:ok, %{"ok" => 1} = reported}] = ingest(table, [%{"a" => evil}])
+      assert [{:ok, %{"ok" => 1} = reported}] = ingest(table, [%{"a" => "boom"}])
       refute Map.has_key?(reported, "x")
     end)
   end

@@ -352,8 +352,9 @@ Running:
 4. A value a rule produces is validated like an incoming one; one that cannot be
    stored is dropped.
 5. Rules run outside the request, each event with a 1-second limit and the query heap
-   limit. A statement that fails (a regular expression over its backtracking limit,
-   say) or an event over a limit fails that event, with an error naming the rule file
+   limit. Functions and operators give null rather than fail (section 7), so a
+   statement fails only through a bug; such a failure or an event over a limit fails
+   that event, with an error naming the rule file
    and line or the limit, and the event is not stored. Other events in the batch are
    unaffected.
 6. A table whose stored rules are invalid (edited in the store by hand, or using a
@@ -459,15 +460,26 @@ the shipped surface:
    Regular expressions (`RLIKE`, `replace`) are Perl-compatible and match UTF-8
    strings by character. `replace` replaces every non-overlapping match, leftmost
    first, with its replacement taken literally. A value that is not valid UTF-8 gives
-   null. A pattern may have at most 32 capturing groups, and one that backtracks past
-   a fixed limit on some value fails the query with a message saying the regular
-   expression is too complex. A `replace` whose pattern matches one value too many
-   times (hundreds of thousands at the default heap limit, as an empty-matching pattern
-   can on a large value; fewer with a lower limit)
-   fails the query with a message saying so.
-   Most functions return null on wrong-type arguments rather than failing the query;
-   exceptions (such as `concat` and `||`, which coerce numbers and booleans to strings
-   and can fail or give meaningless results on lists) are noted in the reference.
+   null. A pattern may have at most 32 capturing groups. On a value where a pattern
+   backtracks past a fixed limit, `RLIKE` and `NOT RLIKE` are null (so WHERE drops the
+   row) and so is `replace`; so is a `replace` whose pattern matches one value too many
+   times to hold (hundreds of thousands at the default heap limit, as an
+   empty-matching pattern can on a large value; fewer with a lower limit), or that
+   matches part of a character (`\C`).
+   Functions return null on wrong-type arguments rather than failing the query.
+   `to_string` gives every value's string form: an integer's decimal, a float's
+   shortest round-trip form (`1.0e300`), `true` or `false`, and a list as compact
+   JSON-style text (`[1,null,"a",[2.5]]`, invalid UTF-8 in its strings shown as
+   U+FFFD); null stays null. `concat` and `||` use the same forms, with null as the
+   empty string.
+   Strings that functions build are cut to 64 KiB, at a character boundary, never
+   refused: the results of `concat`, `||`, `lpad` and `rpad` when they pad, `replace`,
+   `to_string` of a non-string, `lower`, `upper`, `normalize` and `format_timestamp`.
+   `replace`, `lower`, `upper` and `normalize` cut even a value they don't lengthen,
+   so a rule such as `SET email = lower(email)` stores the first 64 KiB of a longer
+   field. Functions that return an input or part of one (`to_string` of a string,
+   `substr`, the trims, `if`, `coalesce`) are not cut. `ILIKE` matches the whole
+   value, however long.
 6. Introspection: the virtual `schema` table has one row per table and column with
    per-type value counts summed across machines. `SHOW TABLES` and `DESC` are
    shorthand for queries on it. `DESC` lists column names only, because columns have
@@ -478,8 +490,7 @@ the shipped surface:
 8. Results: A query returns all its rows in one response, with no pagination, up to
    100,000 rows and about 64 MiB; a larger result fails with an error asking for a
    `LIMIT`, `WHERE`, or `GROUP BY`, never a truncated answer. Rows scanned or
-   aggregated don't count. `ORDER BY` with a `LIMIT` over 100,000 is refused. String
-   functions refuse to build strings over 16 MiB.
+   aggregated don't count. `ORDER BY` with a `LIMIT` over 100,000 is refused.
    Each process a query runs in, on every machine, has a heap limit
    (`GUARDIAN_QUERY_MAX_HEAP_MB`, default 256 MiB, `0` for none); a process killed
    for exceeding it fails the query with "a query process was killed; it may have

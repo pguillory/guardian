@@ -74,8 +74,8 @@ defmodule Web.QueryParseErrors do
 
   @doc false
   def row(sql, error, caller) do
-    {stored_sql, truncated?} = truncate(sql, @max_sql_bytes)
-    {message, _} = truncate(Exception.message(error), @max_error_bytes)
+    {stored_sql, truncated?} = Query.Text.truncate(sql, @max_sql_bytes)
+    {message, _} = Query.Text.truncate(Exception.message(error), @max_error_bytes)
 
     caller
     |> bound_caller_fields()
@@ -98,35 +98,11 @@ defmodule Web.QueryParseErrors do
   end
 
   defp bound_caller_field(value) when is_binary(value) do
-    {value, _} = truncate(value, @max_caller_field_bytes)
+    {value, _} = Query.Text.truncate(value, @max_caller_field_bytes)
     value
   end
 
   defp bound_caller_field(_value), do: nil
-
-  @doc """
-  Cuts `string` to at most `max_bytes` bytes without splitting a UTF-8 character.
-  Returns `{string, truncated?}`. Invalid UTF-8 is cut at the byte limit.
-
-  The result is always a fresh copy, never a sub-binary, so a queued or stored row
-  does not keep a larger original (a huge request body, say) alive in memory.
-  """
-  def truncate(string, max_bytes) when byte_size(string) <= max_bytes do
-    {:binary.copy(string), false}
-  end
-
-  def truncate(string, max_bytes) do
-    {:binary.copy(utf8_prefix(binary_part(string, 0, max_bytes), 3)), true}
-  end
-
-  # Drop up to three trailing bytes of an incomplete UTF-8 character.
-  defp utf8_prefix(prefix, tries) do
-    if tries == 0 or prefix == "" or String.valid?(prefix) do
-      prefix
-    else
-      utf8_prefix(binary_part(prefix, 0, byte_size(prefix) - 1), tries - 1)
-    end
-  end
 
   @doc """
   Caller fields from a Plug connection (the JSON API).

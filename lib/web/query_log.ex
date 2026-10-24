@@ -95,7 +95,7 @@ defmodule Web.QueryLog do
 
   @doc false
   def row(sql, outcome, info) do
-    {stored_sql, truncated?} = QueryParseErrors.truncate(sql, @max_sql_bytes)
+    {stored_sql, truncated?} = Query.Text.truncate(sql, @max_sql_bytes)
 
     {status, row_count, error_kind, error} =
       case outcome do
@@ -103,7 +103,7 @@ defmodule Web.QueryLog do
           {"ok", row_count, nil, nil}
 
         {:error, kind, message} ->
-          {message, _} = QueryParseErrors.truncate(message, @max_error_bytes)
+          {message, _} = Query.Text.truncate(message, @max_error_bytes)
           {"error", nil, kind, message}
       end
 

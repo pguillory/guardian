@@ -2,7 +2,9 @@ defmodule Query.Function.Replace do
   @moduledoc """
   `replace(s, 'pattern', replacement)`: replaces every non-overlapping match of a
   regular expression (`Query.Regex`, PCRE semantics) with the literal replacement.
-  Null when `s` or the replacement is not a string, or `s` is not valid UTF-8.
+  Null when `s` or the replacement is not a string, or `s` is not valid UTF-8, and in
+  the other cases `Query.Regex.replace/3` gives (the backtracking limit, `\\C`, too
+  many matches). The result is cut to the string cap.
   """
 
   alias Query.ColumnOrConstant

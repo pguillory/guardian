@@ -320,12 +320,6 @@ defmodule Web.QueryParseErrorsTest do
       assert byte_size(row["sql"]) == QueryParseErrors.max_sql_bytes()
     end
 
-    test "short strings are kept whole" do
-      assert QueryParseErrors.truncate("abc", 3) == {"abc", false}
-      assert QueryParseErrors.truncate("abcd", 3) == {"abc", true}
-      assert QueryParseErrors.truncate("aé", 2) == {"a", true}
-    end
-
     test "rows over the hourly cap are dropped and counted on the next recorded row" do
       now = :counters.new(1, [])
       :counters.put(now, 1, 3600 * 10)

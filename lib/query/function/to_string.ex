@@ -1,18 +1,29 @@
 defmodule Query.Function.ToString do
+  @moduledoc """
+  `to_string(x)`: the string form of x (`Query.Text.form/2`), cut to the string cap;
+  a string as it is; null for null.
+  """
+
   alias Query.ColumnOrConstant
   alias Storage.Column
 
   # to_string/1
   def eval2(context, %AST.Node.FunctionCall{args: [expr1]}) do
     column1 = Query.Eval.eval(expr1, context)
-    ColumnOrConstant.map_or_nif(column1, &__MODULE__.eval/1, &Column.to_string/1)
+
+    if identity?(column1),
+      do: ColumnOrConstant.map_or_nif(column1, &__MODULE__.eval/1, &Column.to_string/1),
+      else: ColumnOrConstant.map(column1, &__MODULE__.eval/1)
   end
 
-  def eval(string) when is_binary(string) do
-    string
-  end
+  # A column of only strings and nulls is its own result, which the NIF returns at
+  # once; any other column is rendered value by value. A constant always goes to
+  # map_or_nif, which evaluates it once with eval/1.
+  defp identity?(%Query.Constant{}), do: true
 
-  def eval(_) do
-    nil
-  end
+  defp identity?(column),
+    do: Column.null_count(column) + Column.string_count(column) == Column.count(column)
+
+  def eval(string) when is_binary(string), do: string
+  def eval(value), do: Query.Text.form(value, Query.Text.max_bytes())
 end

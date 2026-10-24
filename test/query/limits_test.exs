@@ -3,7 +3,7 @@ defmodule Query.LimitsTest do
   use ExUnit.Case, async: false
   import TestHelpers, only: [run_sql: 1]
 
-  @keys [:query_max_result_rows, :query_max_result_bytes, :query_max_string_bytes]
+  @keys [:query_max_result_rows, :query_max_result_bytes]
 
   setup do
     saved = Application.get_all_env(:guardian) |> Keyword.take(@keys)
@@ -61,47 +61,24 @@ defmodule Query.LimitsTest do
   end
 
   describe "string functions" do
-    test "lpad and rpad refuse huge sizes" do
-      assert error("SELECT lpad('x', 2000000000)") =~
-               "lpad would build a string of 2000000000 bytes"
+    # Strings that functions build are cut to the cap (Query.Text), never refused.
+    @max Query.Text.max_bytes()
 
-      assert error("SELECT rpad('x', 2000000000)") =~ "rpad would build a string"
+    test "lpad and rpad of a huge size give a string at the cap" do
+      assert [[left, right]] = run_sql("SELECT lpad('x', 2000000000), rpad('x', 2000000000)")
+      assert left == String.duplicate(" ", @max)
+      assert right == "x" <> String.duplicate(" ", @max - 1)
       assert run_sql("SELECT lpad('x', 3), rpad('x', 3)") == [["  x", "x  "]]
     end
 
-    test "lpad and rpad count bytes, not characters, against the cap" do
-      Application.put_env(:guardian, :query_max_string_bytes, 10)
+    test "concat, ||, and replace cut results at the cap", %{table: table} do
+      half = String.duplicate("a", div(@max, 2))
+      assert [[result]] = run_sql("SELECT concat('#{half}', '#{half}', 'b')")
+      assert result == half <> half
+      assert [[^result]] = run_sql("SELECT '#{half}' || '#{half}b'")
 
-      # é is two bytes: three of them padded to 7 characters is 10 bytes, to 8 is 11.
-      assert run_sql("SELECT lpad('ééé', 7), rpad('ééé', 7)") == [["    ééé", "ééé    "]]
-      assert error("SELECT lpad('ééé', 8)") =~ "lpad would build a string of 11 bytes"
-      assert error("SELECT rpad('ééé', 10)") =~ "rpad would build a string of 13 bytes"
-
-      # An input already over the cap is refused only if padding would grow it.
-      assert run_sql("SELECT lpad('12345678901', 2)") == [["12345678901"]]
-      assert error("SELECT rpad('12345678901', 12)") =~ "rpad would build a string of 12 bytes"
-    end
-
-    test "concat, ||, and replace refuse results over the cap", %{table: table} do
-      Application.put_env(:guardian, :query_max_string_bytes, 10)
-
-      assert error("SELECT concat('123456', '78901')") =~
-               "concat would build a string of 11 bytes"
-
-      assert error("SELECT '123456' || '78901'") =~ "concat would build"
-      assert error("SELECT concat('1234', '5678', '90', '1')") =~ "concat"
-      assert run_sql("SELECT concat('12345', '67890')") == [["1234567890"]]
-
-      assert error("SELECT replace(s, 'o', 'xxxxxxxx') FROM #{table}") =~
-               "replace would build a string of 12 bytes"
-
-      assert run_sql("SELECT replace('ab', 'a', 'c')") == [["cb"]]
-      # The exact size counts: "xxxxow 1" is 8 bytes, though a match at every
-      # position could have reached 41.
-      assert run_sql("SELECT replace('row 1', 'r', 'xxxx')") == [["xxxxow 1"]]
-      # Empty matches count too: 2n + 1 replacements for n characters.
-      assert error("SELECT replace('aaa', '(?:|a)', 'xx')") =~
-               "replace would build a string of 14 bytes"
+      assert [[replaced]] = run_sql("SELECT replace(s, '[a-z]', '#{half}') FROM #{table} LIMIT 1")
+      assert byte_size(replaced) == @max
     end
   end
 

@@ -698,23 +698,24 @@ match by character while `\w`, `\d` and `\b` stay ASCII by default (inline `(*UC
 changes that). A value that is not valid UTF-8 makes `:re.run` raise; only that call
 is rescued, and the value gives null. Every run passes `match_limit` (1,000,000, per
 start position) and `match_limit_recursion` (10,000, a depth limit under PCRE2), and
-hitting either raises `Query.Error`. A pattern may have at most 32 capturing groups:
+hitting either gives null for that value (`RLIKE`, `NOT RLIKE` and `replace` alike). A pattern may have at most 32 capturing groups:
 PCRE2's backtracking frames live in native memory, outside the heap limit, and grow
 with the group count, so the cap and the depth limit together bound a run's memory
 (security.md 5.2 item 1). `:re` yields to the scheduler during long matches, and the
 30-second query limit bounds total CPU.
 
 `replace` takes the offsets of every non-overlapping match (`:global`, with PCRE's
-empty-match rules), refuses a match that starts or ends inside a UTF-8 character
-(only `\C` can do that), computes the exact result size for the 16 MiB string limit,
-and then appends the untouched slices and the literal replacement to one binary.
+empty-match rules), gives null for a match that starts or ends inside a UTF-8
+character (only `\C` can do that), and then appends the untouched slices and the
+literal replacement to one binary, stopping once it reaches the 64 KiB string cap
+(`Query.Text`).
 `:re` builds the whole offset list on the calling process's heap, about two matches
 per character at worst. A value up to 16 KiB is replaced in the calling process (at
 most about 33,000 matches, measured at 10 to 20 MB of process memory). A larger value
 is replaced in a helper process spawned with its own `max_heap_size`: the query heap
 limit, or 256 MiB when that is 0, so the offsets are bounded even with the limit off.
-A helper killed by its cap becomes a `Query.Error` saying the value matched too many
-times; anything the helper raises is raised again in the caller. Measured with `x*`,
+A helper killed by its cap, or dying any other way, gives null for that value;
+anything the helper raises is raised again in the caller. Measured with `x*`,
 256 MiB allows about 600,000 matches on one value and 64 MiB about 200,000. The
 helper is monitored, not linked, since a link would carry its heap kill to the
 caller; its first act is to start a watcher that kills it when the caller dies (a
@@ -734,8 +735,8 @@ for `RLIKE`: roughly 2.5 to 10 µs a row for an 89-byte string, against under 1.
 
 `Query.Limits` caps what collects on the coordinator: 100,000 rows and about 64 MiB of
 result, the input of an in-memory ORDER BY, and the merge of ORDER BY ... LIMIT; ORDER
-BY with a LIMIT above the row cap is refused. String-building functions refuse results
-over 16 MiB. A query may run for 30 seconds:
+BY with a LIMIT above the row cap is refused. Strings that functions build are cut to
+64 KiB (`Query.Text`), never refused. A query may run for 30 seconds:
 `Query.run/1` then kills its process, whose links stop every router and worker on
 every machine, and raises. Exceeding a cap or the time limit raises `Query.Error`,
 which both interfaces report with its message. The caps are application environment
@@ -1035,7 +1036,6 @@ these except through the variables above:
 | `api_key`, `allow_query_api_key`, `http_port`, `query_max_heap_mb`, `data_dir`, `dns_cluster_query`, `mutable_segment_max_age_ms` | from the variables above | as above |
 | `query_max_result_rows` | 100,000 | `Query.Limits` |
 | `query_max_result_bytes` | 64 MiB | `Query.Limits` |
-| `query_max_string_bytes` | 16 MiB | `Query.Limits` |
 | `query_time_limit_ms` | 30,000 | `Query.run/1` (`Query.Limits`) |
 | `query_parse_errors_per_hour` | 60 | `Web.QueryParseErrors` (tests raise it) |
 | `rules_on_failure` | `:reject` | `Rules.Runtime`, `Rules.Runner`: a failing statement or an event over its limit fails the event; `:skip` passes it on |
