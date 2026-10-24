@@ -50,8 +50,13 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
          names the bucket, `list_rules` shows the copied rules, and a test write and
          delete through the MCP tools succeed. Rollback: remove them all together,
          in one restart (removing some refuses startup); `/data/rules` stays.
-- [ ] rules-track-lookup: TRACK (counters) and LOOKUP statements; decide first where
-      counter state lives (`docs/changes/ingest-rules.md`)
+- [ ] rules-track-lookup: TRACK (counters) and LOOKUP statements; settled v1 design
+      and reviewed four-piece plan in `docs/changes/ingest-rules.md`
+      1. [x] C1: node-local ETS get/get_many/gets/cas/incr, per-key TTLs, memory
+         budget and oldest-half eviction
+      2. [ ] C2: consistent owner hashing, bounded remote operations and fail open
+      3. [ ] C3: mergeable count, distinct (HyperLogLog), sum, min, max and avg
+      4. [ ] C4: TRACK/LOOKUP grammar, validation, bucket policy and rule execution
 - [x] rules-open-questions: the failure and invalid-at-boot defaults are confirmed
       and their switches (`:rules_on_failure`, `:rules_invalid_at_boot`) removed
 - [x] rules-server-redaction: Rules.Server's formatted status and crash reports

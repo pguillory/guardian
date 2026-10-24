@@ -68,7 +68,8 @@ store. There is no user namespace.
 Summary; the full description is `docs/architecture/system.md`.
 
 The runtime consists of Rules.Server (loads the rule store first; an unreachable or
-misconfigured store refuses startup), Storage, SystemStats, Web.QueryParseErrors (records query
+misconfigured store refuses startup), Counters.Store (node-local ephemeral ETS
+storage; TRACK/LOOKUP integration is pending), Storage, SystemStats, Web.QueryParseErrors (records query
 parse failures), Web.QueryLog (records every API query in `queries`), Web, and
 Cluster (DNS peer discovery
 through `DNS_CLUSTER_QUERY`; `<app>.internal` by default on Fly.io). Schema lookups (SHOW TABLES, DESC, the `schema` virtual table, SELECT *) fan
@@ -131,5 +132,6 @@ Key subsystem documentation:
 - `lib/ast/CLAUDE.md`
 - `lib/web/CLAUDE.md`
 - `lib/rules/CLAUDE.md`
+- `lib/counters/CLAUDE.md`
 
 Last updated: 2026-10-23

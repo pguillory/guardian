@@ -8,6 +8,7 @@ defmodule Main do
     # rather than after Storage has loaded every segment.
     children = [
       Rules.Server,
+      Counters.Store,
       Storage,
       SystemStats,
       Web.QueryParseErrors,
