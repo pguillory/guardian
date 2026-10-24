@@ -1,7 +1,7 @@
 defmodule Rules.Runtime do
   @moduledoc """
-  What a compiled table module calls for each statement, on one event's flattened row
-  (dot-notation keys, as Storage stores it).
+  The ordered-step dispatcher called by compiled table modules, on one event's
+  flattened row (dot-notation keys, as Storage stores it).
 
   - Reads: a field the row lacks is null. Names match ignoring case: an exact key wins,
     otherwise the first case-insensitive match in byte order (`Rules.RowIndex`). Rules read
@@ -12,9 +12,10 @@ defmodule Rules.Runtime do
     beneath it.
   - WHERE applies a statement only when it evaluates to `true`.
 
-  A statement that raises raises `Rules.Runtime.Failure` naming the file and line, and
-  the event is not stored. The failure is logged by kind only (`note_failure/3`),
-  never a value.
+  SET/UNSET failures raise `Rules.Runtime.Failure` naming the file and line, and
+  the event is not stored. Counter failures supply their operator's missing result
+  and continue. Exceptions are logged by kind only (`note_failure/3`), never a value.
+  Counter execution is internal until both public admission and compilation gates open.
   """
 
   alias Rules.RowIndex
@@ -30,11 +31,61 @@ defmodule Rules.Runtime do
     end
   end
 
-  @doc "The state a compiled module threads through its statements, for `row`."
+  @doc "The row index the dispatcher threads through ordered statements."
   def start(row), do: RowIndex.new(row)
 
   @doc "The row once every statement has run."
   def finish(%RowIndex{row: row}), do: row
+
+  @doc false
+  def run(row, steps, %Rules.Event{} = event) do
+    steps
+    |> Enum.reduce(start(row), fn step, index ->
+      case step do
+        %Rules.Step.Set{} -> set(index, step)
+        %Rules.Step.Unset{} -> unset(index, step)
+        %Rules.Step.Track{} -> counter(index, step, event)
+        %Rules.Step.Lookup{} -> counter(index, step, event)
+      end
+    end)
+    |> finish()
+  end
+
+  defp counter(index, step, event) do
+    index = RowIndex.ensure(index)
+    definition = counter_definition(step)
+
+    try do
+      context = context(index, step.reads)
+
+      if applies?(context, step.where_expr) do
+        group = step.by_exprs |> Enum.map(&Query.Evaluation.eval(context, &1)) |> List.to_tuple()
+
+        value =
+          case step do
+            %Rules.Step.Track{} ->
+              values = Enum.map(step.aggregate_expr.args, &Query.Evaluation.eval(context, &1))
+              Rules.CounterRuntime.track(definition, group, values, event)
+
+            %Rules.Step.Lookup{} ->
+              Rules.CounterRuntime.lookup(definition, group, event)
+          end
+
+        RowIndex.put_field(index, step.field, value)
+      else
+        index
+      end
+    catch
+      kind, reason ->
+        note_failure(step.file, step.line, Engine.failure_kind(kind, reason, __STACKTRACE__))
+        RowIndex.put_field(index, step.field, Rules.CounterRuntime.missing(definition.operator))
+    end
+  end
+
+  defp counter_definition(%Rules.Step.Track{} = step),
+    do: Rules.CounterDefinition.from_track(step)
+
+  defp counter_definition(%Rules.Step.Lookup{target: target}), do: target
 
   def set(index, step) do
     guard(step, fn ->

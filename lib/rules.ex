@@ -40,6 +40,9 @@ defmodule Rules do
 
   defdelegate run(table, rows), to: Rules.Runner
 
+  @doc false
+  defdelegate run_with_metadata(table, rows), to: Rules.Runner
+
   @doc "Every rule file (optionally one table's): `{:ok, [%{table, name, size}]}`."
   def list_rules(table \\ nil) do
     case Rules.Store.list(store()) do

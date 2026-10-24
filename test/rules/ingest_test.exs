@@ -173,6 +173,8 @@ defmodule Rules.IngestTest do
   end
 
   defmodule SlowRules do
+    def apply(row, _event), do: apply(row)
+
     def apply(%{"sleep" => ms} = row) do
       Process.sleep(ms)
       row

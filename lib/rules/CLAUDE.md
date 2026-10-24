@@ -25,8 +25,19 @@ Modules:
   statements as escaped literals. Generated `plan/0` exposes the exact resolved
   plan for reload/restart recovery, bounded and reclaimed with the module pool.
   No rule text becomes code. Unresolved plans and unbound LOOKUPs cannot compile.
-- `Rules.Runtime`: what generated modules call for each statement (reads, SET, UNSET,
-  failures), threading a `Rules.RowIndex` through the statements.
+- `Rules.Runtime`: the dispatcher called by generated modules (reads, SET, UNSET,
+  failures), threading a `Rules.RowIndex` through ordered typed steps. Internal
+  TRACK/LOOKUP dispatch is implemented but remains behind both closed gates.
+- `Rules.Event`: private Unix/monotonic arrival coordinates outside the row; Engine
+  captures them before validation. Runner adds a per-event Cluster context on worker
+  entry, sharing one batch atomics budget across replacement workers.
+- `Rules.CounterRuntime`: internal counter execution using Cluster and Aggregate.
+  Whole intersecting buckets bias reads toward overcount: floor((arrival-W)/B)
+  through floor(arrival/B), B=ceil(W/3). Native count increments and generic
+  gets/merge/CAS use their returned state, never a post-update read. Only definite
+  CAS conflicts retry, at most three total attempts. Zero-count deltas and unchanged
+  generic states skip mutation. TTLs count down to one anchored monotonic expiry
+  derived from bucket_end+W; transit can still delay physical expiry at the owner.
 - `Rules.RowIndex`: the event's row, with a trie of its keys by lowercase object path
   and a map of lowercase spelling to present keys, so a statement costs what it
   touches rather than a pass over every column. Its tests check it against the old
@@ -71,11 +82,14 @@ Rules to keep:
    refuses counter plans. The activation selector retains prior dependency
    components on invalid reloads; Server derives prior plans from published
    modules, including after restart, without a separate metadata registry.
-   Counter execution and enabling remain C4c2. Where TRACK counter state lives is
-   settled in the change document: Counters.Store provides node-local ETS storage,
+   Counter execution is implemented internally in C4c2; enabling remains C4c3.
+   Only direct internal dispatcher tests execute resolved `prepare/1` counter plans;
+   public validation, Server preparation and Compiler still refuse them.
+   Where TRACK counter state lives is settled in the change document:
+   Counters.Store provides node-local ETS storage,
    Counters.Cluster provides bounded cluster ownership,
-   and Counters.Aggregate provides pure mergeable operators. Rule integration
-   follows separately. Counter failures will fail open without changing SET/UNSET's
+   and Counters.Aggregate provides pure mergeable operators. Public integration
+   follows separately. Counter failures fail open without changing SET/UNSET's
    fail-closed behavior. Read the reviewed plan before implementing those pieces.
 
 Tests use `RulesTestHelper` (shared server, so `async: false`) and `FakeS3`, which

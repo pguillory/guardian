@@ -198,7 +198,7 @@ POST /api/json/send_events or MCP send_events
   -> Engine.ingest_events/2             table name check, then each event on its own
        -> Storage.Flattening.flatten_event/1
        -> drop invalid values and over-long keys
-       -> Rules.run/2, if the table has rules (3.4): a worker, one outcome per event
+       -> Rules.run_with_metadata/2, if rules exist (3.4): a worker, one outcome per event
        -> drop invalid values the rules produced
        -> Storage.append_flattened_result/2
             -> MutableSegments: pick the table's writable segment
@@ -338,11 +338,11 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    behavior is unchanged. Local candidates have `resolved?: false`; only successful
    whole-set resolution marks them ready for compilation.
 2. Compilation: `Rules.Compiler` turns a plan into a module from a fixed template,
-   each statement one call to `Rules.Runtime` with the statement as an escaped literal
+   calling `Rules.Runtime.run/3` with ordered typed steps as escaped literals
    (expressions run through the scalar evaluator, `Query.Eval` on an event map). Names
    come from a pool of 1,024 (`Rules.Compiled.M0`...), so atoms are bounded.
    Compiler independently refuses unresolved candidates and LOOKUPs without bound
-   targets, and still refuses plans containing TRACK or LOOKUP until execution lands.
+   targets, and still refuses plans containing TRACK or LOOKUP until public enablement.
    Each generated module exposes its exact resolved `plan/0` as escaped literal
    data, including canonical source and AST constants, never executable rule text.
 3. Publication: one `:persistent_term` map of table to module, or `{:invalid,
@@ -369,6 +369,11 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    lowercase object path. A SET or UNSET then touches only the keys it removes and a
    read is a lookup, so an event's rules cost about its columns plus its statements,
    each times a log factor, rather than columns times statements.
+   Engine captures private Unix/monotonic arrival coordinates before each event's
+   validation; they are carried outside the row and never automatically stored.
+   Runner shares one Cluster batch budget across worker replacements and starts
+   each event's membership snapshot and counter phase on worker entry. Generated
+   modules accept this context through `apply/2`; `apply/1` creates a fresh event/batch.
 5. Loading: at boot, then on every write and every minute. The store is listed, and
    objects whose ETag changed are fetched with `If-Match` on the listed ETag (a change
    in between restarts the read). A table invalid at boot is published as invalid; a
@@ -395,8 +400,18 @@ invalid set, which loading then handles per table (spec section 12).
 ### 3.5 Counter storage foundation
 
 `Counters.Store` is the node-local foundation for the reviewed TRACK/LOOKUP design
-in `docs/changes/ingest-rules.md`; counter rule execution is not implemented.
-It adds no external service or per-event work to today's SET/UNSET rules.
+in `docs/changes/ingest-rules.md`. Internal `Rules.CounterRuntime` execution is
+implemented, but both public admission and compiler gates remain closed. Tests
+drive the internal dispatcher with resolved `prepare/1` steps; live ingestion
+still cannot call counters. The dispatcher keeps LOOKUP-before-TRACK ordering,
+uses the mutation's returned state for current-event inclusion, defaults the
+whole result on any failed operation, and leaves SET/UNSET failures fail closed.
+Buckets retain the complete oldest intersecting interval (overcount bias).
+TTL durations decrease toward bucket_end+window, anchored to private monotonic
+arrival coordinates; network/queue transit can delay physical expiry. Only
+definite CAS conflicts retry, with three total attempts within Cluster budgets.
+It adds no external service or counter-store operations to today's SET/UNSET rules;
+those events capture private arrival and routing metadata only.
 
 One GenServer owns a private ETS set of values and reference CAS tokens, plus
 ordered indexes of insertion order and expiry. It serializes get, gets, CAS and

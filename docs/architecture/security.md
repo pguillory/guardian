@@ -341,8 +341,8 @@ and no single request that takes the service down or destroys stored data.
 3. No dynamic code from input. Nothing in `lib/` evaluates code, runs shell
    commands, or decodes Erlang terms from input (`Code.eval`, `System.cmd`, `:os.cmd`,
    and `binary_to_term` do not appear). Rules are compiled with `Module.create/3`, but
-   the module body is a fixed template (`Rules.Compiler`): each statement becomes a
-   call to `Rules.Runtime` with its parsed AST as an escaped literal, which the
+   the module body is a fixed template (`Rules.Compiler`): one `Rules.Runtime.run/3`
+   call receives ordered typed steps with parsed ASTs as escaped literals, which the
    query engine's scalar evaluator interprets as it does query expressions. No rule
    text becomes code, and rules can call only the registered scalar functions.
 4. Value validation. `Engine` drops values the column NIF cannot store (out-of-range
@@ -390,8 +390,13 @@ and no single request that takes the service down or destroys stored data.
    it before building executable steps; Compiler also refuses prepared counter
    plans. Internal pure preparation validates counter semantics and resolves
    identities without evaluating expressions or accessing counter state. The
-   current ingest path does not call the counter store. `Counters.Cluster`
-   routes native terms to one owner through the existing fully trusted Erlang
+   current ingest path does not call the counter store. Internal counter execution
+   is tested through the resolved-step dispatcher: failures overwrite the output
+   with aggregate defaults and continue, so final UNSETs still remove secrets;
+   SET/UNSET failures remain fail closed. Arrival coordinates are captured before
+   validation, outside caller-writable fields, and are never automatically stored.
+   Runner holds the shared failed-wait budget outside replaceable workers.
+   `Counters.Cluster` routes native terms to one owner through the fully trusted Erlang
    distribution boundary (section 6), without another API or authorization layer.
    It captures connected members without readiness RPCs. Calls are bounded at
    50 ms, within a 100 ms event phase and a shared 250 ms failed-wait batch budget;

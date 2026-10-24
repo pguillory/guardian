@@ -123,21 +123,28 @@ defmodule Engine do
   # reported event is built from the row after rules.
   defp ingest_with_rules(table, events) do
     prepared =
-      Enum.map(events, fn
-        event when is_map(event) -> prepare_event(table, event)
-        _event -> {:error, "event is not a JSON object"}
+      Enum.map(events, fn event ->
+        arrival = Rules.Event.arrival()
+
+        prepared =
+          if is_map(event),
+            do: prepare_event(table, event),
+            else: {:error, "event is not a JSON object"}
+
+        {prepared, arrival}
       end)
 
-    rows = for {:ok, _event, valid_row, _invalid_row} <- prepared, do: valid_row
+    rows =
+      for {{:ok, _event, valid_row, _invalid_row}, arrival} <- prepared, do: {valid_row, arrival}
 
     case run_rules(table, rows) do
       {:ok, results} ->
         {outcomes, []} =
           Enum.map_reduce(prepared, results, fn
-            {:ok, event, valid_row, invalid_row}, [result | results] ->
+            {{:ok, event, valid_row, invalid_row}, _arrival}, [result | results] ->
               {finish_with_rules(table, event, valid_row, invalid_row, result), results}
 
-            error, results ->
+            {error, _arrival}, results ->
               {error, results}
           end)
 
@@ -145,17 +152,17 @@ defmodule Engine do
 
       :error ->
         Enum.map(prepared, fn
-          {:ok, _event, _valid_row, _invalid_row} ->
+          {{:ok, _event, _valid_row, _invalid_row}, _arrival} ->
             {:error, "internal error before storage; the event was not stored"}
 
-          error ->
+          {error, _arrival} ->
             error
         end)
     end
   end
 
   defp run_rules(table, rows) do
-    {:ok, Rules.run(table, rows)}
+    {:ok, Rules.run_with_metadata(table, rows)}
   catch
     kind, reason ->
       log_ingest_failure(table, kind, reason, __STACKTRACE__)

@@ -2,8 +2,9 @@
 
 Ephemeral counter infrastructure for the reviewed TRACK/LOOKUP v1 design in
 `docs/changes/ingest-rules.md`. The node-local store, cluster routing and pure
-aggregate operators are implemented; rule execution follows separately. Do not
-describe TRACK/LOOKUP as available until the rule integration lands.
+aggregate operators and internal rule execution (`Rules.CounterRuntime`) are
+implemented; public rule enablement follows separately. Do not describe
+TRACK/LOOKUP as available until public enablement (C4c3).
 
 `Counters.Store` owns private ETS tables for entries, insertion order and expiry.
 Its serialized get/get_many/gets/cas/incr operations are atomic on one node.
@@ -97,4 +98,5 @@ unchanged writes, then resolve once. Count values returned by native increments
 must also be resolved to apply int64 output bounds. Keep historical query
 aggregate sharing as separate follow-up work, and do not wire rules here.
 The numeric merge/resolve clauses mirror query aggregates; keep their overflow
-policy changes aligned until that sharing work is done.
+policy changes aligned until that sharing work is done. Counter rule execution
+lives in Rules, with at most three total CAS attempts for definite conflicts only.

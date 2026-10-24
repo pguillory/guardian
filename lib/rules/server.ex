@@ -276,7 +276,7 @@ defmodule Rules.Server do
 
   defp sources(files), do: Map.new(files, fn {key, file} -> {key, file.source} end)
 
-  # Keep the public counter gate until execution is implemented. Boot, reload and
+  # Keep the public counter gate until public enablement in C4c3. Boot, reload and
   # both sides of write validation must use the same preparation mode.
   defp prepare(sources), do: RuleSet.prepare(sources, counters: false)
 

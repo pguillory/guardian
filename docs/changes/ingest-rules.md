@@ -5,8 +5,9 @@ C2 (bounded cluster ownership) and C3 (aggregate operators) are implemented.
 TRACK and LOOKUP's settled v1 design and reviewed four-piece implementation plan
 are below. C4a adds parsed TRACK/LOOKUP syntax, canonical source and traversal;
 Rules.RuleSet still rejects both statements, so counters are not yet available in
-active rules. C4c1 wires activation selection and recoverable module-plan metadata;
-counter execution/enabling remains C4c2. The remaining C4 work is split below.
+active rules. C4c1 wires activation selection and recoverable module-plan metadata.
+Internal counter execution is implemented in C4c2; public enabling remains C4c3.
+The remaining C4 work is split below.
 The phase 1 open questions were settled on the recommendations below.
 Each was first kept switchable through app env (`:rules_on_failure`,
 `:rules_invalid_at_boot`); once confirmed, the switches and the alternatives they
@@ -47,7 +48,7 @@ reviewed, diffed and backed up like code.
    one. Expressions and conditions are the query language's scalar expressions (all
    scalar functions, operators, CASE). Aggregates are rejected anywhere in a
    statement, WHERE included.
-4. Counter v1 adds these forms (syntax and internal validation built; execution pending):
+4. Counter v1 adds these forms (internal execution built; public enabling pending):
 
    ```sql
    TRACK logins_last_hour = count() BY ip LAST '1h'
@@ -326,7 +327,7 @@ JSON API rule endpoints in phase 1.
    their resolved counter identities atomically with the new definitions. Invalid
    runtime reloads retain whole connected dependency components of prior plans,
    as specified in C4b below. Server selection and module metadata are implemented
-   in C4c1; live counter activation is deferred to C4c2.
+   in C4c1; live counter activation is deferred to C4c3.
 7. Running a statement does not scan the row. At the first statement the runtime
    indexes the event's flattened row once: a trie of its keys by lowercase
    top-level object path, and each lowercase spelling's present keys in byte order.
@@ -633,10 +634,11 @@ with no previous plans, only directed target-invalidity propagation applies.
 
 Plan review narrowed C4b to these tested pure preparation/selection contracts.
 Server wiring and bounded recoverable plan metadata are implemented in C4c1 below;
-live counter reload/restart coverage belongs to C4c2 alongside compilation and
-execution. Public `validate/1` still refuses counters before scalar checks within
-their file, and Compiler independently refuses prepared counter plans. Product
-spec impact: none; overview and spec continue to describe active SET/UNSET rules.
+live counter reload/restart coverage belongs to C4c3 alongside public enablement.
+Internal execution is implemented in C4c2. Public `validate/1` still refuses counters
+before scalar checks within their file, and Compiler independently refuses prepared
+counter plans. Product spec impact: none; overview and spec continue to describe
+active SET/UNSET rules.
 
 Remaining order:
 
@@ -647,9 +649,13 @@ Remaining order:
    from Main as described below.
 3. C4c1, implemented: Server activation selection and bounded recoverable module
    metadata, with unresolved-plan safety. Product spec impact: none.
-4. C4c2: execution, live coherent counter reloads/restarts, buckets, private arrival
-   metadata, budgets/configuration and the full user-visible documentation
-   obligations below. Only then enable statements.
+4. C4c2, implemented: internal execution, buckets, private arrival metadata and
+   shared event/batch budgets, with both gates closed. Product spec impact: none.
+5. C4c3: enable both gates together; live coherent counter reloads/restarts,
+   HTTP/MCP return_keys and stored historical fields, runtime memory configuration,
+   and the full user-visible documentation obligations below. Include stopped/slow
+   peers, cooldown recovery, duplicate events and partial side effects in live
+   coverage, building on C2's routing tests and C4c2's internal execution tests.
 
 C4c1 connects boot, reload and saved writes to `Rules.Activation.select/2`, using
 `RuleSet.prepare/2` with `counters: false` everywhere on the live path. The public
@@ -674,8 +680,45 @@ Coverage includes candidate refusal without module creation, exact plan round-tr
 with regex/scalar expressions, restart through invalid/unreachable stored copies,
 repair and unrelated changes/deletions, atomic pool-exhaustion rollback, metadata
 reclamation, and status redaction with secrets inside AST literals. Live counter
-dependency-component reload/restart tests remain C4c2; this slice does not bypass
+dependency-component reload/restart tests remain C4c3; C4c1 does not bypass
 the counter gates to simulate execution. Overview and product spec stay unchanged.
+
+C4c2 implements internal execution behind those same closed admission and compiler
+gates. `Rules.Runtime.run/3` dispatches ordered typed steps; tests drive it with
+resolved `RuleSet.prepare/1` plans. There is no compiler bypass or public path
+activating counters. Generated SET/UNSET modules use this dispatcher too and expose
+`apply/2` for private metadata, with `apply/1` creating a fresh event/batch context.
+
+Engine captures Unix and monotonic arrival coordinates before each event's
+validation, outside caller rows. All events are prepared before the worker runs;
+a later event can therefore reach rules after its window expired. Runner creates
+one batch atomics handle outside replaceable workers and snapshots membership and
+starts each event's bounded Cluster phase on worker entry. Arrival coordinates
+survive replacement and are never automatically stored or modifiable by SET.
+
+`Rules.CounterRuntime` reads up to four complete intersecting buckets (the oldest
+can overcount by almost one bucket). TRACK merges prior buckets with its own
+mutation's returned state, without a read-back that could omit the current event.
+Count uses one native increment; zero deltas read without mutation. Other operators
+use gets/merge/CAS, skip unchanged states and retry only definite conflicts, at most
+three total attempts within Cluster budgets. Any failed operation or exhausted
+conflicts supplies the whole aggregate's missing result, never a partial total.
+Counter expression exceptions also default; final UNSETs still run. SET/UNSET
+exceptions retain their fail-closed behavior. There is no rollback or event retry.
+
+Each mutation computes a positive remaining TTL against bucket_end+window, anchored
+once to the event's private monotonic coordinates; an already expired update is
+skipped and TRACK yields the missing result. TTLs are not renewed to a fresh full
+window. Store receives remaining
+durations, so transit and queue delay can still delay physical owner expiry.
+
+C4c2 coverage includes 49/50 and LOOKUP-before-TRACK, cross-table typed/null groups,
+all operators/defaults, WHERE preservation, SET dependencies, UNSET after failure,
+definition edits/moves and duplicate TRACK deduplication, bucket boundaries,
+expired-before-issue updates, no-op states, fixed TTLs, bounded CAS conflicts and
+uncertain-write non-retry, healthy batches/concurrent increments, many-rule batch
+budget exhaustion, worker replacement and private Engine metadata. Real enabled
+reload/restart, API/MCP and full feature documentation remain C4c3.
 
 C4 runtime prerequisite implemented separately from rule integration: quiet expiry
 uses 256-entry pages with immediate continuation while expired entries remain;
@@ -695,7 +738,7 @@ catch-up, expiry before live eviction, child restart independence, crash-loop
 isolation, automatic recovery/backoff/reset, failed/overlapping starts, stale timers
 and clean shutdown after recovery. Product spec impact: section 8 adds the sampled
 `system_stats.counters_available` boolean; overview unchanged, `/health` stays
-Storage-only, and TRACK/LOOKUP statements remain unavailable until execution lands.
+Storage-only, and TRACK/LOOKUP statements remain unavailable until C4c3 enablement.
 
 The complete C4 contract:
 

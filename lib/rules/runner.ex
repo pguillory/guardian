@@ -11,6 +11,9 @@ defmodule Rules.Runner do
 
   The worker reads the table's compiled module once per row (`Rules.lookup/1`), so a
   reload between rows applies to the rows after it; each row sees one rule set.
+  Arrival coordinates come from Engine before validation, outside caller row data.
+  One failed-counter-wait budget lives outside replaceable workers; each event
+  snapshots membership and starts its own counter phase on entry to the worker.
 
   Outcomes: `{:ok, row}`, or `{:error, message}` for a row that must not be stored.
   """
@@ -21,15 +24,22 @@ defmodule Rules.Runner do
   def run(_table, []), do: []
 
   def run(table, rows) do
+    run_with_metadata(table, Enum.map(rows, &{&1, Rules.Event.arrival()}))
+  end
+
+  @doc false
+  def run_with_metadata(table, rows) do
+    batch = Counters.Cluster.new_batch()
+
     rows
     |> Enum.with_index()
-    |> run_from(table, [])
+    |> run_from(table, [], batch)
     |> Enum.reverse()
   end
 
-  defp run_from([], _table, acc), do: acc
+  defp run_from([], _table, acc, _batch), do: acc
 
-  defp run_from(rows, table, acc) do
+  defp run_from(rows, table, acc, batch) do
     caller = self()
     ref = make_ref()
 
@@ -37,31 +47,34 @@ defmodule Rules.Runner do
       spawn_monitor(fn ->
         limit_heap()
 
-        Enum.each(rows, fn {row, index} -> send(caller, {ref, index, apply_rules(table, row)}) end)
+        Enum.each(rows, fn {{row, arrival}, index} ->
+          event = Rules.Event.start(arrival, batch)
+          send(caller, {ref, index, apply_rules(table, row, event)})
+        end)
       end)
 
-    collect(rows, table, acc, ref, pid, monitor)
+    collect(rows, table, acc, ref, pid, monitor, batch)
   end
 
-  defp collect([], _table, acc, _ref, _pid, monitor) do
+  defp collect([], _table, acc, _ref, _pid, monitor, _batch) do
     Process.demonitor(monitor, [:flush])
     acc
   end
 
-  defp collect([{_row, index} | rest], table, acc, ref, pid, monitor) do
+  defp collect([{_row, index} | rest], table, acc, ref, pid, monitor, batch) do
     receive do
       {^ref, ^index, result} ->
-        collect(rest, table, [result | acc], ref, pid, monitor)
+        collect(rest, table, [result | acc], ref, pid, monitor, batch)
 
       {:DOWN, ^monitor, :process, ^pid, _reason} ->
         flush(ref)
-        run_from(rest, table, [over_limit(table, "worker exit") | acc])
+        run_from(rest, table, [over_limit(table, "worker exit") | acc], batch)
     after
       time_limit_ms() ->
         Process.exit(pid, :kill)
         Process.demonitor(monitor, [:flush])
         flush(ref)
-        run_from(rest, table, [over_limit(table, "time limit") | acc])
+        run_from(rest, table, [over_limit(table, "time limit") | acc], batch)
     end
   end
 
@@ -79,7 +92,7 @@ defmodule Rules.Runner do
     {:error, "rules for #{table} exceeded their time or memory limit; the event was not stored"}
   end
 
-  defp apply_rules(table, row) do
+  defp apply_rules(table, row, event) do
     case Rules.lookup(table) do
       nil ->
         {:ok, row}
@@ -89,7 +102,7 @@ defmodule Rules.Runner do
 
       module ->
         try do
-          {:ok, module.apply(row)}
+          {:ok, module.apply(row, event)}
         rescue
           e in Rules.Runtime.Failure -> {:error, Exception.message(e)}
         catch

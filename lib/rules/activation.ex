@@ -7,7 +7,7 @@ defmodule Rules.Activation do
 
   Edges include previous bound LOOKUP targets and new locally valid candidates,
   so an invalid dependent cannot strand an old identity when its target changes.
-  Server uses counter-refusing preparation until C4c2 adds execution. Its previous
+  Server uses counter-refusing preparation until public enablement in C4c3. Its previous
   plans come from the published modules' recoverable metadata, so selection also
   preserves prior plans after Server restarts. With counters disabled, components
   are individual tables.

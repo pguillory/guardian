@@ -257,7 +257,7 @@ defmodule Rules.RuleSet do
   end
 
   # Syntax lands before execution. Refuse counters before converting AST nodes to
-  # executable steps; remove this gate only when counter runtime lands in C4c2.
+  # executable steps; remove this gate only with public enablement in C4c3.
   defp unsupported_statement_errors(key, table, parsed) do
     Enum.flat_map(parsed, fn {statement, line} ->
       word =
