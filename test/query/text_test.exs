@@ -18,6 +18,30 @@ defmodule Query.TextTest do
       assert byte_size(cut) in 2..5
     end
 
+    test "an invalid byte before the cut drops only the split character" do
+      assert Text.truncate(<<0xFF, "abcdé">>, 6) == {<<0xFF, "abcd">>, true}
+      assert Text.truncate(<<0xFF, "abcdef">>, 6) == {<<0xFF, "abcde">>, true}
+      # A split character is dropped, never kept behind a valid one.
+      assert Text.truncate(<<0xFF, "aé😀">>, 6) == {<<0xFF, "aé">>, true}
+      assert Text.truncate(<<0xFF, "aé😀">>, 7) == {<<0xFF, "aé">>, true}
+      assert Text.truncate(<<0xFF, "aé😀">>, 4) == {<<0xFF, "aé">>, true}
+      assert Text.truncate(<<0xFF, "aé😀">>, 3) == {<<0xFF, "a">>, true}
+      # Stray continuation bytes at the cut are kept: no character starts there.
+      assert Text.truncate(<<"ab", 0x80, 0x80, 0x80, 0x80>>, 5) ==
+               {<<"ab", 0x80, 0x80, 0x80>>, true}
+    end
+
+    test "valid UTF-8 cut at every limit stays valid and within the limit" do
+      string = "aé€😀b"
+
+      for limit <- 0..(byte_size(string) - 1) do
+        {cut, true} = Text.truncate(string, limit)
+        assert String.valid?(cut)
+        assert byte_size(cut) <= limit and byte_size(cut) >= limit - 3
+        assert String.starts_with?(string, cut)
+      end
+    end
+
     test "returns a copy, never a sub-binary of a larger string" do
       big = String.duplicate("a", 100_000)
       {cut, true} = Text.truncate(big, 10)

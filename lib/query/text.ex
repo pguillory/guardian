@@ -11,8 +11,9 @@ defmodule Query.Text do
     than build and cut. Functions that return an input or part of one unchanged
     (`to_string` of a string, `substr`, `if`) are not capped: their result is never
     longer than a value already stored.
-  - Truncation (`truncate/2`) cuts at a UTF-8 character boundary, or at or up to
-    three bytes short of the byte limit for invalid UTF-8, and copies the result, so a cut string never keeps a
+  - Truncation (`truncate/2`) cuts at the byte limit, less any UTF-8 character the
+    limit splits (at most three bytes), so valid UTF-8 stays valid; invalid bytes
+    elsewhere don't move the cut. It copies the result, so a cut string never keeps a
     larger original alive.
   - The string form (`form/2`) of a string is itself; of an integer, its decimal; of
     a float, its shortest round-trip form (`1.5`, `1.0e300`); of a boolean, `true` or
@@ -29,8 +30,8 @@ defmodule Query.Text do
 
   @doc """
   Cuts `string` to at most `max_bytes` bytes without splitting a UTF-8 character.
-  Returns `{string, truncated?}`. Invalid UTF-8 is cut at the byte limit, or up to
-  three bytes short of it.
+  Returns `{string, truncated?}`. Only the bytes at the limit are read: a character
+  split there is dropped (up to three bytes), and invalid UTF-8 is cut the same way.
 
   The result is always a fresh copy, never a sub-binary, so a queued or stored row
   does not keep a larger original (a huge request body, say) alive in memory.
@@ -40,16 +41,28 @@ defmodule Query.Text do
   end
 
   def truncate(string, max_bytes) do
-    {:binary.copy(utf8_prefix(binary_part(string, 0, max_bytes), 3)), true}
+    prefix = binary_part(string, 0, max_bytes)
+    {:binary.copy(binary_part(prefix, 0, max_bytes - split_tail(prefix))), true}
   end
 
-  # Drop up to three trailing bytes of an incomplete UTF-8 character.
-  defp utf8_prefix(prefix, tries) do
-    if tries == 0 or prefix == "" or String.valid?(prefix) do
-      prefix
-    else
-      utf8_prefix(binary_part(prefix, 0, byte_size(prefix) - 1), tries - 1)
-    end
+  # The number of bytes at the end of `prefix` that start a UTF-8 character the cut
+  # split: its lead byte and the continuation bytes after it, at most three. Only the
+  # last bytes are read, so invalid UTF-8 earlier in the prefix changes nothing.
+  defp split_tail(prefix) do
+    size = byte_size(prefix)
+
+    Enum.find_value(1..min(3, size)//1, 0, fn back ->
+      byte = :binary.at(prefix, size - back)
+
+      cond do
+        # A continuation byte: its lead byte is further back.
+        byte in 0x80..0xBF -> nil
+        byte in 0xC0..0xDF and back < 2 -> back
+        byte in 0xE0..0xEF and back < 3 -> back
+        byte in 0xF0..0xF7 and back < 4 -> back
+        true -> 0
+      end
+    end)
   end
 
   @doc """
