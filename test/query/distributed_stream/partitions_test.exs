@@ -30,6 +30,9 @@ defmodule Query.DistributedStream.PartitionsTest do
     partitions = Query.DistributedStream.partitions()
     assert partitions == Enum.map(1..System.schedulers_online(), &{node(), &1})
 
-    assert Query.DistributedStream.partitions(concurrency: 2) == [{node(), 1}, {node(), 2}]
+    # Capped at 2, and at the schedulers there are (one under +S1).
+    capped = Enum.map(1..min(2, System.schedulers_online()), &{node(), &1})
+    assert Query.DistributedStream.partitions(concurrency: 2) == capped
+    assert Query.DistributedStream.partitions(concurrency: 1) == [{node(), 1}]
   end
 end
