@@ -1,8 +1,8 @@
 # Counters
 
 Ephemeral counter infrastructure for the reviewed TRACK/LOOKUP v1 design in
-`docs/changes/ingest-rules.md`. The node-local store and cluster routing are built;
-rule statements and aggregate operators follow separately. Do not
+`docs/changes/ingest-rules.md`. The node-local store, cluster routing and pure
+aggregate operators are implemented; rule statements follow separately. Do not
 describe TRACK/LOOKUP as available until the rule integration lands.
 
 `Counters.Store` owns private ETS tables for entries, insertion order and expiry.
@@ -67,3 +67,22 @@ Storage readiness calls. Remote endpoints call only the owner's local store.
    restarts, eviction and uncertain writes can lose or split counts. The remote
    endpoint uses the existing cookie-authenticated, fully trusted distribution
    boundary; it is not an HTTP endpoint or a new authorization mechanism.
+
+`Counters.Aggregate` is independent of store operations and query execution. Its
+fixed `{name, arity}` allowlist exposes create/merge/resolve/default. Every default
+is an empty mergeable state: resolve it for zero (count and distinct) or nil
+(sum/min/max/avg). Counter sum's empty result is nil, unlike query sum's 0.0.
+Distinct uses Hypex precision 8 with fixed 256-byte bitstring registers; query
+distinct stays precision 14. Average keeps `{sum, count}` and skips empty states
+without arithmetic, preserving signed zero. Float overflow is absorbing;
+integer sum wraps through `Query.Numeric`, while average keeps exact integer sums.
+Floating-point rounding/cancellation, overflow and wrapping mixed with floats
+preclude universal associativity. Min/max share query ordering, with the right
+state winning ties, including the type of equal integer/float values.
+
+Bucket callers merge states, compare with the prior state using `===` to skip
+unchanged writes, then resolve once. Count values returned by native increments
+must also be resolved to apply int64 output bounds. Keep historical query
+aggregate sharing as separate follow-up work, and do not wire rules here.
+The numeric merge/resolve clauses mirror query aggregates; keep their overflow
+policy changes aligned until that sharing work is done.

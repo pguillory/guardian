@@ -1,9 +1,9 @@
 # ingest-rules: SET and UNSET rules run on incoming events, stored as files
 
-Status: phase 1 (SET and UNSET) done. Counter C1 (the node-local ETS store) and
-C2 (bounded cluster ownership) are implemented. TRACK and LOOKUP's settled v1
-design and reviewed four-piece implementation plan are below; C3–C4 and the
-statements themselves are not yet built.
+Status: phase 1 (SET and UNSET) done. Counter C1 (the node-local ETS store),
+C2 (bounded cluster ownership) and C3 (aggregate operators) are implemented.
+TRACK and LOOKUP's settled v1 design and reviewed four-piece implementation plan
+are below; C4 and the statements themselves are not yet built.
 The phase 1 open questions were settled on the recommendations below.
 Each was first kept switchable through app env (`:rules_on_failure`,
 `:rules_invalid_at_boot`); once confirmed, the switches and the alternatives they
@@ -541,6 +541,23 @@ the member list once per event from this node and its connected peers. Do not ca
    boundary. Product spec impact: none until statements are enabled in C4.
 
 ### C3: mergeable aggregate operators
+
+Implemented: `Counters.Aggregate`, a pure operator API with no store or rule
+wiring. Product spec impact: none until C4; TRACK/LOOKUP are not yet available.
+Operators are `{string_name, arity}` tuples from `operators/0`. `create/2` takes
+one event's list of arguments. Callers compare merged states with the prior state
+using `===` before deciding whether to write; all count states, including native
+increment results, pass through `resolve/2` for int64 output bounds.
+
+Empty sum is nil (unlike query sum's 0.0), empty average is `{0, 0}`, and empty
+distinct is a Hypex precision-8 sketch using fixed 256-byte bitstring registers in
+the pinned library. Average preserves exact integer sums, ignores empty states
+without changing signed zero, and weights merged buckets by count. Min/max retain
+query ordering and right-biased ties, including the winning numeric type. Integer
+sum wrapping and absorbing float overflow match query aggregates. Floating-point
+rounding and cancellation, overflow, and mixed integer wrapping mean regrouping
+can change a numeric result. Query aggregates and their precision-14 distinct
+sketches are unchanged. Historical aggregate sharing remains deferred.
 
 Build a counter aggregate interface independent of query execution:
 `create(operator, values)`, `merge(operator, left, right)`,

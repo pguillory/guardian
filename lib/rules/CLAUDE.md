@@ -54,8 +54,9 @@ Rules to keep:
 8. Statement words are contextual (see `lib/ast/CLAUDE.md`); TRACK and LOOKUP will be
    new statement kinds in the same grammar, plan and dependency graph. Where TRACK
    counter state lives is settled in the change document: Counters.Store provides
-   node-local ETS storage; clustering, aggregates and rule integration follow as
-   separate pieces. Counter failures will fail open without changing SET/UNSET's
+   node-local ETS storage, Counters.Cluster provides bounded cluster ownership,
+   and Counters.Aggregate provides pure mergeable operators. Rule integration
+   follows separately. Counter failures will fail open without changing SET/UNSET's
    fail-closed behavior. Read the reviewed plan before implementing those pieces.
 
 Tests use `RulesTestHelper` (shared server, so `async: false`) and `FakeS3`, which

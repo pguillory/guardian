@@ -60,7 +60,7 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       1. [x] C1: node-local ETS get/get_many/gets/cas/incr, per-key TTLs, memory
          budget and oldest-half eviction
       2. [x] C2: consistent owner hashing, bounded remote operations and fail open
-      3. [ ] C3: mergeable count, distinct (HyperLogLog), sum, min, max and avg
+      3. [x] C3: mergeable count, distinct (HyperLogLog), sum, min, max and avg
       4. [ ] C4: TRACK/LOOKUP grammar, validation, bucket policy and rule execution
          Also improve quiet expiry throughput and isolate counter restart failures
          from the main supervisor's restart intensity.
