@@ -349,18 +349,21 @@ defmodule Guardian.Rules.CounterPlanTest do
     refute hd(plan(%{"u/a.gsql" => base}, "u").steps).identity == first.identity
   end
 
-  test "counter identities and base plan hashes match the precomputed-definition baseline" do
-    # Captured before TRACK definitions were prepared ahead of event execution.
-    # These constants are independent of the current hash implementation.
+  test "counter identities and plan hashes match fixed baselines" do
+    # Identities and base hashes were captured before TRACK definitions were prepared
+    # ahead of event execution. Resolved hashes use the deterministic encoding, so
+    # they are fixed for the supported OTP major rather than per VM start.
     cases = [
       {
         %{"t/a.gsql" => "TRACK c = count() LAST '1h'"},
+        %{"t" => "e4d21dffec95c187aef4b97d76ffe75bab3ea57e23325b45bc764740db523f0f"},
         %{"t" => "e4d21dffec95c187aef4b97d76ffe75bab3ea57e23325b45bc764740db523f0f"},
         %{{"t", "c"} => "e8ac9500f406c914eb128c26f98529eccbcc1eb337576f4d9f689c6b46328526"}
       },
       {
         %{"t/a.gsql" => "TRACK c = count() LAST '1h'; LOOKUP prior = c"},
         %{"t" => "ae8df3b7d1843047ac6943ad9c90794503fe58b21796ab9ba6874f0a818528d9"},
+        %{"t" => "0015f4ce791aa0124de5a470bff1aead9d5708c678ff71d4826f0e16b9571e49"},
         %{{"t", "c"} => "e8ac9500f406c914eb128c26f98529eccbcc1eb337576f4d9f689c6b46328526"}
       },
       {
@@ -371,6 +374,10 @@ defmodule Guardian.Rules.CounterPlanTest do
         %{
           "a" => "9321d45179e41ea5030c090706d62e5519464829545c081a1edc0ec533c1ad11",
           "t" => "389a61bb2fca71a20cec7104c3b5e31b39944b63063152319d6f7df1802bac60",
+        },
+        %{
+          "a" => "9321d45179e41ea5030c090706d62e5519464829545c081a1edc0ec533c1ad11",
+          "t" => "a9f32ff874115ae0033221cc2bd1ade2af54932ee42c23e79943d8b4a2b1c5e7",
         },
         %{{"a", "c"} => "a5125dceae7bbed53c4255675e5b775454b2157d6147d4747c4b2c3d10b3a69e"}
       },
@@ -386,45 +393,37 @@ defmodule Guardian.Rules.CounterPlanTest do
           "t" => "a647f97132fc1a655f648dfc1a3d5b1fcf202f78bd5442fe13f7e3e24ab0b1ec",
         },
         %{
+          "a" => "f58c3a245d02720783a1b1cdcf655d1550e4190cec41714425f4aeb1dda70e5e",
+          "b" => "c1dfcce7f70cad6e6ea33cc0e49a537bbe7c5677f6346e014fa34a912cccf9c7",
+          "t" => "47b5a61bb9f724adfb58bb55188ed9b2a7dbdeaa452448d8959a1ea208768a39",
+        },
+        %{
           {"a", "c"} => "b3e7942e1ffdccc984acb0b77a957b8a944b152a2f336c28a4ec0710674c749e",
           {"b", "d"} => "37f9b833ff44e5873a85dcd0f522cb104059addbb2777a6dbacaf9262b72b481",
         }
       },
     ]
 
-    for {files, hashes, identities} <- cases do
+    for {files, hashes, resolved_hashes, identities} <- cases do
       preparation = RuleSet.prepare(files)
       assert preparation.errors == []
 
       assert Map.new(preparation.candidates, fn {table, {:ok, plan}} -> {table, plan.hash} end) ==
                hashes
 
-      # Compare resolved hashes with the old algorithm within this VM: ETF map
-      # field order can vary with atom load order across VM starts.
+      assert Map.new(preparation.tables, fn {table, {:ok, plan}} -> {table, plan.hash} end) ==
+               resolved_hashes
+
       for {table, {:ok, resolved}} <- preparation.tables do
-        targets =
-          for %Guardian.Rules.Step.Lookup{target: definition} <- resolved.steps do
-            {target_table, field, digest} = definition.identity
-            assert identities[{target_table, field}] == digest
+        lookups = for %Guardian.Rules.Step.Lookup{} = step <- resolved.steps, do: step
 
-            %{
-              __struct__: Guardian.Rules.CounterDefinition,
-              identity: definition.identity,
-              operator: definition.operator,
-              window_ms: definition.window_ms,
-              bucket_ms: definition.bucket_ms,
-              group_arity: definition.group_arity,
-            }
-          end
+        # A plan without LOOKUPs keeps its base hash.
+        if lookups == [], do: assert(resolved.hash == hashes[table])
 
-        legacy_hash =
-          if targets == [],
-            do: hashes[table],
-            else:
-              :crypto.hash(:sha256, :erlang.term_to_binary({hashes[table], targets}))
-              |> Base.encode16(case: :lower)
-
-        assert resolved.hash == legacy_hash
+        for %{target: definition} <- lookups do
+          {target_table, field, digest} = definition.identity
+          assert identities[{target_table, field}] == digest
+        end
       end
 
       actual_identities =
@@ -445,26 +444,9 @@ defmodule Guardian.Rules.CounterPlanTest do
 
     first = plan(files)
 
-    # Reproduce the pre-configuration definition exactly, including its struct
-    # marker. A derived configuration must not reset dependent plan hashes.
-    definition = target(first)
-
-    legacy_target = %{
-      __struct__: Guardian.Rules.CounterDefinition,
-      identity: definition.identity,
-      operator: definition.operator,
-      window_ms: definition.window_ms,
-      bucket_ms: definition.bucket_ms,
-      group_arity: definition.group_arity,
-    }
-
-    {:ok, candidate} = RuleSet.prepare(files).candidates["t"]
-
-    legacy_hash =
-      :crypto.hash(:sha256, :erlang.term_to_binary({candidate.hash, [legacy_target]}))
-      |> Base.encode16(case: :lower)
-
-    assert first.hash == legacy_hash
+    # A fixed deterministic baseline: derived configuration must not reset
+    # dependent plan hashes.
+    assert first.hash == "af17331add04d2d82ea91d666d5278d07dc037f25c5ff827a7cabb067e63d748"
 
     moved =
       files |> Map.delete("a/r.gsql") |> Map.put("a/moved.gsql", "\nTRACK c = count() LAST '1h'")

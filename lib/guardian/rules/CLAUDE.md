@@ -20,10 +20,11 @@ Modules:
 - `Guardian.Rules.DependencyGraph`: deterministic flat ordering and dependency levels with
   the explicit LOOKUP barrier. Resolved plans retain both; levels rebuild after binding.
 - `Guardian.Rules.Resolution`: immutable target definitions and fixed-point invalidity.
+  Resolved plan hashes use deterministic ETF, so they match across VM starts.
 - `Guardian.Rules.CounterDefinition`: immutable target metadata, resolved shared
   aggregate configuration and window/bucket sizes. TRACK steps receive their
   definition after semantic validation; LOOKUPs and Runtime reuse it. `hash_term/1`
-  owns the legacy struct-shaped hash input, excluding derived configuration.
+  owns the target's struct-shaped hash input, excluding derived configuration.
 - `Guardian.Rules.Activation`: pure coherent reload selection, used by Publisher.
 - `Guardian.Rules.Publisher`: synchronous activation/publication and generated-module
   pool ownership, called inside Server's scrubbed callbacks. Recovers prior plans

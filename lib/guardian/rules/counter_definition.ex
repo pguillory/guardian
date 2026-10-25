@@ -37,8 +37,9 @@ defmodule Guardian.Rules.CounterDefinition do
   end
 
   @doc """
-  Legacy struct-shaped plan hash input, excluding derived configuration.
-  Changing these keys or values changes dependent resolved plan hashes.
+  The target's input to dependent resolved plan hashes, excluding derived
+  configuration. Resolution encodes it deterministically. Changing these keys or
+  values changes dependent resolved plan hashes.
   """
   def hash_term(%__MODULE__{} = definition) do
     %{

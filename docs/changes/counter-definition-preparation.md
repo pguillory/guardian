@@ -35,6 +35,7 @@ Resolved hashes are compared within the same VM: the existing ETF map encoding
 can order atom keys differently with VM atom load order. Stabilizing hashes across
 VM starts is separate work; changing that encoding here would change existing
 hashes. This refactor preserves it. Counter identity digests do not use map encoding.
+(Superseded by `plan-hash-determinism.md`.)
 
 No deployment or production verification is included.
 

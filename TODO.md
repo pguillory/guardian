@@ -108,6 +108,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] counter-definition-preparation: prepare immutable TRACK definitions once and
       centralize legacy hash-field selection without changing identities or results
       (`docs/changes/counter-definition-preparation.md`)
+- [x] plan-hash-determinism: encode resolved LOOKUP plan hashes deterministically so
+      they match across VM starts, without changing counter identity or base hashes
+      (`docs/changes/plan-hash-determinism.md`)
 - [x] counter-event-context: type the private Client context and isolate transport
       backend injection in a test-only adapter (`docs/changes/counter-event-context.md`)
 - [x] rules-compiler-metadata: share compiled execution levels and reconstruct

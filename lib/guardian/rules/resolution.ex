@@ -100,6 +100,8 @@ defmodule Guardian.Rules.Resolution do
 
   # Preserve the existing SET/UNSET hash exactly. A LOOKUP's binding adds only its
   # target definition, so moving a target between files does not reset dependents.
+  # Deterministic encoding sorts hash_term's map keys: plain ETF orders small
+  # atom-keyed maps by atom-table index, which varies with VM load order.
   defp hash(base_hash, steps) do
     targets =
       for %Guardian.Rules.Step.Lookup{target: target} <- steps,
@@ -110,7 +112,7 @@ defmodule Guardian.Rules.Resolution do
         base_hash
 
       _ ->
-        :crypto.hash(:sha256, :erlang.term_to_binary({base_hash, targets}))
+        :crypto.hash(:sha256, :erlang.term_to_binary({base_hash, targets}, [:deterministic]))
         |> Base.encode16(case: :lower)
     end
   end

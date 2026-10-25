@@ -440,10 +440,10 @@ validation, rule plans resolve these configurations and prepare each TRACK's
 immutable CounterDefinition once. LOOKUPs bind those same definitions, and Runtime
 reuses them rather than constructing metadata per event. Compiled plans and key
 machines carry the configurations through empty/start/merge/finish without further
-lookups. CounterDefinition owns the legacy struct-shaped input used to hash LOOKUP
-targets, excluding derived configuration. The name/arity remains available for
-diagnostics and native-count dispatch. Derived configurations do not change counter
-identities or dependent plan hashes.
+lookups. CounterDefinition owns the struct-shaped input used to hash LOOKUP
+targets, excluding derived configuration; Resolution encodes it deterministically.
+The name/arity remains available for diagnostics and native-count dispatch. Derived
+configurations do not change counter identities or dependent plan hashes.
 Every aggregate has an empty mergeable state, an exact identity of its merge; a
 query's no-rows default is that state finished, so a missing counter and an empty
 query give the same result (sum's is null). Arbitrary and the top-N family use the
