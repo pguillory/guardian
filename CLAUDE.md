@@ -8,9 +8,11 @@ appropriate section.
 Markdown style: Do not use `**` to highlight list items. Write `1. First thing: text`
 instead.
 
-Guardian modules live under `lib/guardian/`. Every directory there may have a
-CLAUDE.md with subsystem-specific guidance. Read every applicable file from
-`lib/guardian/CLAUDE.md` down to the file's directory before editing that subsystem.
+Guardian modules live under `lib/guardian/`. Before editing any file under `lib/`,
+read every existing CLAUDE.md from `lib/` down to the file's directory (for example,
+`lib/CLAUDE.md` if present, `lib/guardian/CLAUDE.md`, and
+`lib/guardian/query/CLAUDE.md`). Nested
+AGENTS.md files are relative symlinks to the canonical CLAUDE.md beside them.
 
 ## Change Tracking
 

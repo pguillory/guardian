@@ -177,6 +177,10 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Interfaces and operations
 
+- [x] nested-agent-instructions: expose every nested CLAUDE.md through a relative
+      AGENTS.md symlink and require reading all applicable ancestor instructions
+      (`docs/changes/nested-agent-instructions.md`)
+
 - [x] guardian-module-paths: align source, test and compiled-helper paths under
       `guardian/`, preserving subsystem test grouping and updating all path references
       (`docs/changes/guardian-module-paths.md`)

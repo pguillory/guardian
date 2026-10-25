@@ -60,7 +60,8 @@ persisted segment files are named `{table}.{segment_id}.seg`.
 `Guardian.Timestamp.now/0` timestamp. Its `counters_available` field reports counter process
 presence without waiting for counters. Keep it free of external services.
 
-Read the nearest subsystem CLAUDE.md before editing and run the full suite afterward.
+Before editing a file under `lib/`, read every existing CLAUDE.md from `lib/` down
+to the file's directory. Run the full suite afterward.
 
 ## Leaf utilities
 

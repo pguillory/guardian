@@ -10,8 +10,9 @@ at every commit, and how to run Guardian locally.
 
 ## Changes
 
-- Read the nearest `CLAUDE.md` before editing a subsystem. Those files record each
-  subsystem's rules for human and AI contributors alike.
+- Before editing a file under `lib/`, read every existing `CLAUDE.md` from `lib/`
+  down to the file's directory. Those files record each subsystem's rules for
+  human and AI contributors alike; adjacent `AGENTS.md` symlinks share those rules.
 - User-visible behavior is specified in [docs/product](docs/product). The design is in
   [docs/architecture](docs/architecture). Update them in the same change when behavior
   or structure changes.
