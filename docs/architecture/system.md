@@ -494,10 +494,16 @@ The budget excludes temporary copies, mailboxes and the rest of the VM. See
 It delegates batch dispatch to internal `Guardian.Counters.Transport`, which owns
 routing, owner pipelines and bounded guard/worker dispatch. Internal
 `Guardian.Counters.Budget`, independently supervised after Store inside the counter
-subtree, owns event deadlines, failed-wait reservations and cooldown ETS lifecycle;
-its admission and settlement use atomics/ETS directly, never its mailbox. Client takes
-one connected-member snapshot per event, without Storage readiness RPCs. Transport
-chooses the highest SHA-256 rendezvous score for `{identity, group}` and node name.
+subtree, enforces event deadlines and owns failed-wait reservations and cooldown ETS
+lifecycle; its admission and settlement use atomics/ETS directly, never its mailbox. Client takes
+one connected-member snapshot per event, without Storage readiness RPCs. Its typed
+`Guardian.Counters.Context` captures the deadline before membership and carries the
+shared batch handle, operation allowance, cooldown table and store server. Rules.Event
+nests it under counters, separate from private Unix/monotonic arrival coordinates.
+Transport calls Store directly in production; test builds select a libtest adapter
+at compile time for transport probes. No backend tuple handling enters the production
+path. Transport chooses the highest SHA-256 rendezvous score for `{identity, group}`
+and node name.
 Its explicit typed encoding is independent of Erlang external-term format and
 preserves integer/float and signed-zero distinctions. All buckets share one owner.
 Each dependency level expands its counter statements into bucket key machines;

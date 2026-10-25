@@ -779,6 +779,8 @@ defmodule Guardian.Rules.CounterRuntimeTest do
 
     assert_receive {:metadata, first_worker, _, one}
     assert_receive {:metadata, second_worker, _, two}
+    assert %Guardian.Counters.Context{} = one.counters
+    assert %Guardian.Counters.Context{} = two.counters
     refute first_worker == second_worker
     assert one.arrival_ms == first.arrival_ms
     assert two.arrival_ms == second.arrival_ms

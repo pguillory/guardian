@@ -48,8 +48,9 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
 5. Operations check real monotonic deadlines; batch executes at most 4,000 operations
    in order, with a check before each, without rollback or a multi-key snapshot.
    Budget retains its wait budgets/cooldowns and never replays uncertain increments.
-   The internal {backend_module, server} Client store option supports transport
-   probes in libtest; production defaults to Store with no mailbox fallback.
+   Test builds select a libtest batch adapter at compile time; only that adapter
+   interprets the internal {backend_module, server} store option for transport probes.
+   Production calls Store directly, with no backend tuple handling or mailbox fallback.
 6. Return fixed errors; no key/value/exception logging. Housekeeping callback
    failures scrub stacks through `Guardian.Failure.stacktrace/1` and reset the
    store. Status redacts state/messages/logs.
@@ -57,7 +58,10 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    fault injection pauses callers through a libtest clock gate, not the housekeeper.
 
 `Guardian.Counters.Client` is the batched facade used by Rules and Machine. It
-creates the event deadline before snapshotting connected members. Internal
+returns a typed `Guardian.Counters.Context` nested under
+`Guardian.Rules.Event.counters`.
+Context captures the event deadline before snapshotting connected members; private
+Unix/monotonic arrival coordinates remain on Rules.Event, outside the row. Internal
 `Guardian.Counters.Transport` routes `{identity, group_tuple, bucket}` keys with rendezvous
 hashing over identity and group only. Explicit tagged encoding preserves types
 (including integer/float and signed zero), supports JSON lists/maps and nested
@@ -66,7 +70,7 @@ Membership comes from this node plus connected peers, once per event, without
 Storage readiness calls. Remote endpoints call only the owner's local store.
 
 `Guardian.Counters.Budget` is supervised after Store and owns cooldown ETS lifecycle,
-reservations, deadlines and settlement. Its hot path uses atomics/ETS directly;
+reservations, deadline enforcement and settlement. Its hot path uses atomics/ETS directly;
 Transport has no process. Client delegates batch dispatch to Transport, which calls
 Budget before dispatch and after normalized pipeline completion. Settlement unwraps
 the pipeline once; successful stored values are never inspected for errors.

@@ -99,6 +99,11 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] counter-definition-preparation: prepare immutable TRACK definitions once and
       centralize legacy hash-field selection without changing identities or results
       (`docs/changes/counter-definition-preparation.md`)
+- [x] counter-event-context: type the private Client context and isolate transport
+      backend injection in a test-only adapter (`docs/changes/counter-event-context.md`)
+- [ ] counters-monotonic-clock: share the microsecond clock/deadline helpers used by
+      Context, Budget and Transport to make their unit coupling explicit
+      (code review follow-up)
 - [x] rules-open-questions: the failure and invalid-at-boot defaults are confirmed
       and their switches (`:rules_on_failure`, `:rules_invalid_at_boot`) removed
 - [x] rules-server-redaction: Guardian.Rules.Server's formatted status and crash reports

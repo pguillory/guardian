@@ -3,10 +3,17 @@ defmodule Guardian.Counters.Transport do
   Internal owner routing and bounded pipeline transport for Counters.Client.
   Budget owns admission and settlement; this module owns dispatch and cleanup.
   """
-  alias Guardian.Counters.Budget
+  alias Guardian.Counters.{Budget, Context}
+
+  @store_backend Application.compile_env(
+                   :guardian,
+                   [__MODULE__, :store_backend],
+                   Guardian.Counters.Store
+                 )
 
   @doc "Runs indexed operations in concurrent owner pipelines within the shared budgets."
-  def batch(operations, event) when is_map(operations) do
+  @spec batch(map(), Context.t()) :: map()
+  def batch(operations, %Context{} = event) when is_map(operations) do
     {groups, errors} =
       Enum.reduce(operations, {%{}, %{}}, fn {id, operation}, {groups, errors} ->
         case operation_owner(operation, event.members) do
@@ -320,18 +327,10 @@ defmodule Guardian.Counters.Transport do
   end
 
   defp local_operation(operation, store, timeout, deadline) do
-    # Internal backend injection supports transport probes. Distributed peers are
-    # already fully trusted; production always uses Guardian.Counters.Store.
-    {backend, store} =
-      case store do
-        {backend, server} when is_atom(backend) -> {backend, server}
-        server -> {Guardian.Counters.Store, server}
-      end
-
     opts = [server: store, timeout: timeout, deadline: Integer.floor_div(deadline, 1_000)]
 
     case operation do
-      {:batch, operations} -> backend.batch(operations, opts)
+      {:batch, operations} -> @store_backend.batch(operations, opts)
       _ -> {:error, :invalid_request}
     end
   catch

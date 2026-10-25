@@ -22,6 +22,9 @@ if config_env() == :test do
 
   config :guardian, api_key: "guardian_test_api_key"
 
+  # Internal compile-time test seam, not an operator setting. Releases call Store directly.
+  config :guardian, Guardian.Counters.Transport, store_backend: Guardian.CounterTestBackend
+
   # Many tests send malformed queries; the hourly cap has its own test.
   config :guardian, query_parse_errors_per_hour: 1_000_000
 

@@ -6,20 +6,15 @@ defmodule Guardian.Counters.Client do
   per event. Errors remain fixed atoms; Rules supplies aggregate defaults. Never
   retry an uncertain mutation. Transport and Budget are internal collaborators.
   """
-  alias Guardian.Counters.{Budget, Transport}
+  alias Guardian.Counters.{Budget, Context, Transport}
 
+  @spec new_batch() :: Context.batch()
   defdelegate new_batch(), to: Budget
 
   @doc "Test options may shorten deadlines or substitute members/store/cooldown table."
-  def new_event(batch, opts \\ []) do
-    # Start the event deadline before snapshotting membership.
-    budget = Budget.new_event(batch, opts)
+  @spec new_event(Context.batch(), [Context.option()]) :: Context.t()
+  defdelegate new_event(batch, opts \\ []), to: Context, as: :new
 
-    Map.merge(budget, %{
-      members: Keyword.get_lazy(opts, :members, fn -> [node() | Node.list()] end),
-      store: Keyword.get(opts, :store, Guardian.Counters.Store),
-    })
-  end
-
+  @spec batch(map(), Context.t()) :: map()
   defdelegate batch(operations, event), to: Transport
 end

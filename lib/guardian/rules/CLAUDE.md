@@ -33,8 +33,9 @@ Modules:
   failures), threading a `Guardian.Rules.RowIndex` through dependency levels. Internal
   TRACK/LOOKUP dispatch uses bound identities and aggregate defaults on failure.
 - `Guardian.Rules.Event`: private Unix/monotonic arrival coordinates outside the row; Engine
-  captures them before validation. Runner adds a per-event Client context on worker
-  entry, sharing one batch atomics budget across replacement workers.
+  captures them before validation. Runner adds a typed Counters.Context under
+  Event.counters on worker entry, sharing one batch atomics budget across
+  replacement workers.
 - `Guardian.Rules.CounterRuntime`: expands each counter into bucket key machines and
   combines their states chronologically after one shared run_nested per level.
   Any failed bucket defaults its whole statement; missing buckets use empty states.

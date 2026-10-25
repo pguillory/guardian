@@ -1,13 +1,13 @@
 defmodule Guardian.Counters.Budget do
   @moduledoc """
-  Internal failed-wait reservations, deadlines and owner cooldowns for Counters.Client.
+  Internal failed-wait reservations, deadline enforcement and owner cooldowns for Counters.Client.
 
   The GenServer owns only cooldown lifecycle and housekeeping. Admission and
   settlement use atomics and ETS directly, never its mailbox.
   """
   use GenServer
+  alias Guardian.Counters.Context
 
-  @operation_us 50_000
   @minimum_us 10_000
   @cooldown_us 1_000_000
 
@@ -22,17 +22,8 @@ defmodule Guardian.Counters.Budget do
   end
 
   @doc false
-  def new_event(batch, opts \\ []) do
-    %{
-      batch: batch,
-      deadline: now() + min(100_000, Keyword.get(opts, :event_timeout_ms, 100) * 1_000),
-      timeout_us: min(@operation_us, Keyword.get(opts, :timeout_ms, 50) * 1_000),
-      cooldown_table: Keyword.get(opts, :cooldown_table, __MODULE__),
-    }
-  end
-
-  @doc false
-  def reserve(event, owner) do
+  @spec reserve(Context.t(), node()) :: {:ok, integer(), integer()} | :exhausted | :cooldown
+  def reserve(%Context{} = event, owner) do
     if available?(event.cooldown_table, owner) do
       started = now()
 
@@ -46,12 +37,14 @@ defmodule Guardian.Counters.Budget do
   end
 
   @doc false
-  def refund(event, reserved) do
+  @spec refund(Context.t(), integer()) :: :ok
+  def refund(%Context{} = event, reserved) do
     :atomics.add(event.batch, 1, reserved)
   end
 
   @doc false
-  def settle(result, owner, event, started, reserved, completed) do
+  @spec settle(term(), node(), Context.t(), integer(), integer(), integer()) :: term()
+  def settle(result, owner, %Context{} = event, started, reserved, completed) do
     # Unwrap the pipeline once. A successful value can itself contain error tuples.
     responses =
       case result do
