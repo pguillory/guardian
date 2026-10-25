@@ -51,9 +51,15 @@ int64. A float overflow in `merge` (`:error, :badarith`) makes the state `:overf
 which absorbs every later merge, so the overflow survives merging across segments and
 nodes, and `finish` turns it into `nil` (`sum`, `avg`, `Guardian.Aggregation.Moments`). Don't
 let an overflowed state look like an empty one: an empty group can finish to a value.
-A result storage can't hold is null too: `min_n`, `max_n` and their `_by` forms
-finish as `nil` when an item is itself a list of lists, since the result would nest
-three deep.
+A list result storage can't hold is null too. `Guardian.Aggregation.finish/2`
+owns this check for every list result; callbacks return their constructed or
+selected values without revalidating lists. For example, `min_n`, `max_n` and
+their `_by` forms produce `nil` when an item is itself a list of lists, since the
+result would nest three deep.
+Valid lists are returned unchanged. Scalar results pass through verbatim, retaining
+each callback's numeric policy (in particular raw query counts). This is not a
+general scalar storage-validity check. Query column construction and the scalar
+expression backstop still validate values at their own boundaries.
 
 Counter states remain plain terms that can be copied through ETS and erpc without
 resources or process ownership. HLL registers are fixed size; min/max keep one

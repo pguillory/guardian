@@ -24,10 +24,8 @@ defmodule Guardian.Aggregation.MinMaxNBy do
     end)
   end
 
-  # As in min_n and max_n, a result nested deeper than storage holds is null.
   def finish(_extreme, {value_orders, _n}) do
-    values = Enum.map(value_orders, fn {value, _order_value} -> value end)
-    if Guardian.Storage.Value.valid?(values), do: values, else: nil
+    Enum.map(value_orders, fn {value, _order_value} -> value end)
   end
 
   defp name(:min) do

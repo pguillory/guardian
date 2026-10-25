@@ -106,6 +106,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       (`docs/changes/rules-compiler-metadata.md`)
 - [x] rules-publisher: extract synchronous activation/publication and module-pool
       ownership from Server without changing behavior (`docs/changes/rules-publisher.md`)
+- [x] aggregation-finish: centralize list-result storage validity at the shared
+      finish boundary without changing scalar or counter policies
+      (`docs/changes/aggregation-finish.md`)
 - [ ] counters-monotonic-clock: share the microsecond clock/deadline helpers used by
       Context, Budget and Transport to make their unit coupling explicit
       (code review follow-up)

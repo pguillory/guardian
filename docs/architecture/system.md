@@ -441,11 +441,14 @@ Empty mergeable states are distinct from query default results (notably sum's
 nil versus 0.0). Configurations preserve query HLL precision 14/Array versus counter
 precision 8/Bitstring (256 bytes), counter-only int64 count finishing, and average's
 counter-only empty-state shortcuts that retain signed-zero bits. All arithmetic,
-overflow and ordering logic lives in the shared modules. Query-only registrations
-do not enable counters. These states are plain terms safe to copy through ETS and
-distribution; no resources or ownership transfer are involved. HLL registers have
-fixed size; min/max retain one input of variable byte size, while count/avg exact
-integer sizes grow logarithmically with accumulated count/sum. State size is not
+overflow and ordering logic lives in the shared modules. The registry's `finish`
+boundary nulls list results that storage cannot hold, leaving valid lists and all
+scalar results unchanged; scalar range policy remains in each callback. Query-only
+registrations do not enable counters. These states are plain terms safe to copy
+through ETS and distribution; no resources or ownership transfer are involved.
+HLL registers have fixed size; min/max retain one input of variable byte size,
+while count/avg exact integer sizes grow logarithmically with accumulated
+count/sum. State size is not
 an absolute byte constant; Store's payload checks and memory target still apply.
 
 One GenServer owns one public ETS set, with {encoded_key, value, expires_at,

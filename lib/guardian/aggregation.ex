@@ -153,13 +153,29 @@ defmodule Guardian.Aggregation do
     mod.merge(acc1, acc2)
   end
 
-  @doc "The result from a group's accumulator."
+  @doc """
+  The result from a group's accumulator. A list storage cannot hold becomes nil;
+  scalars are returned as the callback produced them.
+  """
   @spec finish(t, term) :: term
   def finish({mod, option}, acc) do
     mod.finish(option, acc)
+    |> finish_result()
   end
 
   def finish(mod, acc) do
     mod.finish(acc)
+    |> finish_result()
+  end
+
+  # Aggregates can add a list layer to valid input values. Check the completed
+  # list once here, keeping the original term when valid. Scalars retain their
+  # callback's policy, including raw query counts outside int64.
+  defp finish_result(value) when is_list(value) do
+    if Guardian.Storage.Value.valid?(value), do: value, else: nil
+  end
+
+  defp finish_result(value) do
+    value
   end
 end

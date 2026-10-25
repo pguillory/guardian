@@ -21,11 +21,8 @@ defmodule Guardian.Aggregation.MinMaxN do
     Ordering.merge_n(name(extreme), acc1, acc2, &Ordering.wins?(extreme, &1, &2))
   end
 
-  # A list of list-of-lists values nests deeper than storage holds
-  # (Guardian.Storage.Value.valid?/1), so it is null, as Guardian.Query.ColumnOrConstant makes any such
-  # expression value.
   def finish(_extreme, {values, _n}) do
-    if Guardian.Storage.Value.valid?(values), do: values, else: nil
+    values
   end
 
   defp name(:min) do
