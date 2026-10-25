@@ -7,143 +7,49 @@ defmodule Guardian.Storage.Column.NIF do
     :ok = :erlang.load_nif(nif_path, 0)
   end
 
-  def max_string_size do
-    exit(:nif_not_loaded)
-  end
+  # One stub per NIF, in the order of nif_funcs[] in src/column.c; load_nif/2
+  # replaces each. Exception: get_value/2 has no C implementation and always exits.
+  @stubs [
+    max_string_size: 0,
+    max_list_length: 0,
+    max_list_depth: 0,
+    new: 1,
+    pad: 2,
+    append: 2,
+    valid_value: 1,
+    pack: 1,
+    packed_size: 1,
+    allocated_size: 1,
+    live_columns: 0,
+    get_value: 2,
+    from_list: 1,
+    to_list: 1,
+    count: 1,
+    null_count: 1,
+    false_count: 1,
+    true_count: 1,
+    int_count: 1,
+    float_count: 1,
+    string_count: 1,
+    metadata: 1,
+    filter: 2,
+    add: 2,
+    subtract: 2,
+    multiply: 2,
+    divide: 2,
+    and_oper: 2,
+    or_oper: 2,
+    not_oper: 1,
+    min_max_number: 1,
+    number_to_false: 1,
+    number_to_true: 1,
+    to_boolean: 1,
+    to_string: 1,
+  ]
 
-  def max_list_length do
-    exit(:nif_not_loaded)
-  end
-
-  def max_list_depth do
-    exit(:nif_not_loaded)
-  end
-
-  def new(_capacity) do
-    exit(:nif_not_loaded)
-  end
-
-  def pad(_column, _count) do
-    exit(:nif_not_loaded)
-  end
-
-  def append(_column, _value) do
-    exit(:nif_not_loaded)
-  end
-
-  def valid_value(_value) do
-    exit(:nif_not_loaded)
-  end
-
-  def pack(_column) do
-    exit(:nif_not_loaded)
-  end
-
-  def packed_size(_column) do
-    exit(:nif_not_loaded)
-  end
-
-  def allocated_size(_column) do
-    exit(:nif_not_loaded)
-  end
-
-  def live_columns do
-    exit(:nif_not_loaded)
-  end
-
-  def get_value(_column, _offset) do
-    exit(:nif_not_loaded)
-  end
-
-  def from_list(_column) do
-    exit(:nif_not_loaded)
-  end
-
-  def to_list(_column) do
-    exit(:nif_not_loaded)
-  end
-
-  def count(_column) do
-    exit(:nif_not_loaded)
-  end
-
-  def null_count(_column) do
-    exit(:nif_not_loaded)
-  end
-
-  def false_count(_column) do
-    exit(:nif_not_loaded)
-  end
-
-  def true_count(_column) do
-    exit(:nif_not_loaded)
-  end
-
-  def int_count(_column) do
-    exit(:nif_not_loaded)
-  end
-
-  def float_count(_column) do
-    exit(:nif_not_loaded)
-  end
-
-  def string_count(_column) do
-    exit(:nif_not_loaded)
-  end
-
-  def metadata(_column) do
-    exit(:nif_not_loaded)
-  end
-
-  def filter(_column1, _column2) do
-    exit(:nif_not_loaded)
-  end
-
-  def add(_column1, _column2) do
-    exit(:nif_not_loaded)
-  end
-
-  def subtract(_column1, _column2) do
-    exit(:nif_not_loaded)
-  end
-
-  def multiply(_column1, _column2) do
-    exit(:nif_not_loaded)
-  end
-
-  def divide(_column1, _column2) do
-    exit(:nif_not_loaded)
-  end
-
-  def and_oper(_column1, _column2) do
-    exit(:nif_not_loaded)
-  end
-
-  def or_oper(_column1, _column2) do
-    exit(:nif_not_loaded)
-  end
-
-  def not_oper(_column1) do
-    exit(:nif_not_loaded)
-  end
-
-  def min_max_number(_column) do
-    exit(:nif_not_loaded)
-  end
-
-  def number_to_false(_column) do
-    exit(:nif_not_loaded)
-  end
-
-  def number_to_true(_column) do
-    exit(:nif_not_loaded)
-  end
-
-  def to_boolean(_column) do
-    exit(:nif_not_loaded)
-  end
-
-  def to_string(_column) do
-    exit(:nif_not_loaded)
+  for {name, arity} <- @stubs do
+    def unquote(name)(unquote_splicing(List.duplicate(Macro.var(:_, __MODULE__), arity))) do
+      exit(:nif_not_loaded)
+    end
   end
 end

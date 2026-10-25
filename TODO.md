@@ -164,6 +164,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [ ] sweep-stale-temp-segments: a crash between writing and renaming a segment leaves
       its `{final}.{n}.tmp` file in the segment directory forever (ignored by the
       loader); remove stale temp files at startup
+- [x] nif-stub-list: `Guardian.Storage.Column.NIF` generates its stubs from one
+      name/arity list that mirrors `nif_funcs[]` in `src/column.c`, plus the existing
+      `get_value/2` stub
 
 ## Queries
 

@@ -17,7 +17,8 @@ Columns in Guardian are NIF-backed (Native Implemented Functions in C) for perfo
 
 **What it does**:
 - Loads the compiled C NIF from `priv/column` at module initialization
-- Defines function stubs that error if the NIF fails to load
+- Generates a stub for each `name: arity` in its `@stubs` list; a stub exits if the NIF
+  fails to load
 - Acts as the bridge between Elixir and the native C code in `/src/column.c`
 
 **Key functions**:
@@ -207,7 +208,7 @@ The parent `lib/guardian/storage/column.ex` module:
 
 ### When modifying this code:
 
-1. **Never modify NIF stubs**: The function stubs in `nif.ex` must match the native implementation in `/src/column.c`. Changes require modifying both files.
+1. **Keep the stub list and the C table in step**: the `@stubs` list in `nif.ex` must match `nif_funcs[]` in `/src/column.c` by name and arity (except `get_value/2`, which has no C implementation yet). Changes require modifying both files.
 
 2. **Metadata tuple order is fixed**: The 8-element tuple structure is hardcoded in multiple places. Changing it requires updates to:
    - `metadata.ex` macro
@@ -243,12 +244,7 @@ The parent `lib/guardian/storage/column.ex` module:
 
 If the operation can be done in C (recommended for performance):
 
-1. Add stub to `nif.ex`:
-   ```elixir
-   def my_operation(_column) do
-     exit(:nif_not_loaded)
-   end
-   ```
+1. Add `my_operation: 1` to the `@stubs` list in `nif.ex`, in `nif_funcs[]` order
 
 2. Implement in `/src/column.c` following existing patterns
 
