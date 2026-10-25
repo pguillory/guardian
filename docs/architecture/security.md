@@ -421,7 +421,7 @@ and no single request that takes the service down or destroys stored data.
    RPC exceptions become fixed error atoms.
    Store and routing have a disposable supervisor whose linked lifecycle owner
    traps its exits and retries with backoff; counter crash loops cannot exhaust
-   Main's restart intensity. The owner's down/recovery messages use only fixed
+   Guardian.Application's restart intensity. The owner's down/recovery messages use only fixed
    reason categories, never arbitrary exit/startup terms; its formatted status
    redacts state, messages, logs and reasons. Process presence is sampled in
    `system_stats.counters_available`; `/health` remains Storage-only.

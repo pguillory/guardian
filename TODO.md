@@ -70,7 +70,7 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
            - [x] Prerequisite: separate typed steps, scalar validation and dependency ordering
          3. [x] Prerequisite: quiet expiry catches up in immediate pages and
            reclaims expiry before live eviction; counter crash loops are isolated
-           from Main, with automatic backoff recovery and availability metrics
+           from Guardian.Application, with automatic backoff recovery and availability metrics
          4. [x] C4c: execution, buckets, arrival metadata, limits/config, live coherent
            reloads/restart metadata and product docs
            1. [x] C4c1: Server activation selection, bounded recoverable module-plan
@@ -180,7 +180,7 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] guardian-module-paths: align source, test and compiled-helper paths under
       `guardian/`, preserving subsystem test grouping and updating all path references
       (`docs/changes/guardian-module-paths.md`)
-- [ ] guardian-application-name: rename the application callback to
+- [x] guardian-application-name: rename the application callback to
       `Guardian.Application` after the path moves (`docs/changes/guardian-module-paths.md`)
 - [x] guardian-namespace: qualify every owned module under `Guardian.*`, including
       web modules, native entry points and the compiled rule pool; preserve disk

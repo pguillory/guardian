@@ -83,7 +83,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
 
     test "a stopped recorder is logged and the caller still gets the parse error 500" do
       sql = bad_sql()
-      :ok = Supervisor.terminate_child(Guardian.Main, QueryParseErrors)
+      :ok = Supervisor.terminate_child(Guardian.Application, QueryParseErrors)
 
       try do
         log =
@@ -93,7 +93,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
 
         assert log =~ "Failed to record a http query parse error: the recorder is not running"
       after
-        {:ok, _} = Supervisor.restart_child(Guardian.Main, QueryParseErrors)
+        {:ok, _} = Supervisor.restart_child(Guardian.Application, QueryParseErrors)
       end
 
       assert rows_for(sql) == []

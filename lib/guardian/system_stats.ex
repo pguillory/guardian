@@ -39,7 +39,7 @@ defmodule Guardian.SystemStats do
   end
 
   # A write that fails (Storage restarting, say) is skipped rather than crashing this
-  # process every second, which would use up Main's restart budget while Storage
+  # process every second, which would use up Guardian.Application's restart budget while Storage
   # recovers. The failure is logged once, and so is the recovery.
   defp record_tick(state) do
     case Guardian.Engine.try_log_event("system_stats", metrics()) do

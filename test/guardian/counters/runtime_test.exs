@@ -73,7 +73,7 @@ defmodule Guardian.Counters.RuntimeTest do
     :sys.get_state(owner)
   end
 
-  test "one child failure restarts only that child, with siblings and Main's equivalent intact" do
+  test "one child failure restarts only that child, preserving siblings and the application supervisor" do
     {root, owner, sibling} = start_runtime()
     subtree = Process.whereis(:counter_runtime_supervisor)
 

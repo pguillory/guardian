@@ -8,7 +8,7 @@ Every Guardian-owned module and protocol belongs under `Guardian.*`, including
 `Guardian.Web.*`. External protocol implementations retain the external protocol's
 prefix. Keep the Mix application and its configuration under `:guardian`.
 
-- `Guardian.Main`: starts Guardian.Rules.Server (first, so a bad rule store fails
+- `Guardian.Application`: starts Guardian.Rules.Server (first, so a bad rule store fails
   startup fast), Guardian.Counters.Restarter, Guardian.Storage,
   Guardian.SystemStats, Guardian.Web.QueryParseErrors, Guardian.Web.QueryLog,
   Guardian.Web.IngestIdempotency, Guardian.Web, and DNS peer discovery (only when
@@ -21,7 +21,7 @@ prefix. Keep the Mix application and its configuration under `:guardian`.
   a memory budget (`lib/guardian/counters/CLAUDE.md`); TRACK/LOOKUP run through Rules using
   bounded owner routing and fail-open defaults.
 - `Guardian.Counters.Restarter`: owns the disposable Store/Cluster supervisor and recovers
-  it with backoff, so counter crash loops cannot exhaust Main's restart intensity.
+  it with backoff, so counter crash loops cannot exhaust Guardian.Application's restart intensity.
 - `Guardian.Storage`: custom columnar segment storage.
 - `Guardian.Query`: plans and executes SQL-like queries. `Guardian.Query.Limits` holds the per-query
   bounds, including the per-process heap limit (`GUARDIAN_QUERY_MAX_HEAP_MB`) on the

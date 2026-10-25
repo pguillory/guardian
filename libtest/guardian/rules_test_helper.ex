@@ -33,17 +33,17 @@ defmodule Guardian.RulesTestHelper do
       Application.delete_env(:guardian, :rules_store)
       for {key, _} <- app_env, do: Application.delete_env(:guardian, key)
       stop_server()
-      {:ok, _} = Supervisor.restart_child(Guardian.Main, Guardian.Rules.Server)
+      {:ok, _} = Supervisor.restart_child(Guardian.Application, Guardian.Rules.Server)
     end)
 
     stop_server()
     if store, do: Application.put_env(:guardian, :rules_store, store)
     for {key, value} <- app_env, do: Application.put_env(:guardian, key, value)
-    Supervisor.restart_child(Guardian.Main, Guardian.Rules.Server)
+    Supervisor.restart_child(Guardian.Application, Guardian.Rules.Server)
   end
 
   defp stop_server do
-    _ = Supervisor.terminate_child(Guardian.Main, Guardian.Rules.Server)
+    _ = Supervisor.terminate_child(Guardian.Application, Guardian.Rules.Server)
     :persistent_term.erase({Guardian.Rules, :tables})
   end
 

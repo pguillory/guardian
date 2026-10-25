@@ -19,7 +19,7 @@ defmodule Guardian.SystemStatsTest do
 
   test "counter availability is visible in metrics while health remains Storage-only" do
     assert Keyword.fetch!(Guardian.SystemStats.metrics(), :counters_available) == true
-    :ok = Supervisor.terminate_child(Guardian.Main, Guardian.Counters.Restarter)
+    :ok = Supervisor.terminate_child(Guardian.Application, Guardian.Counters.Restarter)
 
     try do
       assert Keyword.fetch!(Guardian.SystemStats.metrics(), :counters_available) == false
@@ -27,7 +27,7 @@ defmodule Guardian.SystemStatsTest do
       assert conn.status == 200
       assert conn.resp_body == "ok"
     after
-      {:ok, _} = Supervisor.restart_child(Guardian.Main, Guardian.Counters.Restarter)
+      {:ok, _} = Supervisor.restart_child(Guardian.Application, Guardian.Counters.Restarter)
     end
 
     assert Keyword.fetch!(Guardian.SystemStats.metrics(), :counters_available) == true

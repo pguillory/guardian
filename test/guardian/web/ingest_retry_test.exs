@@ -141,7 +141,7 @@ defmodule Guardian.Web.IngestRetryTest do
 
   test "a stopped coordinator preserves valid HTTP ingestion" do
     server = Guardian.Web.IngestIdempotency
-    :ok = Supervisor.terminate_child(Guardian.Main, server)
+    :ok = Supervisor.terminate_child(Guardian.Application, server)
 
     try do
       table = table()
@@ -151,7 +151,7 @@ defmodule Guardian.Web.IngestRetryTest do
       assert {200, %{"results" => [_]}} = post(params)
       assert Guardian.Storage.dump_table(table) == [event, event]
     after
-      {:ok, _pid} = Supervisor.restart_child(Guardian.Main, server)
+      {:ok, _pid} = Supervisor.restart_child(Guardian.Application, server)
     end
   end
 end

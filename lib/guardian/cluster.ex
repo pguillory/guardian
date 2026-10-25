@@ -2,7 +2,7 @@ defmodule Guardian.Cluster do
   @moduledoc """
   Distributed query coordination across connected Guardian nodes.
 
-  Discovery is handled by `DNSCluster`, started by `Guardian.Main` when
+  Discovery is handled by `DNSCluster`, started by `Guardian.Application` when
   `:guardian, :dns_cluster_query` is set (`DNS_CLUSTER_QUERY`; on Fly.io,
   `<app>.internal` by default). Every node
   keeps its own segments on local disk; queries fan out to the nodes connected at the

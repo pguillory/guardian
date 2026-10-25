@@ -297,7 +297,7 @@ defmodule Guardian.Rules.ServerTest do
   test "a crash while writing never logs the source: not the message, state or reason" do
     {:ok, _} = restart_server({CrashingStore, nil})
     # A saved rule, in the state and in the debug log the first crash reports. Two
-    # crashes only: a third within 5 s would exceed Main's restart intensity.
+    # crashes only: a third within 5 s would exceed Guardian.Application's restart intensity.
     saved = "MARKER-#{System.unique_integer([:positive])}"
     :ok = :sys.log(Guardian.Rules.Server, true)
     assert {:ok, _} = Guardian.Rules.write_rule("t", "ok", "SET x = '#{saved}'")
@@ -410,10 +410,10 @@ defmodule Guardian.Rules.ServerTest do
     assert :ok = Guardian.Rules.Store.delete(Guardian.FakeS3.store(s3), "#{deleted}/a.gsql")
 
     ExUnit.CaptureLog.capture_log(fn ->
-      assert :ok = Supervisor.terminate_child(Guardian.Main, Guardian.Rules.Server)
+      assert :ok = Supervisor.terminate_child(Guardian.Application, Guardian.Rules.Server)
       assert Guardian.Rules.lookup(table) == module
       assert module.plan() == plan
-      assert {:ok, _} = Supervisor.restart_child(Guardian.Main, Guardian.Rules.Server)
+      assert {:ok, _} = Supervisor.restart_child(Guardian.Application, Guardian.Rules.Server)
       assert :ok = Guardian.Rules.reload()
     end)
 
@@ -452,12 +452,12 @@ defmodule Guardian.Rules.ServerTest do
     assert {:ok, _} = Guardian.Rules.write_rule(table, "a", "SET x = 1")
     module = Guardian.Rules.lookup(table)
     plan = module.plan()
-    assert :ok = Supervisor.terminate_child(Guardian.Main, Guardian.Rules.Server)
+    assert :ok = Supervisor.terminate_child(Guardian.Application, Guardian.Rules.Server)
     Guardian.FakeS3.fault(s3, {:status, 503})
 
     log =
       ExUnit.CaptureLog.capture_log(fn ->
-        assert {:ok, _} = Supervisor.restart_child(Guardian.Main, Guardian.Rules.Server)
+        assert {:ok, _} = Supervisor.restart_child(Guardian.Application, Guardian.Rules.Server)
         assert %{stale: true, files: files} = :sys.get_state(Guardian.Rules.Server)
         assert files == %{}
         Logger.flush()

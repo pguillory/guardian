@@ -49,7 +49,7 @@ defmodule Guardian.MixProject do
 
   def application do
     [
-      mod: {Guardian.Main, []},
+      mod: {Guardian.Application, []},
       extra_applications: [:logger, :runtime_tools, :xmerl],
     ]
   end

@@ -212,8 +212,8 @@ defmodule Guardian.Rules.CounterReloadTest do
     Guardian.FakeS3.put_object(s3, "#{b}/r.gsql", "SET")
 
     ExUnit.CaptureLog.capture_log(fn ->
-      assert :ok = Supervisor.terminate_child(Guardian.Main, Guardian.Rules.Server)
-      assert {:ok, _} = Supervisor.restart_child(Guardian.Main, Guardian.Rules.Server)
+      assert :ok = Supervisor.terminate_child(Guardian.Application, Guardian.Rules.Server)
+      assert {:ok, _} = Supervisor.restart_child(Guardian.Application, Guardian.Rules.Server)
       assert :ok = Guardian.Rules.reload()
     end)
 
@@ -221,11 +221,11 @@ defmodule Guardian.Rules.CounterReloadTest do
     assert ingest(a)["hits"] == 2
     assert ingest(b)["prior"] == 2
 
-    assert :ok = Supervisor.terminate_child(Guardian.Main, Guardian.Rules.Server)
+    assert :ok = Supervisor.terminate_child(Guardian.Application, Guardian.Rules.Server)
     Guardian.FakeS3.fault(s3, {:status, 503})
 
     ExUnit.CaptureLog.capture_log(fn ->
-      assert {:ok, _} = Supervisor.restart_child(Guardian.Main, Guardian.Rules.Server)
+      assert {:ok, _} = Supervisor.restart_child(Guardian.Application, Guardian.Rules.Server)
       assert :sys.get_state(Guardian.Rules.Server).stale
     end)
 

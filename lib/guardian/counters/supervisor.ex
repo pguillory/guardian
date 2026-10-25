@@ -1,7 +1,7 @@
 defmodule Guardian.Counters.Supervisor do
   @moduledoc """
   A disposable restart boundary for advisory counters. Guardian.Counters.Restarter owns
-  its lifecycle and brings it back with backoff, without spending Main's restarts.
+  its lifecycle and brings it back with backoff, without spending Guardian.Application's restarts.
   """
   use Supervisor
 

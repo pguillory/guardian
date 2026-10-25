@@ -65,7 +65,7 @@ defmodule Guardian.Storage do
   # with room left for the other children. FullSegments and LoadedSegments trap exits
   # and stop their segments in `terminate/2` within the default 5 s each (about 12 ms
   # for 1,100 loaded segments), so the worst case is 110 s, leaving at least 20 s for
-  # the children of Main that stop before Storage (they normally stop at once). Past
+  # the children of Guardian.Application that stop before Storage (they normally stop at once). Past
   # its budget, a manager is killed and its links kill its segments.
   @mutable_segments_shutdown_ms 10_000
   @persisted_segments_shutdown_ms 90_000

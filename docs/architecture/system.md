@@ -71,11 +71,11 @@ The design follows from the product commitments (spec section 1):
 
 ### 2.1 The supervision tree
 
-`Guardian.Main` (the application module) starts these children in order, under a
+`Guardian.Application` (the application module) starts these children in order, under a
 `:one_for_one` supervisor:
 
 ```text
-Main (one_for_one)
+Guardian.Application (one_for_one)
 ├── Guardian.Rules.Server                     loads the rule store, publishes compiled rules, polls each minute
 ├── Guardian.Counters.Restarter               trapping lifecycle owner; backs off subtree recovery
 │   └── Guardian.Counters.Supervisor (one_for_one)
@@ -151,19 +151,19 @@ SIGTERM and a kill: on Fly, `fly.toml`'s 150-second `kill_timeout` covers it aft
 it is killed; section 10.1), leaving at least 20 s for the processes that stop before
 Guardian.Storage.
 
-`Guardian.Main` uses the default restart intensity (3 restarts in 5 seconds). The release starts
+`Guardian.Application` uses the default restart intensity (3 restarts in 5 seconds). The release starts
 the application as permanent, so if Storage or Web keeps crashing the VM exits, and the
 deployment's supervisor restarts it (on Fly, `[[restart]] policy = "always"`).
 
 Counter failures use a separate restart boundary. Guardian.Counters.Supervisor restarts each
 child independently, with its own 3-in-5-second intensity. Guardian.Counters.Restarter traps
 the linked subtree's exits, so even exhaustion (which exits with `:shutdown`) never
-spends Main's restart allowance. It logs an error with a fixed reason category and
+spends Guardian.Application's restart allowance. It logs an error with a fixed reason category and
 retries after 15 seconds, doubling after each failed start or short-lived recovery
 to a four-minute cap. One continuously healthy minute resets the delay. Failed
 starts retry without crashing the owner, including when a prior owner's subtree
 still holds names; it never adopts an old generation. A recovery logs at info.
-On orderly shutdown Main stops the stable owner, which synchronously stops its
+On orderly shutdown Guardian.Application stops the stable owner, which synchronously stops its
 subtree before exiting; no counter failure is logged and no retry survives.
 The owner has an infinite shutdown budget for this cleanup, while its two leaf
 children each retain the default five-second budget.
@@ -1114,7 +1114,7 @@ Guardian observes itself by writing ordinary tables through `Guardian.Engine.log
 ## 7. Clustering
 
 Every node is a distributed Erlang node. `rel/env.sh.eex` names it in one of three
-modes, and `DNSCluster` (the `dns_cluster` library, started by `Guardian.Main` through
+modes, and `DNSCluster` (the `dns_cluster` library, started by `Guardian.Application` through
 `Guardian.Cluster.discovery_child_spec/1`) finds peers when a discovery name is set:
 
 1. Single node (neither `GUARDIAN_NODE_HOST` nor `FLY_PRIVATE_IP` set): the short name
@@ -1206,7 +1206,7 @@ requests.
    Restoring is an operator procedure, and the rescan picks up restored files. Restore a file by writing it under a temporary name
    and renaming it into place: overwriting a mapped file in place can crash the VM.
 6. Availability: at startup a machine serves nothing until all its segments are
-   loaded. After startup, `Guardian.Main` is `:one_for_one`, so if the Storage subtree crashes
+   loaded. After startup, `Guardian.Application` is `:one_for_one`, so if the Storage subtree crashes
    and restarts, the HTTP listener keeps running and requests that need Storage fail;
    `GET /health` answers 503 until Storage has restarted and reloaded, so a health
    check (Fly's, or a load balancer's) reports the machine unhealthy meanwhile. With
@@ -1500,7 +1500,7 @@ synchronous request logging (3.3).
 
 ## 13. How this was checked
 
-Written from the code: `lib/guardian/main.ex`, every module under `lib/guardian/storage/`,
+Written from the code: `lib/guardian/application.ex`, every module under `lib/guardian/storage/`,
 `lib/guardian/engine.ex`, `lib/guardian/query.ex` and `lib/guardian/query/`, `lib/guardian/web/` and `lib/guardian/web/mcp/`,
 `lib/guardian/cluster.ex` and `lib/guardian/cluster/`, `src/*.c` (headers and setup paths of `mmap.c`), `config/`, `rel/`, `bin/fly-start`, `Dockerfile`,
 `fly.toml`, `Makefile`, and the test helpers.

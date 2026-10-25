@@ -1,9 +1,11 @@
 # Guardian module paths and application name
 
-Status: path moves complete; application callback rename pending.
+Status: complete.
 
 Product spec impact: none. Overview impact: none. Reference links in the product
 spec follow the moved query-language resource; application behavior is unchanged.
+Security architecture impact: none; only source/test paths and the application
+supervisor's name change in its references.
 
 ## Path alignment
 
@@ -27,9 +29,12 @@ formatter and test-discovery paths already include these subdirectories.
 
 ## Application callback
 
-The following commit will rename `Guardian.Main` to `Guardian.Application`,
-including the Mix callback, registered supervisor references, documentation and
-comments. Child order, restart strategy and startup behavior stay the same.
+The second commit names the application callback `Guardian.Application`, including
+the Mix callback, registered supervisor references, documentation and comments.
+Child order, restart strategy and startup behavior stay the same.
+Operator shell calls that address the application supervisor and diagnostics that
+name it now use `Guardian.Application`. Apply the change through a full release
+restart, as with the preceding namespace transition.
 
 ## Validation
 
@@ -40,6 +45,12 @@ configuration, golden fixtures and the segment race subprocess. Fixtures and the
 test bootstrap were checked byte for byte against the starting tree; no stale exact
 file-path references remained.
 
-One final pre-commit checks formatting, test compilation with warnings as errors
-and the full suite on the combined result, after independent plan and code review.
-That full run does not independently validate the intermediate path-only commit.
+After the callback rename, 93 focused tests passed with zero failures, covering the
+application namespace, counter supervision, rule reloads, stats, ingest retries and
+query recorders. No references to the former callback module remained.
+
+The final pre-commit passed formatting, test compilation with warnings as errors
+and the full suite on the combined result: 1,174 tests, zero failures and three
+excluded large tests. Independent Claude and Codex plan and code reviews approved
+both commit partitions. That full run does not independently validate the
+intermediate path-only commit.

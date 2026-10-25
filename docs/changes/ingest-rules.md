@@ -655,7 +655,7 @@ Implementation order (all completed):
    identities and pure coherent reload selection. Counter statements were still unavailable.
 2. Prerequisite (C1 follow-ups), implemented: quiet expiry catches up in immediate
    pages and capacity reclaims expiry first; counter crash loops recover separately
-   from Main as described below.
+   from Guardian.Application as described below.
 3. C4c1, implemented: Server activation selection and bounded recoverable module
    metadata, with unresolved-plan safety. Product spec impact: none.
 4. C4c2, implemented: internal execution, buckets, private arrival metadata and
@@ -771,7 +771,7 @@ capacity reclamation, like existing bulk eviction, can outlast callers; the boun
 cluster operation/cooldown contract still applies.
 
 Store and Cluster now run inside Guardian.Counters.Supervisor, owned by a trapping
-Guardian.Counters.Restarter rather than directly under Guardian.Main. Local 3-in-5-second restart
+Guardian.Counters.Restarter rather than directly under Guardian.Application. Local 3-in-5-second restart
 exhaustion shuts down only counters. The owner logs a fixed error reason and retries
 with capped exponential backoff, reset by a healthy stretch (timing is specified in
 `docs/architecture/system.md` section 2.1).

@@ -42,7 +42,7 @@ fail to parse, capped at 60 an hour.
      failed) since its previous recorded row; normally 0.
 3. Recording never changes or fails a response, and never makes the caller wait on
    Storage: the request process builds the row and casts it to a recorder process
-   (`Guardian.Web.QueryLog`, a GenServer under Main beside `Guardian.Web.QueryParseErrors`), which
+   (`Guardian.Web.QueryLog`, a GenServer under Guardian.Application beside `Guardian.Web.QueryParseErrors`), which
    writes it with `Guardian.Engine.try_log_event/2`. The response is the same as before for
    every outcome; raises, exits and throws are reraised with `:erlang.raise/3` and
    their original stacktrace. If the recorder's mailbox already holds 1,000 rows

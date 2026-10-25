@@ -5,7 +5,7 @@ defmodule Guardian.Rules.Server do
   ## Startup
 
   `init/1` loads and validates every rule file before anything else in Guardian
-  starts (it is `Guardian.Main`'s first child). An unreachable or rate-limiting (HTTP 429)
+  starts (it is `Guardian.Application`'s first child). An unreachable or rate-limiting (HTTP 429)
   store is retried with backoff for up to `@boot_retry_ms` (60 s), then startup is
   refused; a misconfigured store refuses startup at once. A table whose stored rules
   fail validation is published as `{:invalid, message}`, so its events fail and

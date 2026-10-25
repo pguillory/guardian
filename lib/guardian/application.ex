@@ -1,4 +1,4 @@
-defmodule Guardian.Main do
+defmodule Guardian.Application do
   use Application
 
   def start(_type, _args) do
