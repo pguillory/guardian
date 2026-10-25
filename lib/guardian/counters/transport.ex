@@ -213,12 +213,9 @@ defmodule Guardian.Counters.Transport do
     Enum.reduce(operations, results, fn {id, _}, acc -> Map.put(acc, id, error) end)
   end
 
-  @doc "Rendezvous owner of {identity, group}; membership order never matters."
+  @doc "Rendezvous owner of {identity, group} by member name; member order never matters."
   def owner(routing_key, members) when is_list(members) and members != [] do
-    Enum.max_by(members, fn member ->
-      member_name = Atom.to_string(member)
-      {:erlang.phash2({routing_key, member_name}, 4_294_967_296), member_name}
-    end)
+    Guardian.Rendezvous.owner(routing_key, members, &Atom.to_string/1)
   end
 
   defp routing_key({identity, group, bucket})

@@ -69,7 +69,8 @@ Unix/monotonic arrival coordinates remain on Rules.Event, outside the row. Inter
 `Guardian.Counters.Transport` routes `{identity, group_tuple, bucket}` keys with rendezvous
 hashing over identity and group only. Each member's score is
 `{:erlang.phash2({{identity, group_tuple}, member_name}, 4_294_967_296), member_name}`,
-with the highest score winning and member names breaking hash ties. phash2 accepts
+with the highest score winning and member names breaking hash ties
+(`Guardian.Rendezvous.owner/3`, with the member name as id). phash2 accepts
 any term and distinguishes integers from floats; signed zeros share an owner but
 remain distinct stored counters through Store's ETF keys. All buckets share one owner.
 Membership comes from this node plus connected peers, once per event, without

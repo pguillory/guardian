@@ -526,7 +526,8 @@ Transport calls Store directly in production; test builds select a libtest adapt
 at compile time for transport probes. No backend tuple handling enters the production
 path. Transport chooses the highest rendezvous score
 `{:erlang.phash2({{identity, group}, member_name}, 4_294_967_296), member_name}`,
-where member_name is the node's string name and breaks hash ties. phash2 accepts
+where member_name is the node's string name and breaks hash ties
+(`Guardian.Rendezvous`, shared with GROUP BY routing). phash2 accepts
 any term and distinguishes integers from floats. Signed zeros share an owner but
 remain distinct stored counters through Store's ETF keys. All buckets share one owner.
 Each dependency level expands its counter statements into bucket key machines;
@@ -880,7 +881,8 @@ How Guardian's plan maps onto stages:
    on; only result rows travel. Each node scans with a single worker per query.
 2. GROUP BY repartitions: each row is sent to one of the cluster's aggregation
    partitions (up to two per node), chosen by rendezvous hashing on the group key
-   (`Guardian.Query.Rendezvous`), so all rows of one group meet in one process. Each partition
+   (`Guardian.Rendezvous`, highest 32-bit phash2 score, ties broken by partition), so all
+   rows of one group meet in one process. Each partition
    aggregates into an ETS table with the aggregation's `start`, `merge`, and `finish`
    functions (`lib/guardian/aggregation/CLAUDE.md`; merge must be associative because partial
    results combine across segments and nodes).

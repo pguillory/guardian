@@ -39,9 +39,9 @@ prefix. Keep the Mix application and its configuration under `:guardian`.
   `Guardian.Cluster.Metadata` fans schema lookups out to every connected node and merges the
   results.
 - `Guardian.SystemStats`: the runtime child that records VM metrics (below).
-- Leaf helpers (`Guardian.Build`, `Guardian.Failure`, `Guardian.SegmentID`, `Guardian.SortedSet`,
-  `Guardian.Timestamp`, `Guardian.Utils`) live directly in this directory; their rules
-  are in "Leaf utilities" below.
+- Leaf helpers (`Guardian.Build`, `Guardian.Failure`, `Guardian.Rendezvous`,
+  `Guardian.SegmentID`, `Guardian.SortedSet`, `Guardian.Timestamp`, `Guardian.Utils`) live
+  directly in this directory; their rules are in "Leaf utilities" below.
 
 Node naming has three modes, set in `rel/env.sh.eex`: on Fly.io (`FLY_PRIVATE_IP`),
 `guardian@<private IPv6>`; elsewhere with `GUARDIAN_NODE_HOST`, `guardian@<that
@@ -71,12 +71,17 @@ to the file's directory. Run the full suite afterward.
 ## Leaf utilities
 
 Utilities are leaf helpers: build information (`Guardian.Build`), safe failure
-labels and stack redaction (`Guardian.Failure`), segment IDs
-(`Guardian.SegmentID`), `Guardian.SortedSet`, timestamps (`Guardian.Timestamp`), and
-`Guardian.Utils` (hostname, ETS streaming). They call no other Guardian subsystem
-(Engine, Storage, Query, AST, Web, Cluster); keep it that way, and put a helper with
-a single user next to that user instead.
+labels and stack redaction (`Guardian.Failure`), rendezvous hashing
+(`Guardian.Rendezvous`), segment IDs (`Guardian.SegmentID`), `Guardian.SortedSet`,
+timestamps (`Guardian.Timestamp`), and `Guardian.Utils` (hostname, ETS streaming). They
+call no other Guardian subsystem (Engine, Storage, Query, AST, Web, Cluster); keep it
+that way, and put a helper with a single user next to that user instead.
 
+- `Guardian.Rendezvous.owner/3` is the one rendezvous hash: the highest
+  `{:erlang.phash2({key, id}, 4_294_967_296), id}` wins, the id breaking ties. Counter
+  ownership (ids are member names, pinned by golden owners in `client_test`) and GROUP BY
+  partition routing (ids are `{node, index}` partitions) both use it; changing the score
+  can change counter ownership.
 - `Guardian.SegmentID` creates sortable 32-byte hex identifiers containing a timestamp.
 - `Guardian.Failure` owns value-free diagnostic classification and stack redaction.
   Callers keep their logging and catch/reraise policies; caller-facing query

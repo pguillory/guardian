@@ -100,7 +100,7 @@ defmodule Guardian.Query.Executor do
       SuperList.split(row, num_group_by_exprs)
     end)
     |> DistributedStream.fan_out(fn {key, _row} ->
-      Guardian.Query.Rendezvous.top(partitions, key)
+      Guardian.Rendezvous.owner(key, partitions)
     end)
     |> DistributedStream.transform(fn stream ->
       stream
