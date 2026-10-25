@@ -418,15 +418,23 @@ defmodule Guardian.Counters.Cluster do
   def remote_operation(_, _, _), do: {:error, :invalid_request}
 
   defp local_operation(operation, store, timeout, deadline) do
+    # Internal backend injection supports transport probes. Distributed peers are
+    # already fully trusted; production always uses Guardian.Counters.Store.
+    {backend, store} =
+      case store do
+        {backend, server} when is_atom(backend) -> {backend, server}
+        server -> {Guardian.Counters.Store, server}
+      end
+
     opts = [server: store, timeout: timeout, deadline: Integer.floor_div(deadline, 1_000)]
 
     case operation do
-      {:get, key} -> Guardian.Counters.Store.get(key, opts)
-      {:gets, key} -> Guardian.Counters.Store.gets(key, opts)
-      {:get_many, keys} -> Guardian.Counters.Store.get_many(keys, opts)
-      {:cas, key, token, value, ttl} -> Guardian.Counters.Store.cas(key, token, value, ttl, opts)
-      {:incr, key, delta, ttl} -> Guardian.Counters.Store.incr(key, delta, ttl, opts)
-      {:batch, operations} -> Guardian.Counters.Store.batch(operations, opts)
+      {:get, key} -> backend.get(key, opts)
+      {:gets, key} -> backend.gets(key, opts)
+      {:get_many, keys} -> backend.get_many(keys, opts)
+      {:cas, key, token, value, ttl} -> backend.cas(key, token, value, ttl, opts)
+      {:incr, key, delta, ttl} -> backend.incr(key, delta, ttl, opts)
+      {:batch, operations} -> backend.batch(operations, opts)
       _ -> {:error, :invalid_request}
     end
   catch

@@ -300,8 +300,12 @@ defmodule Guardian.Rules.CounterIngestTest do
     source = Enum.map_join(1..16, ";", &"TRACK c#{&1} = count() LAST '1h'") <> "; UNSET secret"
     with_rules(%{"#{table}/r.gsql" => source})
     store = Process.whereis(Store)
-    :ok = :sys.suspend(store)
-    on_exit(fn -> if Process.alive?(store), do: :sys.resume(store) end)
+    pause = Guardian.CounterStoreProbe.pause(store)
+
+    on_exit(fn ->
+      if Process.alive?(elem(pause, 0)), do: Guardian.CounterStoreProbe.resume(pause)
+    end)
+
     started = System.monotonic_time(:millisecond)
 
     try do
@@ -310,7 +314,7 @@ defmodule Guardian.Rules.CounterIngestTest do
       assert System.monotonic_time(:millisecond) - started < 1_500
       assert [{_, _}] = :ets.lookup(Guardian.Counters.Cluster, node())
     after
-      :ok = :sys.resume(store)
+      :ok = Guardian.CounterStoreProbe.resume(pause)
     end
 
     await_cooldown(node())
@@ -335,8 +339,11 @@ defmodule Guardian.Rules.CounterIngestTest do
     }
 
     store = Process.whereis(Store)
-    :ok = :sys.suspend(store)
-    on_exit(fn -> if Process.alive?(store), do: :sys.resume(store) end)
+    pause = Guardian.CounterStoreProbe.pause(store)
+
+    on_exit(fn ->
+      if Process.alive?(elem(pause, 0)), do: Guardian.CounterStoreProbe.resume(pause)
+    end)
 
     log =
       ExUnit.CaptureLog.capture_log(fn ->
@@ -350,7 +357,7 @@ defmodule Guardian.Rules.CounterIngestTest do
         end
       end)
 
-    :ok = :sys.resume(store)
+    :ok = Guardian.CounterStoreProbe.resume(pause)
     refute log =~ marker
 
     for process <- [Store, Guardian.Counters.Cluster, Guardian.Rules.Server] do
@@ -396,15 +403,11 @@ defmodule Guardian.Rules.CounterIngestTest do
     assert Enum.all?(results, &(is_integer(&1) and &1 in 1..60))
     assert [{:ok, %{"hits" => 61, "prior" => 60}}] = ingest(table, [%{"g" => group}])
 
-    assert :ok = :erpc.call(peer_node, :sys, :suspend, [Store])
+    pause = :erpc.call(peer_node, Guardian.CounterStoreProbe, :pause, [Store])
 
     on_exit(fn ->
-      if Process.alive?(peer) do
-        case :erpc.call(peer_node, Process, :whereis, [Store]) do
-          nil -> :ok
-          pid -> :erpc.call(peer_node, :sys, :resume, [pid])
-        end
-      end
+      if Process.alive?(peer) and :erpc.call(peer_node, Process, :alive?, [elem(pause, 0)]),
+        do: :erpc.call(peer_node, Guardian.CounterStoreProbe, :resume, [pause])
     end)
 
     started = System.monotonic_time(:millisecond)
@@ -418,7 +421,7 @@ defmodule Guardian.Rules.CounterIngestTest do
       assert System.monotonic_time(:millisecond) - started < 1_500
       assert [{_, _}] = :ets.lookup(Guardian.Counters.Cluster, peer_node)
     after
-      :ok = :erpc.call(peer_node, :sys, :resume, [Store])
+      :ok = :erpc.call(peer_node, Guardian.CounterStoreProbe, :resume, [pause])
     end
 
     await_cooldown(peer_node)

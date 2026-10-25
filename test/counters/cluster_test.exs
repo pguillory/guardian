@@ -71,7 +71,7 @@ defmodule Guardian.Counters.ClusterTest do
       Task.async(fn ->
         context =
           CountersCluster.new_event(batch,
-            store: Guardian.CounterPipelineProbe,
+            store: {Guardian.CounterStoreProbe, Guardian.CounterPipelineProbe},
             members: members,
             cooldown_table: :counter_cluster_test
           )
@@ -105,7 +105,7 @@ defmodule Guardian.Counters.ClusterTest do
       Task.async(fn ->
         context =
           CountersCluster.new_event(limited,
-            store: Guardian.CounterPipelineProbe,
+            store: {Guardian.CounterStoreProbe, Guardian.CounterPipelineProbe},
             members: members,
             cooldown_table: :counter_cluster_test
           )
@@ -133,7 +133,7 @@ defmodule Guardian.Counters.ClusterTest do
       Task.async(fn ->
         context =
           CountersCluster.new_event(limited,
-            store: Guardian.CounterPipelineProbe,
+            store: {Guardian.CounterStoreProbe, Guardian.CounterPipelineProbe},
             members: members,
             cooldown_table: :counter_cluster_test
           )
@@ -208,7 +208,9 @@ defmodule Guardian.Counters.ClusterTest do
 
     task =
       Task.async(fn ->
-        context = event(Guardian.CounterPipelineProbe, members: members)
+        context =
+          event({Guardian.CounterStoreProbe, Guardian.CounterPipelineProbe}, members: members)
+
         CountersCluster.batch(ops, context)
       end)
 
@@ -244,7 +246,7 @@ defmodule Guardian.Counters.ClusterTest do
     members = [node(), peer]
     local_key = owned_key(node(), members)
     remote_key = owned_key(peer, members)
-    :ok = :erpc.call(peer, :sys, :suspend, [remote])
+    pause = :erpc.call(peer, Guardian.CounterStoreProbe, :pause, [remote])
 
     try do
       context = event(:counter_partial_store, members: members)
@@ -267,10 +269,10 @@ defmodule Guardian.Counters.ClusterTest do
              ) == %{remote: {:error, :cooldown}}
 
       # A translated remote deadline may outlive the caller by transit time.
-      Guardian.TestHelpers.await_queued_call(remote, node: peer)
+      Guardian.TestHelpers.await_queued_call(elem(pause, 0), node: peer)
       Process.sleep(55)
     after
-      :erpc.call(peer, :sys, :resume, [remote])
+      :erpc.call(peer, Guardian.CounterStoreProbe, :resume, [pause])
     end
 
     assert :erpc.call(peer, Store, :get, [remote_key, [server: remote]]) == :not_found
@@ -282,7 +284,7 @@ defmodule Guardian.Counters.ClusterTest do
   test "batch caller death terminates every owner helper and retains reservations", %{
     store: store,
   } do
-    :sys.suspend(store)
+    pause = Guardian.CounterStoreProbe.pause(store)
     batch = CountersCluster.new_batch()
 
     caller =
@@ -298,7 +300,7 @@ defmodule Guardian.Counters.ClusterTest do
       end)
 
     try do
-      Guardian.TestHelpers.await_queued_call(store)
+      Guardian.TestHelpers.await_queued_call(elem(pause, 0))
       helpers = counter_helpers()
       Process.exit(caller, :kill)
       Guardian.TestHelpers.eventually(fn -> Enum.all?(helpers, &(not Process.alive?(&1))) end)
@@ -306,7 +308,7 @@ defmodule Guardian.Counters.ClusterTest do
       # A dispatched call can survive its caller. Leave it queued past its own deadline.
       Process.sleep(55)
     after
-      :sys.resume(store)
+      Guardian.CounterStoreProbe.resume(pause)
     end
 
     assert Store.get(key(), server: store) == :not_found
@@ -336,7 +338,7 @@ defmodule Guardian.Counters.ClusterTest do
           id: {:malformed, index}
         )
 
-      context = event(store)
+      context = event({Guardian.CounterStoreProbe, store})
 
       assert CountersCluster.batch(%{a: {:get, key()}}, context) ==
                %{a: {:error, :invalid_response}}
@@ -417,7 +419,8 @@ defmodule Guardian.Counters.ClusterTest do
     value = %{nested: [nil, 1, 1.0, {"native", true}]}
     assert CountersCluster.cas(key, :missing, value, 5_000, context) == :ok
     assert {:ok, ^value, token} = CountersCluster.gets(key, context)
-    assert is_reference(token)
+    assert {table, version} = token
+    assert is_reference(table) and is_integer(version)
     assert CountersCluster.cas(key, token, 3, 5_000, context) == :ok
     assert CountersCluster.incr(key, 2, 5_000, context) == {:ok, 5}
     assert CountersCluster.get_many([key, key], context) == {:ok, [{:ok, 5}, {:ok, 5}]}
@@ -441,7 +444,7 @@ defmodule Guardian.Counters.ClusterTest do
   end
 
   test "local stall times out, queued mutation expires, cooldown recovers", %{store: store} do
-    :sys.suspend(store)
+    pause = Guardian.CounterStoreProbe.pause(store)
     started = System.monotonic_time(:millisecond)
 
     try do
@@ -449,7 +452,7 @@ defmodule Guardian.Counters.ClusterTest do
       assert CountersCluster.incr(key(), 1, 5_000, event(store)) == {:error, :cooldown}
       assert System.monotonic_time(:millisecond) - started < 200
     after
-      :sys.resume(store)
+      Guardian.CounterStoreProbe.resume(pause)
     end
 
     assert Store.get(key(), server: store) == :not_found
@@ -458,7 +461,7 @@ defmodule Guardian.Counters.ClusterTest do
   end
 
   test "short call and exhausted event budget do not mark an owner", %{store: store} do
-    :sys.suspend(store)
+    pause = Guardian.CounterStoreProbe.pause(store)
 
     try do
       assert CountersCluster.get(key(), event(store, timeout_ms: 15)) == {:error, :timeout}
@@ -477,7 +480,7 @@ defmodule Guardian.Counters.ClusterTest do
       assert :atomics.get(batch, 1) == 250_000
       assert :ets.lookup(:counter_cluster_test, node()) == []
     after
-      :sys.resume(store)
+      Guardian.CounterStoreProbe.resume(pause)
     end
   end
 
@@ -509,7 +512,7 @@ defmodule Guardian.Counters.ClusterTest do
     peer_node: peer,
   } do
     for {target, members, suspend_node} <- [{store, [node()], node()}, {Store, [peer], peer}] do
-      :ok = :erpc.call(suspend_node, :sys, :suspend, [target])
+      pause = :erpc.call(suspend_node, Guardian.CounterStoreProbe, :pause, [target])
       batch = CountersCluster.new_batch()
       started = System.monotonic_time(:millisecond)
 
@@ -535,7 +538,7 @@ defmodule Guardian.Counters.ClusterTest do
         assert :atomics.get(batch, 1) < 10_000
         assert System.monotonic_time(:millisecond) - started < 750
       after
-        :erpc.call(suspend_node, :sys, :resume, [target])
+        :erpc.call(suspend_node, Guardian.CounterStoreProbe, :resume, [pause])
       end
     end
   end
@@ -543,7 +546,7 @@ defmodule Guardian.Counters.ClusterTest do
   test "caller death conservatively charges its reservation and terminates helpers", %{
     store: store,
   } do
-    :sys.suspend(store)
+    pause = Guardian.CounterStoreProbe.pause(store)
     batch = CountersCluster.new_batch()
 
     context =
@@ -556,7 +559,7 @@ defmodule Guardian.Counters.ClusterTest do
     caller = spawn(fn -> CountersCluster.incr(key(), 1, 5_000, context) end)
 
     try do
-      Guardian.TestHelpers.await_queued_call(store)
+      Guardian.TestHelpers.await_queued_call(elem(pause, 0))
       helpers = counter_helpers()
       assert length(helpers) >= 2
       Process.exit(caller, :kill)
@@ -564,7 +567,7 @@ defmodule Guardian.Counters.ClusterTest do
       assert :atomics.get(batch, 1) >= 200_000
       assert :atomics.get(batch, 1) < 250_000
     after
-      :sys.resume(store)
+      Guardian.CounterStoreProbe.resume(pause)
     end
   end
 
@@ -574,7 +577,7 @@ defmodule Guardian.Counters.ClusterTest do
     for _ <- 1..80 do
       # Replies straddle the 10ms boundary, including already-delivered replies
       # racing the caller's timer. Neither outcome may leave messages behind.
-      context = event(store, timeout_ms: 10)
+      context = event({Guardian.CounterStoreProbe, store}, timeout_ms: 10)
       assert CountersCluster.get(key(), context) in [:not_found, {:error, :timeout}]
     end
 
@@ -585,7 +588,7 @@ defmodule Guardian.Counters.ClusterTest do
   test "overlapping callers cannot reserve more than the shared failure allowance", %{
     store: store,
   } do
-    :sys.suspend(store)
+    pause = Guardian.CounterStoreProbe.pause(store)
     batch = CountersCluster.new_batch()
 
     try do
@@ -614,7 +617,7 @@ defmodule Guardian.Counters.ClusterTest do
       assert Enum.count(outcomes, &(&1 == {:error, :timeout})) in 1..5
       assert :atomics.get(batch, 1) >= 0
     after
-      :sys.resume(store)
+      Guardian.CounterStoreProbe.resume(pause)
     end
 
     assert Store.get(key(), server: store) == :not_found

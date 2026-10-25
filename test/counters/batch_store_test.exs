@@ -34,13 +34,18 @@ defmodule Guardian.Counters.BatchStoreTest do
 
   test "the deadline is checked between operations and skips queued writes" do
     parent = self()
+    calls = :atomics.new(1, [])
 
     clock = fn ->
-      send(parent, {:clock, self()})
+      if :atomics.add_get(calls, 1, 1) == 2 do
+        send(parent, {:clock, self()})
 
-      receive do
-        :release -> System.monotonic_time(:millisecond)
+        receive do
+          :release -> :ok
+        end
       end
+
+      System.monotonic_time(:millisecond)
     end
 
     store = start_supervised!({Store, name: nil, clock: clock, sweep_interval_ms: 60_000})
@@ -48,18 +53,21 @@ defmodule Guardian.Counters.BatchStoreTest do
 
     task =
       Task.async(fn ->
-        GenServer.call(
-          store,
-          {:operation, deadline,
-           {:batch, [{:incr, :first, 1, 5_000}, {:incr, :second, 1, 5_000}]}},
-          5_000
+        Store.batch(
+          [{:incr, :first, 1, 5000}, {:incr, :second, 1, 5000}, {:incr, :third, 1, 5000}],
+          server: store,
+          deadline: deadline,
+          timeout: 5000
         )
       end)
 
-    assert_receive {:clock, ^store}
+    assert_receive {:clock, caller}
     Process.sleep(max(0, deadline - System.monotonic_time(:millisecond) + 1))
-    send(store, :release)
-    assert Task.await(task) == {:ok, [{:ok, 1}, {:error, :timeout}]}
-    refute_receive {:clock, _}, 10
+    send(caller, :release)
+    assert Task.await(task) == {:ok, [{:ok, 1}, {:error, :timeout}, {:error, :timeout}]}
+    assert :atomics.get(calls, 1) == 2
+    assert Store.get(:first, server: store) == {:ok, 1}
+    assert Store.get(:second, server: store) == :not_found
+    assert Store.get(:third, server: store) == :not_found
   end
 end

@@ -109,7 +109,7 @@ Why this order:
    `:persistent_term`, so if it restarts, ingestion keeps the published rules and the
    new process reloads in the background instead of failing again.
 2. Guardian.Counters.Restarter starts after Guardian.Rules.Server and owns a linked counter supervisor
-   that starts Store with empty private ETS tables, then Cluster with empty cooldown
+   that starts Store with an empty public ETS table, then Cluster with empty cooldown
    ETS and membership monitoring. It does no loading and is independent of rule
    compilation and event storage. Invalid Store options still refuse startup. Storage
    starts next, and `LoadedSegments.init/1` loads every segment file on the
@@ -414,39 +414,52 @@ name and the SHA-256 of canonical TRACK source; LOOKUP plans bind target identit
 Edits start fresh, while moves/comments/whitespace retain state. Queries only read
 stored historical output fields. No later rule/storage failure rolls back updates.
 
-One GenServer owns a private ETS set of values and reference CAS tokens, plus
-ordered indexes of insertion order and expiry. It serializes get, gets, CAS and
-increment operations, including create-if-missing CAS and create-on-increment.
-The legacy get_many API reads up to four keys in one turn. Store.batch pipelines
-up to 4,000 Store operations, checking the original queued deadline before each.
-Cluster pipelines restrict these to get/gets/incr/cas; Store also retains its
-legacy get_many and stats operations.
-A successful mutation renews the key's
-positive millisecond TTL and replaces its token. Reads do neither; expiry is
-checked before access and a periodic sweep removes up to 256 expired keys per turn.
-A turn with more expired entries schedules its next page immediately, interleaving
-queued requests; otherwise the next sweep waits one second. Tagged messages keep
-one periodic timer chain, and stale sweep tags do nothing.
-TTL uses local monotonic time. A restart clears this store without restarting
-Storage or Guardian.Rules.Server.
+One GenServer owns one public ETS set, with {encoded_key, value, expires_at,
+version} rows. Ordinary get/gets, create-if-missing, CAS and native increment run
+directly in callers and remote handlers. Deterministic ETF binary keys make CAS
+select_replace and conditional expired deletion keyed operations, including for
+maps and match-spec atoms. This encoding is ephemeral and local to Store, separate
+from Cluster's stable routing encoding. A reserved atom row holds the immutable
+descriptor (clock, budget, table generation and baseline). Named stores use ETS
+name/descriptor lookup; unnamed PID stores retrieve the table reference from the
+owner's process dictionary. A captured table reference cannot address a replacement
+generation after restart. Suspending the named housekeeper does not stall callers.
 
-GUARDIAN_COUNTER_MEMORY_MB sets the positive MiB budget (default 64), converted to
-`:counter_memory_budget_bytes`; explicit empty/invalid values refuse startup.
-The budget charges ETS table
-memory in bytes above empty-table overhead, plus serialized key/value payloads and
-any larger backing allocations retained by nested binary/bitstring slices, to
-include off-heap binaries conservatively. Shared backing allocations can be counted
-more than once, and inline data can be counted twice. At
-capacity the owner first reclaims the entire expired backlog through its expiry
-index, then discards roughly the oldest half of live keys if necessary, repeating as needed;
-updates do not refresh insertion order. The budget bounds resident entries and
-indexes, not temporary copies, mailboxes or other VM memory. Capacity reclamation can stall
-this single owner; cluster routing bounds waits and fails open.
+Incr uses one update_counter list to change the integer value and assign a fresh
+positive unique version through a threshold/reset operation. CAS tokens contain the
+table reference and version, preventing reuse across updates, eviction/recreation
+and restart. CAS keeps the existing expiry; creation sets it once from the owner's
+positive millisecond TTL. Reads treat expiry<=now as missing. When a physically
+present expired row is reused, conditional deletion plus one retry permits creation
+without deleting a concurrent fresh row. Ordinary bucket identities advance and
+do not revisit expired keys. A second expired increment returns a definite :expired
+error, never an unbounded retry or replay of a successful live increment.
 
-Calls default to 50 ms and carry a local monotonic deadline. A queued request whose
-deadline passed returns a timeout without mutating. Execution that has already
-begun can still finish after its caller times out, so uncertain increments must not
-be retried. Errors and formatted status disclose no keys or values.
+get_many reads up to four keys in order, without a snapshot. Store.batch executes
+up to 4,000 operations in order and checks the original deadline before each.
+Deadlines are checked after clock/key preparation and before mutations/retries.
+The 50 ms default remains; Cluster bounds waits on its helpers. Errors and status
+disclose no keys/values. Restart clears only counters, not Storage or Rules.Server.
+
+Housekeeping bulk-deletes expired rows about every second, then folds resident
+rows to measure ETS bytes above fixed empty/descriptor overhead plus serialized
+encoded keys/values and retained backing allocations in nested value binaries,
+bitstrings and function environments. Encoded keys detach original key slices.
+Shared backing and inline data can be counted more than once. Diagnostic stats
+perform the same fold, so their results are approximate under concurrent changes.
+GUARDIAN_COUNTER_MEMORY_MB still sets positive MiB, default 64; explicit
+empty/invalid values refuse startup. This is an asynchronous memory target:
+concurrent writes can exceed it between housekeeping turns and during reclamation.
+Individual payloads too large to fit are refused before writing.
+
+Over budget, housekeeping samples up to 256 expiries, bulk-deletes buckets through
+the sample's median expiry and repeats up to four passes per tick. Tied expiries
+can evict more than half, including every live bucket. If still over budget, the
+next tagged tick runs immediately; otherwise it waits one second. Stale tags do
+nothing and manual sweeps do not add a timer chain. All reclamation stays outside
+writes; a completed write can subsequently be evicted without changing its reply.
+The budget excludes temporary copies, mailboxes and the rest of the VM. See
+[counter-store.md](../changes/counter-store.md) for design and validation.
 
 `Guardian.Counters.Cluster`, independently supervised after Store inside the counter subtree,
 provides owner routing for TRACK/LOOKUP. It takes
@@ -471,7 +484,7 @@ conflict charges one
 owner wait, using its completion timestamp; healthy pipelines refund fully.
 Anchored bucket expiries become decreasing TTLs when each pipeline dispatches.
 Remote operations call Store directly
-on that owner, preserving terms and CAS references, never re-routing or failing
+on that owner, preserving terms and opaque CAS tokens, never re-routing or failing
 over to another owner. Booting or older peers without the endpoint fail open.
 
 Runner calls `new_batch/0` outside workers and `new_event/2` on worker event entry.
@@ -706,8 +719,8 @@ Memory on a machine is roughly:
    a small process per file.
 4. Queries: rows in flight, GROUP BY state, sort buffers, and results, bounded only
    partly (section 5.7).
-5. Counter storage: resident ephemeral entries/indexes within the configured
-   budget, plus mailbox/temporary copies outside it (section 3.5).
+5. Counter storage: resident ephemeral rows with an asynchronously enforced budget
+   (temporary overshoot possible), plus mailbox/temporary copies outside it (section 3.5).
 
 Nothing bounds the number of active tables or keys per segment, so memory is the effective limit. An
 out-of-memory kill skips the graceful shutdown and loses every unpersisted event on
@@ -1233,7 +1246,7 @@ Environment variables:
 | `GUARDIAN_ALLOW_QUERY_API_KEY` | `config/runtime.exs` | `true` also accepts the key as the `api_key` query parameter; `false` or unset (the default) never decodes the query string for a key. Any other value fails boot. |
 | `GUARDIAN_PORT` | `config/runtime.exs`, `bin/fly-start` | HTTP port, 1 to 65535. Default 8080. Tests use an OS-chosen port. |
 | `GUARDIAN_QUERY_MAX_HEAP_MB` | `config/runtime.exs` | Heap limit of each query process, in MiB (5.7). Default 256; `0` turns it off. |
-| `GUARDIAN_COUNTER_MEMORY_MB` | `config/runtime.exs` | Positive integer MiB for resident counter entries/indexes (3.5), default 64; empty/invalid refuses startup. |
+| `GUARDIAN_COUNTER_MEMORY_MB` | `config/runtime.exs` | Positive integer MiB for the asynchronous resident counter memory target (3.5), default 64; empty/invalid refuses startup. |
 | `GUARDIAN_DATA_DIR` | `config/runtime.exs` (prod) | Data directory; segments go in `segments/` under it. Default `/root/data`; `/data` in the image and on Fly. Must be writable, and on Fly must be a mounted volume, or boot fails. |
 | `GUARDIAN_MUTABLE_SEGMENT_MAX_AGE_MS` | `config/runtime.exs` | Writable segment age before handoff. Default 3,600,000. |
 | `GUARDIAN_NODE_HOST` | `rel/env.sh.eex` | This node's address; setting it makes the node `guardian@<address>`, a cluster member (section 7). Wins over `FLY_PRIVATE_IP`. |
@@ -1255,7 +1268,7 @@ these except through the variables above:
 | `query_max_result_rows` | 100,000 | `Guardian.Query.Limits` |
 | `query_max_result_bytes` | 64 MiB | `Guardian.Query.Limits` |
 | `query_time_limit_ms` | 30,000 | `Guardian.Query.run/1` (`Guardian.Query.Limits`) |
-| `counter_memory_budget_bytes` | 64 MiB, overridden by `GUARDIAN_COUNTER_MEMORY_MB` | `Guardian.Counters.Store`: resident ephemeral entries/indexes (3.5); a non-positive or non-integer value refuses startup |
+| `counter_memory_budget_bytes` | 64 MiB, overridden by `GUARDIAN_COUNTER_MEMORY_MB` | `Guardian.Counters.Store`: asynchronous resident counter memory target (3.5); a non-positive or non-integer value refuses startup |
 | `query_parse_errors_per_hour` | 60 | `Guardian.Web.QueryParseErrors` (tests raise it) |
 | `rules_store` | from the variables above | `Guardian.Rules.Config` (tests set a store directly) |
 | `rules_poll_ms`, `rules_time_limit_ms`, `rules_boot_retry_ms`, `rules_reclaim_after_ms`, `rules_lock_lease_ms`, `rules_save_margin_ms`, `rules_s3_receive_timeout_ms`, `rules_s3_write_deadline_ms` | 60,000; 1,000; 60,000; 30,000; 120,000; 80,000; 15,000; 20,000 | `lib/rules` (tests shorten them) |

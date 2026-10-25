@@ -18,12 +18,14 @@ defmodule Guardian.Counters.StoreTest do
   end
 
   test "misses, stored nil, ordered multi-key reads and opaque mutation tokens", %{opts: opts} do
+    assert {:ok, %{keys: 0, memory_bytes: 0}} = Store.stats(opts)
     assert Store.get(:missing, opts) == :not_found
     assert Store.gets(:missing, opts) == :not_found
     assert Store.cas(nil, :missing, nil, 100, opts) == :ok
     assert Store.get(nil, opts) == {:ok, nil}
     assert {:ok, nil, token} = Store.gets(nil, opts)
-    assert is_reference(token)
+    assert {table, version} = token
+    assert is_reference(table) and is_integer(version)
 
     assert Store.get_many([nil, :missing, nil], opts) ==
              {:ok, [{:ok, nil}, :not_found, {:ok, nil}]}
@@ -46,6 +48,9 @@ defmodule Guardian.Counters.StoreTest do
     assert Store.cas(:a, token, 3, 100, opts) == {:error, :conflict}
     assert Store.incr(:a, 1, 100, opts) == {:ok, 3}
     assert Store.cas(:a, replacement, 4, 100, opts) == {:error, :conflict}
+    assert {:ok, 3, before_zero} = Store.gets(:a, opts)
+    assert Store.incr(:a, 0, 100, opts) == {:ok, 3}
+    assert Store.cas(:a, before_zero, 4, 100, opts) == {:error, :conflict}
   end
 
   test "competing missing-key creates have exactly one winner", %{opts: opts} do
@@ -58,6 +63,28 @@ defmodule Guardian.Counters.StoreTest do
 
     assert Enum.count(results, &(&1 == :ok)) == 1
     assert Enum.count(results, &(&1 == {:error, :conflict})) == 39
+  end
+
+  test "live CAS contenders and expired missing-key contenders each have one winner", %{
+    opts: opts,
+    clock: clock,
+  } do
+    Store.cas(:race, :missing, nil, 10, opts)
+    assert {:ok, nil, token} = Store.gets(:race, opts)
+
+    for expected <- [token, :missing] do
+      if expected == :missing, do: :atomics.put(clock, 1, 10)
+
+      results =
+        1..40
+        |> Task.async_stream(fn n -> Store.cas(:race, expected, n, 100, opts) end,
+          max_concurrency: 40
+        )
+        |> Enum.map(fn {:ok, result} -> result end)
+
+      assert Enum.count(results, &(&1 == :ok)) == 1
+      assert Enum.count(results, &(&1 == {:error, :conflict})) == 39
+    end
   end
 
   test "increments are atomic, preserve arbitrary store integers, and reject other values", %{
@@ -84,175 +111,208 @@ defmodule Guardian.Counters.StoreTest do
     assert Store.get(:text, opts) == {:ok, "1"}
   end
 
-  test "expiry boundary, renewal, no read/conflict refresh, and no stale-token ABA", %{
+  test "fixed expiry, expired integer/noninteger reuse, and stale token rejection", %{
     opts: opts,
     clock: clock,
   } do
     assert Store.incr(:count, 1, 100, opts) == {:ok, 1}
     assert {:ok, 1, token} = Store.gets(:count, opts)
-    :atomics.put(clock, 1, 99)
-    assert Store.get(:count, opts) == {:ok, 1}
-    assert Store.cas(:count, :missing, 7, 1_000, opts) == {:error, :conflict}
+    :atomics.put(clock, 1, 50)
+    assert Store.incr(:count, 1, 1000, opts) == {:ok, 2}
+    assert {:ok, 2, current} = Store.gets(:count, opts)
+    assert Store.cas(:count, current, 3, 1000, opts) == :ok
     :atomics.put(clock, 1, 100)
     assert Store.get(:count, opts) == :not_found
-    assert Store.cas(:count, token, 2, 100, opts) == {:error, :conflict}
+    assert Store.cas(:count, token, 9, 100, opts) == {:error, :conflict}
     assert Store.incr(:count, 1, 100, opts) == {:ok, 1}
-    assert Store.cas(:count, token, 7, 100, opts) == {:error, :conflict}
-
-    :atomics.put(clock, 1, 150)
-    assert Store.incr(:count, 1, 100, opts) == {:ok, 2}
-    :atomics.put(clock, 1, 200)
-    # A sweep must not remove this key using the replaced expiry index entry.
-    send(opts[:server], :sweep)
-    assert Store.get(:count, opts) == {:ok, 2}
-    assert {:ok, 2, renewed} = Store.gets(:count, opts)
-    assert Store.cas(:count, renewed, 3, 200, opts) == :ok
-    :atomics.put(clock, 1, 250)
-    assert Store.get(:count, opts) == {:ok, 3}
-    :atomics.put(clock, 1, 400)
-    assert Store.get_many([:count], opts) == {:ok, [:not_found]}
+    assert Store.cas(:count, current, 9, 100, opts) == {:error, :conflict}
+    assert Store.cas(:text, :missing, "old", 10, opts) == :ok
+    :atomics.put(clock, 1, 110)
+    assert Store.incr(:text, 1, 100, opts) == {:ok, 1}
+    assert Store.cas(:other, :missing, nil, 10, opts) == :ok
+    :atomics.put(clock, 1, 120)
+    assert Store.cas(:other, :missing, "new", 100, opts) == :ok
   end
 
-  test "periodic sweep reclaims quiet expired keys in bounded batches", %{clock: clock} do
-    server = start_store(clock, sweep_interval_ms: 10)
-    opts = [server: server, timeout: 5_000]
-
-    for key <- 1..600, do: assert({:ok, 1} = Store.incr(key, 1, 10, opts))
+  test "concurrent expired-key reuse preserves every live increment", %{opts: opts, clock: clock} do
+    Store.incr(:expired, 99, 10, opts)
     :atomics.put(clock, 1, 10)
-    assert_eventually(fn -> assert {:ok, %{keys: 0}} = Store.stats(opts) end)
 
-    manual = start_store(clock, sweep_interval_ms: 60_000)
-    manual_opts = [server: manual, timeout: 5_000]
-    for key <- 1..600, do: assert({:ok, 1} = Store.incr(key, 1, 10, manual_opts))
-    :atomics.put(clock, 1, 20)
+    1..40
+    |> Task.async_stream(fn _ -> Store.incr(:expired, 1, 100, opts) end, max_concurrency: 40)
+    |> Enum.each(fn {:ok, {:ok, _}} -> :ok end)
 
-    for remaining <- [344, 88, 0] do
-      send(manual, :sweep)
-      assert {:ok, %{keys: ^remaining}} = Store.stats(manual_opts)
-    end
+    assert Store.get(:expired, opts) == {:ok, 40}
   end
 
-  test "one scheduled sweep drains a quiet backlog without waiting between pages", %{clock: clock} do
+  test "bulk expiry and stale tags retain a single periodic timer chain", %{clock: clock} do
     server = start_store(clock, sweep_interval_ms: 60_000)
-    opts = [server: server, timeout: 5_000]
-    for key <- 1..1_000, do: assert({:ok, 1} = Store.incr(key, 1, 10, opts))
-    observer = self()
-
-    :ok =
-      :sys.install(
-        server,
-        {fn debug_state, event, _name ->
-           case event do
-             {:noreply, state} ->
-               send(observer, {:page_remaining, :ets.info(state.entries, :size)})
-
-             _ ->
-               :ok
-           end
-
-           debug_state
-         end, nil}
-      )
-
+    opts = [server: server, timeout: 5000]
+    for key <- 1..1000, do: assert({:ok, 1} = Store.incr(key, 1, 10, opts))
     %{sweep_tag: tag} = :sys.get_state(server)
     :atomics.put(clock, 1, 10)
     send(server, {:sweep, tag})
-
-    for remaining <- [744, 488, 232, 0], do: assert_receive({:page_remaining, ^remaining})
-    assert_eventually(fn -> assert {:ok, %{keys: 0}} = Store.stats(opts) end)
     %{sweep_tag: new_tag} = :sys.get_state(server)
-    refute new_tag == tag
-
-    assert Store.incr(:new, 1, 10, opts) == {:ok, 1}
+    assert tag != new_tag
+    assert {:ok, %{keys: 0}} = Store.stats(opts)
+    Store.incr(:new, 1, 10, opts)
     :atomics.put(clock, 1, 20)
     send(server, {:sweep, tag})
-    assert {:ok, %{keys: 1}} = Store.stats(opts)
     assert %{sweep_tag: ^new_tag} = :sys.get_state(server)
+    assert {:ok, %{keys: 1}} = Store.stats(opts)
+    send(server, :sweep)
+    :sys.get_state(server)
+    assert {:ok, %{keys: 0}} = Store.stats(opts)
+    periodic = start_store(clock, sweep_interval_ms: 10)
+    Store.incr(:quiet, 1, 10, server: periodic)
+    :atomics.put(clock, 1, 30)
+    assert_eventually(fn -> assert {:ok, %{keys: 0}} = Store.stats(server: periodic) end)
   end
 
-  test "capacity reclaims all newer expired entries before evicting an older live key", %{
-    clock: clock,
-  } do
-    probe = start_store(clock, sweep_interval_ms: 60_000)
-    probe_opts = [server: probe, timeout: 5_000]
-    for key <- 0..601, do: assert({:ok, 1} = Store.incr(key, 1, 10_000, probe_opts))
-    assert {:ok, %{memory_bytes: budget}} = Store.stats(probe_opts)
-
-    server = start_store(clock, memory_budget_bytes: budget, sweep_interval_ms: 60_000)
-    opts = [server: server, timeout: 5_000]
-    assert Store.incr(0, 1, 10_000, opts) == {:ok, 1}
-    assert {:ok, 1, token} = Store.gets(0, opts)
-    for key <- 1..600, do: assert({:ok, 1} = Store.incr(key, 1, 10, opts))
-    assert {:ok, %{keys: 601}} = Store.stats(opts)
-
-    :atomics.put(clock, 1, 10)
-    assert Store.incr(601, 1, 10_000, opts) == {:ok, 1}
+  test "expiry precedes capacity reclamation and writes do not run eviction", %{clock: clock} do
+    server = start_store(clock, memory_budget_bytes: 100_000, sweep_interval_ms: 60_000)
+    opts = [server: server, timeout: 5000]
+    assert Store.cas(:live, :missing, :binary.copy("x", 60_000), 1000, opts) == :ok
+    assert {:ok, _, token} = Store.gets(:live, opts)
+    assert Store.cas(:short, :missing, :binary.copy("y", 60_000), 10, opts) == :ok
     assert {:ok, %{keys: 2, memory_bytes: bytes}} = Store.stats(opts)
-    assert bytes < budget
-    assert Store.gets(0, opts) == {:ok, 1, token}
-    assert Store.get(601, opts) == {:ok, 1}
-    assert Store.get(600, opts) == :not_found
-    assert Store.cas(0, token, 2, 10_000, opts) == :ok
+    assert bytes > 100_000
+    :atomics.put(clock, 1, 10)
+    send(server, :sweep)
+    :sys.get_state(server)
+    assert {:ok, %{keys: 1, memory_bytes: bytes}} = Store.stats(opts)
+    assert bytes < 100_000
+    assert {:ok, _, ^token} = Store.gets(:live, opts)
   end
 
-  test "budget evicts oldest half, updates stay old, and evicted tokens cannot recreate", %{
-    clock: clock,
-  } do
-    # Measure this VM's entry/index accounting rather than pinning allocator sizes.
-    probe = start_store(clock)
-    probe_opts = [server: probe, timeout: 5_000]
-    for key <- 1..7, do: assert({:ok, 1} = Store.incr(key, 1, 100, probe_opts))
-    assert {:ok, %{memory_bytes: budget}} = Store.stats(probe_opts)
-
-    server = start_store(clock, memory_budget_bytes: budget)
-    opts = [server: server, timeout: 5_000]
-    for key <- 1..6, do: assert({:ok, 1} = Store.incr(key, 1, 100, opts))
-    assert {:ok, 1, token} = Store.gets(1, opts)
-    assert Store.incr(1, 1, 100, opts) == {:ok, 2}
-    assert Store.incr(7, 1, 100, opts) == {:ok, 1}
-    assert {:ok, %{keys: keys, memory_bytes: bytes}} = Store.stats(opts)
-    assert keys == 3
-    assert bytes < budget
-    for key <- 1..4, do: assert(Store.get(key, opts) == :not_found)
-    for key <- 5..7, do: assert(Store.get(key, opts) == {:ok, 1})
-    assert Store.cas(1, token, 7, 100, opts) == {:error, :conflict}
-
-    oldest_update = start_store(clock, memory_budget_bytes: budget)
-    update_opts = [server: oldest_update, timeout: 5_000]
-    for key <- 1..6, do: assert({:ok, 1} = Store.incr(key, 1, 100, update_opts))
-    assert {:ok, 1, update_token} = Store.gets(1, update_opts)
-
-    assert Store.cas(1, update_token, :binary.copy("x", div(budget, 2)), 100, update_opts) ==
-             {:error, :evicted}
-
-    assert Store.get(1, update_opts) == :not_found
-    assert Store.cas(1, update_token, 7, 100, update_opts) == {:error, :conflict}
-    assert Store.incr(1, 1, 100, update_opts) == {:ok, 1}
-    assert Store.cas(1, update_token, 7, 100, update_opts) == {:error, :conflict}
-    assert Store.incr(1, 1, 100, opts) == {:ok, 1}
-    assert Store.cas(1, token, 7, 100, opts) == {:error, :conflict}
+  test "capacity cutoff removes earliest-expiring buckets, including tied expiry", %{clock: clock} do
+    server = start_store(clock, memory_budget_bytes: 100_000, sweep_interval_ms: 60_000)
+    opts = [server: server, timeout: 5000]
+    # Insert the later expiry first: eviction follows expiry, not insertion order.
+    Store.cas(:later, :missing, :binary.copy("x", 40_000), 1000, opts)
+    Store.cas(:earlier, :missing, :binary.copy("x", 40_000), 100, opts)
+    assert {:ok, _, token} = Store.gets(:earlier, opts)
+    Store.cas(:middle, :missing, :binary.copy("x", 40_000), 500, opts)
+    send(server, :sweep)
+    :sys.get_state(server)
+    assert Store.get(:earlier, opts) == :not_found
+    assert {:ok, _} = Store.get(:later, opts)
+    assert Store.cas(:earlier, token, 7, 100, opts) == {:error, :conflict}
+    assert {:ok, %{memory_bytes: bytes}} = Store.stats(opts)
+    assert bytes < 100_000
+    Store.incr(:earlier, 1, 100, opts)
+    assert Store.cas(:earlier, token, 7, 100, opts) == {:error, :conflict}
+    for key <- 1..5, do: Store.cas(key, :missing, :binary.copy("x", 40_000), 1000, opts)
+    send(server, :sweep)
+    :sys.get_state(server)
+    assert {:ok, %{keys: 0}} = Store.stats(opts)
   end
 
-  test "large off-heap binaries count toward the budget and oversize replacements are refused", %{
+  test "large values are charged and oversize replacement preserves the old value", %{
     clock: clock,
   } do
     server = start_store(clock, memory_budget_bytes: 100_000)
-    opts = [server: server, timeout: 5_000]
-    assert Store.cas(:a, :missing, "old", 100, opts) == :ok
+    opts = [server: server, timeout: 5000]
+    Store.cas(:a, :missing, "old", 100, opts)
     assert {:ok, "old", token} = Store.gets(:a, opts)
     assert Store.cas(:a, token, :binary.copy("x", 100_000), 100, opts) == {:error, :too_large}
     assert Store.gets(:a, opts) == {:ok, "old", token}
-    # The first eviction half contains only small entries, so the large survivors
-    # require more than one half-eviction pass to get below the budget.
-    for key <- 1..7, do: assert({:ok, 1} = Store.incr(key, 1, 100, opts))
     assert Store.cas(:b, :missing, :binary.copy("x", 60_000), 100, opts) == :ok
     assert {:ok, %{memory_bytes: bytes}} = Store.stats(opts)
-    assert bytes >= 60_000 and bytes < 100_000
-    assert Store.cas(:c, :missing, :binary.copy("y", 60_000), 100, opts) == :ok
-    assert Store.get(:a, opts) == :not_found
-    assert Store.get(:b, opts) == :not_found
-    assert {:ok, %{keys: 1, memory_bytes: bytes}} = Store.stats(opts)
-    assert bytes < 100_000
+    assert bytes >= 60_000
+  end
+
+  test "large survivors require multiple passes and immediate continuation ticks", %{clock: clock} do
+    server = start_store(clock, memory_budget_bytes: 100_000, sweep_interval_ms: 60_000)
+    opts = [server: server, timeout: 5000]
+    for key <- 1..4096, do: Store.incr(key, 1, 10_000 + key, opts)
+
+    for key <- 4097..4099,
+        do: assert(Store.cas(key, :missing, :binary.copy("x", 40_000), 10_000 + key, opts) == :ok)
+
+    observer = self()
+
+    :sys.install(
+      server,
+      {fn debug, event, _ ->
+         if match?({:noreply, _}, event), do: send(observer, :sweep_turn)
+         debug
+       end, nil}
+    )
+
+    %{sweep_tag: tag} = :sys.get_state(server)
+    send(server, {:sweep, tag})
+    # More than four median-cutoff passes are needed to reach the three largest
+    # expiry keys. The next tick must run immediately, not after the 60s interval.
+    assert_receive :sweep_turn
+    assert_receive :sweep_turn
+
+    assert_eventually(fn ->
+      assert {:ok, %{memory_bytes: bytes}} = Store.stats(opts)
+      assert bytes < 100_000
+    end)
+  end
+
+  test "a caller clock exception is scrubbed without crashing the owner", %{clock: clock} do
+    fail = :atomics.new(1, [])
+
+    server =
+      start_store(clock,
+        clock: fn ->
+          if :atomics.get(fail, 1) == 1, do: raise("PRIVATE-CLOCK")
+          :atomics.get(clock, 1)
+        end
+      )
+
+    log =
+      capture_log(fn ->
+        :atomics.put(fail, 1, 1)
+        assert Store.get("PRIVATE-KEY", server: server) == {:error, :unavailable}
+        :atomics.put(fail, 1, 0)
+      end)
+
+    assert Process.alive?(server)
+    refute log =~ "PRIVATE"
+  end
+
+  test "opaque keys and replacement values cannot act as match patterns", %{opts: opts} do
+    keys = [:"$1", :_, {:const, :"$2"}, %{a: :"$1"}, %{a: :"$1", b: 2}, 1, 1.0, 0.0, -0.0]
+
+    for {key, n} <- Enum.with_index(keys) do
+      assert Store.cas(key, :missing, n, 100, opts) == :ok
+    end
+
+    for {key, n} <- Enum.with_index(keys) do
+      assert {:ok, ^n, token} = Store.gets(key, opts)
+      assert Store.cas(key, token, {:"$1", %{a: :_}}, 100, opts) == :ok
+      assert Store.get(key, opts) == {:ok, {:"$1", %{a: :_}}}
+    end
+
+    first = Map.new([{"a", 1}, {"b", 2}])
+    second = Map.new([{"b", 2}, {"a", 1}])
+    assert Store.incr(first, 1, 100, opts) == {:ok, 1}
+    assert Store.incr(second, 1, 100, opts) == {:ok, 2}
+  end
+
+  test "housekeeper suspension cannot block callers, including named lookup", %{
+    server: server,
+    opts: opts,
+    clock: clock,
+  } do
+    named = start_store(clock, name: :counter_direct_test)
+
+    for {owner, options} <- [{server, opts}, {named, [server: :counter_direct_test]}] do
+      :sys.suspend(owner)
+
+      try do
+        assert Store.incr(:direct, 1, 100, options) == {:ok, 1}
+        assert {:ok, 1, token} = Store.gets(:direct, options)
+        assert Store.cas(:direct, token, 2, 100, options) == :ok
+        assert Store.batch([{:get, :direct}], options) == {:ok, [{:ok, 2}]}
+      after
+        :sys.resume(owner)
+      end
+    end
   end
 
   test "counter loss and token uniqueness across store restarts", %{opts: opts, clock: clock} do
@@ -268,7 +328,22 @@ defmodule Guardian.Counters.StoreTest do
     refute fresh == token
   end
 
-  test "binary slices charge their backing allocation through nested keys and values", %{
+  test "a captured table reference cannot address a same-name replacement", %{clock: clock} do
+    owner = start_store(clock, name: :counter_generation_test)
+    assert Store.incr(:key, 1, 100, server: :counter_generation_test) == {:ok, 1}
+    %{entries: old_table} = :sys.get_state(owner)
+    GenServer.stop(owner)
+
+    assert_eventually(fn ->
+      replacement = Process.whereis(:counter_generation_test)
+      assert is_pid(replacement) and replacement != owner
+    end)
+
+    assert Store.incr(:key, 1, 100, server: old_table) == {:error, :unavailable}
+    assert Store.get(:key, server: :counter_generation_test) == :not_found
+  end
+
+  test "value slices charge backing allocations while encoded keys detach them", %{
     clock: clock,
   } do
     backing = :binary.copy("x", 131_072)
@@ -286,10 +361,17 @@ defmodule Guardian.Counters.StoreTest do
     end
 
     for key <- [{:group, slice}, %{slice => [0]}, [nil, bits]] do
-      assert Store.cas(key, :missing, 1, 100, opts) == {:error, :too_large}
+      assert Store.cas(key, :missing, 1, 100, opts) == :ok
+      assert {:ok, 1} = Store.get(key, opts)
     end
 
-    assert {:ok, %{keys: 0, memory_bytes: 0}} = Store.stats(opts)
+    assert {:ok, %{memory_bytes: encoded_bytes}} = Store.stats(opts)
+    assert encoded_bytes < 100_000
+    %{entries: entries} = :sys.get_state(server)
+
+    for {encoded_key, _, _, _} <- :ets.tab2list(entries),
+        do: assert(:binary.referenced_byte_size(encoded_key) < 1_000)
+
     # A detached copy is small and can be stored; no blanket slice-size rejection.
     assert Store.cas(:key, :missing, :binary.copy(slice), 100, opts) == :ok
 
@@ -305,7 +387,7 @@ defmodule Guardian.Counters.StoreTest do
     opts: opts,
   } do
     assert Store.get(:key, server: :counter_store_not_running) == {:error, :unavailable}
-    :sys.suspend(server)
+    pause = Guardian.CounterStoreProbe.pause(server)
 
     try do
       task =
@@ -317,9 +399,12 @@ defmodule Guardian.Counters.StoreTest do
           )
         end)
 
+      Guardian.TestHelpers.await_queued_call(elem(pause, 0))
+      Process.sleep(20)
+      Guardian.CounterStoreProbe.resume(pause)
       assert Task.await(task) == {:error, :timeout}
     after
-      :sys.resume(server)
+      if Process.alive?(elem(pause, 0)), do: Guardian.CounterStoreProbe.resume(pause)
     end
 
     assert Store.get("private-key", opts) == :not_found
@@ -398,7 +483,7 @@ defmodule Guardian.Counters.StoreTest do
     log =
       capture_log(fn ->
         :atomics.put(fail, 1, 1)
-        assert Store.get("PRIVATE-KEY", opts) == {:error, :unavailable}
+        send(server, :sweep)
         assert_receive {:DOWN, ^monitor, :process, ^server, reason}
         refute inspect(reason) =~ "PRIVATE"
         :atomics.put(fail, 1, 0)

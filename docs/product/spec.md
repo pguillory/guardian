@@ -479,10 +479,12 @@ Counters:
    attempts within the same budgets. SET/UNSET keep their fail-closed behavior.
 7. State is ephemeral and advisory: restarts, eviction, membership changes,
    partitions and uncertain writes can lose or split counts (section 10). The
-   resident entry/index budget is GUARDIAN_COUNTER_MEMORY_MB, positive MiB, default
+   resident counter memory target is GUARDIAN_COUNTER_MEMORY_MB, positive MiB, default
    64; explicit empty or invalid values refuse startup. It excludes mailboxes,
-   temporary copies and other VM memory. Capacity reclaims expiry, then roughly
-   the oldest half of live keys. Counters are not durable enforcement limits.
+   temporary copies and other VM memory. Housekeeping enforces it about every
+   second, so writes can temporarily exceed it. Expired buckets are reclaimed first,
+   then a sampled cutoff discards buckets with the earliest expiry. Tied expiries
+   can discard more than half, including every live bucket. Counters are not durable enforcement limits.
    UNSET does not erase BY values or min/max inputs from counter memory: they can
    remain for a window plus a bucket and cross the trusted peer network unencrypted.
    Avoid secrets in those expressions.

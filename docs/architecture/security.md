@@ -379,17 +379,21 @@ and no single request that takes the service down or destroys stored data.
    `[::1]`; `Guardian.Rules.Config` refuses anything else at startup), so no one on the
    network path can read rule text or rewrite the rules a node loads. The name
    `localhost` relies on the machine's own resolver mapping it to loopback.
-9. Counter storage: `Guardian.Counters.Store` owns private ETS with a 64 MiB
-   default budget for resident entries/indexes (`GUARDIAN_COUNTER_MEMORY_MB`, a
-   positive integer MiB setting; explicit empty/invalid refuses startup), conservatively charging serialized
-   payload sizes and any larger backing allocation retained by a nested binary or
-   bitstring slice, as well as ETS memory, to include off-heap binaries. Fixed empty
-   overhead, mailboxes and temporary copies are outside this budget. At capacity
-   it reclaims expired entries before dropping roughly the oldest half of live
-   keys; expiry is checked before access and cleaned in bounded, immediately
-   continuing sweep pages. Operations have local deadlines and scrubbed failures;
-   formatted status redacts state, messages, logs and reasons, and callback crashes
-   replace exception details and stack arguments with fixed text/arities.
+9. Counter storage: `Guardian.Counters.Store` owns one public ETS table, accessible
+   directly by trusted code in this VM, with a 64 MiB default asynchronous memory
+   target (`GUARDIAN_COUNTER_MEMORY_MB`, positive integer MiB; explicit empty/invalid
+   refuses startup). No HTTP access is added. Housekeeping conservatively charges
+   serialized encoded keys/values, backing allocations retained by nested value
+   binaries/bitstrings and ETS memory. Encoding copies keys, detaching key slices.
+   Fixed empty/descriptor overhead, mailboxes and temporary copies are excluded.
+   Writes can exceed the target between sweeps and during concurrent reclamation;
+   individual oversized payloads are refused. About every second, bulk expiry
+   reclamation precedes sampled earliest-expiry cutoff eviction. Tied expiries may
+   discard every live bucket. Operations never run housekeeping; reads check expiry,
+   mutations retain insertion expiry, and expired-key reuse has bounded conditional
+   cleanup. Operations have local deadlines and fixed errors; formatted status
+   redacts state/messages/logs/reasons, and housekeeping callback failures replace
+   exception details and stack arguments with fixed text/arities.
    Whole-set preparation validates counter semantics and resolves identities without
    evaluating expressions or accessing counter state. Compiler refuses unresolved
    plans and unbound LOOKUPs. Live counter execution uses the resolved-step
@@ -432,7 +436,8 @@ and no single request that takes the service down or destroys stored data.
 Counter-specific limits:
 
 - The positive MiB budget has no upper cap. Size it below available RAM with
-  headroom for the rest of the VM; a VM crash dump can include counter ETS too (7.2).
+  headroom for temporary overshoot, housekeeping's row copies and the rest of the
+  VM; a VM crash dump can include counter ETS too (7.2).
 - Untrusted high-cardinality BY inputs can fill the shared memory budget and evict
   other groups, or trigger stalls/cooldowns. A SET decision based on a default count
   can then fail open; it is an advisory signal, not a durable security limit.

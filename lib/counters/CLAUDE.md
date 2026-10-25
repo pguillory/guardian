@@ -7,52 +7,53 @@ implemented. TRACK/LOOKUP are available through normal whole-set rule writes,
 startup and reload. GUARDIAN_COUNTER_MEMORY_MB sets positive MiB, default 64;
 explicit empty/invalid values refuse startup.
 
-`Guardian.Counters.Store` owns private ETS tables for entries, insertion order and expiry.
-Its serialized get/get_many/gets/cas/incr operations are atomic on one node.
-`batch/2` pipelines up to 4,000 Store operations and checks the original queued
-deadline before each; a pipeline is ordered but is not a rollback transaction.
-Start it after Guardian.Rules.Server and before Storage, independently of both. Store and
-Cluster run under Guardian.Counters.Supervisor, owned by a trapping Guardian.Counters.Restarter.
-Exhausting the subtree's restart intensity stops only counters; its owner logs a
-fixed reason category at error and retries with capped exponential backoff (timing
-in `docs/architecture/system.md` section 2.1). Startup failures retry too, except
-invalid Store options still refuse initial startup. Never adopt a subtree linked
-to an old owner. Orderly owner shutdown stops its subtree before exiting and logs
-no failure. Counter processes must never spend Main's restart intensity.
-`system_stats.counters_available` samples process presence; it is not a latency
-probe and does not affect `/health`. No disk,
-external services, credentials, rule text or event logging belongs here.
+`Guardian.Counters.Store` owns one public ETS set. Registered stores use the same
+table name; callers find a descriptor row through ETS, never the owner's mailbox.
+Unnamed stores may use a PID (process dictionary lookup) or table reference.
+User keys are deterministic ETF binaries; the reserved atom descriptor key cannot
+collide. ETF is ephemeral and owner-local, never the cluster's routing encoding.
+Rows are {encoded_key, value, expires_at, version}. The GenServer only runs
+housekeeping; suspending it must not block normal named-store traffic.
+Start it after Guardian.Rules.Server and before Storage, under the existing
+Supervisor/Restarter boundary. Invalid options refuse startup. Restart isolation,
+backoff and process-presence stats remain as specified in system.md section 2.1.
 
-1. Preserve missing versus stored nil. `:missing` CAS creates only an absent or
-   expired key. Every successful mutation, including incr, issues a new reference
-   token, so expiry, eviction and restart cannot resurrect an old CAS token.
-2. TTLs use the owner's monotonic clock, are checked before access, and are renewed
-   only by successful mutations. The periodic expiry sweep cleans quiet keys in
-   256-entry turns, continuing immediately while expired entries remain. It keeps
-   one tagged timer chain and interleaves queued operations between pages.
-   Counter bucket callers pass remaining TTL to a fixed expiry.
-3. Charge ETS memory in bytes plus serialized payloads for off-heap binaries,
-   including whole backing allocations retained by nested binary/bitstring slices
-   (also through keys and function environments);
-   ignore only fixed empty-table overhead. Reads do not change FIFO order and
-   updates keep their original insertion order. At capacity reclaim all expired
-   entries first, then evict the oldest half of live keys if still necessary,
-   repeating when large survivors still exceed the budget. Loss is intentional;
-   `{:error, :evicted}` means the updated key was evicted, a definite loss.
-   `:too_large` can likewise follow eviction when the payload fits but ETS overhead
-   pushes it over capacity; only an up-front payload refusal is free of side effects.
-4. Calls have a 50 ms default timeout and a local queued-request deadline. Never
-   replay uncertain increments. No remote VM may compare its monotonic timestamps
-   with ours; the later cluster layer must translate remaining durations.
-5. Status and crashes must not expose keys or values. Malformed operations return
-   a fixed error. Unexpected internal failures reset the store with scrubbed
-   stacks instead of keeping partially changed ETS with stale accounting.
-6. The memory budget bounds resident entries/indexes, not mailboxes, temporary
-   copies or the VM. Capacity expiry reclamation and eviction can stall this single
-   owner; cluster routing provides fail-fast cooldown and shared failure-wait budgets.
-
-Tests use unnamed stores and a private injectable TTL clock. Operation deadlines
-always use real monotonic time. Keep these tests independent of external services.
+1. Preserve missing versus stored nil. get/gets use lookup; CAS uses keyed
+   select_replace with a fully bound binary key and constant replacement values.
+   Missing CAS uses insert_new. Native incr uses one update_counter list for the
+   value, a fresh positive unique version (threshold/reset), and expiry readout.
+   Tokens carry table generation and version; every mutation, including delta zero,
+   invalidates prior tokens. Never expose the token's representation as a product API.
+2. Expiry is owner's monotonic now plus the initial positive TTL, retained by
+   updates. Bucket callers send decreasing remaining TTL to bucket_end+window;
+   remote clocks receive durations, never another VM's monotonic timestamp.
+   Reads treat expiry<=now as missing. A physically present expired key can be
+   conditionally deleted and reused with one retry; ordinary bucket traffic does
+   not revisit expired bucket identities. Check deadlines after clock/key encoding
+   and before retries. Stale CAS never recreates a key. A second expired increment
+   returns :expired, a definite failure alongside :not_integer and :too_large.
+3. One tagged timer chain runs bulk expiry deletion about every second. Memory
+   reclamation samples up to 256 expiries and deletes through their median cutoff;
+   tied expiries may remove more than half. Run at most four eviction passes per
+   tick, then continue immediately if still over. Never reclaim in a write.
+4. Preserve the 64 MiB default and individual oversized-payload refusal.
+   Housekeeping and diagnostic stats fold resident rows, charging ETS bytes above
+   fixed descriptor/empty overhead plus serialized encoded keys/values and backing
+   allocations retained by nested value binaries/bitstrings/function environments.
+   Encoded keys copy their bytes, detaching original key slices. The budget is an
+   asynchronous target: writes can overshoot between sweeps and during concurrent
+   reclamation. Accounting is approximate during concurrent changes; stats scans
+   are diagnostic. Excludes temporary copies, mailboxes and other VM memory.
+   Successful writes return success even if housekeeping later evicts them.
+5. Operations check real monotonic deadlines; batch executes at most 4,000 operations
+   in order, with a check before each, without rollback or a multi-key snapshot.
+   Cluster retains its wait budgets/cooldowns and never replays uncertain increments.
+   The internal {backend_module, server} Cluster store option supports transport
+   probes in libtest; production defaults to Store with no mailbox fallback.
+6. Return fixed errors; no key/value/exception logging. Housekeeping callback
+   failures scrub stacks and reset the store. Status redacts state/messages/logs.
+   Tests use a private injectable expiry clock, while deadlines use real time;
+   fault injection pauses callers through a libtest clock gate, not the housekeeper.
 
 `Guardian.Counters.Cluster` routes `{identity, group_tuple, bucket}` keys with rendezvous
 hashing over identity and group only. Explicit tagged encoding preserves types

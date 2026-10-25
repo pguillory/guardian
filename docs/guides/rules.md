@@ -71,10 +71,11 @@ allowance; suspect owners cool down for one second. Healthy calls refund the bat
 allowance, so a large batch can still take time. Counters are advisory signals.
 
 Set GUARDIAN_COUNTER_MEMORY_MB to a positive integer in MiB (default 64) and restart
-to change the resident entry/index budget. Empty, zero, negative and non-integer
+to change the resident counter memory target. Empty, zero, negative and non-integer
 values refuse startup. The budget excludes mailboxes, temporary copies and the
-rest of the VM. Capacity reclaims expired keys, then roughly the oldest half of
-live keys. High-cardinality groups compete for this shared budget.
+rest of the VM. Housekeeping runs about every second, so writes can temporarily
+overshoot. It reclaims expired keys, then evicts live buckets through a sampled
+earliest-expiry cutoff; tied expiries can discard every live bucket. High-cardinality groups compete for this shared budget.
 
 UNSET removes fields from stored events, not from counter memory: BY keys and
 min/max values can retain sensitive inputs and cross the trusted peer network until

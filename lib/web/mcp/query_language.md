@@ -129,9 +129,12 @@ again. Completed matching same-node idempotency-key retries skip rules for ten
 seconds but return only receipts, without decision fields; protection can be lost.
 Request outputs through send_events return_keys (missing fields return null).
 
-GUARDIAN_COUNTER_MEMORY_MB is a positive MiB budget, default 64; explicit empty or
-invalid settings refuse startup. It bounds resident entries/indexes, not mailboxes
-or copies. Capacity reclaims expiry then roughly the oldest half of live keys.
+GUARDIAN_COUNTER_MEMORY_MB is a positive MiB memory target, default 64; explicit
+empty or invalid settings refuse startup. It covers resident counter rows, not
+mailboxes, temporary copies or other VM memory. Housekeeping runs about every
+second, so writes can temporarily overshoot. Expired buckets are reclaimed first,
+then a sampled earliest-expiry cutoff can evict live buckets, possibly all when
+expiries tie.
 UNSET does not erase grouping keys/min/max inputs from private counter memory or
 trusted peer traffic. Avoid secrets in those expressions.
 

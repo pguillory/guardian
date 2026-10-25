@@ -420,6 +420,10 @@ below remain unchanged.
 
 ### C1: node-local key-value store
 
+The original C1 implementation contract below is historical. The direct public
+ETS implementation, fixed insertion expiry, asynchronous memory target and
+sampled expiry-cutoff eviction supersede it in [counter-store.md](counter-store.md).
+
 Build `Guardian.Counters.Store`, an independently supervised GenServer owning private ETS
 tables: a key/value set, an insertion-order index, and an expiry index. The
 process serializes operations, making increments and CAS atomic without exposing

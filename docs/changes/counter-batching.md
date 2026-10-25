@@ -59,8 +59,9 @@ execution and recoverable metadata on the same immutable identities.
 Run the same build across the cluster. Older peers lacking pipeline support return
 invalid-request errors and default counters during a mixed-version rollout; that
 definite error does not trigger cooldown. No deployment is part
-of this change. Capacity eviction and expiry reclamation still run synchronously
-inside Store writes and may stall the owner; changing that is separate work.
+of this change. The later [counter-store.md](counter-store.md) redesign moves
+Store operations directly to public ETS and capacity/expiry reclamation into
+housekeeping; the batching protocol and availability budgets remain.
 
 ## Validation
 

@@ -21,7 +21,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
       batch,
       Keyword.merge(
         [
-          store: store,
+          store: test_backend(store),
           members: [node()],
           cooldown_table: :rules_counter_runtime_test,
         ],
@@ -34,6 +34,17 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     preparation = Guardian.Rules.RuleSet.prepare(files)
     assert preparation.errors == []
     Map.new(preparation.tables, fn {table, {:ok, plan}} -> {table, plan} end)
+  end
+
+  defp test_backend(store) when is_atom(store), do: store
+
+  defp test_backend(store) do
+    case Process.info(store, :dictionary) do
+      {:dictionary, dictionary} ->
+        if Keyword.has_key?(dictionary, :counter_store_descriptor),
+          do: store,
+          else: {Guardian.CounterStoreProbe, store}
+    end
   end
 
   defp plan(source) do

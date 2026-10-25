@@ -37,7 +37,10 @@
     Restarts, eviction, membership changes, partitions and uncertain writes can
     lose/split counts. Failed operations default and ingestion continues. A later
     rule/storage failure can leave increments behind, and unkeyed retries count
-    again. The counter memory budget covers resident entries/indexes only.
+    again. The counter memory target covers resident rows only, excluding
+    mailboxes, temporary copies and other VM memory. Housekeeping enforces it
+    about every second, so writes can temporarily overshoot. A sampled
+    earliest-expiry cutoff can evict every live bucket when expiries tie.
     High-cardinality BY values compete for that budget and can evict other groups.
     UNSET does not erase grouping keys or min/max state from counter memory.
     See the [rules guide](../guides/rules.md#counters-with-track-and-lookup).

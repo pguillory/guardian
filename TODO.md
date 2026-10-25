@@ -58,7 +58,7 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] rules-track-lookup: TRACK (counters) and LOOKUP statements; settled v1 design
       and reviewed four-piece plan in `docs/changes/ingest-rules.md`
       1. [x] C1: node-local ETS get/get_many/gets/cas/incr, per-key TTLs, memory
-         budget and oldest-half eviction
+         budget and oldest-half eviction (superseded by counter-store.md below)
       2. [x] C2: consistent owner hashing, bounded remote operations and fail open
       3. [x] C3: mergeable count, distinct (HyperLogLog), sum, min, max and avg
       4. [x] C4: TRACK/LOOKUP grammar, validation, bucket policy and rule execution
@@ -82,8 +82,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] counter-batching: run dependency levels through nested key state machines,
       with concurrent owner pipelines and existing fail-open budgets
       (`docs/changes/counter-batching.md`)
-- [ ] counter-capacity-reclamation: move full expiry reclamation and oldest-half
-      eviction out of the synchronous write turn while preserving the memory budget
+- [x] counter-capacity-reclamation: direct atomic public-ETS operations with
+      housekeeping-only expiry and sampled earliest-expiry eviction; the configured
+      memory target is enforced asynchronously (`docs/changes/counter-store.md`)
 - [x] rules-open-questions: the failure and invalid-at-boot defaults are confirmed
       and their switches (`:rules_on_failure`, `:rules_invalid_at_boot`) removed
 - [x] rules-server-redaction: Guardian.Rules.Server's formatted status and crash reports
