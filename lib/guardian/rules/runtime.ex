@@ -91,6 +91,7 @@ defmodule Guardian.Rules.Runtime do
   end
 
   defp prepare_counter(index, step, event) do
+    # Preparation guarantees bound metadata; a missing definition is a plan error.
     definition = counter_definition(step)
 
     try do
@@ -143,8 +144,10 @@ defmodule Guardian.Rules.Runtime do
       Guardian.Rules.CounterRuntime.missing(definition.aggregation)
   end
 
-  defp counter_definition(%Guardian.Rules.Step.Track{} = step) do
-    Guardian.Rules.CounterDefinition.from_track(step)
+  defp counter_definition(%Guardian.Rules.Step.Track{
+         definition: %Guardian.Rules.CounterDefinition{} = definition,
+       }) do
+    definition
   end
 
   defp counter_definition(%Guardian.Rules.Step.Lookup{target: target}) do

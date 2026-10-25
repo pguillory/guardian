@@ -423,8 +423,11 @@ stored historical output fields. No later rule/storage failure rolls back update
 Counter aggregates share the existing `Guardian.Aggregation.*` implementations
 with queries. `Guardian.Aggregation` explicitly registers counter name/arity
 configurations. After semantic validation, rule plans resolve these configurations
-once into TRACK steps and immutable LOOKUP target definitions. Compiled plans and
-key machines carry them through empty/start/merge/finish without further lookups.
+and prepare each TRACK's immutable CounterDefinition once. LOOKUPs bind those same
+definitions, and Runtime reuses them rather than constructing metadata per event.
+Compiled plans and key machines carry the configurations through
+empty/start/merge/finish without further lookups. CounterDefinition owns the legacy
+struct-shaped input used to hash LOOKUP targets, excluding derived configuration.
 The name/arity remains available for diagnostics and native-count dispatch.
 Derived configurations do not change counter identities or dependent plan hashes.
 Empty mergeable states are distinct from query default results (notably sum's

@@ -134,7 +134,10 @@ defmodule Guardian.Rules.CounterPlanTest do
         "TRACK c#{i} = #{name}(#{args}) LAST '1h'; LOOKUP prior#{i} = c#{i}"
       end)
 
-    plan = plan(%{"t/a.gsql" => source})
+    preparation = RuleSet.prepare(%{"t/a.gsql" => source})
+    assert preparation.errors == []
+    {:ok, candidate} = preparation.candidates["t"]
+    {:ok, plan} = preparation.tables["t"]
     module = __MODULE__.ResolvedConfigurationProbe
 
     on_exit(fn ->
@@ -153,7 +156,16 @@ defmodule Guardian.Rules.CounterPlanTest do
         Enum.find(plan.steps, &(&1.field == "prior" <> String.trim_leading(track.field, "c")))
 
       assert definition.aggregation == Guardian.Aggregation.fetch_counter!(track.operator)
+      assert track.definition == definition
       assert lookup.target == definition
+
+      assert Enum.find(candidate.steps, &(&1.field == track.field)).definition == definition
+
+      assert Enum.find(List.flatten(recovered.levels), &(&1.field == track.field)) == track
+      assert Enum.find(List.flatten(recovered.levels), &(&1.field == lookup.field)) == lookup
+
+      assert :erlang.term_to_binary(Guardian.Rules.CounterDefinition.hash_term(definition)) ==
+               :erlang.term_to_binary(Map.delete(definition, :aggregation))
     end
   end
 
@@ -295,6 +307,94 @@ defmodule Guardian.Rules.CounterPlanTest do
     end
 
     refute hd(plan(%{"u/a.gsql" => base}, "u").steps).identity == first.identity
+  end
+
+  test "counter identities and base plan hashes match the precomputed-definition baseline" do
+    # Captured before TRACK definitions were prepared ahead of event execution.
+    # These constants are independent of the current hash implementation.
+    cases = [
+      {
+        %{"t/a.gsql" => "TRACK c = count() LAST '1h'"},
+        %{"t" => "e4d21dffec95c187aef4b97d76ffe75bab3ea57e23325b45bc764740db523f0f"},
+        %{{"t", "c"} => "e8ac9500f406c914eb128c26f98529eccbcc1eb337576f4d9f689c6b46328526"}
+      },
+      {
+        %{"t/a.gsql" => "TRACK c = count() LAST '1h'; LOOKUP prior = c"},
+        %{"t" => "ae8df3b7d1843047ac6943ad9c90794503fe58b21796ab9ba6874f0a818528d9"},
+        %{{"t", "c"} => "e8ac9500f406c914eb128c26f98529eccbcc1eb337576f4d9f689c6b46328526"}
+      },
+      {
+        %{
+          "a/r.gsql" => "TRACK c = sum(amount) BY ip, region WHERE ok LAST '1s'",
+          "t/a.gsql" => "LOOKUP prior = c FROM a BY address, country",
+        },
+        %{
+          "a" => "9321d45179e41ea5030c090706d62e5519464829545c081a1edc0ec533c1ad11",
+          "t" => "389a61bb2fca71a20cec7104c3b5e31b39944b63063152319d6f7df1802bac60",
+        },
+        %{{"a", "c"} => "a5125dceae7bbed53c4255675e5b775454b2157d6147d4747c4b2c3d10b3a69e"}
+      },
+      {
+        %{
+          "a/r.gsql" => "TRACK c = count_distinct(user) BY ip LAST '2m'",
+          "b/r.gsql" => "TRACK d = avg(amount) LAST '1h'",
+          "t/a.gsql" => "LOOKUP prior_c = c FROM a BY address; LOOKUP prior_d = d FROM b",
+        },
+        %{
+          "a" => "f58c3a245d02720783a1b1cdcf655d1550e4190cec41714425f4aeb1dda70e5e",
+          "b" => "c1dfcce7f70cad6e6ea33cc0e49a537bbe7c5677f6346e014fa34a912cccf9c7",
+          "t" => "a647f97132fc1a655f648dfc1a3d5b1fcf202f78bd5442fe13f7e3e24ab0b1ec",
+        },
+        %{
+          {"a", "c"} => "b3e7942e1ffdccc984acb0b77a957b8a944b152a2f336c28a4ec0710674c749e",
+          {"b", "d"} => "37f9b833ff44e5873a85dcd0f522cb104059addbb2777a6dbacaf9262b72b481",
+        }
+      },
+    ]
+
+    for {files, hashes, identities} <- cases do
+      preparation = RuleSet.prepare(files)
+      assert preparation.errors == []
+
+      assert Map.new(preparation.candidates, fn {table, {:ok, plan}} -> {table, plan.hash} end) ==
+               hashes
+
+      # Compare resolved hashes with the old algorithm within this VM: ETF map
+      # field order can vary with atom load order across VM starts.
+      for {table, {:ok, resolved}} <- preparation.tables do
+        targets =
+          for %Guardian.Rules.Step.Lookup{target: definition} <- resolved.steps do
+            {target_table, field, digest} = definition.identity
+            assert identities[{target_table, field}] == digest
+
+            %{
+              __struct__: Guardian.Rules.CounterDefinition,
+              identity: definition.identity,
+              operator: definition.operator,
+              window_ms: definition.window_ms,
+              bucket_ms: definition.bucket_ms,
+              group_arity: definition.group_arity,
+            }
+          end
+
+        legacy_hash =
+          if targets == [],
+            do: hashes[table],
+            else:
+              :crypto.hash(:sha256, :erlang.term_to_binary({hashes[table], targets}))
+              |> Base.encode16(case: :lower)
+
+        assert resolved.hash == legacy_hash
+      end
+
+      actual_identities =
+        for {_table, {:ok, plan}} <- preparation.tables,
+            %Guardian.Rules.Step.Track{identity: {table, field, digest}} <- plan.steps,
+            into: %{},
+            do: {{table, field}, digest}
+
+      assert actual_identities == identities
+    end
   end
 
   test "dependent hashes bind target definitions but ignore target file and line" do

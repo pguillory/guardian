@@ -35,4 +35,19 @@ defmodule Guardian.Rules.CounterDefinition do
       group_arity: length(step.by_exprs),
     }
   end
+
+  @doc """
+  Legacy struct-shaped plan hash input, excluding derived configuration.
+  Changing these keys or values changes dependent resolved plan hashes.
+  """
+  def hash_term(%__MODULE__{} = definition) do
+    %{
+      __struct__: __MODULE__,
+      identity: definition.identity,
+      operator: definition.operator,
+      window_ms: definition.window_ms,
+      bucket_ms: definition.bucket_ms,
+      group_arity: definition.group_arity,
+    }
+  end
 end

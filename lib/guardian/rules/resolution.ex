@@ -14,7 +14,7 @@ defmodule Guardian.Rules.Resolution do
       for {table, {:ok, plan}} <- current,
           %Guardian.Rules.Step.Track{} = track <- plan.steps,
           into: %{},
-          do: {{table, track.field}, Guardian.Rules.CounterDefinition.from_track(track)}
+          do: {{table, track.field}, track.definition}
 
     next =
       Map.new(candidates, fn
@@ -101,11 +101,9 @@ defmodule Guardian.Rules.Resolution do
   # Preserve the existing SET/UNSET hash exactly. A LOOKUP's binding adds only its
   # target definition, so moving a target between files does not reset dependents.
   defp hash(base_hash, steps) do
-    # Aggregation configurations are derived from the operator. Keep the original
-    # definition's struct marker and fields so resolved plan hashes stay stable.
     targets =
       for %Guardian.Rules.Step.Lookup{target: target} <- steps,
-          do: Map.delete(target, :aggregation)
+          do: Guardian.Rules.CounterDefinition.hash_term(target)
 
     case targets do
       [] ->

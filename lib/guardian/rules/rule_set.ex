@@ -345,7 +345,7 @@ defmodule Guardian.Rules.RuleSet do
     statements =
       statements
       |> Enum.uniq_by(&{&1.kind, &1.field, &1.source})
-      |> Enum.map(&resolve_aggregation/1)
+      |> Enum.map(&prepare_counter/1)
 
     {:ok, ordered} =
       Guardian.Rules.DependencyGraph.order(Enum.reject(statements, &(&1.kind == :unset)))
@@ -359,11 +359,12 @@ defmodule Guardian.Rules.RuleSet do
   end
 
   # Called only while constructing a plan after semantic validation succeeds.
-  defp resolve_aggregation(%Guardian.Rules.Step.Track{} = step) do
-    %{step | aggregation: Guardian.Aggregation.fetch_counter!(step.operator)}
+  defp prepare_counter(%Guardian.Rules.Step.Track{} = step) do
+    step = %{step | aggregation: Guardian.Aggregation.fetch_counter!(step.operator)}
+    %{step | definition: Guardian.Rules.CounterDefinition.from_track(step)}
   end
 
-  defp resolve_aggregation(step) do
+  defp prepare_counter(step) do
     step
   end
 

@@ -96,6 +96,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       through rule plans and batched execution (`docs/changes/counter-retirement.md`)
 - [x] counter-client: split the batched Client facade from Transport and Budget,
       preserving counter behavior (`docs/changes/counter-client.md`)
+- [x] counter-definition-preparation: prepare immutable TRACK definitions once and
+      centralize legacy hash-field selection without changing identities or results
+      (`docs/changes/counter-definition-preparation.md`)
 - [x] rules-open-questions: the failure and invalid-at-boot defaults are confirmed
       and their switches (`:rules_on_failure`, `:rules_invalid_at_boot`) removed
 - [x] rules-server-redaction: Guardian.Rules.Server's formatted status and crash reports

@@ -22,7 +22,8 @@ Modules:
 - `Guardian.Rules.Resolution`: immutable target definitions and fixed-point invalidity.
 - `Guardian.Rules.CounterDefinition`: immutable target metadata, resolved shared
   aggregate configuration and window/bucket sizes. TRACK steps receive their
-  configuration after semantic validation; LOOKUPs bind the same configuration.
+  definition after semantic validation; LOOKUPs and Runtime reuse it. `hash_term/1`
+  owns the legacy struct-shaped hash input, excluding derived configuration.
 - `Guardian.Rules.Activation`: pure coherent reload selection, used by Server.
 - `Guardian.Rules.Compiler`: a plan into a generated module from a fixed template, with the
   statements as escaped literals. Generated `plan/0` exposes the exact resolved
