@@ -1,4 +1,4 @@
-defmodule Guardian.RuntimeConfigTest do
+defmodule Guardian.Config.RuntimeTest do
   use ExUnit.Case, async: false
 
   @runtime_config Path.expand("../../../config/runtime.exs", __DIR__)

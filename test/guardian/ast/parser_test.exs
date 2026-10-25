@@ -1,4 +1,4 @@
-defmodule Guardian.ParserTest do
+defmodule Guardian.AST.ParserTest do
   import Guardian.AST.Parser
   alias Guardian.AST.ParseError
   use ExUnit.Case, async: true

@@ -1,4 +1,4 @@
-defmodule Guardian.TokenizerTest do
+defmodule Guardian.AST.TokenizerTest do
   import Guardian.AST.Tokenizer
   alias Guardian.AST.ParseError
   use ExUnit.Case, async: true

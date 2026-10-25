@@ -1,4 +1,4 @@
-defmodule Guardian.NegativeOperatorTest do
+defmodule Guardian.AST.Node.Operators.NegativeOperatorTest do
   use Guardian.Query.EvaluationTestCase, async: true
 
   test "negative operator" do

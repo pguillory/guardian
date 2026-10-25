@@ -1,4 +1,4 @@
-defmodule Guardian.SubtractOperatorTest do
+defmodule Guardian.AST.Node.Operators.SubtractOperatorTest do
   use Guardian.Query.EvaluationTestCase, async: true
 
   test "subtract operator" do

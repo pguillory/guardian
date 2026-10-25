@@ -1,4 +1,4 @@
-defmodule Guardian.IsOperatorTest do
+defmodule Guardian.AST.Node.Operators.IsOperatorTest do
   use Guardian.Query.EvaluationTestCase, async: true
 
   test "is operator" do

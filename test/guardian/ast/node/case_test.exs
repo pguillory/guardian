@@ -1,4 +1,4 @@
-defmodule Guardian.CaseTest do
+defmodule Guardian.AST.Node.CaseTest do
   use Guardian.Query.EvaluationTestCase, async: true
 
   test "case expression" do

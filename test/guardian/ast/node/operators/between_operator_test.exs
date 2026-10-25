@@ -1,4 +1,4 @@
-defmodule Guardian.BetweenOperatorTest do
+defmodule Guardian.AST.Node.Operators.BetweenOperatorTest do
   use Guardian.Query.EvaluationTestCase, async: true
 
   test "between operator" do

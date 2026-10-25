@@ -1,4 +1,4 @@
-defmodule Guardian.DivideOperatorTest do
+defmodule Guardian.AST.Node.Operators.DivideOperatorTest do
   use Guardian.Query.EvaluationTestCase, async: true
 
   test "divide operator" do

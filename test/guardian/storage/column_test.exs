@@ -1,4 +1,4 @@
-defmodule Guardian.ColumnTest do
+defmodule Guardian.Storage.ColumnTest do
   alias Guardian.Storage.Column
   import Column
   use ExUnit.Case, async: true

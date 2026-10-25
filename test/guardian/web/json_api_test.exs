@@ -1,4 +1,4 @@
-defmodule Guardian.JsonApiTest do
+defmodule Guardian.Web.JsonApiTest do
   # async: false because some tests switch query-parameter keys on.
   use ExUnit.Case, async: false
 

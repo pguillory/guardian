@@ -1,4 +1,4 @@
-defmodule Guardian.GreaterThanOperatorTest do
+defmodule Guardian.AST.Node.Operators.GreaterThanOperatorTest do
   use Guardian.Query.EvaluationTestCase, async: true
 
   test "greater than operator" do

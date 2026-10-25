@@ -1,4 +1,4 @@
-defmodule Guardian.LikeOperatorTest do
+defmodule Guardian.AST.Node.Operators.LikeOperatorTest do
   use Guardian.Query.EvaluationTestCase, async: true
 
   alias Guardian.AST.Node.Operators.LikeOperator

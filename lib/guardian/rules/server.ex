@@ -66,7 +66,10 @@ defmodule Guardian.Rules.Server do
   use GenServer
   require Logger
 
+  alias Guardian.Rules
+  alias Guardian.Rules.Lock
   alias Guardian.Rules.RuleSet
+  alias Guardian.Rules.Store
 
   @boot_retry_ms 60_000
   @reclaim_after_ms 30_000
@@ -116,13 +119,13 @@ defmodule Guardian.Rules.Server do
 
     case Guardian.Rules.Config.store() do
       {:ok, store} ->
-        Guardian.Rules.put_store(store)
+        Rules.put_store(store)
         # `files` is the set last activated (also the fetch cache); `stale` means the
         # published rules may not match it, so the next reload activates whatever it
         # reads even if the ETags are unchanged.
         state = %{store: store, files: %{}, stale: false, free: [], retired: %{}}
 
-        case Guardian.Rules.published() do
+        case Rules.published() do
           nil -> boot(state)
           published -> {:ok, restart(state, published)}
         end
@@ -144,11 +147,11 @@ defmodule Guardian.Rules.Server do
         case activate(state, preparation) do
           {:ok, state, _errors} ->
             table_count =
-              Enum.count(Guardian.Rules.published(), fn {_table, module} -> is_atom(module) end)
+              Enum.count(Rules.published(), fn {_table, module} -> is_atom(module) end)
 
             Logger.info(
               "Rules: #{map_size(files)} files for #{table_count} tables " <>
-                "from #{Guardian.Rules.Store.describe(state.store)}"
+                "from #{Store.describe(state.store)}"
             )
 
             schedule_poll()
@@ -159,7 +162,7 @@ defmodule Guardian.Rules.Server do
         end
 
       {:error, reason} ->
-        {:stop, {:rules_store, Guardian.Rules.Store.reason_message(reason)}}
+        {:stop, {:rules_store, Store.reason_message(reason)}}
     end
   end
 
@@ -244,7 +247,7 @@ defmodule Guardian.Rules.Server do
   # unchanged are reused; others are fetched bound to the listed ETag, and a change
   # between the list and a fetch restarts the read (at most 3 times).
   defp read_set(state, attempts \\ 3) do
-    with {:ok, objects} <- Guardian.Rules.Store.list(state.store) do
+    with {:ok, objects} <- Store.list(state.store) do
       objects
       |> Enum.filter(&(RuleSet.parse_key(&1.key) != :ignore))
       |> Enum.reduce_while({:ok, %{}}, fn object, {:ok, files} ->
@@ -280,7 +283,7 @@ defmodule Guardian.Rules.Server do
         {:ok, %{etag: etag, source: :too_large}}
 
       true ->
-        case Guardian.Rules.Store.get(state.store, key, etag) do
+        case Store.get(state.store, key, etag) do
           {:ok, source, _meta} -> {:ok, %{etag: etag, source: source}}
           {:error, reason} -> {:error, reason}
         end
@@ -309,7 +312,7 @@ defmodule Guardian.Rules.Server do
         end
 
       {:error, reason} ->
-        {:error, Guardian.Rules.Store.reason_message(reason), state}
+        {:error, Store.reason_message(reason), state}
     end
   end
 
@@ -330,13 +333,13 @@ defmodule Guardian.Rules.Server do
       is_binary(source) and byte_size(source) > RuleSet.max_file_bytes() ->
         {{:error, {:rejected, ["#{key}: is over #{RuleSet.max_file_bytes()} bytes"]}}, state}
 
-      Guardian.Rules.Store.local?(state.store) and Node.list() != [] ->
+      Store.local?(state.store) and Node.list() != [] ->
         {{:error,
           "rules are in a local folder, which each node has its own copy of; " <>
             "a cluster needs an S3 rule store"}, state}
 
       true ->
-        case Guardian.Rules.Lock.acquire(state.store, "#{node()}") do
+        case Lock.acquire(state.store, "#{node()}") do
           {:ok, lock} ->
             locked_write(state, lock, key, source)
 
@@ -344,7 +347,7 @@ defmodule Guardian.Rules.Server do
             {{:error, "another rule write is in progress; retry"}, state}
 
           {:error, reason} ->
-            {{:error, Guardian.Rules.Store.reason_message(reason)}, state}
+            {{:error, Store.reason_message(reason)}, state}
         end
     end
   end
@@ -377,7 +380,7 @@ defmodule Guardian.Rules.Server do
             release(lock)
             {{:error, {:rejected, Enum.map(new_errors, & &1.message)}}, state}
 
-          Guardian.Rules.Lock.remaining_ms(lock) < Guardian.Rules.Lock.save_margin_ms() ->
+          Lock.remaining_ms(lock) < Lock.save_margin_ms() ->
             release(lock)
             {{:error, "the write lock's lease ran short; retry"}, state}
 
@@ -387,7 +390,7 @@ defmodule Guardian.Rules.Server do
 
       {:error, reason} ->
         release(lock)
-        {{:error, Guardian.Rules.Store.reason_message(reason)}, state}
+        {{:error, Store.reason_message(reason)}, state}
     end
   end
 
@@ -395,7 +398,7 @@ defmodule Guardian.Rules.Server do
     result =
       case source do
         :delete ->
-          with :ok <- Guardian.Rules.Store.delete(state.store, key), do: {:ok, nil}
+          with :ok <- Store.delete(state.store, key), do: {:ok, nil}
 
         source ->
           condition =
@@ -404,7 +407,7 @@ defmodule Guardian.Rules.Server do
               :error -> :absent
             end
 
-          Guardian.Rules.Store.put(state.store, key, source, condition)
+          Store.put(state.store, key, source, condition)
       end
 
     case result do
@@ -431,11 +434,11 @@ defmodule Guardian.Rules.Server do
       {:error, {:unknown, _kind} = reason} ->
         # The save may have happened: leave the lock to expire, so the next writer
         # starts well after this request, and validates whatever it finds.
-        Logger.warning("Rules: writing #{key}: #{Guardian.Rules.Store.reason_message(reason)}")
+        Logger.warning("Rules: writing #{key}: #{Store.reason_message(reason)}")
 
         {{:error,
           {:unknown,
-           "#{Guardian.Rules.Store.reason_message(reason)}; #{key} may have been saved; list the rules to check"}},
+           "#{Store.reason_message(reason)}; #{key} may have been saved; list the rules to check"}},
          %{state | stale: true}}
 
       {:error, :precondition_failed} ->
@@ -444,19 +447,17 @@ defmodule Guardian.Rules.Server do
 
       {:error, reason} ->
         release(lock)
-        {{:error, Guardian.Rules.Store.reason_message(reason)}, state}
+        {{:error, Store.reason_message(reason)}, state}
     end
   end
 
   defp release(lock) do
-    case Guardian.Rules.Lock.release(lock) do
+    case Lock.release(lock) do
       :ok ->
         :ok
 
       {:error, reason} ->
-        Logger.warning(
-          "Rules: releasing the write lock: #{Guardian.Rules.Store.reason_message(reason)}"
-        )
+        Logger.warning("Rules: releasing the write lock: #{Store.reason_message(reason)}")
     end
   end
 
@@ -465,7 +466,7 @@ defmodule Guardian.Rules.Server do
     nodes = Node.list()
 
     nodes
-    |> :erpc.multicall(Guardian.Rules, :reload, [], @reload_timeout_ms)
+    |> :erpc.multicall(Rules, :reload, [], @reload_timeout_ms)
     |> Enum.zip(nodes)
     |> Enum.reject(fn {result, _node} -> result == {:ok, :ok} end)
     |> Enum.map(fn {_result, node} -> node end)
@@ -474,7 +475,7 @@ defmodule Guardian.Rules.Server do
   ## Activation
 
   defp activate(state, preparation) do
-    published = Guardian.Rules.published() || %{}
+    published = Rules.published() || %{}
     previous = published_plans(published)
     selected = Guardian.Rules.Activation.select(preparation, previous)
     errors = activation_errors(preparation, selected)
@@ -504,7 +505,7 @@ defmodule Guardian.Rules.Server do
             Map.put(acc, plan.table, module)
           end)
 
-        Guardian.Rules.publish(tables)
+        Rules.publish(tables)
 
         in_use = tables |> Map.values() |> Enum.filter(&is_atom/1) |> MapSet.new()
 

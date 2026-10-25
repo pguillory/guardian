@@ -1,9 +1,10 @@
 defmodule Guardian.Query.Function.FormatTimestamp do
-  require Guardian.Timestamp
+  alias Guardian.Timestamp
+  require Timestamp
 
   # A field outside its range (month 13, hour 25: Guardian.Timestamp.match/0 checks only the
   # shape) has no name to format: null.
-  def eval(Guardian.Timestamp.match() = timestamp, format) when is_binary(format) do
+  def eval(Timestamp.match() = timestamp, format) when is_binary(format) do
     eval_format(format, timestamp, "")
   rescue
     CaseClauseError -> nil
@@ -14,100 +15,100 @@ defmodule Guardian.Query.Function.FormatTimestamp do
   end
 
   defp eval_format("yyyy" <> format, timestamp, output) do
-    Guardian.Timestamp.match(year: year) = timestamp
+    Timestamp.match(year: year) = timestamp
     eval_format(format, timestamp, [output | year])
   end
 
   defp eval_format("y" <> format, timestamp, output) do
-    Guardian.Timestamp.match(year: year) = timestamp
+    Timestamp.match(year: year) = timestamp
     year = String.trim_leading(year, "0")
     eval_format(format, timestamp, [output | year])
   end
 
   defp eval_format("MMMM" <> format, timestamp, output) do
-    Guardian.Timestamp.match(month: month) = timestamp
+    Timestamp.match(month: month) = timestamp
     month = month_name(month)
     eval_format(format, timestamp, [output | month])
   end
 
   defp eval_format("MMM" <> format, timestamp, output) do
-    Guardian.Timestamp.match(month: month) = timestamp
+    Timestamp.match(month: month) = timestamp
     month = month_abbreviation(month)
     eval_format(format, timestamp, [output | month])
   end
 
   defp eval_format("MM" <> format, timestamp, output) do
-    Guardian.Timestamp.match(month: month) = timestamp
+    Timestamp.match(month: month) = timestamp
     eval_format(format, timestamp, [output | month])
   end
 
   defp eval_format("M" <> format, timestamp, output) do
-    Guardian.Timestamp.match(month: month) = timestamp
+    Timestamp.match(month: month) = timestamp
     month = String.trim_leading(month, "0")
     eval_format(format, timestamp, [output | month])
   end
 
   defp eval_format("dd" <> format, timestamp, output) do
-    Guardian.Timestamp.match(day: day) = timestamp
+    Timestamp.match(day: day) = timestamp
     eval_format(format, timestamp, [output | day])
   end
 
   defp eval_format("d" <> format, timestamp, output) do
-    Guardian.Timestamp.match(day: day) = timestamp
+    Timestamp.match(day: day) = timestamp
     day = String.trim_leading(day, "0")
     eval_format(format, timestamp, [output | day])
   end
 
   defp eval_format("hh" <> format, timestamp, output) do
-    Guardian.Timestamp.match(hour: hour) = timestamp
+    Timestamp.match(hour: hour) = timestamp
     eval_format(format, timestamp, [output | hour])
   end
 
   defp eval_format("h" <> format, timestamp, output) do
-    Guardian.Timestamp.match(hour: hour) = timestamp
+    Timestamp.match(hour: hour) = timestamp
     hour = String.trim_leading(hour, "0")
     eval_format(format, timestamp, [output | hour])
   end
 
   defp eval_format("mm" <> format, timestamp, output) do
-    Guardian.Timestamp.match(minute: minute) = timestamp
+    Timestamp.match(minute: minute) = timestamp
     eval_format(format, timestamp, [output | minute])
   end
 
   defp eval_format("m" <> format, timestamp, output) do
-    Guardian.Timestamp.match(minute: minute) = timestamp
+    Timestamp.match(minute: minute) = timestamp
     minute = String.trim_leading(minute, "0")
     eval_format(format, timestamp, [output | minute])
   end
 
   defp eval_format("ss" <> format, timestamp, output) do
-    Guardian.Timestamp.match(second: second) = timestamp
+    Timestamp.match(second: second) = timestamp
     eval_format(format, timestamp, [output | second])
   end
 
   defp eval_format("s" <> format, timestamp, output) do
-    Guardian.Timestamp.match(second: second) = timestamp
+    Timestamp.match(second: second) = timestamp
     second = String.trim_leading(second, "0")
     eval_format(format, timestamp, [output | second])
   end
 
   defp eval_format("AM" <> format, timestamp, output) do
-    Guardian.Timestamp.match(hour: hour) = timestamp
+    Timestamp.match(hour: hour) = timestamp
     eval_format(format, timestamp, [output | am_pm_upper(hour)])
   end
 
   defp eval_format("PM" <> format, timestamp, output) do
-    Guardian.Timestamp.match(hour: hour) = timestamp
+    Timestamp.match(hour: hour) = timestamp
     eval_format(format, timestamp, [output | am_pm_upper(hour)])
   end
 
   defp eval_format("am" <> format, timestamp, output) do
-    Guardian.Timestamp.match(hour: hour) = timestamp
+    Timestamp.match(hour: hour) = timestamp
     eval_format(format, timestamp, [output | am_pm_lower(hour)])
   end
 
   defp eval_format("pm" <> format, timestamp, output) do
-    Guardian.Timestamp.match(hour: hour) = timestamp
+    Timestamp.match(hour: hour) = timestamp
     eval_format(format, timestamp, [output | am_pm_lower(hour)])
   end
 

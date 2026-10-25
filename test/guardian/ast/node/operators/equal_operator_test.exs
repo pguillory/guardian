@@ -1,4 +1,4 @@
-defmodule Guardian.EqualOperatorTest do
+defmodule Guardian.AST.Node.Operators.EqualOperatorTest do
   use Guardian.Query.EvaluationTestCase, async: true
 
   test "equal operator" do

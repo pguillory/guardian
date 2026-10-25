@@ -10,6 +10,11 @@ defmodule Guardian.Query.Resolver do
   - Label each statement's columns (`labels/1`)
   """
 
+  alias Guardian.AST
+  alias Guardian.AST.Node.As
+  alias Guardian.AST.Node.FunctionCall
+  alias Guardian.AST.Node.Identifier
+  alias Guardian.AST.Node.Literal
   alias Guardian.AST.Node.Operators.EqualOperator
 
   alias Guardian.AST.Node.Statements.DescStatement
@@ -26,7 +31,7 @@ defmodule Guardian.Query.Resolver do
   """
   @spec resolve(String.t()) :: [{struct(), [String.t()]}]
   def resolve(source) when is_binary(source) do
-    statements = Guardian.AST.parse_statements(source)
+    statements = AST.parse_statements(source)
     statements = Enum.map(statements, &resolve_show_desc/1)
     statements = Enum.map(statements, &resolve_aliases/1)
 
@@ -37,7 +42,7 @@ defmodule Guardian.Query.Resolver do
         %NullStatement{}, let_names ->
           {[], let_names}
 
-        %LetStatement{key_expr: %Guardian.AST.Node.Identifier{name: name}}, let_names ->
+        %LetStatement{key_expr: %Identifier{name: name}}, let_names ->
           {[], MapSet.put(let_names, name)}
 
         %LetStatement{}, let_names ->
@@ -83,17 +88,17 @@ defmodule Guardian.Query.Resolver do
     ["key"]
   end
 
-  defp label(%Guardian.AST.Node.As{right: %Guardian.AST.Node.Identifier{name: name}}) do
+  defp label(%As{right: %Identifier{name: name}}) do
     name
   end
 
-  defp label(%Guardian.AST.Node.As{right: %Guardian.AST.Node.Literal{value: value}})
+  defp label(%As{right: %Literal{value: value}})
        when is_binary(value) do
     value
   end
 
   defp label(expr) do
-    Guardian.AST.unparse(expr)
+    AST.unparse(expr)
   end
 
   # Column names resolve before SELECT * expands:
@@ -116,7 +121,7 @@ defmodule Guardian.Query.Resolver do
   defp table_columns(statements) do
     statements
     |> Enum.flat_map(fn
-      %SelectStatement{from_expr: %Guardian.AST.Node.Identifier{name: table}} ->
+      %SelectStatement{from_expr: %Identifier{name: table}} ->
         [table]
 
       _ ->
@@ -127,7 +132,7 @@ defmodule Guardian.Query.Resolver do
   end
 
   defp resolve_column_names(
-         %SelectStatement{from_expr: %Guardian.AST.Node.Identifier{name: table}} = statement,
+         %SelectStatement{from_expr: %Identifier{name: table}} = statement,
          columns,
          skip_names
        ) do
@@ -154,11 +159,11 @@ defmodule Guardian.Query.Resolver do
   # childless Literal until the post step puts it back.
   defp resolve_expr_columns(expr, index, skip_names) do
     pre = fn
-      %Guardian.AST.Node.As{left: left} = expr, acc ->
+      %As{left: left} = expr, acc ->
         left = resolve_expr_columns(left, index, skip_names)
 
-        {%Guardian.AST.Node.Literal{
-           value: {:resolved_as, %Guardian.AST.Node.As{expr | left: left}},
+        {%Literal{
+           value: {:resolved_as, %As{expr | left: left}},
          }, acc}
 
       expr, acc ->
@@ -166,21 +171,21 @@ defmodule Guardian.Query.Resolver do
     end
 
     post = fn
-      %Guardian.AST.Node.Literal{value: {:resolved_as, expr}}, acc ->
+      %Literal{value: {:resolved_as, expr}}, acc ->
         {expr, acc}
 
-      %Guardian.AST.Node.Identifier{name: name} = expr, acc ->
+      %Identifier{name: name} = expr, acc ->
         if MapSet.member?(skip_names, name) do
           {expr, acc}
         else
-          {%Guardian.AST.Node.Identifier{name: resolve_column_name(name, index)}, acc}
+          {%Identifier{name: resolve_column_name(name, index)}, acc}
         end
 
       expr, acc ->
         {expr, acc}
     end
 
-    {expr, nil} = Guardian.AST.traverse(expr, nil, pre, post)
+    {expr, nil} = AST.traverse(expr, nil, pre, post)
     expr
   end
 
@@ -204,24 +209,24 @@ defmodule Guardian.Query.Resolver do
   def resolve_show_desc(%ShowTablesStatement{}) do
     %SelectStatement{
       select_exprs: [
-        %Guardian.AST.Node.Identifier{name: "table"},
+        %Identifier{name: "table"},
       ],
-      from_expr: %Guardian.AST.Node.Identifier{name: "schema"},
+      from_expr: %Identifier{name: "schema"},
       group_by_exprs: [
-        %Guardian.AST.Node.Identifier{name: "table"},
+        %Identifier{name: "table"},
       ],
       order_by_exprs: [
-        %Guardian.AST.Node.Identifier{name: "table"},
+        %Identifier{name: "table"},
       ],
     }
   end
 
   def resolve_show_desc(%DescStatement{expr: expr}) do
-    %Guardian.AST.Node.Identifier{name: table} = expr
+    %Identifier{name: table} = expr
 
     %SelectStatement{
       select_exprs: [
-        %Guardian.AST.Node.Identifier{name: "key"},
+        %Identifier{name: "key"},
         # %Guardian.AST.Node.Identifier{name: "count"},
         # %Guardian.AST.Node.Identifier{name: "null_count"},
         # %Guardian.AST.Node.As{
@@ -240,13 +245,13 @@ defmodule Guardian.Query.Resolver do
         # },
         # %Guardian.AST.Node.Identifier{name: "string_count"},
       ],
-      from_expr: %Guardian.AST.Node.Identifier{name: "schema"},
+      from_expr: %Identifier{name: "schema"},
       where_expr: %EqualOperator{
-        left: %Guardian.AST.Node.Identifier{name: "table"},
-        right: %Guardian.AST.Node.Literal{value: table},
+        left: %Identifier{name: "table"},
+        right: %Literal{value: table},
       },
       order_by_exprs: [
-        %Guardian.AST.Node.Identifier{name: "key"},
+        %Identifier{name: "key"},
       ],
     }
   end
@@ -261,9 +266,9 @@ defmodule Guardian.Query.Resolver do
 
   defp resolve_let_statements([%LetStatement{} = let_statement | statements]) do
     case let_statement.key_expr do
-      %Guardian.AST.Node.Identifier{} = key_expr ->
+      %Identifier{} = key_expr ->
         Enum.map(statements, fn statement ->
-          Guardian.AST.postwalk(statement, fn
+          AST.postwalk(statement, fn
             ^key_expr ->
               let_statement.value_expr
 
@@ -272,17 +277,17 @@ defmodule Guardian.Query.Resolver do
           end)
         end)
 
-      %Guardian.AST.Node.FunctionCall{name: name, args: arg_keys} ->
+      %FunctionCall{name: name, args: arg_keys} ->
         Enum.map(statements, fn statement ->
-          Guardian.AST.postwalk(statement, fn
-            %Guardian.AST.Node.FunctionCall{name: ^name, args: arg_values} ->
+          AST.postwalk(statement, fn
+            %FunctionCall{name: ^name, args: arg_values} ->
               if length(arg_keys) != length(arg_values) do
                 raise "Wrong number of arguments to LET function #{inspect(name)}"
               end
 
               replacement_map = Enum.zip(arg_keys, arg_values) |> Map.new()
 
-              Guardian.AST.postwalk(let_statement.value_expr, fn expr ->
+              AST.postwalk(let_statement.value_expr, fn expr ->
                 Map.get(replacement_map, expr, expr)
               end)
 
@@ -306,9 +311,9 @@ defmodule Guardian.Query.Resolver do
     update_in(statement.select_exprs, fn select_exprs ->
       Enum.flat_map(select_exprs, fn
         %Guardian.AST.Node.Splat{} ->
-          %Guardian.AST.Node.Identifier{name: table} = statement.from_expr
+          %Identifier{name: table} = statement.from_expr
           keys = Map.fetch!(columns, table)
-          Enum.map(keys, &%Guardian.AST.Node.Identifier{name: &1})
+          Enum.map(keys, &%Identifier{name: &1})
 
         expr ->
           [expr]
@@ -331,16 +336,16 @@ defmodule Guardian.Query.Resolver do
   end
 
   def resolve_aliases(source) when is_binary(source) do
-    statements = Guardian.AST.parse_statements(source)
+    statements = AST.parse_statements(source)
     statements = Enum.map(statements, &resolve_aliases/1)
-    Enum.map_join(statements, ";\n", &Guardian.AST.unparse/1)
+    Enum.map_join(statements, ";\n", &AST.unparse/1)
   end
 
   def resolve_aliases(%SelectStatement{} = statement) do
     select_expr_aliases =
       statement.select_exprs
       |> Enum.flat_map(fn
-        %Guardian.AST.Node.As{left: left_expr, right: %Guardian.AST.Node.Identifier{name: name}} ->
+        %As{left: left_expr, right: %Identifier{name: name}} ->
           [{name, left_expr}]
 
         _ ->
@@ -353,8 +358,8 @@ defmodule Guardian.Query.Resolver do
         nil
 
       group_by_expr ->
-        Guardian.AST.postwalk(group_by_expr, fn
-          %Guardian.AST.Node.Identifier{name: name} = expr ->
+        AST.postwalk(group_by_expr, fn
+          %Identifier{name: name} = expr ->
             Map.get(select_expr_aliases, name, expr)
 
           expr ->
@@ -381,7 +386,7 @@ defmodule Guardian.Query.Resolver do
   end
 
   def unresolve_statement_index(query, statement_index) when is_binary(query) do
-    statements = Guardian.AST.parse_statements(query)
+    statements = AST.parse_statements(query)
     unresolve_statement_index(statements, statement_index)
   end
 

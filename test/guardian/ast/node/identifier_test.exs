@@ -1,4 +1,4 @@
-defmodule Guardian.IdentifierTest do
+defmodule Guardian.AST.Node.IdentifierTest do
   use Guardian.Query.EvaluationTestCase, async: true
 
   test "identifiers" do

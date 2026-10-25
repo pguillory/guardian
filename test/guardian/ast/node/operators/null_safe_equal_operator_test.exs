@@ -1,4 +1,4 @@
-defmodule Guardian.NullSafeEqualOperatorTest do
+defmodule Guardian.AST.Node.Operators.NullSafeEqualOperatorTest do
   use Guardian.Query.EvaluationTestCase, async: true
 
   test "null safe equal operator" do

@@ -1,4 +1,4 @@
-defmodule Guardian.OrOperatorTest do
+defmodule Guardian.AST.Node.Operators.OrOperatorTest do
   use Guardian.Query.EvaluationTestCase, async: true
 
   test "or operator" do

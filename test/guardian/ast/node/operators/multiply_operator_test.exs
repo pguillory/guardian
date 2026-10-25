@@ -1,4 +1,4 @@
-defmodule Guardian.MultiplyOperatorTest do
+defmodule Guardian.AST.Node.Operators.MultiplyOperatorTest do
   use Guardian.Query.EvaluationTestCase, async: true
 
   test "multiply operator" do

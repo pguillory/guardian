@@ -54,3 +54,20 @@ and the full suite on the combined result: 1,174 tests, zero failures and three
 excluded large tests. Independent Claude and Codex plan and code reviews approved
 both commit partitions. That full run does not independently validate the
 intermediate path-only commit.
+
+## Test-name follow-up
+
+Product spec impact: none. Overview impact: none.
+
+The 38 remaining legacy test module declarations now include the subsystem in their
+paths, including AST nodes/operators, parsing/tokenizing, configuration, storage and
+the JSON API. The not-operator test's old `NoOperatorTest` spelling is corrected at
+the same time. Test bodies, discovery paths and fixtures are unchanged.
+
+Validation: all 38 changes are declaration-only, every target module name is unique,
+and no old-name references remain in source, helpers, tests or docs. The combined
+follow-ups passed 317 focused tests with zero failures (three large tests excluded).
+
+Final combined checkpoint: independent Claude and Codex plan and code reviews
+approved; the full pre-commit passed formatting, compilation with warnings as
+errors and 1,194 tests with zero failures (three large tests excluded).

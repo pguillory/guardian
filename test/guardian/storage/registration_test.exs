@@ -1,4 +1,4 @@
-defmodule Guardian.RegistrationTest do
+defmodule Guardian.Storage.RegistrationTest do
   alias Guardian.Storage.Segment
   import Guardian.Storage.Segment.Registration
   use ExUnit.Case, async: true

@@ -1,4 +1,4 @@
-defmodule Guardian.LiteralTest do
+defmodule Guardian.AST.Node.LiteralTest do
   import Guardian.AST.Node.Literal
   use Guardian.Query.EvaluationTestCase, async: true
 

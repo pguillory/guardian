@@ -1,4 +1,4 @@
-defmodule Guardian.SegmentTest do
+defmodule Guardian.Storage.SegmentTest do
   alias Guardian.Storage.Segment
   # Segment.append/2 takes flat rows; these tests append nested ones.
   import Segment, except: [append: 2]

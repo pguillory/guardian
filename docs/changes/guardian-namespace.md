@@ -75,3 +75,20 @@ compilation with warnings as errors and the full suite after independent code re
 Passed: 115 focused tests, then the final pre-commit with 1,168 tests, zero failures
 and three excluded large tests. Independent Claude and Codex plan/code reviews
 approved both changes. The existing `.seg` and ETF fixtures were not regenerated.
+
+## Readability follow-up
+
+Product spec impact: none. Overview impact: none.
+
+Dense query evaluation, planning, resolution, failure handling, conditional functions,
+timestamp formatting and rule-server call sites use local aliases for repeated
+module references. Sparse call sites and registry tables retain their qualification.
+Runtime module identities, diagnostic strings and documentation links are unchanged.
+
+Validation: all eight production files have identical parsed syntax after expanding
+aliases and removing source metadata. The combined follow-ups passed 317 focused
+tests with zero failures (three large tests excluded), plus formatting checks.
+
+Final combined checkpoint: independent Claude and Codex plan and code reviews
+approved; the full pre-commit passed formatting, compilation with warnings as
+errors and 1,194 tests with zero failures (three large tests excluded).

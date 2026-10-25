@@ -1,4 +1,4 @@
-defmodule Guardian.ConcatOperatorTest do
+defmodule Guardian.AST.Node.Operators.ConcatOperatorTest do
   use Guardian.Query.EvaluationTestCase, async: true
 
   test "concat operator" do

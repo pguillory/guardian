@@ -1,5 +1,10 @@
 defmodule Guardian.Query.Planner do
+  alias Guardian.AST
+  alias Guardian.AST.Node.AggregateFunctionCall
+  alias Guardian.AST.Node.Identifier
+  alias Guardian.AST.Node.Literal
   alias Guardian.AST.Node.Statements.SelectStatement
+  alias Guardian.Aggregation
 
   def query_plan(
         %SelectStatement{order_by_exprs: order_by_exprs, limit_expr: limit_expr} = statement
@@ -35,7 +40,7 @@ defmodule Guardian.Query.Planner do
       |> Enum.with_index()
       |> Enum.map(fn {old_expr, i} ->
         key = "v#{i}"
-        new_expr = %Guardian.AST.Node.Identifier{name: key}
+        new_expr = %Identifier{name: key}
         {old_expr, key, new_expr}
       end)
       |> SuperList.unzip()
@@ -44,7 +49,7 @@ defmodule Guardian.Query.Planner do
 
     statement2 = %SelectStatement{
       select_exprs: Enum.map(statement.select_exprs, &substitute(&1, old_exprs, new_exprs)),
-      from_expr: %Guardian.AST.Node.Literal{value: "_stream"},
+      from_expr: %Literal{value: "_stream"},
       where_expr: substitute(having_expr, old_exprs, new_exprs),
     }
 
@@ -62,14 +67,14 @@ defmodule Guardian.Query.Planner do
     if reselect_required do
       statement1 = %SelectStatement{
         statement
-        | having_expr: %Guardian.AST.Node.Literal{value: true},
+        | having_expr: %Literal{value: true},
       }
 
       query_plan(statement1)
     else
       {aggregate_args, aggregate_names_and_arities} =
         Enum.map(statement.select_exprs, fn
-          %Guardian.AST.Node.AggregateFunctionCall{name: name, args: args} ->
+          %AggregateFunctionCall{name: name, args: args} ->
             # false = Enum.any?(args, &contains_aggregate_expr/1)
             {args, {name, length(args)}}
 
@@ -80,13 +85,13 @@ defmodule Guardian.Query.Planner do
         |> Enum.unzip()
 
       default_step =
-        if statement.group_by_exprs == [%Guardian.AST.Node.Literal{value: nil}] do
+        if statement.group_by_exprs == [%Literal{value: nil}] do
           {aggregate_names, _arities} = Enum.unzip(aggregate_names_and_arities)
 
           default_row =
             Enum.map(
               aggregate_names,
-              &Guardian.Aggregation.default(Guardian.Aggregation.fetch!(&1))
+              &Aggregation.default(Aggregation.fetch!(&1))
             )
 
           [{:default, default_row}]
@@ -110,7 +115,7 @@ defmodule Guardian.Query.Planner do
     if Enum.any?(select_exprs, &has_aggregate_function_call/1) do
       query_plan(%SelectStatement{
         statement
-        | group_by_exprs: [%Guardian.AST.Node.Literal{value: nil}],
+        | group_by_exprs: [%Literal{value: nil}],
       })
     else
       statement = put_in(statement.select_exprs, nil)
@@ -134,7 +139,7 @@ defmodule Guardian.Query.Planner do
     if Enum.any?(select_exprs, &has_aggregate_function_call/1) do
       query_plan(%SelectStatement{
         statement
-        | group_by_exprs: [%Guardian.AST.Node.Literal{value: nil}],
+        | group_by_exprs: [%Literal{value: nil}],
       })
     else
       statement1 = %SelectStatement{statement | select_exprs: nil}
@@ -142,9 +147,7 @@ defmodule Guardian.Query.Planner do
     end
   end
 
-  def query_plan(
-        %SelectStatement{from_expr: %Guardian.AST.Node.Literal{value: "_stream"}} = statement
-      ) do
+  def query_plan(%SelectStatement{from_expr: %Literal{value: "_stream"}} = statement) do
     statement = %SelectStatement{statement | from_expr: nil}
 
     # Assert all other fields null.
@@ -152,9 +155,7 @@ defmodule Guardian.Query.Planner do
     []
   end
 
-  def query_plan(
-        %SelectStatement{from_expr: %Guardian.AST.Node.Identifier{} = from_expr} = statement
-      ) do
+  def query_plan(%SelectStatement{from_expr: %Identifier{} = from_expr} = statement) do
     statement = %SelectStatement{statement | from_expr: nil}
 
     # Assert all other fields null.
@@ -173,7 +174,7 @@ defmodule Guardian.Query.Planner do
   defp substitute(expr, from_exprs, to_exprs) do
     replacement_map = Enum.zip(from_exprs, to_exprs) |> Map.new()
 
-    Guardian.AST.prewalk(expr, fn expr ->
+    AST.prewalk(expr, fn expr ->
       case Map.fetch(replacement_map, expr) do
         {:ok, replacement} -> replacement
         :error -> expr
@@ -183,11 +184,11 @@ defmodule Guardian.Query.Planner do
 
   defp aggregate_exprs(expr) do
     {_expr, exprs} =
-      Guardian.AST.prewalk(expr, [], fn
-        %Guardian.AST.Node.AggregateFunctionCall{} = expr, acc ->
-          {%Guardian.AST.Node.Literal{value: nil}, [expr | acc]}
+      AST.prewalk(expr, [], fn
+        %AggregateFunctionCall{} = expr, acc ->
+          {%Literal{value: nil}, [expr | acc]}
 
-        %Guardian.AST.Node.Identifier{} = expr, acc ->
+        %Identifier{} = expr, acc ->
           {expr, [expr | acc]}
 
         expr, acc ->
@@ -199,8 +200,8 @@ defmodule Guardian.Query.Planner do
 
   defp has_aggregate_function_call(expr) do
     {_expr, result} =
-      Guardian.AST.prewalk(expr, false, fn
-        %Guardian.AST.Node.AggregateFunctionCall{} = expr, _result ->
+      AST.prewalk(expr, false, fn
+        %AggregateFunctionCall{} = expr, _result ->
           {expr, true}
 
         expr, acc ->
@@ -224,7 +225,7 @@ defmodule Guardian.Query.Planner do
 
   # The parser gives LIMIT a non-negative integer literal; only a statement built by
   # hand can have anything else.
-  defp limit!(%Guardian.AST.Node.Literal{value: limit}) when is_integer(limit) and limit >= 0 do
+  defp limit!(%Literal{value: limit}) when is_integer(limit) and limit >= 0 do
     limit
   end
 

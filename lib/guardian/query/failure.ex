@@ -11,26 +11,29 @@ defmodule Guardian.Query.Failure do
   UTF-8 for JSON.
   """
 
+  alias Guardian.Query.Error
+  alias Guardian.Query.Limits
+
   @max_message_bytes 1024
 
   @doc """
   The error for an exception, exit or throw caught while evaluating a query.
   """
-  @spec caught(:error | :exit | :throw, term(), Exception.stacktrace()) :: %Guardian.Query.Error{}
-  def caught(:error, %Guardian.Query.Error{message: message}, _stacktrace) do
-    %Guardian.Query.Error{message: truncate(message)}
+  @spec caught(:error | :exit | :throw, term(), Exception.stacktrace()) :: %Error{}
+  def caught(:error, %Error{message: message}, _stacktrace) do
+    %Error{message: truncate(message)}
   end
 
   def caught(:error, reason, stacktrace) do
     exception = Exception.normalize(:error, reason, stacktrace)
 
-    %Guardian.Query.Error{
+    %Error{
       message: truncate("query evaluation failed: " <> Exception.message(exception)),
     }
   end
 
   def caught(kind, reason, _stacktrace) do
-    %Guardian.Query.Error{
+    %Error{
       message: truncate("query evaluation failed (#{kind}): #{describe(reason)}"),
     }
   end
@@ -39,7 +42,7 @@ defmodule Guardian.Query.Failure do
   The error for the reason a `Guardian.Query.DistributedStream` pipeline (or a process linked to
   the query process) failed with: a `t:Guardian.Query.DistributedStream.failure_reason/0`.
   """
-  @spec from_exit(term()) :: %Guardian.Query.Error{}
+  @spec from_exit(term()) :: %Error{}
   def from_exit({exception, stacktrace})
       when is_exception(exception) and is_list(stacktrace) do
     caught(:error, exception, stacktrace)
@@ -48,7 +51,7 @@ defmodule Guardian.Query.Failure do
   # A process killed outright: most likely by its heap limit (Guardian.Query.Limits), though
   # the reason cannot tell that apart from any other kill.
   def from_exit(:killed) do
-    %Guardian.Query.Error{message: Guardian.Query.Limits.heap_kill_message()}
+    %Error{message: Limits.heap_kill_message()}
   end
 
   def from_exit(:noconnection) do
@@ -64,7 +67,7 @@ defmodule Guardian.Query.Failure do
   end
 
   def from_exit({:distributed_stream, detail}) do
-    %Guardian.Query.Error{message: "query failed: " <> distributed_stream_message(detail)}
+    %Error{message: "query failed: " <> distributed_stream_message(detail)}
   end
 
   # An Erlang-level crash outside the guard, such as a badmatch: its message, not its
@@ -74,7 +77,7 @@ defmodule Guardian.Query.Failure do
   end
 
   def from_exit(reason) do
-    %Guardian.Query.Error{
+    %Error{
       message: truncate("query failed: a query process exited (#{describe(reason)})"),
     }
   end
@@ -82,13 +85,13 @@ defmodule Guardian.Query.Failure do
   @doc """
   The error for a query process that went down without sending its result.
   """
-  @spec query_process_down(term()) :: %Guardian.Query.Error{}
+  @spec query_process_down(term()) :: %Error{}
   def query_process_down(:killed) do
-    %Guardian.Query.Error{message: Guardian.Query.Limits.heap_kill_message()}
+    %Error{message: Limits.heap_kill_message()}
   end
 
   def query_process_down(reason) do
-    %Guardian.Query.Error{message: "query failed: " <> truncate(describe(reason))}
+    %Error{message: "query failed: " <> truncate(describe(reason))}
   end
 
   @doc """
@@ -113,7 +116,7 @@ defmodule Guardian.Query.Failure do
   end
 
   defp disconnected do
-    %Guardian.Query.Error{message: "query failed: a machine disconnected during the query"}
+    %Error{message: "query failed: a machine disconnected during the query"}
   end
 
   defp distributed_stream_message({:lost_input, missing}) do

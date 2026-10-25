@@ -1,6 +1,10 @@
 defmodule Guardian.Query.Evaluation do
+  alias Guardian.AST
   alias Guardian.AST.Parser
   alias Guardian.Query.ColumnOrConstant
+  alias Guardian.Query.Error
+  alias Guardian.Query.Eval
+  alias Guardian.Storage
 
   @moduledoc """
   Columnar expression evaluation for Guardian queries.
@@ -117,12 +121,12 @@ defmodule Guardian.Query.Evaluation do
 
   def eval(%SegmentSnapshot{} = snapshot, expr) do
     expr
-    |> Guardian.Query.Eval.eval(snapshot)
+    |> Eval.eval(snapshot)
     |> column_or_constant_to_column()
   end
 
   def eval(event, expr) when is_map(event) do
-    %Constant{value: value, count: 1} = Guardian.Query.Eval.eval(expr, event)
+    %Constant{value: value, count: 1} = Eval.eval(expr, event)
     value
   end
 
@@ -133,7 +137,7 @@ defmodule Guardian.Query.Evaluation do
   read.
   """
   def snapshot!(segment_id) when is_binary(segment_id) do
-    case Guardian.Storage.segment_row_count(segment_id) do
+    case Storage.segment_row_count(segment_id) do
       {:ok, count} -> %SegmentSnapshot{segment: segment_id, count: count}
       {:error, {:segment_unavailable, reason}} -> segment_unavailable!(segment_id, reason)
     end
@@ -156,7 +160,7 @@ defmodule Guardian.Query.Evaluation do
 
   def read_column(%SegmentSnapshot{segment: segment_id, count: count}, name)
       when is_binary(segment_id) do
-    case Guardian.Storage.get_column(segment_id, name) do
+    case Storage.get_column(segment_id, name) do
       {:ok, :missing} ->
         Constant.duplicate(nil, count)
 
@@ -193,16 +197,16 @@ defmodule Guardian.Query.Evaluation do
     # retry that case once on the file, so it reaches here only if the file's copy is
     # gone too). `:noproc` is a read sent to a segment already gone, nearly always for
     # one of those reasons; a crash is logged by its manager when it happens.
-    raise Guardian.Query.Error,
+    raise Error,
       message:
         "segment #{name} became unavailable during the query " <>
           "(it was deleted, expired, or moved to its file)"
   end
 
   defp segment_unavailable!(name, reason) do
-    raise Guardian.Query.Error,
+    raise Error,
       message:
-        "segment #{name} became unavailable during the query (#{Guardian.Storage.exit_kind(reason)})"
+        "segment #{name} became unavailable during the query (#{Storage.exit_kind(reason)})"
   end
 
   def context_count(%SegmentSnapshot{count: count}) do
@@ -215,9 +219,9 @@ defmodule Guardian.Query.Evaluation do
 
   def pre_eval(source) when is_binary(source) do
     source
-    |> Guardian.AST.parse_expression()
+    |> AST.parse_expression()
     |> pre_eval()
-    |> Guardian.AST.unparse()
+    |> AST.unparse()
   end
 
   def pre_eval(expr) do
@@ -235,7 +239,7 @@ defmodule Guardian.Query.Evaluation do
 
     post = fn
       expr, [true | acc] ->
-        %Constant{value: value, count: 1} = Guardian.Query.Eval.eval(expr, %{})
+        %Constant{value: value, count: 1} = Eval.eval(expr, %{})
         expr = value_to_literal(value)
         {expr, acc}
 
@@ -243,7 +247,7 @@ defmodule Guardian.Query.Evaluation do
         {expr, [false | acc]}
     end
 
-    {expr, _} = Guardian.AST.traverse(expr, [true], pre, post)
+    {expr, _} = AST.traverse(expr, [true], pre, post)
     expr
   end
 

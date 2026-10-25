@@ -1,4 +1,4 @@
-defmodule Guardian.IlikeOperatorTest do
+defmodule Guardian.AST.Node.Operators.IlikeOperatorTest do
   use Guardian.Query.EvaluationTestCase, async: true
 
   test "ilike operator" do

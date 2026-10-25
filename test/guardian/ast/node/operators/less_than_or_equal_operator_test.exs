@@ -1,4 +1,4 @@
-defmodule Guardian.LessThanOrEqualOperatorTest do
+defmodule Guardian.AST.Node.Operators.LessThanOrEqualOperatorTest do
   use Guardian.Query.EvaluationTestCase, async: true
 
   test "less than or equal operator" do

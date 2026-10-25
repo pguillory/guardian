@@ -127,6 +127,8 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Queries
 
+- [ ] evaluation-alias-block: consolidate Evaluation's two alias blocks into one
+      sorted block after its moduledoc (code review follow-up)
 - [x] timestamp-offsets: time arithmetic and epoch conversion accept only UTC
       `YYYY-MM-DD HH:MM:SS`; numeric offsets and other formats give null
       (`docs/changes/timestamp-offsets.md`)
@@ -185,6 +187,13 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Interfaces and operations
 
+- [x] guardian-alias-readability: use local aliases in dense repeated module call sites
+      (`docs/changes/guardian-namespace.md`)
+- [x] guardian-test-module-names: align legacy test declarations with their subsystem
+      paths (`docs/changes/guardian-module-paths.md`)
+- [x] agent-instruction-link-regression: check tracked canonical instruction files
+      have adjacent relative AGENTS.md symlinks in the normal suite
+      (`docs/changes/nested-agent-instructions.md`)
 - [x] nested-agent-instructions: expose every nested CLAUDE.md through a relative
       AGENTS.md symlink and require reading all applicable ancestor instructions
       (`docs/changes/nested-agent-instructions.md`)
