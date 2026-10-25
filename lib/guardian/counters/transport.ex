@@ -3,7 +3,7 @@ defmodule Guardian.Counters.Transport do
   Internal owner routing and bounded pipeline transport for Counters.Client.
   Budget owns admission and settlement; this module owns dispatch and cleanup.
   """
-  alias Guardian.Counters.{Budget, Context}
+  alias Guardian.Counters.{Budget, Clock, Context}
 
   @store_backend Application.compile_env(
                    :guardian,
@@ -107,6 +107,8 @@ defmodule Guardian.Counters.Transport do
           Budget.refund(event, reserved)
           dispatch(rest, running, results, event)
         else
+          # Budget's started and reserved are Clock microseconds, so their sum is
+          # this call's local dispatch deadline.
           handle =
             start_call(
               owner,
@@ -154,6 +156,7 @@ defmodule Guardian.Counters.Transport do
     {:ok, op}
   end
 
+  # Expiries are Rules arrival milliseconds, not Clock's microsecond coordinate.
   defp mutation(expiry, build) do
     ttl = expiry - System.monotonic_time(:millisecond)
     if ttl > 0, do: {:ok, build.(ttl)}, else: {:error, :expired}
@@ -168,11 +171,11 @@ defmodule Guardian.Counters.Transport do
         {reply, result, completed}
 
       {:DOWN, monitor, :process, _, _} when is_map_key(monitors, monitor) ->
-        {Map.fetch!(monitors, monitor), {:error, :unavailable}, now()}
+        {Map.fetch!(monitors, monitor), {:error, :unavailable}, Clock.now()}
     after
-      remaining_ms(deadline) ->
+      Clock.remaining_ms(deadline) ->
         {reply, _} = Enum.min_by(running, fn {_, handle} -> handle.deadline end)
-        {reply, {:error, :timeout}, now()}
+        {reply, {:error, :timeout}, Clock.now()}
     end
   end
 
@@ -273,7 +276,7 @@ defmodule Guardian.Counters.Transport do
         {:DOWN, ^caller_monitor, :process, ^caller, _} -> {{:error, :unavailable}, true}
         {:EXIT, ^worker, _} -> {{:error, :unavailable}, false}
       after
-        remaining_ms(deadline) -> {{:error, :timeout}, true}
+        Clock.remaining_ms(deadline) -> {{:error, :timeout}, true}
       end
 
     Process.exit(worker, :kill)
@@ -284,11 +287,11 @@ defmodule Guardian.Counters.Transport do
       end
     end
 
-    send(reply, {reply, result, now()})
+    send(reply, {reply, result, Clock.now()})
   end
 
   defp invoke(owner, operation, store, deadline) do
-    duration_ms = remaining_ms(deadline)
+    duration_ms = Clock.remaining_ms(deadline)
 
     cond do
       duration_ms <= 0 ->
@@ -315,7 +318,7 @@ defmodule Guardian.Counters.Transport do
   def remote_operation(operation, store, duration_ms)
       when is_integer(duration_ms) and duration_ms > 0 do
     if duration_ms <= Context.operation_ms() do
-      local_operation(operation, store, duration_ms, now() + duration_ms * 1_000)
+      local_operation(operation, store, duration_ms, Clock.deadline(duration_ms))
     else
       {:error, :invalid_request}
     end
@@ -326,7 +329,7 @@ defmodule Guardian.Counters.Transport do
   end
 
   defp local_operation(operation, store, timeout, deadline) do
-    opts = [server: store, timeout: timeout, deadline: Integer.floor_div(deadline, 1_000)]
+    opts = [server: store, timeout: timeout, deadline: Clock.to_store_ms(deadline)]
 
     case operation do
       {:batch, operations} -> @store_backend.batch(operations, opts)
@@ -334,14 +337,6 @@ defmodule Guardian.Counters.Transport do
     end
   catch
     _, _ -> {:error, :unavailable}
-  end
-
-  defp now do
-    System.monotonic_time(:microsecond)
-  end
-
-  defp remaining_ms(deadline) do
-    max(0, div(deadline - now(), 1_000))
   end
 
   defp flush(reply) do

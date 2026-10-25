@@ -6,9 +6,12 @@ defmodule Guardian.Counters.Budget do
   settlement use atomics and ETS directly, never its mailbox.
   """
   use GenServer
-  alias Guardian.Counters.Context
+  alias Guardian.Counters.{Clock, Context}
 
+  # Microsecond durations in Clock's coordinate, like Context's timeout_us.
+  @batch_allowance_us 250_000
   @minimum_us 10_000
+  @suspect_timeout_us 25_000
   @cooldown_us 1_000_000
 
   def start_link(opts \\ []) do
@@ -17,7 +20,7 @@ defmodule Guardian.Counters.Budget do
 
   def new_batch do
     batch = :atomics.new(1, [])
-    :atomics.put(batch, 1, 250_000)
+    :atomics.put(batch, 1, @batch_allowance_us)
     batch
   end
 
@@ -25,7 +28,7 @@ defmodule Guardian.Counters.Budget do
   @spec reserve(Context.t(), node()) :: {:ok, integer(), integer()} | :exhausted | :cooldown
   def reserve(%Context{} = event, owner) do
     if available?(event.cooldown_table, owner) do
-      started = now()
+      started = Clock.now()
 
       case reserve_allowance(event.batch, min(event.timeout_us, event.deadline - started)) do
         :exhausted -> :exhausted
@@ -86,7 +89,7 @@ defmodule Guardian.Counters.Budget do
   end
 
   defp suspect?({:error, :timeout}, allowance) do
-    allowance >= 25_000
+    allowance >= @suspect_timeout_us
   end
 
   defp suspect?({:error, :unavailable}, _) do
@@ -99,7 +102,7 @@ defmodule Guardian.Counters.Budget do
 
   defp available?(table, owner) do
     case :ets.lookup(table, owner) do
-      [{^owner, until}] -> until <= now()
+      [{^owner, until}] -> until <= Clock.now()
       [] -> true
     end
   catch
@@ -107,7 +110,8 @@ defmodule Guardian.Counters.Budget do
   end
 
   defp suspect(table, owner) do
-    if owner in [node() | Node.list()], do: :ets.insert(table, {owner, now() + @cooldown_us})
+    if owner in [node() | Node.list()],
+      do: :ets.insert(table, {owner, Clock.now() + @cooldown_us})
   catch
     :error, :badarg -> :ok
   end
@@ -143,7 +147,7 @@ defmodule Guardian.Counters.Budget do
     members = [node() | Node.list()]
 
     for {member, until} <- :ets.tab2list(table),
-        member not in members or until <= now(),
+        member not in members or until <= Clock.now(),
         do: :ets.delete_object(table, {member, until})
   end
 
@@ -154,9 +158,5 @@ defmodule Guardian.Counters.Budget do
     |> Map.put(:message, :redacted)
     |> Map.put(:log, [])
     |> Map.put(:reason, :redacted)
-  end
-
-  defp now do
-    System.monotonic_time(:microsecond)
   end
 end

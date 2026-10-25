@@ -130,9 +130,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] aggregates-unify: every aggregate is a counter operator, with one empty
       mergeable state and one configuration for queries and counters (p8 distinct,
       null empty sum, raw count, exact empty average) (`docs/changes/aggregates-unify.md`)
-- [ ] counters-monotonic-clock: share the microsecond clock/deadline helpers used by
-      Context, Budget and Transport to make their unit coupling explicit
-      (code review follow-up)
+- [x] counters-monotonic-clock: `Guardian.Counters.Clock` holds the microsecond
+      clock/deadline helpers Context, Budget and Transport share, making their unit
+      coupling explicit (`docs/changes/counters-monotonic-clock.md`)
 - [x] rules-open-questions: the failure and invalid-at-boot defaults are confirmed
       and their switches (`:rules_on_failure`, `:rules_invalid_at_boot`) removed
 - [x] rules-server-redaction: Guardian.Rules.Server's formatted status and crash reports
