@@ -232,11 +232,11 @@ defmodule Guardian.Rules.CounterPlanTest do
   end
 
   test "FROM validity, target kind and grouping arity are checked across tables" do
-    for table <- ["queries", "bad-name", "bad/table"] do
+    for table <- ["other", "bad-name", "bad/table"] do
       assert kinds("LOOKUP x = c FROM \"#{table}\"") == [:parse]
     end
 
-    assert kinds("LOOKUP x = c FROM queries") == [:counter_table]
+    assert kinds("LOOKUP x = c FROM queries") == [:counter_target]
     assert kinds("LOOKUP x = c FROM #{String.duplicate("a", 65)}") == [:counter_table]
     assert kinds("LOOKUP x = c") == [:counter_target]
     assert kinds("SET c = 1; LOOKUP x = c") == [:counter_target]
@@ -253,6 +253,15 @@ defmodule Guardian.Rules.CounterPlanTest do
     assert lookup.target.aggregation == Guardian.Aggregation.Sum
     assert lookup.target.group_arity == 2
     assert lookup.reads == ["address", "country"]
+
+    # A table Guardian also writes itself is an ordinary FROM target.
+    files = %{
+      "queries/r.gsql" => "TRACK c = count() BY caller LAST '1h'",
+      "t/a.gsql" => "LOOKUP x = c FROM queries BY caller",
+    }
+
+    lookup = hd(plan(files).steps)
+    assert lookup.target.identity == hd(plan(files, "queries").steps).identity
   end
 
   test "output, counter and table names are not field dependency reads" do

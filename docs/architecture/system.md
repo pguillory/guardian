@@ -206,7 +206,8 @@ POST /api/json/send_events or MCP send_events
 ```
 
 Internal writers go through `Guardian.Engine.log_event/2`, which stringifies keys and calls
-`Guardian.Engine.ingest_event/2`, the raising single-event variant of the same path.
+`Guardian.Engine.ingest_event/2`, the raising single-event variant of the same path,
+which never runs rules.
 `Guardian.SystemStats`, `Guardian.Web.Logger` and `Guardian.Web.QueryParseErrors` call `Guardian.Engine.try_log_event/2`,
 which returns a failure as `{:error, kind}`, so a write that fails (Storage restarting,
 say) is skipped and logged by kind instead of crashing SystemStats, failing the

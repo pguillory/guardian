@@ -359,11 +359,12 @@ and no single request that takes the service down or destroys stored data.
    logged once, stays in memory and queryable, and is retried on every pass while
    other segments persist, so one bad segment does not stall persistence.
 7. Rules are a key holder's power over ingestion, the same principal's. A rule can set
-   or remove any field of any event sent through the ingest APIs to its table, but
-   cannot run on built-in tables (refused at write; Guardian's own writes never run
-   rules), or query stored event data. SET/UNSET are stateless; TRACK/LOOKUP keep
-   ephemeral counter state and can read a named counter on another table through
-   bounded calls to Guardian peers, never an external runtime service.
+   or remove any field of any event sent through the ingest APIs to its table, on any
+   table name, but cannot query stored event data. Rules run on API-ingested rows;
+   Guardian's own writes to its built-in tables never run rules. SET/UNSET
+   are stateless; TRACK/LOOKUP keep ephemeral counter state and can read a named
+   counter on another table through bounded calls to Guardian peers, never an
+   external runtime service.
    Each event's rules run in a worker with the query heap limit and a 1-second
    limit, outside the request process and Anubis's shared process, and a SET/UNSET failure or
    kill fails only that event. Failures are logged by rule file, line and kind, never

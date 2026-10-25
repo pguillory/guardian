@@ -44,9 +44,10 @@ and `string_count`. SHOW TABLES and DESC are shorthand for queries on it.
 
 Rules are separate from queries, managed with list_rules, read_rule, write_rule and
 delete_rule. A file is `<table>/<name>.gsql` (name matches `[a-z0-9_][a-z0-9_-]*`,
-at most 64 bytes). It runs on send_events before storage, not on Guardian's built-in
-tables. Files hold semicolon-separated statements and `--` comments, at most 64 KiB;
-the set allows 1,000 files, 256 tables and 1,000 statements per table.
+at most 64 bytes). Rules run on send_events rows before storage, on any table;
+Guardian's own writes to its built-in tables never run rules. Files hold
+semicolon-separated statements and `--` comments, at most 64 KiB; the set allows
+1,000 files, 256 tables and 1,000 statements per table.
 
 ```text
 SET field = expr [WHERE cond]

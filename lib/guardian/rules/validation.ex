@@ -47,7 +47,7 @@ defmodule Guardian.Rules.Validation do
         []
 
       {:error, _} ->
-        [error(step, :counter_table, step.field, "FROM must use a valid ingested-table name")]
+        [error(step, :counter_table, step.field, "FROM must use a valid table name")]
     end
   end
 

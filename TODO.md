@@ -31,6 +31,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       failed result
 - [ ] segment-slot-and-column-caps: cap a mutable segment's columns and slot area
       before each append, beside today's row and byte caps
+- [x] rules-builtin-tables: built-in table names take rule files and LOOKUP FROM like
+      any other table; rules run on API-ingested rows and Guardian's own writes to
+      its built-in tables never run them (`docs/changes/rules-builtin-tables.md`)
 - [x] ingest-rules: SET and UNSET rules stored as files (`<table>/<name>.gsql`, in a
       folder or an S3-compatible bucket), run on API ingests before storage, managed
       through MCP tools with whole-set validation and a store-held write lock

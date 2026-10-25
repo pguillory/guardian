@@ -18,10 +18,6 @@ defmodule Guardian.Rules.RuleSet do
   @max_tables 256
   @max_statements_per_table 1_000
 
-  # Guardian's own tables. Rules run only on events sent through the ingest APIs, so
-  # rules for these would never run.
-  @builtin_tables ~w[system_stats web_requests web_responses query_parse_errors queries]
-
   def max_file_bytes do
     @max_file_bytes
   end
@@ -32,10 +28,6 @@ defmodule Guardian.Rules.RuleSet do
 
   def max_tables do
     @max_tables
-  end
-
-  def builtin_tables do
-    @builtin_tables
   end
 
   @doc "The store key of a rule file."
@@ -76,18 +68,11 @@ defmodule Guardian.Rules.RuleSet do
     end
   end
 
-  @doc "Checks whether a table name is eligible for ingest rules and counter targets."
+  @doc "Checks whether a table name is valid for rule files and counter targets."
   def check_table(table) do
-    cond do
-      not Guardian.Engine.valid_table_name?(table) ->
-        {:error, Exception.message(%Guardian.Engine.InvalidTableNameError{table: table})}
-
-      table in @builtin_tables ->
-        {:error, "#{table} is a built-in table; rules run only on ingested events"}
-
-      true ->
-        :ok
-    end
+    if Guardian.Engine.valid_table_name?(table),
+      do: :ok,
+      else: {:error, Exception.message(%Guardian.Engine.InvalidTableNameError{table: table})}
   end
 
   def valid_name?(name) when is_binary(name) do
@@ -228,7 +213,7 @@ defmodule Guardian.Rules.RuleSet do
 
   defp path_table(key) do
     with [table | _] <- String.split(key, "/"),
-         true <- Guardian.Engine.valid_table_name?(table) and table not in @builtin_tables do
+         true <- Guardian.Engine.valid_table_name?(table) do
       table
     else
       _ -> nil

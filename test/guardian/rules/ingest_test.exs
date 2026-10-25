@@ -275,11 +275,29 @@ defmodule Guardian.Rules.IngestTest do
     assert {:ok, ["y"], [[2]]} = Guardian.Query.execute("SELECT y FROM #{table}")
   end
 
-  test "Guardian's own writes to built-in tables never run rules, and rules for them are refused" do
-    assert {:error, {:rejected, [message]}} =
-             Guardian.Rules.write_rule("queries", "r", "SET x = 1")
+  test "a table Guardian writes itself takes rules, which run on API ingests but never on Guardian's own writes" do
+    marker = unique_table("rules_own_writes")
+    with_rules(%{"queries/#{marker}.gsql" => "SET rule_ran = true WHERE marker = '#{marker}'"})
 
-    assert message =~ "built-in table"
+    assert {:ok, rules} = Guardian.Rules.list_rules("queries")
+    assert Enum.any?(rules, &(&1.name == marker))
+
+    assert {:ok, "SET rule_ran = true" <> _} = Guardian.Rules.read_rule("queries", marker)
+    assert :ok = Guardian.Rules.reload()
+    module = Guardian.Rules.lookup("queries")
+    assert is_atom(module) and not is_nil(module)
+
+    Guardian.Engine.log_event("queries", %{marker: marker, source: "own"})
+
+    assert [{:ok, %{"rule_ran" => true}}] =
+             ingest("queries", [%{"marker" => marker, "source" => "api"}])
+
+    assert {:ok, ["source", "rule_ran"], [["api", true], ["own", nil]]} =
+             Guardian.Query.execute(
+               "SELECT source, rule_ran FROM queries WHERE marker = '#{marker}' ORDER BY source"
+             )
+
+    assert {:ok, _} = Guardian.Rules.delete_rule("queries", marker)
   end
 
   test "HTTP and MCP ingest return computed fields through return_keys, null when missing" do

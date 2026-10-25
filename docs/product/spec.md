@@ -348,8 +348,8 @@ goes through the same validation and storage.
    not know the key. Expiry, eviction, fail-open operation and restarts can allow
    duplicates; Guardian provides no exactly-once guarantee or internal event retries.
 10. Rules: events sent through the ingest APIs run their table's rules after
-    validation and before storage ([section 5.1](#51-rules)). Guardian's own writes to
-    built-in tables do not.
+    validation and before storage ([section 5.1](#51-rules)), on any table. Guardian's
+    own writes to its built-in tables never run rules.
 
 ### 5.1 Rules
 
@@ -370,7 +370,7 @@ Files:
 
 1. A rule file is `<table>/<name>.gsql`; the folder names the table. `<name>` matches
    `[a-z0-9_][a-z0-9_-]*` (at most 64 bytes). The table must be a valid table name
-   ([section 6.1](#61-tables)) and not a built-in table.
+   ([section 6.1](#61-tables)), including a built-in table's name.
 2. A file holds statements separated by `;`, with `--` comments, at most 64 KiB.
    Limits on the whole set: 1,000 files, 256 tables with rules, 1,000 statements per
    table.
@@ -672,8 +672,8 @@ the shipped surface:
 
 ## 8. Built-in tables
 
-Guardian writes these through the normal ingestion path, so they follow the same
-retention and query rules as producer tables.
+Guardian writes these through the normal ingestion path, without ingest rules, so
+they follow the same retention and query rules as producer tables.
 
 1. `system_stats`: one row per machine per second with Erlang VM metrics: memory by
    category, reductions, run queues, garbage collection, IO bytes, process, port, atom,

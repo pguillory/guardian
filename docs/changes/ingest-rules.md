@@ -26,9 +26,9 @@ reviewed, diffed and backed up like code.
 
 1. Rules are files named `<table>/<name>.gsql`. The folder names the table the rules
    apply to; `<name>` is a label (`[a-z0-9_][a-z0-9_-]*`, at most 64 bytes). The
-   table must be a valid Guardian table name and not one of the built-in tables
-   (`system_stats`, `web_requests`, `web_responses`, `query_parse_errors`,
-   `queries`): rules run only on events sent through the ingest APIs.
+   table must be a valid Guardian table name. Built-in table names were once refused;
+   since 2026-10-25 they take rules like any other table
+   (`docs/changes/rules-builtin-tables.md`).
 2. A file holds one or more statements separated by `;`, with `--` comments, at most
    64 KiB. Limits on the whole set: 1,000 files, 256 tables with rules, 1,000
    statements per table.
@@ -88,7 +88,8 @@ path        := identifier, dots allowed, no list boundaries ('..')
    `send_events`: the event is flattened and its invalid values dropped as today,
    then the rules run on that row, then the values the rules produced are validated
    the same way (one that cannot be stored is dropped), then the row is stored.
-   Guardian's own writes to built-in tables do not run rules.
+   Rules run on API-ingested rows, on any table; Guardian's own writes to its
+   built-in tables never run rules.
 2. Reads: a field the event lacks is null, with no warning. There is no declared
    schema and no check that a field exists. Rules see the flattened row, so an
    object field has no value of its own (`card` is null when the event has
@@ -148,8 +149,7 @@ file at a time, and an error in one table does not block writes to another. Ever
 result lists the errors that remain. Errors, each naming the file and line:
 
 1. a file fails to parse, uses an unknown function, or uses an aggregate;
-2. a file path is invalid (table name, file name, built-in table) or a limit is
-   exceeded;
+2. a file path is invalid (table name or file name) or a limit is exceeded;
 3. a field on one table is defined two different ways: any two statements on the
    same field (two SETs, a SET and an UNSET, or two UNSETs of one path) that differ
    once parsed and unparsed
@@ -945,7 +945,7 @@ exercises the operations the lock depends on (create with `If-None-Match: *`, th
    across case variants and nested paths, null for unknown fields, WHERE null,
    invalid rule outputs dropped, failing statements, a mixed batch where one event
    exceeds its limit (ordered outcomes, the rest stored), no event values in logs,
-   built-in tables untouched.
+   Guardian's own writes untouched by rules.
 4. Ingest tests over HTTP and MCP: computed fields in the response, unset fields
    absent from it, `return_keys` null for missing keys, nested results, stored rows
    queried back.

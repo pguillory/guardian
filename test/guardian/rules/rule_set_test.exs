@@ -109,11 +109,10 @@ defmodule Guardian.Rules.RuleSetTest do
     assert RuleSet.new_errors(before.errors, repaired.errors) == []
   end
 
-  test "rejects parse errors, bad paths, built-in tables and oversized files" do
+  test "rejects parse errors, bad paths and oversized files" do
     assert messages(%{
              "t/a.gsql" => "SET = 1",
              "Bad/a.gsql" => "",
-             "queries/a.gsql" => "SET a = 1",
              "t/UPPER.gsql" => "",
              "t/big.gsql" => String.duplicate(" ", 64 * 1024 + 1),
              "t/c/d.gsql" => "",
@@ -122,7 +121,6 @@ defmodule Guardian.Rules.RuleSetTest do
            }) == [
              "Bad/a.gsql: " <>
                Exception.message(%Guardian.Engine.InvalidTableNameError{table: "Bad"}),
-             "queries/a.gsql: queries is a built-in table; rules run only on ingested events",
              "t/UPPER.gsql: rule file names must match [a-z0-9_][a-z0-9_-]* and be at most 64 bytes",
              "t/a.gsql line 1: Expected field name, got =",
              "t/big.gsql: is over 65536 bytes",
@@ -130,9 +128,21 @@ defmodule Guardian.Rules.RuleSetTest do
            ]
   end
 
+  test "the tables Guardian writes itself take rule files like any other table" do
+    for table <- ~w[system_stats web_requests web_responses query_parse_errors queries] do
+      assert {:ok, _plan} = RuleSet.validate(%{"#{table}/a.gsql" => "SET a = 1"}).tables[table]
+    end
+  end
+
   test "a misnamed file in a table's folder is an error for that table" do
-    validation = RuleSet.validate(%{"t/a.gsql" => "SET x = 1", "t/A.gsql" => ""})
-    assert {:error, [%{file: "t/A.gsql", kind: :path}]} = validation.tables["t"]
+    for table <- ["t", "queries"] do
+      validation =
+        RuleSet.validate(%{"#{table}/a.gsql" => "SET x = 1", "#{table}/A.gsql" => ""})
+
+      assert {:error, [%{file: file, kind: :path}]} = validation.tables[table]
+      assert file == "#{table}/A.gsql"
+    end
+
     assert RuleSet.validate(%{"Bad/a.gsql" => ""}).tables == %{}
   end
 
