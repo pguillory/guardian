@@ -242,6 +242,9 @@ defmodule Guardian.Engine do
 
       {module, function, arity, location} ->
         {module, function, arity, Keyword.take(location, [:file, :line])}
+
+      _frame ->
+        {__MODULE__, :redacted, 0, []}
     end)
   end
 

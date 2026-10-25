@@ -190,6 +190,8 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Interfaces and operations
 
+- [x] engine-fun-frame: preserve per-event failure handling when a caught failure
+      carries a BEAM fun stack frame (`docs/changes/failure-diagnostics.md`)
 - [x] bugs-03: worktree-safe hook installation, conservative rules crash-frame
       redaction, deterministic segment timer coverage, and JSON failure logging
       without exception data (`docs/changes/bugs-03.md`)

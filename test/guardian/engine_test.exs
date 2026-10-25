@@ -192,6 +192,27 @@ defmodule Guardian.EngineTest do
     assert Guardian.Storage.dump_table(table) == [%{"value" => 2}]
   end
 
+  test "a failure with a fun stack frame is redacted and the batch continues" do
+    table = unique_table()
+    marker = "private-fun-frame-marker"
+    key = %Guardian.EngineTestKey{marker: marker}
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        # An empty object produces no columns, so the key is stringified only while
+        # building the reported event, where the fixture raises with a fun frame.
+        assert Guardian.Engine.ingest_events(table, [%{key => %{}}, %{"value" => 2}]) == [
+                 {:error, "internal error before storage; the event was not stored"},
+                 {:ok, %{"value" => 2}},
+               ]
+      end)
+
+    assert log =~ "Event ingestion failed for #{table}: RuntimeError"
+    assert log =~ "Guardian.Engine.redacted/0"
+    refute log =~ marker
+    assert Guardian.Storage.dump_table(table) == [%{"value" => 2}]
+  end
+
   test "an explicit segment refusal is reported as not stored and the batch continues" do
     table = unique_table()
     intercept_append(table, fn from, _row -> GenServer.reply(from, {:error, :invalid_value}) end)
