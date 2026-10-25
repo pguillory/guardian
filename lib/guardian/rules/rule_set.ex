@@ -360,7 +360,8 @@ defmodule Guardian.Rules.RuleSet do
 
   # Called only while constructing a plan after semantic validation succeeds.
   defp prepare_counter(%Guardian.Rules.Step.Track{} = step) do
-    step = %{step | aggregation: Guardian.Aggregation.fetch_counter!(step.operator)}
+    {name, _arity} = step.operator
+    step = %{step | aggregation: Guardian.Aggregation.fetch!(name)}
     %{step | definition: Guardian.Rules.CounterDefinition.from_track(step)}
   end
 

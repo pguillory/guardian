@@ -79,14 +79,14 @@ statement. Cycles, conflicting output definitions and LOOKUP inputs/WHERE that
 depend transitively on a TRACK output are refused; identical copies count once.
 All statement kinds share one output namespace.
 
-Counter operators are count() (also count(*)), count(expr), count_distinct(expr),
-sum(expr), min(expr), max(expr), avg(expr). Count(expr) and distinct skip null;
-distinct uses approximate HyperLogLog precision 8. Sum/avg skip non-numbers; min/max
-skip null and use query ordering. Empty/failed counts give 0; other counters give
-null (unlike query sum's empty 0.0). Integer sums wrap to int64, average retains
-exact integer sums, and floating overflow gives null. Min/max ties keep the later
-merged value/type. Inputs, BY and WHERE accept scalar functions, CASE and operators;
-aggregates are allowed only as TRACK's outer call, never nested or in SET/BY/WHERE.
+TRACK accepts every aggregate listed under Aggregates, with the same arguments,
+and gives what that aggregate gives over the window's events in a query. A missing,
+expired or failed counter gives the aggregate's result over no rows: 0 for count,
+count_if and count_distinct, true for all, null otherwise. Merged ties keep the
+later value/type. A top-N counter whose events disagree on n gives null. Counter
+state keeps input values for arbitrary, min/max and the _by and _n forms. Inputs,
+BY and WHERE accept scalar functions, CASE and operators; aggregates are allowed
+only as TRACK's outer call, never nested or in SET/BY/WHERE.
 
 BY is an exact ordered tuple of typed values. Omit it for a global counter; null
 is a valid group. Integer 1, float 1.0 and string '1' are different groups. LOOKUP
@@ -135,8 +135,8 @@ mailboxes, temporary copies or other VM memory. Housekeeping runs about every
 second, so writes can temporarily overshoot. Expired buckets are reclaimed first,
 then a sampled earliest-expiry cutoff can evict live buckets, possibly all when
 expiries tie.
-UNSET does not erase grouping keys/min/max inputs from private counter memory or
-trusted peer traffic. Avoid secrets in those expressions.
+UNSET does not erase grouping keys or the inputs that arbitrary, min/max and the
+_by and _n forms keep from private counter memory or trusted peer traffic. Avoid secrets in those expressions.
 
 ## Not supported
 
@@ -225,7 +225,8 @@ Aggregates make a query grouped; with no GROUP BY, the whole table is one group.
 
 - `count()` or `count(*)`: number of rows. `count(x)`: rows where x is not null.
 - `count_distinct(x)`: number of distinct non-null values (approximate, using
-  HyperLogLog)
+  HyperLogLog at precision 8: exact-ish for small counts, about 6.5% standard error
+  for large ones)
 - `count_if(cond)`
 - `sum(x)`, `avg(x)`, `min(x)`, `max(x)`
 - `min_by(x, key)`, `max_by(x, key)`: x from the row with the smallest or largest key;
@@ -240,7 +241,7 @@ Aggregates make a query grouped; with no GROUP BY, the whole table is one group.
 
 `sum`, `avg`, and the variance and standard deviation aggregates skip values that are
 not numbers (null, strings, booleans, lists); a group whose values include no numbers
-gives null (`sum` over no rows at all gives 0.0). An integer `sum` wraps around like
+gives null, as does `sum` over no rows at all. An integer `sum` wraps around like
 `+`; a float `sum`, `avg`, variance or standard deviation that overflows is null.
 
 ```sql

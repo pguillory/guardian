@@ -1,11 +1,11 @@
 defmodule Guardian.Aggregation.MinMaxNBy do
   # min_n_by and max_n_by: the values of the n rows with the least or greatest ordering
-  # values, best first. The accumulator is {[{value, order_value}], n}. Rows whose
-  # ordering value is null are skipped.
+  # values, best first. The accumulator is {[{value, order_value}], n}, or :empty for
+  # no rows. Rows whose ordering value is null are skipped.
   alias Guardian.Aggregation.Ordering
 
-  def default(_extreme) do
-    nil
+  def empty(_extreme) do
+    :empty
   end
 
   def start(extreme, value, order_value, n) do
@@ -22,6 +22,10 @@ defmodule Guardian.Aggregation.MinMaxNBy do
     Ordering.merge_n(name(extreme), acc1, acc2, fn {_, order_value1}, {_, order_value2} ->
       Ordering.wins?(extreme, order_value1, order_value2)
     end)
+  end
+
+  def finish(_extreme, :empty) do
+    nil
   end
 
   def finish(_extreme, {value_orders, _n}) do

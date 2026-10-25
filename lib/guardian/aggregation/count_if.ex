@@ -1,5 +1,5 @@
 defmodule Guardian.Aggregation.CountIf do
-  def default do
+  def empty do
     0
   end
 

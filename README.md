@@ -209,8 +209,8 @@ Queries see the values stored on each event, not today's live counts.
 
 Counters are approximate and ephemeral. Window buckets can include almost one
 extra bucket of older events; restarts, eviction and cluster changes lose state.
-Counter failures return 0 for counts or null for other aggregates and ingestion
-continues. A later rule/storage failure can leave increments behind; unkeyed retries
+Counter failures return the aggregate's result over no rows (0 for counts) and
+ingestion continues. A later rule/storage failure can leave increments behind; unkeyed retries
 count again. These are advisory signals, not durable enforcement limits. See the
 [rules guide](docs/guides/rules.md#counters-with-track-and-lookup) for operators,
 grouping, window semantics, safe edits and memory configuration.

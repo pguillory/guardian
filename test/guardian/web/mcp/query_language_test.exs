@@ -32,7 +32,7 @@ defmodule Guardian.Web.MCP.QueryLanguageTest do
     end
   end
 
-  test "rule examples validate together and the rule reference includes every counter operator" do
+  test "rule examples validate together and the rule reference offers every aggregate" do
     [_, rule_section] = String.split(@reference, "## Ingest rules\n", parts: 2)
     rule_section = rule_section |> String.split("## Not supported", parts: 2) |> hd()
     examples = Regex.scan(~r/```gsql\n(.*?)\n```/s, rule_section, capture: :all_but_first)
@@ -46,7 +46,6 @@ defmodule Guardian.Web.MCP.QueryLanguageTest do
 
     assert Guardian.Rules.RuleSet.validate(files).errors == []
 
-    for {name, _arity} <- Guardian.Aggregation.counter_operators(),
-        do: assert(rule_section =~ name)
+    assert rule_section =~ "TRACK accepts every aggregate listed under Aggregates"
   end
 end

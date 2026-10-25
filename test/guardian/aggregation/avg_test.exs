@@ -11,6 +11,13 @@ defmodule Guardian.Aggregation.AvgTest do
     assert avg([1, nil, 2]) == 1.5
   end
 
+  test "rows with no number leave signed zero intact" do
+    for values <- [[-0.0, nil], [nil, -0.0], ["a", -0.0, true]] do
+      result = avg(values)
+      assert <<result::float>> == <<-0.0::float>>
+    end
+  end
+
   test "avg skips values that are not numbers" do
     assert avg([1, "a", 3]) == 2.0
     assert avg([1, true, [4], 3]) == 2.0

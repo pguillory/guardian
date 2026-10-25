@@ -1,5 +1,6 @@
 defmodule Guardian.Aggregation.All do
-  def default do
+  # true is the identity of merge: all of no rows is true.
+  def empty do
     true
   end
 

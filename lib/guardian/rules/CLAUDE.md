@@ -103,7 +103,8 @@ Rules to keep:
    Guardian.Counters.Client provides bounded cluster ownership,
    and Guardian.Aggregation provides shared mergeable operators. Counter failures fail
    open without changing SET/UNSET's fail-closed behavior or skipping final UNSETs.
-   BY/min/max state may retain sensitive values after UNSET; no event retry or
+   BY values and arbitrary, min/max, `_by` and `_n` states may retain sensitive
+   values after UNSET; no event retry or
    rollback is allowed. GUARDIAN_COUNTER_MEMORY_MB maps positive MiB to Store's
    byte budget. Read the reviewed design before changing counter semantics.
 

@@ -115,28 +115,29 @@ this split are unsupported (`docs/changes/counter-client.md`). Store retains its
 local atomic primitives.
 
 Validated TRACK steps carry shared `Guardian.Aggregation` configurations into
-immutable counter definitions, bound LOOKUPs and key machines. The fixed
-`{name, arity}` allowlist derives from the registry's explicit counter opt-in.
+immutable counter definitions, bound LOOKUPs and key machines. Every registered
+`{name, arity}` is a TRACK operator, with the same configuration queries use.
 Resolve configurations once during plan construction after validation, never per
 event or merge. Call empty/start/merge/finish through the shared registry API.
-Every empty is a mergeable state: finish it for zero (count and distinct) or nil
-(sum/min/max/avg). Counter sum's empty result is nil, unlike query sum's 0.0.
-Distinct uses Hypex precision 8 with fixed 256-byte bitstring registers; query
-distinct stays precision 14. Average keeps `{sum, count}` and skips empty states
-without arithmetic, preserving signed zero. Float overflow is absorbing;
+Every empty is a mergeable state whose finish is the query's no-rows result, which
+is also the missing/failed counter result. Distinct uses Hypex precision 8 with
+fixed 256-byte bitstring registers. Average keeps `{sum, count}` and skips empty
+states without arithmetic, preserving signed zero. Float overflow is absorbing;
 integer sum wraps through `Guardian.Query.Numeric`, while average keeps exact integer sums.
 Floating-point rounding/cancellation, overflow and wrapping mixed with floats
 preclude universal associativity. Min/max share query ordering, with the right
-state winning ties, including the type of equal integer/float values.
+state winning ties, including the type of equal integer/float values. A merge
+that raises (top-N states with different n) is a bucket error in Machine, or a
+statement failure in combine; both fail open.
 
 Bucket callers merge states, compare with the prior state using `===` to skip
-unchanged writes, then finish once. Count values returned by native increments
-must also be finished to apply int64 output bounds. The existing aggregation
-modules own all operator arithmetic, Hypex and ordering logic,
-with configured counter policies where needed. States are ordinary terms suitable
-for ETS/erpc. HLL registers are fixed size; min/max retain an input-sized value,
-and exact count/avg integer sizes grow logarithmically rather than having an
+unchanged writes, then finish once. Count finishes raw; the int64 limit applies
+where the event is stored. The existing aggregation
+modules own all operator arithmetic, Hypex and ordering logic. States are ordinary terms suitable
+for ETS/erpc. HLL registers are fixed size; arbitrary, min/max and `_by` states
+retain an input-sized value, `_n` states up to n of them, and exact count/avg
+integer sizes grow logarithmically rather than having an
 absolute byte cap. Preserve Store's payload refusal and asynchronous memory target.
 Counter rule execution lives in Rules, with at most three total CAS attempts for
-definite conflicts only. See `docs/changes/shared-aggregates.md` and
-`docs/changes/counter-retirement.md`.
+definite conflicts only. See `docs/changes/shared-aggregates.md`,
+`docs/changes/counter-retirement.md` and `docs/changes/aggregates-unify.md`.

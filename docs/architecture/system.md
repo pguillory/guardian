@@ -430,29 +430,35 @@ name and the SHA-256 of canonical TRACK source; LOOKUP plans bind target identit
 Edits start fresh, while moves/comments/whitespace retain state. Queries only read
 stored historical output fields. No later rule/storage failure rolls back updates.
 
-Counter aggregates share the existing `Guardian.Aggregation.*` implementations
-with queries. `Guardian.Aggregation` explicitly registers counter name/arity
-configurations. After semantic validation, rule plans resolve these configurations
-and prepare each TRACK's immutable CounterDefinition once. LOOKUPs bind those same
-definitions, and Runtime reuses them rather than constructing metadata per event.
-Compiled plans and key machines carry the configurations through
-empty/start/merge/finish without further lookups. CounterDefinition owns the legacy
-struct-shaped input used to hash LOOKUP targets, excluding derived configuration.
-The name/arity remains available for diagnostics and native-count dispatch.
-Derived configurations do not change counter identities or dependent plan hashes.
-Empty mergeable states are distinct from query default results (notably sum's
-nil versus 0.0). Configurations preserve query HLL precision 14/Array versus counter
-precision 8/Bitstring (256 bytes), counter-only int64 count finishing, and average's
-counter-only empty-state shortcuts that retain signed-zero bits. All arithmetic,
-overflow and ordering logic lives in the shared modules. The registry's `finish`
-boundary nulls list results that storage cannot hold, leaving valid lists and all
-scalar results unchanged; scalar range policy remains in each callback. Query-only
-registrations do not enable counters. These states are plain terms safe to copy
-through ETS and distribution; no resources or ownership transfer are involved.
-HLL registers have fixed size; min/max retain one input of variable byte size,
-while count/avg exact integer sizes grow logarithmically with accumulated
-count/sum. State size is not
-an absolute byte constant; Store's payload checks and memory target still apply.
+Counters and queries share one aggregate registry, `Guardian.Aggregation`, with one
+configuration per aggregate: every registered name/arity is a TRACK operator, and
+TRACK validation checks the same registry the parser uses. After semantic
+validation, rule plans resolve these configurations and prepare each TRACK's
+immutable CounterDefinition once. LOOKUPs bind those same definitions, and Runtime
+reuses them rather than constructing metadata per event. Compiled plans and key
+machines carry the configurations through empty/start/merge/finish without further
+lookups. CounterDefinition owns the legacy struct-shaped input used to hash LOOKUP
+targets, excluding derived configuration. The name/arity remains available for
+diagnostics and native-count dispatch. Derived configurations do not change counter
+identities or dependent plan hashes.
+Every aggregate has an empty mergeable state, an exact identity of its merge; a
+query's no-rows default is that state finished, so a missing counter and an empty
+query give the same result (sum's is null). Arbitrary and the top-N family use the
+non-storable atom `:empty`, distinct from a real null. HLL is precision 8/Bitstring
+(256 bytes) everywhere. Count finishes raw: the int64 limit applies where values
+are stored (Engine's rule-output validation, query column construction). Average
+skips states with no values, retaining signed-zero bits. All arithmetic, overflow
+and ordering logic lives in the shared modules. The registry's `finish` boundary
+nulls list results that storage cannot hold, leaving valid lists and all scalar
+results unchanged. A merge that raises (top-N states with different n) fails that
+counter open: Machine turns it into a bucket error, and Runtime's counter guard
+catches it across buckets. These states are plain terms safe to copy through ETS
+and distribution; no resources or ownership transfer are involved. HLL registers
+have fixed size; arbitrary, min/max and the `_by` forms retain one input of
+variable byte size, the `_n` forms up to n of them, and count/avg exact integer
+sizes grow logarithmically with accumulated count/sum. State size is not an
+absolute byte constant and has no cap of its own; Store's payload checks and memory
+target still apply.
 
 One GenServer owns one public ETS set, with {encoded_key, value, expires_at,
 version} rows. Ordinary get/gets, create-if-missing, CAS and native increment run

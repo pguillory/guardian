@@ -26,7 +26,7 @@ defmodule Guardian.Aggregation.OverflowTest do
         start.(2.5),
         start.(nil),
         start.("a"),
-        Guardian.Aggregation.default(aggregation),
+        Guardian.Aggregation.empty(aggregation),
         Guardian.Aggregation.merge(aggregation, start.(1), start.(2)),
       ]
 

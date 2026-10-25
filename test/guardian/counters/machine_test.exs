@@ -2,9 +2,9 @@ defmodule Guardian.Counters.MachineTest do
   use ExUnit.Case, async: true
   alias Guardian.Counters.{KeyMachines, Machine}
 
-  @sum Guardian.Aggregation.fetch_counter!({"sum", 1})
-  @min Guardian.Aggregation.fetch_counter!({"min", 1})
-  @max Guardian.Aggregation.fetch_counter!({"max", 1})
+  @sum Guardian.Aggregation.fetch!("sum")
+  @min Guardian.Aggregation.fetch!("min")
+  @max Guardian.Aggregation.fetch!("max")
 
   test "nested rounds batch independent machines and preserve empty groups and result order" do
     parent = self()

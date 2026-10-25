@@ -4,21 +4,20 @@ defmodule Guardian.Aggregation do
 
   `fetch/1` turns a name into an aggregation: an implementation module, or
   `{module, option}` for a module shared by several aggregations (min and max, say).
-  Callers treat the aggregation as opaque and run it through `default/1`, `start/2`
+  Callers treat the aggregation as opaque and run it through `empty/1`, `start/2`
   (or `start_row/3`), `merge/3` and `finish/2`, which call the module's callbacks,
-  with the option as the first argument when there is one.
-
-  Counters opt in through `fetch_counter!/1`, using the same implementations with
-  explicit policy options. `empty/1` returns a mergeable counter state, whereas
-  `default/1` returns a query's final result for no rows.
+  with the option as the first argument when there is one. Queries and counters use
+  the same registry and the same configurations: every aggregate is available to
+  TRACK. `empty/1` is the mergeable state of no rows; `default/1`, a query's result
+  for no rows, is its finished value.
   """
 
   @names_and_mods [
     {"all", 1, Guardian.Aggregation.All},
     {"arbitrary", 1, Guardian.Aggregation.Arbitrary},
     {"avg", 1, Guardian.Aggregation.Avg},
-    {"count", 0, {Guardian.Aggregation.Count, :query}},
-    {"count", 1, {Guardian.Aggregation.Count, :query}},
+    {"count", 0, Guardian.Aggregation.Count},
+    {"count", 1, Guardian.Aggregation.Count},
     {"count_distinct", 1, Guardian.Aggregation.CountDistinct},
     {"count_if", 1, Guardian.Aggregation.CountIf},
     {"max", 1, {Guardian.Aggregation.MinMax, :max}},
@@ -42,21 +41,6 @@ defmodule Guardian.Aggregation do
   @names names
   @names_and_arities SuperList.zip(names, arities)
   @name_to_aggregation SuperList.zip(names, mods) |> Map.new()
-
-  # Explicit counter opt-in: only these configurations have suitable mergeable
-  # states and the existing TRACK/LOOKUP semantics. Query registration alone does
-  # not make an aggregate available to counters.
-  @counter_aggregations [
-    {{"count", 0}, {Guardian.Aggregation.Count, :counter}},
-    {{"count", 1}, {Guardian.Aggregation.Count, :counter}},
-    {{"count_distinct", 1}, {Guardian.Aggregation.CountDistinct, {8, Hypex.Bitstring}}},
-    {{"sum", 1}, Guardian.Aggregation.Sum},
-    {{"min", 1}, {Guardian.Aggregation.MinMax, :min}},
-    {{"max", 1}, {Guardian.Aggregation.MinMax, :max}},
-    {{"avg", 1}, {Guardian.Aggregation.Avg, :counter}},
-  ]
-  @counter_operators Enum.map(@counter_aggregations, &elem(&1, 0))
-  @counter_by_operator Map.new(@counter_aggregations)
 
   @type t :: module | {module, term}
 
@@ -85,21 +69,7 @@ defmodule Guardian.Aggregation do
     aggregation
   end
 
-  @doc "The explicitly supported counter names and exact arities, in declaration order."
-  def counter_operators do
-    @counter_operators
-  end
-
-  @doc "The shared aggregate configured for a counter operator."
-  @spec fetch_counter!({String.t(), non_neg_integer}) :: t
-  def fetch_counter!(operator) do
-    case Map.fetch(@counter_by_operator, operator) do
-      {:ok, aggregation} -> aggregation
-      :error -> raise ArgumentError, "unsupported counter aggregate or arity"
-    end
-  end
-
-  @doc "An empty mergeable state for an opted-in aggregate, unlike default's final result."
+  @doc "The mergeable state of no rows: an identity of `merge/3`, distinct from any row's state."
   @spec empty(t) :: term
   def empty({mod, option}) do
     mod.empty(option)
@@ -109,14 +79,10 @@ defmodule Guardian.Aggregation do
     mod.empty()
   end
 
-  @doc "The result for a group with no rows."
+  @doc "The result for a group with no rows: the finished empty state."
   @spec default(t) :: term
-  def default({mod, option}) do
-    mod.default(option)
-  end
-
-  def default(mod) do
-    mod.default()
+  def default(aggregation) do
+    finish(aggregation, empty(aggregation))
   end
 
   @doc "An accumulator for one row, from the aggregation's argument values."
@@ -170,7 +136,7 @@ defmodule Guardian.Aggregation do
 
   # Aggregates can add a list layer to valid input values. Check the completed
   # list once here, keeping the original term when valid. Scalars retain their
-  # callback's policy, including raw query counts outside int64.
+  # callback's policy, including raw counts outside int64.
   defp finish_result(value) when is_list(value) do
     if Guardian.Storage.Value.valid?(value), do: value, else: nil
   end

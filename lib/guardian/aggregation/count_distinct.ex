@@ -1,38 +1,26 @@
 defmodule Guardian.Aggregation.CountDistinct do
-  def default do
-    0
-  end
+  # HyperLogLog at precision 8, with fixed 256-byte bitstring registers, for queries
+  # and counters alike.
+  @precision 8
 
-  def empty({precision, backend}) do
-    Hypex.new(precision, backend)
+  def empty do
+    Hypex.new(@precision, Hypex.Bitstring)
   end
 
   # Null is not a value, as in standard SQL's COUNT(DISTINCT x).
+  def start(nil) do
+    empty()
+  end
+
   def start(value) do
-    start({14, Hypex.Array}, value)
-  end
-
-  def start(configuration, nil) do
-    empty(configuration)
-  end
-
-  def start(configuration, value) do
-    Hypex.update(empty(configuration), value)
+    Hypex.update(empty(), value)
   end
 
   def merge(sketch1, sketch2) do
     Hypex.merge(sketch1, sketch2)
   end
 
-  def merge(_configuration, sketch1, sketch2) do
-    merge(sketch1, sketch2)
-  end
-
   def finish(sketch) do
     Hypex.cardinality(sketch) |> round()
-  end
-
-  def finish(_configuration, sketch) do
-    finish(sketch)
   end
 end

@@ -144,7 +144,8 @@ defmodule Guardian.Query.PipelineFailuresTest do
     # Rows arrive in order, so a snapshot of n rows holds exactly 1..n.
     for {count, sum} <- counts do
       assert count <= writer_rows
-      assert sum == div(count * (count + 1), 2)
+      # The sum of no rows is null.
+      assert sum == if(count == 0, do: nil, else: div(count * (count + 1), 2))
     end
 
     assert counts == Enum.sort(counts)

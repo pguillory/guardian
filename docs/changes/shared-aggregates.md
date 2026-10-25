@@ -2,6 +2,9 @@
 
 Status: implemented and validated.
 
+Superseded in part by [aggregates-unify.md](aggregates-unify.md), which removes the
+opt-in list and the query/counter policy differences tabled below.
+
 Product spec impact: none. No statements change in overview.md or spec.md.
 Query and TRACK/LOOKUP behavior, operators, defaults, numerical policies and
 state representations are preserved. This completes the sharing deferred by

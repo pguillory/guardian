@@ -1,10 +1,10 @@
 defmodule Guardian.Aggregation.MinMaxN do
   # min_n and max_n: the n least or greatest values, best first. The accumulator is
-  # {values, n}. Null values are skipped, as in min and max.
+  # {values, n}, or :empty for no rows. Null values are skipped, as in min and max.
   alias Guardian.Aggregation.Ordering
 
-  def default(_extreme) do
-    nil
+  def empty(_extreme) do
+    :empty
   end
 
   def start(extreme, value, n) do
@@ -19,6 +19,10 @@ defmodule Guardian.Aggregation.MinMaxN do
 
   def merge(extreme, acc1, acc2) do
     Ordering.merge_n(name(extreme), acc1, acc2, &Ordering.wins?(extreme, &1, &2))
+  end
+
+  def finish(_extreme, :empty) do
+    nil
   end
 
   def finish(_extreme, {values, _n}) do

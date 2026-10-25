@@ -42,5 +42,6 @@
     about every second, so writes can temporarily overshoot. A sampled
     earliest-expiry cutoff can evict every live bucket when expiries tie.
     High-cardinality BY values compete for that budget and can evict other groups.
-    UNSET does not erase grouping keys or min/max state from counter memory.
+    UNSET does not erase grouping keys or the state of value-keeping aggregates
+    (arbitrary, min/max, the _by and _n forms) from counter memory.
     See the [rules guide](../guides/rules.md#counters-with-track-and-lookup).

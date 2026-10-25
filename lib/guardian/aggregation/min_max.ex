@@ -1,10 +1,6 @@
 defmodule Guardian.Aggregation.MinMax do
   # min and max. Null values are skipped.
 
-  def default(_extreme) do
-    nil
-  end
-
   def empty(_extreme) do
     nil
   end

@@ -430,7 +430,8 @@ and no single request that takes the service down or destroys stored data.
    `system_stats.counters_available`; `/health` remains Storage-only.
    Membership disagreement/loss, restarts, eviction and uncertain writes can lose
    or split counts; these counters are advisory, never durable enforcement limits.
-   BY values and min/max states can retain sensitive source values in owner memory
+   BY values and the states of arbitrary, min/max and the `_by` and `_n` forms
+   can retain sensitive source values in owner memory
    and cross trusted distribution even after UNSET removes those fields from event
    storage. Old definition state remains until expiry/eviction, not erased by edits.
 
@@ -444,7 +445,14 @@ Counter-specific limits:
 - Untrusted high-cardinality BY inputs can fill the shared memory budget and evict
   other groups, or trigger stalls/cooldowns. A SET decision based on a default count
   can then fail open; it is an advisory signal, not a durable security limit.
-- UNSET is not counter-memory erasure. Avoid secret group keys and min/max inputs;
+- Top-N counters have no cap on n. A huge n makes each event's reads and CAS writes
+  proportional to n, and Store's payload check measures external size, which is
+  smaller than heap size, so a state Store accepts can still exceed the rule
+  worker's heap limit and fail the event rather than fail open. An n taken from an
+  event field lets one event with a different n null that counter for a window.
+  Use a literal n.
+- UNSET is not counter-memory erasure. Avoid secret group keys and inputs to
+  value-keeping aggregates (arbitrary, min/max, the `_by` and `_n` forms);
   they may remain for bucket_end+window (up to about 487 days at the maximum window)
   or appear in later computed fields. Distribution is fully trusted and unencrypted.
 - WHERE false/null preserves caller-supplied outputs. Apply a counter unconditionally

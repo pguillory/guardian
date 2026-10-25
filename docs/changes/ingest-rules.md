@@ -570,6 +570,12 @@ node and its connected peers. Do not call
 
 ### C3: mergeable aggregate operators
 
+Superseded in part by [aggregates-unify.md](aggregates-unify.md): the counter
+allowlist, the separate counter configurations (int64 count finishing, the p14
+query sketch, the counter-only average shortcuts) and sum's distinct query default
+are gone; every aggregate is a counter operator with the query configuration. The
+history below is unchanged.
+
 Implemented first as a pure counter operator API with no store or rule wiring;
 shared per-aggregate implementations and resolved plan configurations now own it
 ([shared-aggregates.md](shared-aggregates.md),

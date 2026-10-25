@@ -509,18 +509,18 @@ defmodule Guardian.Counters.ClientTest do
   } do
     alias Guardian.Aggregation
 
-    for operator <- Aggregation.counter_operators() do
-      aggregation = Aggregation.fetch_counter!(operator)
-      {_name, arity} = operator
+    for {name, arity} = operator <- Aggregation.names_and_arities() do
+      aggregation = Aggregation.fetch!(name)
+      args = &Guardian.AggregationTestHelper.args(name, arity, &1)
       empty = Aggregation.empty(aggregation)
-      delta = Aggregation.start(aggregation, List.duplicate(-0.0, arity))
+      delta = Aggregation.start(aggregation, args.(-0.0))
 
       populated =
         Enum.reduce([nil, 2, 3.5, "x", [1, nil]], empty, fn value, acc ->
           Aggregation.merge(
             aggregation,
             acc,
-            Aggregation.start(aggregation, List.duplicate(value, arity))
+            Aggregation.start(aggregation, args.(value))
           )
         end)
 

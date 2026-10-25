@@ -1,8 +1,5 @@
 defmodule Guardian.Aggregation.Sum do
-  def default do
-    0.0
-  end
-
+  # nil is the sum of no numbers, so a sum over no rows is null, as in standard SQL.
   def empty do
     nil
   end

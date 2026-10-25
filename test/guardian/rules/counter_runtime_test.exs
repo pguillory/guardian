@@ -163,17 +163,94 @@ defmodule Guardian.Rules.CounterRuntimeTest do
                "prior_total" => 6,
              }
 
-    for operator <- Aggregation.counter_operators() do
+    for {name, _arity} = operator <- Aggregation.names_and_arities() do
       defn = %{
         definition(plan)
         | operator: operator,
-          aggregation: Aggregation.fetch_counter!(operator),
+          aggregation: Aggregation.fetch!(name),
           identity: {plan.table, "missing", inspect(operator)},
       }
 
       assert CounterRuntime.lookup(defn, {}, event(store)) ==
                CounterRuntime.missing(defn.aggregation)
     end
+  end
+
+  test "every registered aggregate tracks through buckets with the query semantics", %{
+    store: store,
+  } do
+    plan =
+      plan("""
+      TRACK any = arbitrary(v) LAST '1h'; TRACK top = max_n(v, 2) LAST '1h';
+      TRACK low_names = min_n_by(name, v, 2) LAST '1h'; TRACK best = max_by(name, v) LAST '1h';
+      TRACK every = all(ok) LAST '1h'; TRACK oks = count_if(ok) LAST '1h';
+      TRACK spread = var_pop(v) LAST '1h'; LOOKUP prior_top = top
+      """)
+
+    fields = ~w(any top low_names best every oks spread prior_top)
+
+    assert Map.take(run(plan, %{"v" => 3, "name" => "c", "ok" => true}, event(store)), fields) ==
+             %{
+               "any" => 3,
+               "top" => [3],
+               "low_names" => ["c"],
+               "best" => "c",
+               "every" => true,
+               "oks" => 1,
+               "spread" => 0.0,
+               "prior_top" => nil,
+             }
+
+    run(plan, %{"v" => 1, "name" => "a", "ok" => true}, event(store))
+
+    assert Map.take(run(plan, %{"v" => 5, "name" => "e", "ok" => false}, event(store)), fields) ==
+             %{
+               "any" => 3,
+               "top" => [5, 3],
+               "low_names" => ["a", "c"],
+               "best" => "e",
+               "every" => false,
+               "oks" => 2,
+               "spread" => 8 / 3,
+               "prior_top" => [3, 1],
+             }
+  end
+
+  test "arbitrary keeps a real null rather than treating it as no rows", %{store: store} do
+    plan = plan("TRACK any = arbitrary(v) LAST '1h'; LOOKUP prior = any")
+
+    assert Map.take(run(plan, %{}, event(store)), ~w(any prior)) == %{
+             "any" => nil,
+             "prior" => nil,
+           }
+
+    assert Map.take(run(plan, %{"v" => 1}, event(store)), ~w(any prior)) == %{
+             "any" => nil,
+             "prior" => nil,
+           }
+
+    definition = definition(plan)
+    current = Integer.floor_div(event(store).arrival_ms, definition.bucket_ms)
+    assert {:ok, nil} = Store.get({definition.identity, {}, current}, server: store)
+  end
+
+  test "top-N buckets that disagree on n fail open without affecting a sibling", %{store: store} do
+    plan = plan("TRACK top = max_n(v, k) LAST '1h'; TRACK hits = count() LAST '1h'")
+    definition = definition(plan)
+    assert run(plan, %{"v" => 1, "k" => 2}, event(store))["top"] == [1]
+
+    # The current bucket holds n = 2, so merging n = 3 into it fails that bucket.
+    assert Map.take(run(plan, %{"v" => 2, "k" => 3}, event(store)), ~w(top hits)) ==
+             %{"top" => nil, "hits" => 2}
+
+    # An older bucket with another n fails the combination across buckets.
+    context = event(store)
+    current = Integer.floor_div(context.arrival_ms, definition.bucket_ms)
+    older = {definition.identity, {}, current - 1}
+    assert :ok = Store.cas(older, :missing, {[9], 1}, 5_000, server: store)
+
+    assert Map.take(run(plan, %{"v" => 3, "k" => 2}, context), ~w(top hits)) ==
+             %{"top" => nil, "hits" => 3}
   end
 
   test "WHERE false/null preserves fields; errors overwrite spoofed values and still UNSET", %{

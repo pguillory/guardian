@@ -435,14 +435,14 @@ Running:
 
 Counters:
 
-1. Operators: count() (also count(*)) counts events; count(expr) counts non-null
-   values; count_distinct(expr) skips null and uses approximate HyperLogLog at
-   precision 8. Sum and avg skip non-numeric values; min and max skip null and use
-   query ordering. Missing/expired results and any failed operation produce 0 for
-   count and count_distinct, null for sum/min/max/avg. Counter sum's empty result is
-   null, unlike query sum's 0.0. Integer sums wrap to int64; average retains exact
-   integer sums; float overflow resolves to null, as in query aggregates. Min/max
-   ties keep the later merged value, including its type.
+1. Operators: every query aggregate and arity (section 7), with the same arguments,
+   skipping, precision and numeric results as a query over the window's events.
+   Missing/expired results and any failed operation produce the aggregate's result
+   over no rows: 0 for count, count_if and count_distinct, true for all, null for
+   the rest. Average retains exact integer sums. A count beyond int64 is refused
+   where the event is stored, like any value storage cannot hold. Min/max ties
+   keep the later merged value, including its type. A top-N counter (`min_n`,
+   `max_n` and the `_n_by` forms) whose events disagree on n produces null.
 2. BY is an exact ordered tuple of typed values. Omitted BY is one global group;
    null is a valid shared component. Integer 1, float 1.0 and string '1' are distinct
    groups. LOOKUP evaluates its own BY expressions, so types and order must match.
@@ -487,7 +487,8 @@ Counters:
    second, so writes can temporarily exceed it. Expired buckets are reclaimed first,
    then a sampled cutoff discards buckets with the earliest expiry. Tied expiries
    can discard more than half, including every live bucket. Counters are not durable enforcement limits.
-   UNSET does not erase BY values or min/max inputs from counter memory: they can
+   UNSET does not erase BY values or the inputs that arbitrary, min/max and the
+   `_by` and `_n` forms keep from counter memory: they can
    remain for a window plus a bucket and cross the trusted peer network unencrypted.
    Avoid secrets in those expressions.
 
@@ -599,8 +600,8 @@ the shipped surface:
    or of a string over 64 bytes, `format_timestamp` of a month or hour with no name,
    and a list nested deeper than storage holds (a list of lists).
 4. Aggregates (21 names): `count`, `count_if`, `count_distinct` (approximate,
-   HyperLogLog, ignoring null), `sum`, `avg`, `min`, `max`, `min_by`, `max_by`, `min_n`,
-   `max_n`, `min_n_by`, `max_n_by`, `arbitrary`, `all`, and standard deviation and
+   HyperLogLog at precision 8, about 6.5% standard error, ignoring null), `sum`,
+   `avg`, `min`, `max`, `min_by`, `max_by`, `min_n`, `max_n`, `min_n_by`, `max_n_by`, `arbitrary`, `all`, and standard deviation and
    variance variants. Aggregates merge across segments and machines. `sum`, `avg`, and
    the variance and standard deviation aggregates skip values that are not numbers.
    An integer `sum` wraps like `+`; a float `sum`, `avg`, variance or standard
@@ -666,8 +667,8 @@ the shipped surface:
    partial answer, and slow steps are waited for, up to the time limit.
    Querying a table that does not exist is not an error: it behaves like an empty
    table: row queries return no rows, and an aggregate query without `GROUP BY`
-   returns one row of empty-input defaults (`count()` is 0, `sum(x)` is 0.0, `avg(x)`
-   is null).
+   returns one row of empty-input defaults (`count()` is 0, `sum(x)` and `avg(x)`
+   are null).
 
 ## 8. Built-in tables
 

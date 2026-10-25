@@ -37,9 +37,7 @@ defmodule Guardian.Aggregation.FinishTest do
         {Aggregation.fetch!(name), args}
       end
 
-    counters = for name <- ~w[min max], do: {Aggregation.fetch_counter!({name, 1}), [value]}
-
-    for {aggregation, args} <- selections ++ counters do
+    for {aggregation, args} <- selections do
       result = Aggregation.finish(aggregation, Aggregation.start(aggregation, args))
       assert :erlang.term_to_binary(result) == :erlang.term_to_binary(value)
     end
@@ -66,16 +64,11 @@ defmodule Guardian.Aggregation.FinishTest do
     end
   end
 
-  test "scalar count policies remain in callbacks" do
+  test "count results are returned raw" do
     beyond_int64 = Guardian.Query.Numeric.max_int() + 1
 
     for name <- ~w[count count_if] do
       assert Aggregation.finish(Aggregation.fetch!(name), beyond_int64) === beyond_int64
-    end
-
-    for arity <- [0, 1] do
-      assert Aggregation.finish(Aggregation.fetch_counter!({"count", arity}), beyond_int64) ===
-               nil
     end
   end
 

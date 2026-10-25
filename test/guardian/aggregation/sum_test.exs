@@ -2,7 +2,7 @@ defmodule Guardian.Aggregation.SumTest do
   use Guardian.Query.EvaluationTestCase, async: true
 
   test "sum" do
-    assert eval_aggregate("sum(x)", []) == 0.0
+    assert eval_aggregate("sum(x)", []) == nil
     assert eval_aggregate("sum(x)", [[x: 1], [x: 2], [x: 3]]) == 6
   end
 

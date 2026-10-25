@@ -44,12 +44,14 @@ Omit BY for a global counter. WHERE false or null skips the statement and preser
 its incoming field. Apply counter statements unconditionally, or explicitly set a
 safe skipped value, when a caller-supplied output would be untrustworthy.
 
-TRACK supports count(), count(expr), count_distinct(expr), sum(expr), min(expr),
-max(expr) and avg(expr). Count skips null arguments; count() counts all matching
-events. Distinct uses approximate HyperLogLog precision 8. Sum/avg skip non-numbers,
-min/max skip null and use query ordering. Empty or failed counts return 0; the
-other operators return null. Counter sum's empty result differs from query sum's
-0.0. Scalars are allowed in arguments, BY and WHERE; nested aggregates are not.
+TRACK supports every query aggregate, with the same arguments, and gives what that
+aggregate gives over the window's events in a query: count() counts all matching
+events, count_distinct uses approximate HyperLogLog precision 8, sum/avg skip
+non-numbers, min/max skip null and use query ordering, and so on. Empty or failed
+counters return the aggregate's result over no rows: 0 for count, count_if and
+count_distinct, true for all, null otherwise (sum included). A top-N counter whose
+events disagree on n returns null. Scalars are allowed in arguments, BY and WHERE;
+nested aggregates are not.
 The [product spec](../product/spec.md#51-rules) gives numeric and dependency details.
 
 LAST takes a positive integral total interval in s/m/h/d/w notation, up to 365 days.
@@ -77,9 +79,10 @@ rest of the VM. Housekeeping runs about every second, so writes can temporarily
 overshoot. It reclaims expired keys, then evicts live buckets through a sampled
 earliest-expiry cutoff; tied expiries can discard every live bucket. High-cardinality groups compete for this shared budget.
 
-UNSET removes fields from stored events, not from counter memory: BY keys and
-min/max values can retain sensitive inputs and cross the trusted peer network until
-expiry/eviction. Avoid putting secrets in those expressions.
+UNSET removes fields from stored events, not from counter memory: BY keys and the
+values kept by arbitrary, min/max and the _by and _n forms can retain sensitive
+inputs and cross the trusted peer network until expiry/eviction. Avoid putting
+secrets in those expressions.
 
 ### Editing and retrying counters
 

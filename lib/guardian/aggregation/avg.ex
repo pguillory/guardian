@@ -1,14 +1,6 @@
 defmodule Guardian.Aggregation.Avg do
-  def default do
-    nil
-  end
-
-  def empty(:counter) do
+  def empty do
     {0, 0}
-  end
-
-  def start(:counter, value) do
-    start(value)
   end
 
   # Values that are not numbers (null, strings, booleans, lists) are skipped, as in
@@ -32,32 +24,20 @@ defmodule Guardian.Aggregation.Avg do
     :overflow
   end
 
+  # A state with no values is an exact identity, keeping signed-zero bits and letting
+  # counter buckets detect unchanged writes.
+  def merge({_sum, 0}, acc2) do
+    acc2
+  end
+
+  def merge(acc1, {_sum, 0}) do
+    acc1
+  end
+
   def merge({sum1, count1}, {sum2, count2}) do
     {sum1 + sum2, count1 + count2}
   catch
     :error, :badarith -> :overflow
-  end
-
-  # Counter buckets need an exact empty identity, including signed-zero bits and
-  # unchanged-write detection. Query merges keep their existing arithmetic policy.
-  def merge(:counter, :overflow, right) do
-    merge(:overflow, right)
-  end
-
-  def merge(:counter, left, :overflow) do
-    merge(left, :overflow)
-  end
-
-  def merge(:counter, {_sum, 0}, right) do
-    right
-  end
-
-  def merge(:counter, left, {_sum, 0}) do
-    left
-  end
-
-  def merge(:counter, left, right) do
-    merge(left, right)
   end
 
   def finish(:overflow) do
@@ -72,9 +52,5 @@ defmodule Guardian.Aggregation.Avg do
     sum / count
   catch
     :error, :badarith -> nil
-  end
-
-  def finish(:counter, state) do
-    finish(state)
   end
 end

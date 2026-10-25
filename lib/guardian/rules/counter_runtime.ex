@@ -45,7 +45,7 @@ defmodule Guardian.Rules.CounterRuntime do
     else
       results
       |> Enum.reduce(Aggregation.empty(aggregation), fn
-        :not_found, acc -> Aggregation.merge(aggregation, acc, Aggregation.empty(aggregation))
+        :not_found, acc -> acc
         {:ok, state}, acc -> Aggregation.merge(aggregation, acc, state)
       end)
       |> then(&Aggregation.finish(aggregation, &1))
@@ -53,7 +53,7 @@ defmodule Guardian.Rules.CounterRuntime do
   end
 
   def missing(aggregation) do
-    Aggregation.finish(aggregation, Aggregation.empty(aggregation))
+    Aggregation.default(aggregation)
   end
 
   defp run(machines, aggregation, event) do

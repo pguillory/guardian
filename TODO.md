@@ -112,6 +112,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] counter-routing-phash2: replace custom routing encoding and SHA-256 scores
       with phash2 rendezvous scores; stored typed keys remain distinct
       (`docs/changes/ingest-rules.md`, C2)
+- [x] aggregates-unify: every aggregate is a counter operator, with one empty
+      mergeable state and one configuration for queries and counters (p8 distinct,
+      null empty sum, raw count, exact empty average) (`docs/changes/aggregates-unify.md`)
 - [ ] counters-monotonic-clock: share the microsecond clock/deadline helpers used by
       Context, Budget and Transport to make their unit coupling explicit
       (code review follow-up)

@@ -29,7 +29,16 @@ defmodule Guardian.Aggregation.Ordering do
   @doc """
   Merges two `{list, n}` accumulators of a `_n` aggregation named `name`, each list
   sorted best first, keeping the best `n`. `wins?` compares two list elements.
+  `:empty`, the state of no rows, is an identity on either side.
   """
+  def merge_n(_name, :empty, acc2, _wins?) do
+    acc2
+  end
+
+  def merge_n(_name, acc1, :empty, _wins?) do
+    acc1
+  end
+
   def merge_n(_name, {list1, n}, {list2, n}, wins?) do
     {Guardian.Query.Sorting.merge_take(list1, list2, n, wins?), n}
   end

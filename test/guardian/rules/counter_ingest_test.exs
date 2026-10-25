@@ -198,6 +198,19 @@ defmodule Guardian.Rules.CounterIngestTest do
     assert [{:ok, %{"g" => "missing", "prior" => 0}}] = ingest(reader, [%{"g" => "missing"}])
   end
 
+  test "a count outside int64 is refused where the event is stored, keeping the rest" do
+    table = unique_table("live_counter_int64")
+    with_rules(%{"#{table}/r.gsql" => "TRACK hits = count() LAST '1h'; SET seen = true"})
+    definition = track(table).definition
+    bucket = Integer.floor_div(System.os_time(:millisecond), definition.bucket_ms)
+    max = Guardian.Query.Numeric.max_int()
+    assert {:ok, ^max} = Store.incr({definition.identity, {}, bucket}, max, 60_000)
+
+    assert [{:ok, row}] = ingest(table, [%{"v" => 1}])
+    refute Map.has_key?(row, "hits")
+    assert Guardian.Storage.dump_table(table) == [%{"v" => 1, "seen" => true}]
+  end
+
   test "unkeyed resubmissions count twice; completed HTTP/MCP keyed retries return only a receipt" do
     Guardian.MCPTestClient.start()
     table = unique_table("live_counter_retry")

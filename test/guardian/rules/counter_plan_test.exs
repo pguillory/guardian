@@ -66,7 +66,7 @@ defmodule Guardian.Rules.CounterPlanTest do
     preparation = RuleSet.prepare(files)
 
     assert Enum.sort(Enum.map(RuleSet.validate(files).errors, & &1.kind)) ==
-             [:counter_aggregate, :counter_window, :expression]
+             [:counter_window, :expression]
 
     assert {:ok, %{resolved?: false}} = preparation.candidates["u"]
     assert {:ok, %{resolved?: true}} = preparation.tables["u"]
@@ -91,15 +91,14 @@ defmodule Guardian.Rules.CounterPlanTest do
     end
   end
 
-  test "counter operators are the aggregate allowlist, with scalar arguments" do
-    for {name, arity} <- Guardian.Aggregation.counter_operators() do
-      args = if arity == 0, do: "", else: "amount"
+  test "counter operators are every registered aggregate, with scalar arguments" do
+    for {name, arity} <- Guardian.Aggregation.names_and_arities() do
+      args = Guardian.AggregationTestHelper.source_args(name, arity, "amount")
       [track] = plan(%{"t/a.gsql" => "TRACK c = #{name}(#{args}) LAST '1h'"}).steps
       assert track.operator == {name, arity}
-      assert track.aggregation == Guardian.Aggregation.fetch_counter!({name, arity})
+      assert track.aggregation == Guardian.Aggregation.fetch!(name)
     end
 
-    assert kinds("TRACK c = arbitrary(x) LAST '1h'") == [:counter_aggregate]
     assert kinds("TRACK c = sum(count()) LAST '1h'") == [:expression]
     assert kinds("TRACK c = count() BY sum(x) LAST '1h'") == [:expression]
     assert kinds("TRACK c = count() WHERE avg(x) > 1 LAST '1h'") == [:expression]
@@ -107,6 +106,38 @@ defmodule Guardian.Rules.CounterPlanTest do
     assert kinds("LOOKUP x = c WHERE count() > 0") == [:expression]
     assert kinds("TRACK c = count(1, 2) LAST '1h'") == [:parse]
     assert kinds("TRACK c = sum() LAST '1h'") == [:parse]
+  end
+
+  test "TRACK validation refuses a name and arity the aggregate registry lacks" do
+    # The parser already refuses these in rule text; validation checks the same
+    # registry for any TRACK step.
+    for operator <- [{"count", 2}, {"max_n", 1}, {"nope", 1}] do
+      step = %Guardian.Rules.Step.Track{
+        table: "t",
+        file: "t/a.gsql",
+        line: 1,
+        field: "c",
+        operator: operator,
+        aggregate_expr: Guardian.AST.parse_expression("sum(x)"),
+        window_ms: 3_600_000,
+      }
+
+      assert [%{kind: :counter_aggregate}] = Guardian.Rules.Validation.errors(step)
+    end
+
+    for operator <- Guardian.Aggregation.names_and_arities() do
+      step = %Guardian.Rules.Step.Track{
+        table: "t",
+        file: "t/a.gsql",
+        line: 1,
+        field: "c",
+        operator: operator,
+        aggregate_expr: Guardian.AST.parse_expression("sum(x)"),
+        window_ms: 3_600_000,
+      }
+
+      assert Guardian.Rules.Validation.errors(step) == []
+    end
   end
 
   test "every non-scalar node is refused in SET values and all scalar input clauses" do
@@ -127,10 +158,10 @@ defmodule Guardian.Rules.CounterPlanTest do
 
   test "compiled plans recover the resolved configurations in TRACKs, LOOKUPs and levels" do
     source =
-      Guardian.Aggregation.counter_operators()
+      Guardian.Aggregation.names_and_arities()
       |> Enum.with_index()
       |> Enum.map_join("; ", fn {{name, arity}, i} ->
-        args = if arity == 0, do: "", else: "amount"
+        args = Guardian.AggregationTestHelper.source_args(name, arity, "amount")
         "TRACK c#{i} = #{name}(#{args}) LAST '1h'; LOOKUP prior#{i} = c#{i}"
       end)
 
@@ -155,7 +186,7 @@ defmodule Guardian.Rules.CounterPlanTest do
       lookup =
         Enum.find(plan.steps, &(&1.field == "prior" <> String.trim_leading(track.field, "c")))
 
-      assert definition.aggregation == Guardian.Aggregation.fetch_counter!(track.operator)
+      assert definition.aggregation == Guardian.Aggregation.fetch!(elem(track.operator, 0))
       assert track.definition == definition
       assert lookup.target == definition
 

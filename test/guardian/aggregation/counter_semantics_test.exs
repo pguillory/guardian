@@ -1,8 +1,12 @@
 defmodule Guardian.Aggregation.CounterSemanticsTest do
+  # The numeric, ordering and state semantics counters rely on, through the one
+  # registry queries use.
   use ExUnit.Case, async: true
 
   alias Guardian.Aggregation
 
+  # Operators whose numeric and state semantics these tests pin in detail; the shared
+  # contract for every registered aggregate is in counter_contract_test.exs.
   @operators [
     {"count", 0},
     {"count", 1},
@@ -13,36 +17,23 @@ defmodule Guardian.Aggregation.CounterSemanticsTest do
     {"avg", 1},
   ]
 
-  test "the allowlist contains only the v1 operators and arities" do
-    assert Aggregation.counter_operators() == @operators
-
-    for operator <- [{"count", 2}, {"sum", 0}, {"count_if", 1}, {"SUM", 1}, :sum] do
-      assert_raise ArgumentError, "unsupported counter aggregate or arity", fn ->
-        Aggregation.fetch_counter!(operator)
-      end
-    end
-  end
-
   test "empty states finish to documented missing results" do
     for {name, _} = operator <- @operators do
-      aggregation = Aggregation.fetch_counter!(operator)
+      aggregation = aggregation(operator)
       expected = if name in ["count", "count_distinct"], do: 0, else: nil
       assert Aggregation.finish(aggregation, Aggregation.empty(aggregation)) === expected
     end
 
-    # These are states, not the query registry's already resolved empty results.
-    assert Aggregation.empty(Aggregation.fetch_counter!({"avg", 1})) === {0, 0}
-    assert Aggregation.empty(Aggregation.fetch_counter!({"sum", 1})) === nil
-
-    assert {Hypex.Bitstring, 8, _} =
-             Aggregation.empty(Aggregation.fetch_counter!({"count_distinct", 1}))
+    assert Aggregation.empty(aggregation({"avg", 1})) === {0, 0}
+    assert Aggregation.empty(aggregation({"sum", 1})) === nil
+    assert {Hypex.Bitstring, 8, _} = Aggregation.empty(aggregation({"count_distinct", 1}))
   end
 
   test "empty state is a both-sided exact identity for all supported inputs" do
     values = [nil, -3, 0, -0.0, 2.5, true, false, "x", [], [1, nil, 2]]
 
     for operator <- @operators, value <- values do
-      aggregation = Aggregation.fetch_counter!(operator)
+      aggregation = aggregation(operator)
       empty = Aggregation.empty(aggregation)
       single = create(operator, value)
 
@@ -60,15 +51,14 @@ defmodule Guardian.Aggregation.CounterSemanticsTest do
     assert result({"count", 1}, [nil, nil]) === 0
   end
 
-  test "count keeps an unwrapped integer state and finishes native increments safely" do
+  test "count keeps an unwrapped integer state and finishes it raw" do
     for operator <- [{"count", 0}, {"count", 1}] do
-      aggregation = Aggregation.fetch_counter!(operator)
+      aggregation = aggregation(operator)
       max = Guardian.Query.Numeric.max_int()
       assert Aggregation.finish(aggregation, max) === max
       state = Aggregation.merge(aggregation, max, 1)
       assert state === max + 1
-      assert Aggregation.finish(aggregation, state) === nil
-      assert Aggregation.finish(aggregation, Integer.pow(2, 2000)) === nil
+      assert Aggregation.finish(aggregation, state) === max + 1
     end
   end
 
@@ -92,7 +82,7 @@ defmodule Guardian.Aggregation.CounterSemanticsTest do
   test "average preserves exact integer sums rather than wrapping" do
     max = Guardian.Query.Numeric.max_int()
     operator = {"avg", 1}
-    aggregation = Aggregation.fetch_counter!(operator)
+    aggregation = aggregation(operator)
     assert state(operator, [max, max]) === {max * 2, 2}
     assert result(operator, [max, max]) === max * 1.0
     assert Aggregation.finish(aggregation, {Integer.pow(2, 2000), 1}) === nil
@@ -100,7 +90,7 @@ defmodule Guardian.Aggregation.CounterSemanticsTest do
 
   test "average merges weighted sums and counts, not averages of bucket results" do
     operator = {"avg", 1}
-    aggregation = Aggregation.fetch_counter!(operator)
+    aggregation = aggregation(operator)
     left = state(operator, [1, 2, 3, nil, "skip"])
     right = state(operator, [10])
     merged = Aggregation.merge(aggregation, left, right)
@@ -110,7 +100,7 @@ defmodule Guardian.Aggregation.CounterSemanticsTest do
 
   test "average ignores empty contributions without changing signed zero" do
     operator = {"avg", 1}
-    aggregation = Aggregation.fetch_counter!(operator)
+    aggregation = aggregation(operator)
     prior = Aggregation.start(aggregation, [-0.0])
     assert prior === {-0.0, 1}
 
@@ -123,7 +113,7 @@ defmodule Guardian.Aggregation.CounterSemanticsTest do
 
   test "float overflow absorbs later merges in both directions" do
     for operator <- [{"sum", 1}, {"avg", 1}] do
-      aggregation = Aggregation.fetch_counter!(operator)
+      aggregation = aggregation(operator)
       large = Aggregation.start(aggregation, [1.0e308])
       overflow = Aggregation.merge(aggregation, large, large)
       assert overflow === :overflow
@@ -155,7 +145,7 @@ defmodule Guardian.Aggregation.CounterSemanticsTest do
 
   test "min and max numeric ties favor the right state including its type" do
     for operator <- [{"min", 1}, {"max", 1}] do
-      aggregation = Aggregation.fetch_counter!(operator)
+      aggregation = aggregation(operator)
       assert Aggregation.merge(aggregation, 1, 1.0) === 1.0
       assert Aggregation.merge(aggregation, 1.0, 1) === 1
     end
@@ -175,13 +165,13 @@ defmodule Guardian.Aggregation.CounterSemanticsTest do
     ]
 
     for {operator, prior, value} <- cases do
-      aggregation = Aggregation.fetch_counter!(operator)
+      aggregation = aggregation(operator)
       assert Aggregation.merge(aggregation, prior, create(operator, value)) === prior
     end
 
     operator = {"count_distinct", 1}
 
-    aggregation = Aggregation.fetch_counter!(operator)
+    aggregation = aggregation(operator)
     prior = state(operator, ["already present", 7])
     assert Aggregation.merge(aggregation, prior, create(operator, "already present")) === prior
     assert Aggregation.merge(aggregation, prior, prior) === prior
@@ -210,14 +200,14 @@ defmodule Guardian.Aggregation.CounterSemanticsTest do
     ]
 
     for {operator, prior, value} <- cases do
-      aggregation = Aggregation.fetch_counter!(operator)
+      aggregation = aggregation(operator)
       refute Aggregation.merge(aggregation, prior, create(operator, value)) === prior
     end
   end
 
   test "distinct stays precision 8 and fixed size with representative cardinality error" do
     operator = {"count_distinct", 1}
-    aggregation = Aggregation.fetch_counter!(operator)
+    aggregation = aggregation(operator)
     assert {Hypex.Bitstring, 8, empty} = Aggregation.empty(aggregation)
     assert byte_size(empty) == 256
 
@@ -234,7 +224,7 @@ defmodule Guardian.Aggregation.CounterSemanticsTest do
     values = [nil, 1, 2, 3, true, "a", 2, [1], 2.5, nil, -2]
 
     for operator <- @operators do
-      aggregation = Aggregation.fetch_counter!(operator)
+      aggregation = aggregation(operator)
       sequential = state(operator, values)
 
       for size <- [1, 2, 3, 7, 30] do
@@ -256,7 +246,7 @@ defmodule Guardian.Aggregation.CounterSemanticsTest do
 
   test "merge is associative for normal-range values within floating point tolerance" do
     for operator <- @operators do
-      aggregation = Aggregation.fetch_counter!(operator)
+      aggregation = aggregation(operator)
 
       for [a, b, c] <- [[1, 2, 3], [nil, 2, 3], [0.1, 0.2, 0.3], ["a", false, [1]], [1, 1.0, 1]] do
         [a, b, c] = Enum.map([a, b, c], &create(operator, &1))
@@ -273,7 +263,7 @@ defmodule Guardian.Aggregation.CounterSemanticsTest do
 
   test "integer sum merging is associative even when modular arithmetic wraps" do
     operator = {"sum", 1}
-    aggregation = Aggregation.fetch_counter!(operator)
+    aggregation = aggregation(operator)
     max = Guardian.Query.Numeric.max_int()
     left = Aggregation.merge(aggregation, Aggregation.merge(aggregation, max, max), 3)
     right = Aggregation.merge(aggregation, max, Aggregation.merge(aggregation, max, 3))
@@ -281,18 +271,22 @@ defmodule Guardian.Aggregation.CounterSemanticsTest do
     assert left === 1
   end
 
+  defp aggregation({name, _arity}) do
+    Aggregation.fetch!(name)
+  end
+
   defp create({"count", 0} = operator, _value) do
-    aggregation = Aggregation.fetch_counter!(operator)
+    aggregation = aggregation(operator)
     Aggregation.start(aggregation, [])
   end
 
   defp create(operator, value) do
-    aggregation = Aggregation.fetch_counter!(operator)
+    aggregation = aggregation(operator)
     Aggregation.start(aggregation, [value])
   end
 
   defp state(operator, values) do
-    aggregation = Aggregation.fetch_counter!(operator)
+    aggregation = aggregation(operator)
 
     Enum.reduce(values, Aggregation.empty(aggregation), fn value, prior ->
       Aggregation.merge(aggregation, prior, create(operator, value))
@@ -300,7 +294,7 @@ defmodule Guardian.Aggregation.CounterSemanticsTest do
   end
 
   defp result(operator, values) do
-    aggregation = Aggregation.fetch_counter!(operator)
+    aggregation = aggregation(operator)
     Aggregation.finish(aggregation, state(operator, values))
   end
 

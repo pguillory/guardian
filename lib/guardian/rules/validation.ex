@@ -8,8 +8,10 @@ defmodule Guardian.Rules.Validation do
   end
 
   defp counter_errors(%Guardian.Rules.Step.Track{} = step) do
+    # The parser already refuses unknown names and arities in rule text; this checks
+    # any TRACK step against the same registry.
     operator_errors =
-      if step.operator in Guardian.Aggregation.counter_operators() do
+      if step.operator in Guardian.Aggregation.names_and_arities() do
         []
       else
         [
@@ -17,7 +19,7 @@ defmodule Guardian.Rules.Validation do
             step,
             :counter_aggregate,
             step.field,
-            "TRACK requires count, count_distinct, sum, min, max or avg with a supported arity"
+            "TRACK requires an aggregate function with a supported arity"
           ),
         ]
       end

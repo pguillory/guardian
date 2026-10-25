@@ -6,8 +6,8 @@ defmodule Guardian.Aggregation.Moments do
   # m2 never goes negative and does not cancel when values are nearly equal or far
   # from zero. Values that are not numbers are skipped.
 
-  def default(_kind) do
-    nil
+  def empty(_kind) do
+    {0, 0.0, 0.0}
   end
 
   def start(_kind, value) when is_number(value) do

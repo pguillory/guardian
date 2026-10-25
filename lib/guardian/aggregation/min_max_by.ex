@@ -2,7 +2,8 @@ defmodule Guardian.Aggregation.MinMaxBy do
   # min_by and max_by: the value of the row with the least or greatest ordering value.
   # Rows whose ordering value is null are skipped.
 
-  def default(_extreme) do
+  # nil is the state of no row; a row's state is a tuple, even when its value is null.
+  def empty(_extreme) do
     nil
   end
 
