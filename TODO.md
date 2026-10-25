@@ -101,6 +101,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       (`docs/changes/counter-definition-preparation.md`)
 - [x] counter-event-context: type the private Client context and isolate transport
       backend injection in a test-only adapter (`docs/changes/counter-event-context.md`)
+- [x] rules-compiler-metadata: share compiled execution levels and reconstruct
+      exact flat plan metadata only for activation, without per-event rebuilding
+      (`docs/changes/rules-compiler-metadata.md`)
 - [ ] counters-monotonic-clock: share the microsecond clock/deadline helpers used by
       Context, Budget and Transport to make their unit coupling explicit
       (code review follow-up)

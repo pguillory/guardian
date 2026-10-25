@@ -347,8 +347,11 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    come from a pool of 1,024 (`Guardian.Rules.Compiled.M0`...), so atoms are bounded.
    Compiler independently refuses unresolved candidates and LOOKUPs without bound
    targets.
-   Each generated module exposes its exact resolved `plan/0` as escaped literal
-   data, including canonical source and AST constants, never executable rule text.
+   Each generated module shares one escaped execution-level literal between
+   ingestion and `plan/0`. For activation, `plan/0` reconstructs the exact resolved
+   plan's flat metadata order using compile-time positions into those levels,
+   including canonical source and AST constants, never executable rule text.
+   Ingestion uses the prepared levels directly, without reconstruction.
 3. Publication: one `:persistent_term` map of table to module, or `{:invalid,
    message}`. A reload compiles every changed table into free names first and
    publishes one new map only if all compiled, so a change is all or nothing on each

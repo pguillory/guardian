@@ -26,8 +26,10 @@ Modules:
   owns the legacy struct-shaped hash input, excluding derived configuration.
 - `Guardian.Rules.Activation`: pure coherent reload selection, used by Server.
 - `Guardian.Rules.Compiler`: a plan into a generated module from a fixed template, with the
-  statements as escaped literals. Generated `plan/0` exposes the exact resolved
-  plan for reload/restart recovery, bounded and reclaimed with the module pool.
+  execution levels as one shared escaped literal. Generated `plan/0` reconstructs
+  the exact resolved plan's flat order from compile-time positions for activation,
+  including after restart; reconstruction never runs during ingestion. Metadata
+  is bounded and reclaimed with the module pool.
   No rule text becomes code. Unresolved plans and unbound LOOKUPs cannot compile.
 - `Guardian.Rules.Runtime`: the dispatcher called by generated modules (reads, SET, UNSET,
   failures), threading a `Guardian.Rules.RowIndex` through dependency levels. Internal
