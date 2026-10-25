@@ -377,7 +377,8 @@ and no single request that takes the service down or destroys stored data.
    stay inside Guardian). Its S3 credentials stay out of
    application config, logs and error messages (7.2). The S3 endpoint must use
    `https://` unless it is on the same machine (`localhost`, 127.0.0.0/8 or
-   `[::1]`; `Guardian.Rules.Config` refuses anything else at startup), so no one on the
+   `[::1]`; `Guardian.Rules.Config` refuses anything else at startup, with the
+   object-store client's check, `Guardian.ObjectStore.S3.check_endpoint/1`), so no one on the
    network path can read rule text or rewrite the rules a node loads. The name
    `localhost` relies on the machine's own resolver mapping it to loopback.
 9. Counter storage: `Guardian.Counters.Store` owns one public ETS table, accessible
@@ -720,7 +721,7 @@ and the boundary is whatever protects those. Guardian adds nothing on top.
 | `GUARDIAN_API_KEY` | process environment (on Fly, a Fly secret); app env `:guardian, :api_key` | operators; callers who hold it | set the new value and restart (`fly secrets set` restarts) |
 | `RELEASE_COOKIE` | process environment (on Fly, a Fly secret); node memory | operators; peers | set the new value and restart; all nodes must share it |
 | `TUNNEL_TOKEN` (optional) | process environment (on Fly, a Fly secret, also visible in `fly ssh` sessions); `bin/fly-start` unsets it before starting Guardian, so Guardian's process doesn't hold it; the script's shell and connector loop keep it, as cloudflared does | operators; whoever administers the operator's Cloudflare account | rotate the tunnel's token on Cloudflare, then set the new value and restart |
-| `GUARDIAN_RULES_S3_ACCESS_KEY_ID`, `GUARDIAN_RULES_S3_SECRET_ACCESS_KEY` (optional) | process environment (on Fly, Fly secrets); read once by `Guardian.Rules.Config` into a closure held by Guardian.Rules.Server and `:persistent_term`, never application config; requests carry only an MFA for signing, and store errors name only a kind | operators; whoever administers the bucket's account | create a new bucket-scoped token, set both values and restart, then revoke the old token |
+| `GUARDIAN_RULES_S3_ACCESS_KEY_ID`, `GUARDIAN_RULES_S3_SECRET_ACCESS_KEY` (optional) | process environment (on Fly, Fly secrets); read once by `Guardian.Rules.Config` into a closure inside the `Guardian.ObjectStore.S3` config held by Guardian.Rules.Server and `:persistent_term`, never application config; requests carry only an MFA for signing, and store errors name only a kind | operators; whoever administers the bucket's account | create a new bucket-scoped token, set both values and restart, then revoke the old token |
 | Build-time cookie | `releases/COOKIE` in the release and image | anyone with the image or release | per build; used only by a single node (6.4) |
 
 Secrets also end up in any Erlang crash dump the VM writes (`erl_crash.dump` in the

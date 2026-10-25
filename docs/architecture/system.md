@@ -395,14 +395,16 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    in between restarts the read). A table invalid at boot is published as invalid; a
    running node keeps a table's previous good module if its stored copy turns
    invalid.
-6. Writes (`Guardian.Rules.Server`): take the lock, an object in the store (`Guardian.Rules.Lock`:
+6. Writes (`Guardian.Rules.Server`): take the lock, an object in the store at
+   `_write.lock` (the object-store client's generic key lock, `Guardian.ObjectStore.Lock`:
    `If-None-Match: *` create, 120 s lease judged by the store's own clock, takeover of
    an expired or released lock with `If-Match`, ownership-safe release), read the set
    from the store, refuse the change if it adds an error, check 80 s of lease remain,
    save the one file conditionally (20 s deadline), release, publish locally, and ask
    every connected node to reload (10 s). An unknown save outcome leaves the lock to
    expire. With a local folder and peers connected, writes are refused.
-7. The S3 client is Req with SigV4 (`service: :s3`, region `auto` for R2), path-style
+7. The S3 client is the generic `Guardian.ObjectStore.S3` (`lib/guardian/object_store/`):
+   Req with SigV4 (`service: :s3`, region `auto` for R2), path-style
    URLs, `:xmerl` for ListObjectsV2, 5 s connect and 15 s receive timeouts, no
    retries. Credentials stay in a closure; requests carry an MFA for signing; every
    store call returns a reason naming only a kind (security.md).
@@ -1352,7 +1354,8 @@ these except through the variables above:
 | `counter_memory_budget_bytes` | 64 MiB, overridden by `GUARDIAN_COUNTER_MEMORY_MB` | `Guardian.Counters.Store`: asynchronous resident counter memory target (3.5); a non-positive or non-integer value refuses startup |
 | `query_parse_errors_per_hour` | 60 | `Guardian.Web.QueryParseErrors` (tests raise it) |
 | `rules_store` | from the variables above | `Guardian.Rules.Config` (tests set a store directly) |
-| `rules_poll_ms`, `rules_time_limit_ms`, `rules_boot_retry_ms`, `rules_reclaim_after_ms`, `rules_lock_lease_ms`, `rules_save_margin_ms`, `rules_s3_receive_timeout_ms`, `rules_s3_write_deadline_ms` | 60,000; 1,000; 60,000; 30,000; 120,000; 80,000; 15,000; 20,000 | `lib/guardian/rules` (tests shorten them) |
+| `rules_poll_ms`, `rules_time_limit_ms`, `rules_boot_retry_ms`, `rules_reclaim_after_ms`, `rules_lock_lease_ms`, `rules_save_margin_ms` | 60,000; 1,000; 60,000; 30,000; 120,000; 80,000 | `lib/guardian/rules` (tests shorten them) |
+| `object_store_s3_receive_timeout_ms`, `object_store_s3_write_deadline_ms` | 15,000; 20,000 | `Guardian.ObjectStore.S3` (tests shorten them) |
 | `persisted_segment_cache_ms` | 600,000 | `Guardian.Storage.PersistedSegments`: how long a written segment's in-memory copy serves before it is stopped (tests shorten it); a value that is not a positive integer stops Storage from starting |
 
 Constants in code that act like configuration: segment capacity 16,384 rows and 64 MiB
@@ -1479,7 +1482,7 @@ operational decisions:
 4. The mmap NIF (`src/mmap.c`, `Guardian.Storage.Mmap`) and DistributedStream
    (`Guardian.Query.DistributedStream`) are vendored, with Guardian's own fixes, and are outside
    Hex updates. Do not reintroduce the `mmap` or `distributed_stream` Hex packages.
-5. `req` (`~> 0.7`) is the rule store's S3 client, for its SigV4 signing; its HTTP
+5. `req` (`~> 0.7`) is the object store's S3 client (`Guardian.ObjectStore.S3`), for its SigV4 signing; its HTTP
    stack (Finch, Mint) was already in the graph through Anubis.
 6. No system library is linked. Hyperscan and libjq were dropped so the build needs
    only a C toolchain; don't add a dependency that needs a system library without
@@ -1525,7 +1528,8 @@ About 150 test files cover:
    there.
 5. Rules: the parser, whole-set validation, semantics through real ingestion, the
    worker's limits, the server (boot refusals, repair, activation, the module pool,
-   restarts), the lock, both stores, and a peer cluster sharing a store. `Guardian.FakeS3` (in
+   restarts), both rule stores, and a peer cluster sharing a store; the object-store
+   client's S3 implementation and key lock have their own tests. `Guardian.FakeS3` (in
    `libtest/guardian/`) is a small S3 server that checks every request's SigV4 signature with
    its own implementation of the canonical request; `Guardian.RulesTestHelper` restarts the
    shared Guardian.Rules.Server on a test store.

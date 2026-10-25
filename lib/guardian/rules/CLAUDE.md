@@ -56,7 +56,10 @@ Modules:
   touches rather than a pass over every column. Its tests check it against the old
   scan, reimplemented in the test.
 - `Guardian.Rules.Runner`: runs a batch in a worker under the heap limit, 1 s per event.
-- `Guardian.Rules.Store` (`Local`, `S3`): the files. `Guardian.Rules.Lock`: the write lock in the store.
+- `Guardian.Rules.Store`: the rule store's policy (the lock key, lease and save
+  margin). The store itself is a `Guardian.ObjectStore` (`lib/guardian/object_store/CLAUDE.md`):
+  `Guardian.ObjectStore.S3`, or the rule folder `Guardian.Rules.Store.Local`, which lists
+  and accepts only rule keys. The write lock is a `Guardian.ObjectStore.Lock`.
 - `Guardian.Rules.Config`: chooses the store from the environment.
 - `Guardian.Rules.Server`: process, startup load, reload, poll, locked writes and
   admission. Holds Publisher's pool value and forwards reclamation messages.
@@ -70,10 +73,9 @@ Rules to keep:
    `:code.soft_purge/1`. Never `:code.purge/1` a published or retired module.
 3. Atoms stay bounded: module names come only from `Guardian.Rules.Compiler`'s pool. Never
    create an atom from rule text, a table name or a store key.
-4. Credentials never leave `Guardian.Rules.Store.S3` or `Guardian.Rules.Config`: they live only in a
-   closure, requests carry an MFA for signing, and every store call returns a reason
-   naming only a kind. Never log or return a response body, header, request, or a
-   caught exception's message from a store call.
+4. Credentials never leave `Guardian.ObjectStore.S3` or `Guardian.Rules.Config` (the
+   object store's rule 2). Never log or return a response body, header, request, or
+   a caught exception's message from a store call.
 5. Rule failures are logged by file, line and kind only, never a value (event values
    can be the very secret an UNSET removes). Validation errors are logged the same
    way, never by message: a message can quote rule text. The rule worker reports

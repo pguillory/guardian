@@ -13,10 +13,14 @@ defmodule Guardian.Rules.Config do
 
   Setting the folder and the bucket, or only some of the bucket settings, is an
   error. The secrets are read here and kept only inside a closure
-  (`Guardian.Rules.Store.S3`), never in application config.
+  (`Guardian.ObjectStore.S3`), never in application config.
 
   Tests set `:guardian, :rules_store` to a store directly, skipping the environment.
   """
+
+  alias Guardian.ObjectStore
+
+  @max_list_pages 20
 
   @s3_vars ~w[
     GUARDIAN_RULES_S3_BUCKET
@@ -50,7 +54,7 @@ defmodule Guardian.Rules.Config do
 
         case Guardian.Rules.Store.Local.new(dir) do
           {:ok, store} -> {:ok, store}
-          {:error, reason} -> {:error, Guardian.Rules.Store.reason_message(reason)}
+          {:error, reason} -> {:error, Guardian.ObjectStore.reason_message(reason)}
         end
 
       dir != nil ->
@@ -67,51 +71,48 @@ defmodule Guardian.Rules.Config do
   defp s3_store(s3, env) do
     endpoint = String.trim_trailing(s3["GUARDIAN_RULES_S3_ENDPOINT"], "/")
     prefix = env["GUARDIAN_RULES_S3_PREFIX"] || ""
-    uri = URI.parse(endpoint)
 
     cond do
-      uri.scheme not in ["https", "http"] or uri.host in [nil, ""] or uri.path not in [nil, ""] ->
-        {:error, "GUARDIAN_RULES_S3_ENDPOINT must be a URL like https://<host>, with no path"}
+      (error = ObjectStore.S3.check_endpoint(endpoint)) != :ok ->
+        {:error, endpoint_message(error)}
 
-      uri.scheme == "http" and not loopback?(uri.host) ->
-        {:error,
-         "GUARDIAN_RULES_S3_ENDPOINT must use https:// (http:// only for localhost, " <>
-           "127.0.0.0/8 or [::1])"}
-
-      prefix != "" and not String.ends_with?(prefix, "/") ->
-        {:error, "GUARDIAN_RULES_S3_PREFIX must end in /"}
-
-      not String.match?(prefix, ~r{\A[A-Za-z0-9._~/-]*\z}) ->
-        {:error, "GUARDIAN_RULES_S3_PREFIX may use only letters, digits, and . _ ~ / -"}
+      (error = ObjectStore.S3.check_prefix(prefix)) != :ok ->
+        {:error, prefix_message(error)}
 
       true ->
         access_key_id = s3["GUARDIAN_RULES_S3_ACCESS_KEY_ID"]
         secret_access_key = s3["GUARDIAN_RULES_S3_SECRET_ACCESS_KEY"]
 
-        config = %Guardian.Rules.Store.S3{
+        config = %ObjectStore.S3{
           endpoint: endpoint,
           bucket: s3["GUARDIAN_RULES_S3_BUCKET"],
           region: blank_to_nil(env["GUARDIAN_RULES_S3_REGION"]) || "auto",
           prefix: prefix,
           credentials: fn -> {access_key_id, secret_access_key} end,
+          # Rule sets hold at most 1,000 files (`Guardian.Rules.RuleSet`); a store
+          # that keeps paging past this many is refused rather than followed forever.
+          max_list_pages: @max_list_pages,
         }
 
-        {:ok, {Guardian.Rules.Store.S3, config}}
+        {:ok, {ObjectStore.S3, config}}
     end
   end
 
-  # Only the plain loopback forms: `localhost`, 127.0.0.0/8 and ::1. Not a name that
-  # merely starts with them, and not an IPv4-mapped IPv6 address.
-  defp loopback?("localhost") do
-    true
+  defp endpoint_message({:error, :not_url}) do
+    "GUARDIAN_RULES_S3_ENDPOINT must be a URL like https://<host>, with no path"
   end
 
-  defp loopback?(host) do
-    case :inet.parse_strict_address(String.to_charlist(host)) do
-      {:ok, {127, _, _, _}} -> true
-      {:ok, {0, 0, 0, 0, 0, 0, 0, 1}} -> true
-      _ -> false
-    end
+  defp endpoint_message({:error, :insecure}) do
+    "GUARDIAN_RULES_S3_ENDPOINT must use https:// (http:// only for localhost, " <>
+      "127.0.0.0/8 or [::1])"
+  end
+
+  defp prefix_message({:error, :no_trailing_slash}) do
+    "GUARDIAN_RULES_S3_PREFIX must end in /"
+  end
+
+  defp prefix_message({:error, :invalid_characters}) do
+    "GUARDIAN_RULES_S3_PREFIX may use only letters, digits, and . _ ~ / -"
   end
 
   defp blank_to_nil(nil) do

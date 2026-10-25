@@ -1,14 +1,18 @@
-defmodule Guardian.Rules.Store.S3 do
+defmodule Guardian.ObjectStore.S3 do
   @moduledoc """
-  Rule files in an S3-compatible bucket (Cloudflare R2, or any S3 API), signed with
-  SigV4 by Req (`service: :s3`; region `auto` for R2). Objects are
-  `<prefix><table>/<name>.gsql` plus the write lock, addressed path-style
-  (`<endpoint>/<bucket>/<key>`).
+  Objects in an S3-compatible bucket (Cloudflare R2, or any S3 API), signed with
+  SigV4 by Req (`service: :s3`; region `auto` for R2). A key `k` is the object
+  `<prefix>k`, addressed path-style (`<endpoint>/<bucket>/<prefix>k`); listing is
+  scoped to the prefix and bounded to `max_list_pages` pages (default 20, 1,000
+  objects a page on S3), refusing a store that keeps paging past it.
+
+  `check_endpoint/1` and `check_prefix/1` are the settings this client is safe with;
+  whoever builds the config checks them first.
 
   Credentials are held only in a zero-arity function (`:credentials`), and requests
   carry `{module, function, [that function, region]}` as their signing option, so a
   request or this config, inspected or in a crash report, shows no secret. Every call
-  catches everything and returns a `Guardian.Rules.Store` reason naming only a kind (an HTTP
+  catches everything and returns a `Guardian.ObjectStore` reason naming only a kind (an HTTP
   status, `timeout`, ...): never a body, header, or exception. A VM crash dump still
   contains the secret, as it does every secret Guardian holds.
 
@@ -17,10 +21,10 @@ defmodule Guardian.Rules.Store.S3 do
   `{:unknown, kind}`.
   """
 
-  @behaviour Guardian.Rules.Store
+  @behaviour Guardian.ObjectStore
 
   @enforce_keys [:endpoint, :bucket, :region, :prefix, :credentials]
-  defstruct [:endpoint, :bucket, :region, :prefix, :credentials]
+  defstruct [:endpoint, :bucket, :region, :prefix, :credentials, max_list_pages: 20]
 
   @connect_timeout 5_000
   @receive_timeout 15_000
@@ -28,16 +32,64 @@ defmodule Guardian.Rules.Store.S3 do
 
   # Tests shorten these through app env.
   defp receive_timeout do
-    Application.get_env(:guardian, :rules_s3_receive_timeout_ms, @receive_timeout)
+    Application.get_env(:guardian, :object_store_s3_receive_timeout_ms, @receive_timeout)
   end
 
   defp write_deadline do
-    Application.get_env(:guardian, :rules_s3_write_deadline_ms, @write_deadline)
+    Application.get_env(:guardian, :object_store_s3_write_deadline_ms, @write_deadline)
   end
 
   defimpl Inspect do
     def inspect(config, _opts) do
-      "#Guardian.Rules.Store.S3<#{config.endpoint}/#{config.bucket}/#{config.prefix}>"
+      "#Guardian.ObjectStore.S3<#{config.endpoint}/#{config.bucket}/#{config.prefix}>"
+    end
+  end
+
+  @doc """
+  Checks an endpoint: `:ok`, `{:error, :not_url}` unless it is an `http(s)://<host>`
+  URL with no path, or `{:error, :insecure}` for `http://` anywhere but this machine
+  (the host `localhost`, 127.0.0.0/8 or `[::1]`), so no one on the network path can
+  read or rewrite what the store returns.
+  """
+  def check_endpoint(endpoint) do
+    uri = URI.parse(endpoint)
+
+    cond do
+      uri.scheme not in ["https", "http"] or uri.host in [nil, ""] or uri.path not in [nil, ""] ->
+        {:error, :not_url}
+
+      uri.scheme == "http" and not loopback?(uri.host) ->
+        {:error, :insecure}
+
+      true ->
+        :ok
+    end
+  end
+
+  # Only the plain loopback forms: `localhost`, 127.0.0.0/8 and ::1. Not a name that
+  # merely starts with them, and not an IPv4-mapped IPv6 address.
+  defp loopback?("localhost") do
+    true
+  end
+
+  defp loopback?(host) do
+    case :inet.parse_strict_address(String.to_charlist(host)) do
+      {:ok, {127, _, _, _}} -> true
+      {:ok, {0, 0, 0, 0, 0, 0, 0, 1}} -> true
+      _ -> false
+    end
+  end
+
+  @doc """
+  Checks a key prefix: `:ok`, `{:error, :no_trailing_slash}` for a non-empty prefix
+  not ending in `/`, or `{:error, :invalid_characters}` unless it uses only letters,
+  digits and `. _ ~ / -`.
+  """
+  def check_prefix(prefix) do
+    cond do
+      prefix != "" and not String.ends_with?(prefix, "/") -> {:error, :no_trailing_slash}
+      not String.match?(prefix, ~r{\A[A-Za-z0-9._~/-]*\z}) -> {:error, :invalid_characters}
+      true -> :ok
     end
   end
 
@@ -59,15 +111,11 @@ defmodule Guardian.Rules.Store.S3 do
   end
 
   @impl true
-  # Rule sets hold at most 1,000 files; a store that keeps paging past this many is
-  # refused rather than followed forever.
-  @max_list_pages 20
-
   def list(config) do
-    safely(fn -> list_pages(config, nil, [], @max_list_pages) end, :read)
+    safely(fn -> list_pages(config, nil, [], config.max_list_pages) end, :read)
   end
 
-  defp list_pages(_config, _token, _acc, 0) do
+  defp list_pages(_config, _token, _acc, pages_left) when pages_left <= 0 do
     {:error, {:failed, "too many objects"}}
   end
 

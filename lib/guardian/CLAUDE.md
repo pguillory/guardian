@@ -17,6 +17,8 @@ prefix. Keep the Mix application and its configuration under `:guardian`.
   Guardian.Web. It holds only metadata and never runs ingestion; unavailability fails open.
 - `Guardian.Engine`: validates and ingests events, running the table's rules on API ingests.
 - `Guardian.Rules`: ingest-time SET/UNSET/TRACK/LOOKUP rules stored as files (`lib/guardian/rules/CLAUDE.md`).
+- `Guardian.ObjectStore`: the generic object-store client (S3/R2) and its lease lock on a
+  key (`lib/guardian/object_store/CLAUDE.md`); Rules is its caller.
 - `Guardian.Counters.Store`: node-local, ephemeral ETS get/gets/cas/incr store with TTLs and
   a memory budget (`lib/guardian/counters/CLAUDE.md`); TRACK/LOOKUP run through Rules using
   bounded owner routing and fail-open defaults.

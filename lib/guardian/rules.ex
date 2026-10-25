@@ -11,7 +11,8 @@ defmodule Guardian.Rules do
 
   The pieces: `Guardian.Rules.RuleSet` parses and validates a whole set, `Guardian.Rules.Compiler`
   turns a table's plan into a module, `Guardian.Rules.Runtime` is what that module calls,
-  `Guardian.Rules.Store` reads and writes the files, `Guardian.Rules.Lock` is the write lock, and
+  `Guardian.Rules.Store` is the rule store's policy (its files are read and written
+  through `Guardian.ObjectStore`, and its write lock is a `Guardian.ObjectStore.Lock`), and
   `Guardian.Rules.Server` loads, reloads, polls and writes; its synchronous
   `Guardian.Rules.Publisher` owns activation, publication and the module pool. See
   `docs/architecture/system.md` ("Rules") and `lib/guardian/rules/CLAUDE.md`.
@@ -54,7 +55,7 @@ defmodule Guardian.Rules do
 
   @doc "Every rule file (optionally one table's): `{:ok, [%{table, name, size}]}`."
   def list_rules(table \\ nil) do
-    case Guardian.Rules.Store.list(store()) do
+    case Guardian.ObjectStore.list(store()) do
       {:ok, objects} ->
         rules =
           for %{key: key, size: size} <- objects,
@@ -66,14 +67,14 @@ defmodule Guardian.Rules do
         {:ok, rules}
 
       {:error, reason} ->
-        {:error, Guardian.Rules.Store.reason_message(reason)}
+        {:error, Guardian.ObjectStore.reason_message(reason)}
     end
   end
 
   @doc "A rule file's source: `{:ok, source}` or `{:error, message}`."
   def read_rule(table, name) do
     with :ok <- Guardian.Rules.RuleSet.check_path(table, name) do
-      case Guardian.Rules.Store.get(store(), Guardian.Rules.RuleSet.key(table, name)) do
+      case Guardian.ObjectStore.get(store(), Guardian.Rules.RuleSet.key(table, name)) do
         {:ok, source, _meta} ->
           {:ok, source}
 
@@ -81,7 +82,7 @@ defmodule Guardian.Rules do
           {:error, "no rule file #{Guardian.Rules.RuleSet.key(table, name)}"}
 
         {:error, reason} ->
-          {:error, Guardian.Rules.Store.reason_message(reason)}
+          {:error, Guardian.ObjectStore.reason_message(reason)}
       end
     end
   end

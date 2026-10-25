@@ -224,7 +224,8 @@ JSON API rule endpoints in phase 1.
    is a validation error for its table.
 3. Reading the set: list, then GET each object with `If-Match` on its listed ETag;
    a mismatch (changed between list and get) restarts the read, at most 3 times.
-4. S3 client: Req with its built-in SigV4 signing (`aws_sigv4`, `service: :s3`,
+4. S3 client (the generic `Guardian.ObjectStore.S3`, which Rules uses;
+   `docs/changes/object-store-lock.md`): Req with its built-in SigV4 signing (`aws_sigv4`, `service: :s3`,
    region `auto` for R2) and `:xmerl` (added to the release) for ListObjectsV2 with
    pagination. Req is one new dependency; Finch and Mint are already in the lock
    through anubis_mcp. Connect and receive timeouts 5 s and 15 s, TLS verification
@@ -257,8 +258,10 @@ JSON API rule endpoints in phase 1.
 ### Writes, locking and reload
 
 1. The cluster-wide lock is an object in the store, `_write.lock`, not an Erlang
-   lock, so it also holds across a network partition (two sides with `:global`
-   would each get one). Its body names the holder (node and a random token); the
+   lock. It is the object-store client's generic lease lock on a key
+   (`Guardian.ObjectStore.Lock`, `docs/changes/object-store-lock.md`), which Rules
+   uses with this key and lease. Being an object, it also holds across a network
+   partition (two sides with `:global` would each get one). Its body names the holder (node and a random token); the
    lease is 120 s from the object's `Last-Modified`, judged against the store's own
    `Date` response header, so the lease is measured on the store's clock and node
    clock skew does not matter. A writer creates it with `If-None-Match: *`. On 412 it

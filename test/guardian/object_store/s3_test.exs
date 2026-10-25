@@ -1,0 +1,130 @@
+defmodule Guardian.ObjectStore.S3Test do
+  use ExUnit.Case, async: false
+
+  alias Guardian.ObjectStore
+  alias Guardian.ObjectStore.S3
+
+  setup do
+    s3 = Guardian.FakeS3.start(page_size: 2)
+    on_exit(fn -> Guardian.FakeS3.stop(s3) end)
+    %{s3: s3, store: Guardian.FakeS3.store(s3, "guardian/")}
+  end
+
+  test "S3 requests are signed, paginated and prefix-scoped", %{s3: s3, store: store} do
+    Guardian.FakeS3.put_object(s3, "other/x.gsql", "not ours")
+    for n <- 1..5, do: {:ok, _} = ObjectStore.put(store, "t/f#{n}.gsql", "SET a = #{n}", :absent)
+
+    assert {:ok, objects} = ObjectStore.list(store)
+    assert length(objects) == 5
+
+    lists =
+      s3
+      |> Guardian.FakeS3.requests()
+      |> Enum.filter(&(&1.method == "GET" and &1.path == "/rules-bucket"))
+
+    assert length(lists) == 3
+    assert Enum.any?(lists, &(&1.query =~ "continuation-token="))
+    assert Map.has_key?(Guardian.FakeS3.objects(s3), "guardian/t/f1.gsql")
+  end
+
+  test "S3 with the wrong secret is misconfigured, and no secret reaches a log or inspect", %{
+    s3: s3,
+  } do
+    wrong = %{s3 | secret_access_key: "WRONG-SECRET-VALUE"}
+    store = Guardian.FakeS3.store(wrong)
+
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert ObjectStore.list(store) == {:error, {:misconfigured, "HTTP 403"}}
+
+        assert ObjectStore.put(store, "t/a.gsql", "x", :none) ==
+                 {:error, {:misconfigured, "HTTP 403"}}
+      end)
+
+    refute log =~ "WRONG-SECRET-VALUE"
+    refute inspect(store) =~ "WRONG-SECRET-VALUE"
+    refute inspect(Guardian.FakeS3.store(s3)) =~ s3.secret_access_key
+  end
+
+  test "S3 failures are classified by kind", %{s3: s3, store: store} do
+    put_env(:object_store_s3_receive_timeout_ms, 200)
+    put_env(:object_store_s3_write_deadline_ms, 300)
+
+    Guardian.FakeS3.fault(s3, {:status, 503})
+    assert ObjectStore.list(store) == {:error, {:unreachable, "HTTP 503"}}
+    Guardian.FakeS3.fault(s3, {:status, 500})
+    assert ObjectStore.put(store, "t/a.gsql", "x", :none) == {:error, {:unknown, "HTTP 500"}}
+
+    # Rate limited: a read can be retried, and a write is known not to have happened.
+    Guardian.FakeS3.put_object(s3, "guardian/t/b.gsql", "SET x = 1")
+    assert {:ok, _, _} = ObjectStore.get(store, "t/b.gsql")
+    Guardian.FakeS3.fault(s3, {:status, 429})
+    assert ObjectStore.list(store) == {:error, {:unreachable, "HTTP 429"}}
+    Guardian.FakeS3.fault(s3, {:status, 429})
+    assert ObjectStore.get(store, "t/b.gsql") == {:error, {:unreachable, "HTTP 429"}}
+    Guardian.FakeS3.fault(s3, {:status, 429})
+    assert ObjectStore.put(store, "t/a.gsql", "x", :none) == {:error, {:failed, "HTTP 429"}}
+    Guardian.FakeS3.fault(s3, {:status, 429})
+    assert ObjectStore.delete(store, "t/b.gsql") == {:error, {:failed, "HTTP 429"}}
+    assert Map.keys(Guardian.FakeS3.objects(s3)) == ["guardian/t/b.gsql"]
+    Guardian.FakeS3.fault(s3, {:delay, 1_000})
+    assert {:error, {:unreachable, "timeout"}} = ObjectStore.list(store)
+    Guardian.FakeS3.fault(s3, {:delay, 1_000})
+    assert {:error, {:unknown, _}} = ObjectStore.put(store, "t/a.gsql", "x", :none)
+
+    closed = Guardian.FakeS3.store(%{s3 | endpoint: "http://localhost:1"})
+    assert {:error, {:unreachable, "econnrefused"}} = ObjectStore.list(closed)
+
+    assert {:error, {:unreachable, "econnrefused"}} =
+             ObjectStore.put(closed, "t/a.gsql", "x", :none)
+  end
+
+  test "the S3 HTTP date parser" do
+    assert S3.parse_http_date("Wed, 21 Oct 2015 07:28:00 GMT") ==
+             {:ok, ~U[2015-10-21 07:28:00Z]}
+
+    assert S3.parse_http_date("garbage") == :error
+  end
+
+  test "S3 list responses with entities are refused" do
+    body =
+      ~s(<?xml version="1.0"?><!DOCTYPE a [<!ENTITY e "x">]><ListBucketResult>&e;</ListBucketResult>)
+
+    assert catch_exit(S3.parse_list(body, ""))
+  end
+
+  defp put_env(key, value) do
+    previous = Application.fetch_env(:guardian, key)
+    Application.put_env(:guardian, key, value)
+
+    on_exit(fn ->
+      case previous do
+        {:ok, value} -> Application.put_env(:guardian, key, value)
+        :error -> Application.delete_env(:guardian, key)
+      end
+    end)
+  end
+
+  test "a listing stops after max_list_pages pages", %{s3: s3} do
+    {S3, config} = Guardian.FakeS3.store(s3)
+    store = {S3, %{config | max_list_pages: 2}}
+    for n <- 1..4, do: {:ok, _} = ObjectStore.put(store, "f#{n}", "x", :absent)
+    assert {:ok, [_, _, _, _]} = ObjectStore.list(store)
+    {:ok, _} = ObjectStore.put(store, "f5", "x", :absent)
+    assert ObjectStore.list(store) == {:error, {:failed, "too many objects"}}
+  end
+
+  test "endpoint and prefix checks" do
+    assert S3.check_endpoint("https://example.com") == :ok
+    assert S3.check_endpoint("http://localhost:9000") == :ok
+    assert S3.check_endpoint("http://127.0.0.5") == :ok
+    assert S3.check_endpoint("http://[::1]:9000") == :ok
+    assert S3.check_endpoint("http://example.com") == {:error, :insecure}
+    assert S3.check_endpoint("https://example.com/path") == {:error, :not_url}
+    assert S3.check_endpoint("ftp://example.com") == {:error, :not_url}
+    assert S3.check_prefix("") == :ok
+    assert S3.check_prefix("a/b/") == :ok
+    assert S3.check_prefix("a") == {:error, :no_trailing_slash}
+    assert S3.check_prefix("a b/") == {:error, :invalid_characters}
+  end
+end

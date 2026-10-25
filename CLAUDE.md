@@ -154,5 +154,6 @@ Key subsystem documentation:
 - `lib/guardian/web/CLAUDE.md`
 - `lib/guardian/rules/CLAUDE.md`
 - `lib/guardian/counters/CLAUDE.md`
+- `lib/guardian/object_store/CLAUDE.md`
 
-Last updated: 2026-10-24
+Last updated: 2026-10-25

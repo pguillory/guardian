@@ -1,6 +1,6 @@
 defmodule Guardian.FakeS3 do
   @moduledoc """
-  A small S3-compatible server for rule store tests: ListObjectsV2 (with pagination),
+  A small S3-compatible server for object store and rule store tests: ListObjectsV2 (with pagination),
   GET, PUT and DELETE of objects in one bucket, `If-Match` and `If-None-Match: *`, and
   a Date header. It checks every request's SigV4 signature with its own implementation
   of the canonical request (independent of Req's signer) and answers 403 when it does
@@ -57,13 +57,13 @@ defmodule Guardian.FakeS3 do
     :ok
   end
 
-  @doc "The `Guardian.Rules.Store` for this server, with `prefix`."
+  @doc "The `Guardian.ObjectStore` for this server, with `prefix`."
   def store(s3, prefix \\ "") do
     id = s3.access_key_id
     secret = s3.secret_access_key
 
-    {Guardian.Rules.Store.S3,
-     %Guardian.Rules.Store.S3{
+    {Guardian.ObjectStore.S3,
+     %Guardian.ObjectStore.S3{
        endpoint: s3.endpoint,
        bucket: s3.bucket,
        region: "auto",

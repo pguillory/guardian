@@ -19,7 +19,7 @@ defmodule Guardian.Rules.ServerTest do
 
     assert message == "#{table}/a.gsql line 1: rules cannot use aggregate functions"
 
-    assert Guardian.Rules.Store.list(store) |> elem(1) |> Enum.reject(&(&1.key == "_write.lock")) ==
+    assert Guardian.ObjectStore.list(store) |> elem(1) |> Enum.reject(&(&1.key == "_write.lock")) ==
              []
 
     assert {:ok, %{errors: [], unconfirmed: []}} =
@@ -64,7 +64,7 @@ defmodule Guardian.Rules.ServerTest do
                Guardian.Rules.RuleSet.validate(%{"#{table}/a.gsql" => source}).errors
     end
 
-    assert Guardian.Rules.Store.list(store) |> elem(1) |> Enum.reject(&(&1.key == "_write.lock")) ==
+    assert Guardian.ObjectStore.list(store) |> elem(1) |> Enum.reject(&(&1.key == "_write.lock")) ==
              []
 
     assert Guardian.Rules.lookup(table) == nil
@@ -207,14 +207,14 @@ defmodule Guardian.Rules.ServerTest do
                s3 |> Guardian.FakeS3.requests() |> Enum.drop(before + 4)
 
       assert String.ends_with?(rule_path, "/#{table}/#{name}.gsql")
-      assert String.ends_with?(lock_path, "/" <> Guardian.Rules.Lock.key())
+      assert String.ends_with?(lock_path, "/" <> Guardian.Rules.Store.lock_key())
     end
 
     assert Guardian.FakeS3.objects(s3) |> Map.keys() |> Enum.reject(&(&1 =~ "lock")) == [
              "#{table}/a.gsql",
            ]
 
-    {:ok, body, _meta} = Guardian.Rules.Store.get(store, Guardian.Rules.Lock.key())
+    {:ok, body, _meta} = Guardian.ObjectStore.get(store, Guardian.Rules.Store.lock_key())
     assert Jason.decode!(body)["state"] == "released"
     assert Guardian.Rules.lookup(table) == module
     assert {:ok, _} = Guardian.Rules.write_rule(table, "b", "SET y = 2")
@@ -435,7 +435,7 @@ defmodule Guardian.Rules.ServerTest do
     plan = module.plan()
     Guardian.FakeS3.put_object(s3, "#{table}/a.gsql", "SET")
     Guardian.FakeS3.put_object(s3, "#{other}/a.gsql", "SET x = 2")
-    assert :ok = Guardian.Rules.Store.delete(Guardian.FakeS3.store(s3), "#{deleted}/a.gsql")
+    assert :ok = Guardian.ObjectStore.delete(Guardian.FakeS3.store(s3), "#{deleted}/a.gsql")
 
     ExUnit.CaptureLog.capture_log(fn ->
       assert :ok = Supervisor.terminate_child(Guardian.Application, Guardian.Rules.Server)
@@ -580,7 +580,7 @@ defmodule Guardian.Rules.ServerTest do
 
   test "a save whose outcome is unknown reports it and leaves the lock held" do
     {s3, store} = s3_server()
-    put_env(:rules_s3_write_deadline_ms, 300)
+    put_env(:object_store_s3_write_deadline_ms, 300)
     table = unique_table("rules_unknown")
 
     # Faults apply to requests in order: the lock create, the list, then the save.
@@ -591,13 +591,13 @@ defmodule Guardian.Rules.ServerTest do
       assert message =~ "may have been saved"
     end)
 
-    {:ok, body, _meta} = Guardian.Rules.Store.get(store, Guardian.Rules.Lock.key())
+    {:ok, body, _meta} = Guardian.ObjectStore.get(store, Guardian.Rules.Store.lock_key())
     assert Jason.decode!(body)["state"] == "held"
   end
 
   test "after a delete whose outcome is unknown, the next reload unpublishes the rule" do
     {s3, _store} = s3_server()
-    put_env(:rules_s3_write_deadline_ms, 300)
+    put_env(:object_store_s3_write_deadline_ms, 300)
     table = unique_table("rules_unknown_delete")
     Guardian.FakeS3.put_object(s3, "#{table}/a.gsql", "SET x = 1")
     assert :ok = Guardian.Rules.reload()
@@ -626,7 +626,9 @@ defmodule Guardian.Rules.ServerTest do
 
   test "another writer holding the lock makes a write fail as busy" do
     {_s3, store} = s3_server()
-    {:ok, _lock} = Guardian.Rules.Lock.acquire(store, "someone else")
+
+    {:ok, _lock} =
+      Guardian.ObjectStore.Lock.acquire(store, Guardian.Rules.Store.lock_key(), "someone else")
 
     assert Guardian.Rules.write_rule(unique_table("rules_busy"), "a", "SET x = 1") ==
              {:error, "another rule write is in progress; retry"}

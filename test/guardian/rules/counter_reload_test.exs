@@ -13,7 +13,7 @@ defmodule Guardian.Rules.CounterReloadTest do
     for key <- Map.keys(Guardian.FakeS3.objects(s3)),
         String.ends_with?(key, ".gsql"),
         not Map.has_key?(files, key) do
-      assert :ok = Guardian.Rules.Store.delete(Guardian.FakeS3.store(s3), key)
+      assert :ok = Guardian.ObjectStore.delete(Guardian.FakeS3.store(s3), key)
     end
 
     for {key, source} <- files, do: Guardian.FakeS3.put_object(s3, key, source)

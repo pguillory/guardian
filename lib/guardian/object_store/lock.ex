@@ -1,65 +1,57 @@
-defmodule Guardian.Rules.Lock do
+defmodule Guardian.ObjectStore.Lock do
   @moduledoc """
-  The cluster-wide rule write lock: an object in the rule store (`_write.lock`), not
-  an Erlang lock, so it also holds across a network partition.
+  A lease lock on one key of a `Guardian.ObjectStore`: the lock is the object itself,
+  not an Erlang lock, so it also holds across a network partition. The caller chooses
+  the key and the lease; every contender for a key must use the same lease, since the
+  object does not record it.
 
   - Acquire: create the object with `If-None-Match: *`. If it exists, read it: a
     released lock, or one whose lease has run out by the store's own clock (the
     object's age, from its Last-Modified and the store's Date), is taken over with
-    `If-Match` on the ETag read. A live lock is retried until `@acquire_timeout_ms`.
+    `If-Match` on the ETag read. A live lock is retried every 500 ms until the
+    timeout.
   - The holder's own deadline is measured from just before its create, so it never
     outlives the lease as the store sees it.
   - Release: overwrite with a released body, `If-Match` on the holder's own ETag, so a
     holder whose lease ran out can never release a successor's lock.
 
-  What it cannot do, with no commit object: fence a holder that stalls past its lease
-  after checking it (`remaining_ms/1`), or a write the store applies long after the
-  holder gave up on it. `Guardian.Rules.Server` checks for `@save_margin_ms` left before its
-  one write, whose deadline is 20 s, and leaves the lock to expire when a write's
-  outcome is unknown.
+  It is a lease, not a fence. With no commit object it cannot fence a holder that
+  stalls past its lease after checking it (`remaining_ms/1`), or a write the store
+  applies long after the holder gave up on it. Callers check enough lease is left
+  before each write they make under it (more than that write's deadline), and leave
+  the lock to expire, rather than releasing it, when a write's outcome is unknown.
   """
 
-  @key "_write.lock"
   @lease_ms 120_000
-  @save_margin_ms 80_000
   @acquire_timeout_ms 10_000
   @retry_ms 500
 
-  defstruct [:store, :etag, :deadline]
+  defstruct [:store, :key, :etag, :deadline]
 
-  def key do
-    @key
+  @doc """
+  Acquires the lock on `key` for `holder` (a description). Options: `:lease_ms`
+  (default 120 s) and `:timeout_ms`, how long to retry a live lock (default 10 s).
+  `{:ok, lock}`, `{:error, :busy}`, or `{:error, reason}` from the store.
+  """
+  def acquire(store, key, holder, opts \\ []) do
+    lease_ms = Keyword.get(opts, :lease_ms, @lease_ms)
+    give_up_at = now() + Keyword.get(opts, :timeout_ms, @acquire_timeout_ms)
+    attempt(store, key, body(holder, "held"), lease_ms, give_up_at)
   end
 
-  # Tests shorten the lease (and the margin with it) through app env.
-  defp lease_ms do
-    Application.get_env(:guardian, :rules_lock_lease_ms, @lease_ms)
-  end
-
-  @doc "How much of the lease must be left before the one write a holder makes."
-  def save_margin_ms do
-    Application.get_env(:guardian, :rules_save_margin_ms, @save_margin_ms)
-  end
-
-  @doc "Acquires the lock for `holder` (a description). `{:ok, lock}` or `{:error, reason}`."
-  def acquire(store, holder, timeout_ms \\ @acquire_timeout_ms) do
-    give_up_at = now() + timeout_ms
-    attempt(store, body(holder, "held"), give_up_at)
-  end
-
-  defp attempt(store, body, give_up_at) do
+  defp attempt(store, key, body, lease_ms, give_up_at) do
     started = now()
 
     result =
-      case Guardian.Rules.Store.put(store, @key, body, :absent) do
+      case Guardian.ObjectStore.put(store, key, body, :absent) do
         {:ok, etag} ->
           {:ok, etag}
 
         {:error, :precondition_failed} ->
-          case Guardian.Rules.Store.get(store, @key) do
+          case Guardian.ObjectStore.get(store, key) do
             {:ok, current, meta} ->
-              if released?(current) or meta.age_ms >= lease_ms() do
-                Guardian.Rules.Store.put(store, @key, body, {:etag, meta.etag})
+              if released?(current) or meta.age_ms >= lease_ms do
+                Guardian.ObjectStore.put(store, key, body, {:etag, meta.etag})
               else
                 {:error, :busy}
               end
@@ -77,12 +69,12 @@ defmodule Guardian.Rules.Lock do
 
     case result do
       {:ok, etag} ->
-        {:ok, %__MODULE__{store: store, etag: etag, deadline: started + lease_ms()}}
+        {:ok, %__MODULE__{store: store, key: key, etag: etag, deadline: started + lease_ms}}
 
       {:error, retryable} when retryable in [:busy, :retry, :precondition_failed] ->
         if now() + @retry_ms < give_up_at do
           Process.sleep(@retry_ms)
-          attempt(store, body, give_up_at)
+          attempt(store, key, body, lease_ms, give_up_at)
         else
           {:error, :busy}
         end
@@ -98,8 +90,8 @@ defmodule Guardian.Rules.Lock do
   end
 
   @doc "Releases the lock if this holder still has it."
-  def release(%__MODULE__{store: store, etag: etag}) do
-    case Guardian.Rules.Store.put(store, @key, body("", "released"), {:etag, etag}) do
+  def release(%__MODULE__{store: store, key: key, etag: etag}) do
+    case Guardian.ObjectStore.put(store, key, body("", "released"), {:etag, etag}) do
       {:ok, _etag} -> :ok
       {:error, reason} -> {:error, reason}
     end

@@ -23,7 +23,7 @@ defmodule Guardian.Rules.ConfigTest do
   end
 
   test "an S3 store holds its secret only in a closure" do
-    assert {:ok, {Guardian.Rules.Store.S3, config}} = Config.from_env(@s3)
+    assert {:ok, {Guardian.ObjectStore.S3, config}} = Config.from_env(@s3)
     assert config.region == "auto" and config.prefix == ""
     assert config.credentials.() == {"id", "SECRET-XYZ"}
     refute inspect(config) =~ "SECRET-XYZ"
@@ -60,7 +60,7 @@ defmodule Guardian.Rules.ConfigTest do
           "http://[::1]:9000",
           "https://127.evil.example",
         ] do
-      assert {:ok, {Guardian.Rules.Store.S3, %{endpoint: ^url}}} = endpoint.(url)
+      assert {:ok, {Guardian.ObjectStore.S3, %{endpoint: ^url}}} = endpoint.(url)
     end
 
     for url <- [

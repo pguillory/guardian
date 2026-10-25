@@ -34,6 +34,12 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] rules-builtin-tables: built-in table names take rule files and LOOKUP FROM like
       any other table; rules run on API-ingested rows and Guardian's own writes to
       its built-in tables never run them (`docs/changes/rules-builtin-tables.md`)
+- [x] object-store-lock: the rule write lock and the S3 client move out of Rules into
+      a generic object-store client (`Guardian.ObjectStore`), with a lease lock on any
+      key; Rules is one caller, with no behavior change (`docs/changes/object-store-lock.md`)
+- [ ] object-store-local: a generic folder object store, with the rule folder's
+      listing and key policy moved into Rules; changes what a local rule folder lists
+      (`docs/changes/object-store-lock.md`, "Not in this change")
 - [x] ingest-rules: SET and UNSET rules stored as files (`<table>/<name>.gsql`, in a
       folder or an S3-compatible bucket), run on API ingests before storage, managed
       through MCP tools with whole-set validation and a store-held write lock
