@@ -215,11 +215,9 @@ defmodule Guardian.Counters.Transport do
 
   @doc "Rendezvous owner of {identity, group}; membership order never matters."
   def owner(routing_key, members) when is_list(members) and members != [] do
-    encoded = encode(routing_key)
-
     Enum.max_by(members, fn member ->
       member_name = Atom.to_string(member)
-      {:crypto.hash(:sha256, [encoded, encode(member_name)]), member_name}
+      {:erlang.phash2({routing_key, member_name}, 4_294_967_296), member_name}
     end)
   end
 
@@ -335,55 +333,6 @@ defmodule Guardian.Counters.Transport do
     end
   catch
     _, _ -> {:error, :unavailable}
-  end
-
-  # Explicit encoding is independent of ETF/OTP versions. Float bit patterns keep
-  # integers, floats, and signed zero distinct. No input is converted to an atom.
-  defp encode(nil) do
-    "n"
-  end
-
-  defp encode(false) do
-    "f"
-  end
-
-  defp encode(true) do
-    "t"
-  end
-
-  defp encode(value) when is_integer(value) do
-    sized("i", Integer.to_string(value))
-  end
-
-  defp encode(value) when is_float(value) do
-    <<"d", value::float-64>>
-  end
-
-  defp encode(value) when is_binary(value) do
-    sized("b", value)
-  end
-
-  defp encode(value) when is_tuple(value) do
-    sequence("u", Tuple.to_list(value))
-  end
-
-  defp encode(value) when is_list(value) do
-    sequence("l", value)
-  end
-
-  defp encode(value) when is_map(value) do
-    pairs =
-      Enum.sort(for {key, item} <- value, do: IO.iodata_to_binary([encode(key), encode(item)]))
-
-    sequence("m", pairs)
-  end
-
-  defp sequence(tag, values) do
-    [tag, <<length(values)::unsigned-64>>, Enum.map(values, &encode/1)]
-  end
-
-  defp sized(tag, value) do
-    [tag, <<byte_size(value)::unsigned-64>>, value]
   end
 
   defp now do

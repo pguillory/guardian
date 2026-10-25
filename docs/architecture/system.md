@@ -456,7 +456,7 @@ version} rows. Ordinary get/gets, create-if-missing, CAS and native increment ru
 directly in callers and remote handlers. Deterministic ETF binary keys make CAS
 select_replace and conditional expired deletion keyed operations, including for
 maps and match-spec atoms. This encoding is ephemeral and local to Store, separate
-from Transport's stable routing encoding. A reserved atom row holds the immutable
+from Transport's phash2 owner routing. A reserved atom row holds the immutable
 descriptor (clock, budget, table generation and baseline). Named stores use ETS
 name/descriptor lookup; unnamed PID stores retrieve the table reference from the
 owner's process dictionary. A captured table reference cannot address a replacement
@@ -512,10 +512,11 @@ shared batch handle, operation allowance, cooldown table and store server. Rules
 nests it under counters, separate from private Unix/monotonic arrival coordinates.
 Transport calls Store directly in production; test builds select a libtest adapter
 at compile time for transport probes. No backend tuple handling enters the production
-path. Transport chooses the highest SHA-256 rendezvous score for `{identity, group}`
-and node name.
-Its explicit typed encoding is independent of Erlang external-term format and
-preserves integer/float and signed-zero distinctions. All buckets share one owner.
+path. Transport chooses the highest rendezvous score
+`{:erlang.phash2({{identity, group}, member_name}, 4_294_967_296), member_name}`,
+where member_name is the node's string name and breaks hash ties. phash2 accepts
+any term and distinguishes integers from floats. Signed zeros share an owner but
+remain distinct stored counters through Store's ETF keys. All buckets share one owner.
 Each dependency level expands its counter statements into bucket key machines;
 `Guardian.Counters.Machine.run_nested/3` runs them together in batched rounds and restores
 the per-counter result lists. `Guardian.Counters.KeyMachines` supplies read, native incr,

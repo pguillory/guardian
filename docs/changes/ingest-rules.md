@@ -505,16 +505,20 @@ refunds successful calls completely (including misses/CAS conflict), and charges
 actual failed wait up to that reservation. Caller death retains the outstanding
 reservation, preserving the bound across replacement. The 100 ms wall-clock phase
 also charges time between calls, deliberately stricter than call-time accounting.
-Explicit canonical typed hashing avoids dependence on ETF/OTP encoding and preserves
-signed zero. JSON lists/maps and nested tuples are defined; unsupported terms are
-rejected. Remote endpoints preserve native values/reference tokens, and guard/worker
-cleanup bounds flow-control stalls and discards late replies. Mixed-version peers
-without the endpoint fail open. C1 expiry throughput and supervisor crash isolation
-were completed as the separate C4 runtime prerequisite below.
+Owner routing now uses `:erlang.phash2/2` directly, replacing the custom typed encoder
+and SHA-256 score. phash2 accepts any term and distinguishes integers from floats;
+signed zeros share an owner but remain distinct stored counters
+through Store's ETF keys. Remote endpoints preserve native values/reference tokens,
+and guard/worker cleanup bounds flow-control stalls and discards late replies.
+Mixed-version peers without the endpoint fail open. C1 expiry throughput and
+supervisor crash isolation were completed as the separate C4 runtime prerequisite below.
 
 Build `Guardian.Counters.Cluster` over C1. Use rendezvous hashing (consistent ownership when
-members change), selecting the highest stable hash of {routing key, node}. Capture
-the member list once per event from this node and its connected peers. Do not call
+members change), selecting the highest score
+`{:erlang.phash2({routing_key, member_name}, 4_294_967_296), member_name}` where
+`routing_key = {identity, group}` excludes the bucket and member_name is the node's
+string name, breaking hash ties. Capture the member list once per event from this
+node and its connected peers. Do not call
 `Guardian.Cluster.connected_nodes/0` on the ingest path: its storage-readiness RPCs can wait
 5 seconds. A booting/unavailable owner fails open like any other failure.
 

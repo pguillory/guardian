@@ -11,7 +11,7 @@ explicit empty/invalid values refuse startup.
 table name; callers find a descriptor row through ETS, never the owner's mailbox.
 Unnamed stores may use a PID (process dictionary lookup) or table reference.
 User keys are deterministic ETF binaries; the reserved atom descriptor key cannot
-collide. ETF is ephemeral and owner-local, never the cluster's routing encoding.
+collide. ETF is ephemeral and owner-local; routing hashes terms with `:erlang.phash2/2`.
 Rows are {encoded_key, value, expires_at, version}. The GenServer only runs
 housekeeping; suspending it must not block normal named-store traffic.
 Start it after Guardian.Rules.Server and before Storage, under the existing
@@ -63,9 +63,11 @@ returns a typed `Guardian.Counters.Context` nested under
 Context captures the event deadline before snapshotting connected members; private
 Unix/monotonic arrival coordinates remain on Rules.Event, outside the row. Internal
 `Guardian.Counters.Transport` routes `{identity, group_tuple, bucket}` keys with rendezvous
-hashing over identity and group only. Explicit tagged encoding preserves types
-(including integer/float and signed zero), supports JSON lists/maps and nested
-tuples, rejects other atoms/terms, and stays independent of ETF/OTP versions.
+hashing over identity and group only. Each member's score is
+`{:erlang.phash2({{identity, group_tuple}, member_name}, 4_294_967_296), member_name}`,
+with the highest score winning and member names breaking hash ties. phash2 accepts
+any term and distinguishes integers from floats; signed zeros share an owner but
+remain distinct stored counters through Store's ETF keys. All buckets share one owner.
 Membership comes from this node plus connected peers, once per event, without
 Storage readiness calls. Remote endpoints call only the owner's local store.
 

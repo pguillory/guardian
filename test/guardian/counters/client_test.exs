@@ -395,7 +395,7 @@ defmodule Guardian.Counters.ClientTest do
     end
   end
 
-  test "canonical rendezvous is order-independent, typed, and only moves to an added member" do
+  test "phash2 rendezvous is order-independent and only moves to an added member" do
     members = [:a@host, :b@host, :c@host]
 
     for n <- 1..300 do
@@ -406,22 +406,27 @@ defmodule Guardian.Counters.ClientTest do
       assert expanded in [original, :d@host]
       remaining = List.delete(members, original)
       assert Transport.owner(routing, remaining) in remaining
+
+      for removed <- remaining do
+        assert Transport.owner(routing, List.delete(members, removed)) == original
+      end
+
       assert Transport.owner(route(key({n}, 4)), members) == original
     end
 
-    # A golden mapping pins the explicit encoding, including signed float zero.
+    # Golden owners pin the 32-bit phash2 score, including shared signed-zero routing.
     owners =
       for group <- [{1}, {1.0}, {0.0}, {-0.0}, {nil}, {true}, {"1"}, {[1, 2]}, {%{"x" => 1}}],
           do: Transport.owner(route(key(group)), members)
 
     assert owners == [
              :c@host,
-             :c@host,
-             :c@host,
-             :a@host,
-             :a@host,
              :a@host,
              :b@host,
+             :b@host,
+             :c@host,
+             :c@host,
+             :c@host,
              :a@host,
              :c@host,
            ]
@@ -429,11 +434,20 @@ defmodule Guardian.Counters.ClientTest do
     assert Transport.owner(route(key({%{"a" => 1, "b" => 2}})), members) ==
              Transport.owner(route(key({Map.new([{"b", 2}, {"a", 1}])})), members)
 
-    signatures =
+    [integer, float, positive_zero, negative_zero] =
       for value <- [1, 1.0, 0.0, -0.0],
           do: for(n <- 1..30, do: Transport.owner(route(key({value, n})), members))
 
-    assert length(Enum.uniq(signatures)) == 4
+    assert length(Enum.uniq([integer, float, positive_zero])) == 3
+    assert positive_zero == negative_zero
+  end
+
+  test "atom group terms route and store", %{store: store} do
+    context = event(store)
+    atom_key = key({:group})
+
+    assert batch_one({:incr, atom_key, 1, 5_000}, context) == {:ok, 1}
+    assert Store.get(atom_key, server: store) == {:ok, 1}
   end
 
   test "local native operations preserve nil, tokens, colocation and definite errors", %{
