@@ -21,7 +21,7 @@ defmodule Query do
       {:ok, ["ip", "count()"], [["1.2.3.4", 5], ["5.6.7.8", 3]]}
 
   `execute/2` is the entry point for SQL text: it is what the JSON and MCP query
-  interfaces and the console run. `run/1` runs one already-resolved SELECT.
+  interfaces run; operators can call it from IEx too. `run/1` runs one already-resolved SELECT.
 
   ## Supported Operations
 

@@ -30,8 +30,6 @@ The `lib/` directory contains the event store, query engine, and network interfa
   `Cluster.Metadata` fans schema lookups out to every connected node and merges the
   results.
 - `SystemStats`: the runtime child that records VM metrics (below).
-- `Console`: the operator's remote-shell tool; `Console.query/1` prints a query's
-  rows as a table.
 - `lib/utils`: leaf helpers (`Build`, `SegmentID`, `SortedSet`, `Timestamp`, `Utils`)
   that call no other subsystem.
 

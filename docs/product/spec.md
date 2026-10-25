@@ -67,7 +67,7 @@ Guardian is also a producer of its own tables:
    reference resource.
 2. Scripts use the JSON query endpoint.
 3. An operator can run queries from the Erlang remote console with
-   `Console.query("SELECT ...")`, which prints a table.
+   `Query.execute("SELECT ...")`, which returns labels and rows.
 
 ## 3. Access and trust
 
@@ -270,9 +270,10 @@ same way.
 ### 4.4 Remote console
 
 An operator with a shell on a node can run `/app/bin/guardian remote` (on Fly, through
-`fly ssh console --pty -C "/app/bin/guardian remote"`) and call `Console.query/1`, which runs one resolved statement and prints a
-box-drawn table. This is an operator tool, not a product interface; it bypasses the API
-key because it already has full VM access.
+`fly ssh console --pty -C "/app/bin/guardian remote"`) and call
+`Query.execute("SELECT ...")` from IEx. It returns `{:ok, columns, rows}` or
+`{:error, message}`; parse and resolution errors can raise. Direct IEx queries are
+not recorded in `queries`. The shell has full VM access and bypasses the API key.
 
 ## 5. Ingestion
 

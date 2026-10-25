@@ -994,8 +994,8 @@ means an anonymous client cannot make the server parse anything.
 1. `/send_events` calls `Web.Ingest.send_events/1`, shared with MCP, so both
    interfaces validate requests and shape results identically.
 2. `/query` calls `Web.Query.execute/3` (which has `Web.QueryLog` record every query
-   and `Web.QueryParseErrors` parse failures, section 6.5) around `Query.execute/2`, the SQL entry point the MCP tool and the
-   console share. It resolves the SQL, requires exactly one statement, calls
+   and `Web.QueryParseErrors` parse failures, section 6.5) around `Query.execute/2`, the SQL entry point the MCP tool also uses.
+   It resolves the SQL, requires exactly one statement, calls
    `Query.run/1` from the request process (which runs the query in its own process),
    and returns labels and rows, which `/query` sends as `{columns, rows}`. A wrong
    statement count or a `Query.Error` from running comes back as an error message and
@@ -1055,9 +1055,9 @@ Storage write would stall all MCP tool calls.
 
 ### 6.4 Remote console
 
-`Console.query/1` runs one resolved statement from an Erlang shell attached to a
-running node and prints a table. It is an operator tool with full VM access (spec
-section 4.4); it is not recorded anywhere.
+The release's remote IEx shell attaches to a running node with full VM access (spec
+section 4.4). Operators can call `Query.execute/1` directly for labels and rows;
+these queries are not recorded in `queries` or `query_parse_errors`.
 
 ### 6.5 Built-in tables
 
@@ -1344,7 +1344,7 @@ operational decisions:
    alerts.
 4. Remote console: `bin/guardian remote` on the node (on Fly,
    `fly ssh console --pty -C "/app/bin/guardian remote"`; in Docker, `docker exec`)
-   for `Console.query/1` and Storage internals.
+   for direct IEx queries and Storage internals.
 5. Scaling: on Fly, `fly scale count` adds a machine with its own volume; scaling
    down detaches a volume and its events drop out of queries. Elsewhere, start another
    node with its own data directory and the cluster settings (section 7).

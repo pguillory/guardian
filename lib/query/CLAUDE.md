@@ -29,7 +29,8 @@ and scalar function behavior. Add functions under `query/function/`, register th
 `Query.execute/2` is the entry point for SQL text: it resolves (the Resolver labels
 each statement's columns from its pre-LET form), requires exactly one statement, and
 runs it, returning a `Query.Error` from running (and a wrong statement count) as
-`{:error, message}`. The JSON API, the MCP tool and the console all use it.
+`{:error, message}`. The JSON API and the MCP tool use it; operators can call it
+directly from the remote IEx shell.
 
 `Query.run/1` runs each query in its own process, the consumer of its
 `Query.DistributedStream` pipeline (`lib/query/distributed_stream.ex`, vendored and

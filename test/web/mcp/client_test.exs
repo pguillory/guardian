@@ -505,7 +505,7 @@ defmodule Web.MCP.ClientTest do
       Jason.decode!(content["text"])
     end
 
-    test "events sent through the JSON API are visible to MCP, JSON queries and the console" do
+    test "events sent through the JSON API are visible to MCP and JSON queries" do
       MCPTestClient.start()
       table = "single_store_#{System.unique_integer([:positive])}"
 
@@ -524,10 +524,6 @@ defmodule Web.MCP.ClientTest do
 
       assert %{"rows" => [["alice", 10], ["bob", 20]]} =
                json_request("/api/json/query", %{query: sql})
-
-      output = ExUnit.CaptureIO.capture_io(fn -> Console.query(sql) end)
-      assert output =~ "alice"
-      assert output =~ "bob"
     end
 
     test "system_stats is queryable through MCP and the JSON API" do

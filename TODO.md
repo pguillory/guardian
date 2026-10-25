@@ -176,6 +176,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Interfaces and operations
 
+- [x] remove-console: remove the custom table printer and VM-stop helper; keep the
+      release's remote IEx shell (`docs/changes/remove-console.md`)
+
 - [x] plug-crypto-221: update the crypto dependency to 2.2.1 for CVE-2026-105963
       (`docs/changes/plug-crypto-221.md`)
 - [ ] mcp-serialized-tool-calls: Anubis 0.16 runs tool calls in its one server

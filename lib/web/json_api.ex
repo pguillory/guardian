@@ -225,7 +225,7 @@ defmodule Web.JsonApi do
     end
   end
 
-  # Runs like MCP and the console (`Query.execute/2`). Every query is recorded in
+  # Runs like MCP (`Query.execute/2`). Every query is recorded in
   # queries; parse failures also in query_parse_errors, and reraised unchanged. A
   # failure of the query itself (statement count, or a `Query.Error` while running) is
   # a 400; other exceptions are 500s.

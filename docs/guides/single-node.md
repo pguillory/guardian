@@ -52,7 +52,8 @@ request.
 docker exec -it guardian /app/bin/guardian remote
 ```
 
-Inside it, `Console.query("SHOW TABLES")` prints a query's rows as a table.
+Inside it, `Query.execute("SHOW TABLES")` returns `{:ok, columns, rows}` or
+`{:error, message}`. Queries called directly from IEx are not recorded in `queries`.
 
 ## Erlang distribution
 

@@ -15,8 +15,8 @@ fail to parse, capped at 60 an hour.
    row to the built-in table `queries`, on the machine that received the request
    (the coordinator). Peers that run parts of a distributed query, and peers that
    answer schema lookups, write nothing, so a query is logged once however many
-   machines it touches. The remote console (`Console.query/1`) is not logged, as it
-   is not logged anywhere today.
+   machines it touches. Queries called directly from the remote IEx shell are not
+   logged, as they are not logged anywhere today.
 2. Fields:
    - `timestamp` (when the query started, UTC `YYYY-MM-DD HH:MM:SS`), `hostname`.
    - `interface`: `http` or `mcp`.

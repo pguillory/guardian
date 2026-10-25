@@ -682,7 +682,7 @@ Operators are fully trusted, and the design does not try to constrain them. On F
 2. The remote console (`fly ssh console --pty -C "/app/bin/guardian remote"`) attaches
    an Erlang shell to the running node using the cookie from the machine's
    environment. It bypasses the API key by design (spec section 4.4) and can call any
-   function, including `Console.query/1` and Storage internals that delete tables or
+   function, including `Query.execute/1` and Storage internals that delete tables or
    segments.
 3. `fly secrets set` rotates the key or cookie; the machine restarts with the new
    value. Old keys stop working immediately after the restart.
