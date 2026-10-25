@@ -177,12 +177,12 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] timestamp-arithmetic-helper: share timestamp readers and date_add/date_sub's
       bounded arithmetic without double parsing or changing caller acceptance
       (`docs/changes/timestamp-arithmetic-helper.md`)
-- [ ] timestamp-to-seconds-nonraising: expose nonraising epoch conversion so
-      ToSeconds can avoid catch-based invalid-input handling while preserving the
-      existing raising utility API (code review follow-up)
-- [ ] format-timestamp-names-nonraising: return null for unknown month/hour names
-      without exception-based lookup, preserving terminal cap and invalid-name
-      behavior (code review follow-up)
+- [x] timestamp-to-seconds-nonraising: `to_seconds` uses the nonraising
+      `Guardian.Timestamp.parse_seconds/1` instead of catching exceptions; the raising
+      `Guardian.Timestamp.to_seconds/1` is unchanged (code review follow-up)
+- [x] format-timestamp-names-nonraising: unknown month/hour names give null through
+      fallback lookups instead of a rescued `CaseClauseError`, keeping the terminal
+      cap and invalid-name behavior (code review follow-up)
 - [x] regex-on-re-drop-jq: `replace()` with growing or overlapping matches aborted the
       VM in the Hyperscan NIF; regular expressions now run on `:re` with backtracking
       limits, and jq() and the Hyperscan and libjq dependencies are gone

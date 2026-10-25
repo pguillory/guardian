@@ -1,9 +1,9 @@
 defmodule Guardian.Query.Function.ToSeconds do
   def eval(timestamp) when is_binary(timestamp) do
-    Guardian.Timestamp.to_seconds(timestamp)
-  catch
-    _kind, _reason ->
-      nil
+    case Guardian.Timestamp.parse_seconds(timestamp) do
+      {:ok, seconds} -> seconds
+      :error -> nil
+    end
   end
 
   def eval(_) do

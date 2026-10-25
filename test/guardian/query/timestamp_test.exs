@@ -111,7 +111,7 @@ defmodule Guardian.Query.TimestampTest do
     assert eval("format_timestamp(value, format)", value: @timestamp, format: prefix) ==
              String.duplicate("!", 65_536)
 
-    for token <- ["MMMM", "AM"] do
+    for token <- ["MMM", "MMMM", "AM", "PM", "am", "pm"] do
       assert eval("format_timestamp(value, format)",
                value: "2024-13-01 25:00:00",
                format: prefix <> token

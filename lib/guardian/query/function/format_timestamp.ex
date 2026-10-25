@@ -7,8 +7,6 @@ defmodule Guardian.Query.Function.FormatTimestamp do
       {:ok, fields} -> eval_format(format, fields, "")
       :error -> nil
     end
-  rescue
-    CaseClauseError -> nil
   end
 
   def eval(_, _) do
@@ -27,15 +25,11 @@ defmodule Guardian.Query.Function.FormatTimestamp do
   end
 
   defp eval_format("MMMM" <> format, fields, output) do
-    month = fields.month
-    month = month_name(month)
-    eval_format(format, fields, [output | month])
+    append_name(month_name(fields.month), format, fields, output)
   end
 
   defp eval_format("MMM" <> format, fields, output) do
-    month = fields.month
-    month = month_abbreviation(month)
-    eval_format(format, fields, [output | month])
+    append_name(month_abbreviation(fields.month), format, fields, output)
   end
 
   defp eval_format("MM" <> format, fields, output) do
@@ -94,23 +88,19 @@ defmodule Guardian.Query.Function.FormatTimestamp do
   end
 
   defp eval_format("AM" <> format, fields, output) do
-    hour = fields.hour
-    eval_format(format, fields, [output | am_pm_upper(hour)])
+    append_name(am_pm_upper(fields.hour), format, fields, output)
   end
 
   defp eval_format("PM" <> format, fields, output) do
-    hour = fields.hour
-    eval_format(format, fields, [output | am_pm_upper(hour)])
+    append_name(am_pm_upper(fields.hour), format, fields, output)
   end
 
   defp eval_format("am" <> format, fields, output) do
-    hour = fields.hour
-    eval_format(format, fields, [output | am_pm_lower(hour)])
+    append_name(am_pm_lower(fields.hour), format, fields, output)
   end
 
   defp eval_format("pm" <> format, fields, output) do
-    hour = fields.hour
-    eval_format(format, fields, [output | am_pm_lower(hour)])
+    append_name(am_pm_lower(fields.hour), format, fields, output)
   end
 
   defp eval_format(<<c::binary-size(1), format::binary>>, fields, output) do
@@ -120,6 +110,15 @@ defmodule Guardian.Query.Function.FormatTimestamp do
   # A long format can name more than the string cap holds.
   defp eval_format("", _fields, output) do
     output |> IO.iodata_to_binary() |> Guardian.Query.Text.cap()
+  end
+
+  # Raw fields are unvalidated: an out-of-range month or hour has no name, so no result.
+  defp append_name(nil, _format, _fields, _output) do
+    nil
+  end
+
+  defp append_name(name, format, fields, output) do
+    eval_format(format, fields, [output | name])
   end
 
   defp month_abbreviation(month) do
@@ -136,6 +135,7 @@ defmodule Guardian.Query.Function.FormatTimestamp do
       "10" -> "Oct"
       "11" -> "Nov"
       "12" -> "Dec"
+      _ -> nil
     end
   end
 
@@ -153,6 +153,7 @@ defmodule Guardian.Query.Function.FormatTimestamp do
       "10" -> "October"
       "11" -> "November"
       "12" -> "December"
+      _ -> nil
     end
   end
 
@@ -182,6 +183,7 @@ defmodule Guardian.Query.Function.FormatTimestamp do
       "21" -> "PM"
       "22" -> "PM"
       "23" -> "PM"
+      _ -> nil
     end
   end
 
@@ -211,6 +213,7 @@ defmodule Guardian.Query.Function.FormatTimestamp do
       "21" -> "pm"
       "22" -> "pm"
       "23" -> "pm"
+      _ -> nil
     end
   end
 end

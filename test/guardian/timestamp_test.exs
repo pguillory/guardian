@@ -6,6 +6,14 @@ defmodule Guardian.TimestampTest do
     assert to_seconds("2024-03-06 18:26:45") == 1_709_749_605
   end
 
+  test "parse_seconds gives the epoch seconds or :error without raising" do
+    assert parse_seconds("2024-03-06 18:26:45") == {:ok, 1_709_749_605}
+    assert parse_seconds("1970-01-01 00:00:00") == {:ok, 0}
+
+    assert parse_seconds("0000-01-01 00:00:00") == {:ok, -62_167_219_200}
+    assert parse_seconds("9999-12-31 23:59:59") == {:ok, 253_402_300_799}
+  end
+
   test "from_seconds" do
     assert from_seconds(1_709_749_605) == "2024-03-06 18:26:45"
   end
@@ -41,11 +49,13 @@ defmodule Guardian.TimestampTest do
       assert read(value) == :error
       assert read_fields(value) == :error
       assert from_string(value) == :error
+      assert parse_seconds(value) == :error
       assert_raise ArgumentError, "not a timestamp", fn -> to_seconds(value) end
     end
 
     for value <- ["2024-02-30 03:04:05", "2024-01-02 03-04:05"] do
       assert from_string(value) == :error
+      assert parse_seconds(value) == :error
       assert_raise ArgumentError, "not a timestamp", fn -> to_seconds(value) end
     end
 
@@ -132,6 +142,7 @@ defmodule Guardian.TimestampTest do
 
   defp assert_invalid(value) do
     assert from_string(value) == :error, inspect(value)
+    assert parse_seconds(value) == :error, inspect(value)
     assert_raise ArgumentError, fn -> to_seconds(value) end
   end
 end

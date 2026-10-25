@@ -36,12 +36,27 @@ defmodule Guardian.Timestamp do
 
   @doc """
   Seconds since 1970-01-01 00:00:00 UTC of a `YYYY-MM-DD HH:MM:SS` timestamp (see
-  `from_string/1`). Raises `ArgumentError` on a string it can't read.
+  `from_string/1`). Raises `ArgumentError` on a value it can't read; query code uses
+  the nonraising `parse_seconds/1` instead.
   """
   def to_seconds(timestamp) do
-    case parse(timestamp) do
-      {:ok, naive_datetime} -> NaiveDateTime.diff(naive_datetime, ~N[1970-01-01 00:00:00])
+    case parse_seconds(timestamp) do
+      {:ok, seconds} -> seconds
       :error -> raise ArgumentError, "not a timestamp"
+    end
+  end
+
+  @doc """
+  Seconds since 1970-01-01 00:00:00 UTC of a `YYYY-MM-DD HH:MM:SS` timestamp, as
+  `{:ok, seconds}`, or `:error` for any value `from_string/1` rejects.
+  """
+  def parse_seconds(timestamp) do
+    case parse(timestamp) do
+      {:ok, naive_datetime} ->
+        {:ok, NaiveDateTime.diff(naive_datetime, ~N[1970-01-01 00:00:00])}
+
+      :error ->
+        :error
     end
   end
 
@@ -67,9 +82,8 @@ defmodule Guardian.Timestamp do
   invalid input or a result outside years 0000 to 9999.
   """
   def shift(timestamp, delta) when is_binary(timestamp) and is_integer(delta) do
-    with {:ok, naive_datetime} <- parse(timestamp),
-         seconds when seconds >= @earliest and seconds <= @latest <-
-           NaiveDateTime.diff(naive_datetime, ~N[1970-01-01 00:00:00]) + delta do
+    with {:ok, seconds} <- parse_seconds(timestamp),
+         seconds when seconds >= @earliest and seconds <= @latest <- seconds + delta do
       from_seconds(seconds)
     else
       _ -> nil

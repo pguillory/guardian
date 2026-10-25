@@ -90,5 +90,8 @@ a single user next to that user instead.
   fields and years 0000 to 9999. `shift/2` shares strict parsing and integer-second
   arithmetic for date addition/subtraction, returning nil on invalid input or a
   result outside those inclusive year bounds.
+  `parse_seconds/1` is the nonraising form of `to_seconds/1` (`{:ok, seconds}` or
+  `:error`); the `to_seconds` query function and `shift/2` use it, while `to_seconds/1`
+  keeps raising `ArgumentError`.
 
 Utility changes should include focused unit tests.
