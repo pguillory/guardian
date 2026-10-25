@@ -412,8 +412,11 @@ and no single request that takes the service down or destroys stored data.
    to one owner through the fully trusted Erlang
    distribution boundary (section 6), without another API or authorization layer.
    It captures connected members without readiness RPCs. Calls are bounded at
-   50 ms, within a 100 ms event phase and a shared 250 ms failed-wait batch budget;
-   killed callers retain reservations conservatively. A guard kills its linked
+   50 ms, within a 100 ms event phase and a shared 250 ms failed-wait batch budget.
+   An internal application-env test seam replaces the first two, including the
+   remote endpoint's bound; nothing outside tests sets it, and values other than
+   positive integers keep the defaults (`docs/changes/counter-test-budgets.md`).
+   Killed callers retain reservations conservatively. A guard kills its linked
    RPC worker even under distribution flow control, and caller cleanup revokes
    aliases and flushes replies. Remote endpoints translate remaining duration
    onto their own clocks; already dispatched mutations can still complete late.

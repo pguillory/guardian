@@ -159,6 +159,7 @@ defmodule Guardian.Rules.CounterIngestTest do
   end
 
   test "cross-table lookups preserve typed/null groups and all enabled aggregate operators" do
+    Guardian.CounterBudgetHelper.relax()
     table = unique_table("live_aggregates")
     reader = unique_table("live_aggregate_reader")
 
@@ -236,6 +237,7 @@ defmodule Guardian.Rules.CounterIngestTest do
   end
 
   test "a later rule or storage failure leaves earlier counter side effects without replay" do
+    Guardian.CounterBudgetHelper.relax()
     table = unique_table("live_counter_partial")
 
     with_rules(%{
@@ -399,6 +401,9 @@ defmodule Guardian.Rules.CounterIngestTest do
     end)
 
     assert {:ok, _} = :erpc.call(peer_node, Guardian.CounterClientHelper, :start_store, [])
+    Guardian.CounterClientHelper.await_ready(peer_node)
+    # One slow call under host load would cool the peer down and zero the burst.
+    production_budgets = Guardian.CounterBudgetHelper.relax([peer_node])
     identity = track(table).identity
 
     group =
@@ -418,6 +423,8 @@ defmodule Guardian.Rules.CounterIngestTest do
     # The following sequential event proves every update was counted.
     assert Enum.all?(results, &(is_integer(&1) and &1 in 1..60))
     assert [{:ok, %{"hits" => 61, "prior" => 60}}] = ingest(table, [%{"g" => group}])
+    # Failure, cooldown and recovery run on production budgets.
+    production_budgets.()
 
     pause = :erpc.call(peer_node, Guardian.CounterStoreProbe, :pause, [Store])
 
@@ -445,6 +452,7 @@ defmodule Guardian.Rules.CounterIngestTest do
     assert :ok = :erpc.call(peer_node, GenServer, :stop, [Store])
     assert [{:ok, %{"hits" => 0}}] = ingest(table, [%{"g" => group}])
     assert {:ok, _} = :erpc.call(peer_node, Guardian.CounterClientHelper, :start_store, [])
+    Guardian.CounterClientHelper.await_ready(peer_node)
     await_cooldown(peer_node)
     assert [{:ok, %{"hits" => 1, "prior" => 0}}] = ingest(table, [%{"g" => group}])
   end

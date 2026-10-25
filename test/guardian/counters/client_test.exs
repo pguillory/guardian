@@ -6,13 +6,14 @@ defmodule Guardian.Counters.ClientTest do
   setup_all do
     distributed = Guardian.TestCluster.ensure_distributed()
     {peer, peer_node} = Guardian.TestCluster.start_peer(nil)
-    {:ok, _} = :erpc.call(peer_node, Guardian.CounterClientHelper, :start_store, [])
 
     on_exit(fn ->
       :peer.stop(peer)
       if distributed, do: Node.stop()
     end)
 
+    {:ok, _} = :erpc.call(peer_node, Guardian.CounterClientHelper, :start_store, [])
+    Guardian.CounterClientHelper.await_ready(peer_node)
     %{peer_node: peer_node}
   end
 
@@ -176,6 +177,8 @@ defmodule Guardian.Counters.ClientTest do
                 [name: :counter_pipeline_store],
               ])
           )
+
+    Guardian.CounterClientHelper.await_ready(tl(members), :counter_pipeline_store)
 
     for allowance <- [250_000, 50_000] do
       batch = Client.new_batch()
@@ -487,6 +490,7 @@ defmodule Guardian.Counters.ClientTest do
   end
 
   test "peer get/gets/CAS/incr carry native terms and reference tokens", %{peer_node: peer} do
+    Guardian.CounterBudgetHelper.relax([peer])
     context = event(Store, members: [peer])
     key = key({System.unique_integer([:positive])})
     value = %{nested: [nil, 1, 1.0, {"native", true}]}

@@ -51,6 +51,10 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    Test builds select a libtest batch adapter at compile time; only that adapter
    interprets the internal {backend_module, server} store option for transport probes.
    Production calls Store directly, with no backend tuple handling or mailbox fallback.
+   Context's `event_ms`/`operation_ms` application env is the other internal test
+   seam: it replaces the 100/50 ms defaults and caps, including the remote endpoint
+   bound. Never set it outside tests; only `Guardian.CounterBudgetHelper` does, for
+   tests not about budgets and the seam's own test (`docs/changes/counter-test-budgets.md`).
 6. Return fixed errors; no key/value/exception logging. Housekeeping callback
    failures scrub stacks through `Guardian.Failure.stacktrace/1` and reset the
    store. Status redacts state/messages/logs.

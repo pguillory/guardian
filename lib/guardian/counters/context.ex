@@ -3,8 +3,11 @@ defmodule Guardian.Counters.Context do
   @enforce_keys [:batch, :deadline, :timeout_us, :cooldown_table, :members, :store]
   defstruct [:batch, :deadline, :timeout_us, :cooldown_table, :members, :store]
 
-  @event_us 100_000
-  @operation_us 50_000
+  # Internal test seam, not an operator setting: `config :guardian, __MODULE__,
+  # event_ms: _, operation_ms: _` replaces both the default and the cap. Only tests
+  # set it, through Guardian.CounterBudgetHelper; production uses these defaults.
+  @event_ms 100
+  @operation_ms 50
 
   @type batch :: :atomics.atomics_ref()
   # The libtest adapter additionally interprets backend/server tuples in test builds.
@@ -27,11 +30,14 @@ defmodule Guardian.Counters.Context do
   @spec new(batch(), [option()]) :: t()
   def new(batch, opts \\ []) do
     # Start the event deadline before snapshotting membership.
+    event_ms = event_ms()
+
     deadline =
       System.monotonic_time(:microsecond) +
-        min(@event_us, Keyword.get(opts, :event_timeout_ms, 100) * 1_000)
+        min(event_ms, Keyword.get(opts, :event_timeout_ms, event_ms)) * 1_000
 
-    timeout_us = min(@operation_us, Keyword.get(opts, :timeout_ms, 50) * 1_000)
+    operation_ms = operation_ms()
+    timeout_us = min(operation_ms, Keyword.get(opts, :timeout_ms, operation_ms)) * 1_000
     cooldown_table = Keyword.get(opts, :cooldown_table, Guardian.Counters.Budget)
     members = Keyword.get_lazy(opts, :members, fn -> [node() | Node.list()] end)
 
@@ -43,5 +49,24 @@ defmodule Guardian.Counters.Context do
       members: members,
       store: Keyword.get(opts, :store, Guardian.Counters.Store),
     }
+  end
+
+  @doc false
+  @spec operation_ms() :: pos_integer()
+  def operation_ms do
+    budget(:operation_ms, @operation_ms)
+  end
+
+  defp event_ms do
+    budget(:event_ms, @event_ms)
+  end
+
+  # Anything but a positive integer keeps the default, so a bad value cannot open
+  # the remote endpoint's bound.
+  defp budget(key, default) do
+    case Application.get_env(:guardian, __MODULE__, []) |> Keyword.get(key) do
+      ms when is_integer(ms) and ms > 0 -> ms
+      _ -> default
+    end
   end
 end

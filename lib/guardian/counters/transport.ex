@@ -316,8 +316,12 @@ defmodule Guardian.Counters.Transport do
 
   @doc false
   def remote_operation(operation, store, duration_ms)
-      when is_integer(duration_ms) and duration_ms > 0 and duration_ms <= 50 do
-    local_operation(operation, store, duration_ms, now() + duration_ms * 1_000)
+      when is_integer(duration_ms) and duration_ms > 0 do
+    if duration_ms <= Context.operation_ms() do
+      local_operation(operation, store, duration_ms, now() + duration_ms * 1_000)
+    else
+      {:error, :invalid_request}
+    end
   end
 
   def remote_operation(_, _, _) do
