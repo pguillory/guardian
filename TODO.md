@@ -169,7 +169,7 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       not parse (INTERVAL is a keyword), so its column label cannot be re-parsed
 - [ ] function-behaviour: an optional `Guardian.Query.Function` behaviour for function
       modules, with `eval2/2` as an optional callback, so the compiler checks a
-      module's entry points (`lib/query/function/CLAUDE.md`)
+      module's entry points (`lib/guardian/query/function/CLAUDE.md`)
 - [ ] test-only-labels: `Guardian.Query.labels/1` (SQL text) and the SHOW/DESC clauses of
       `Guardian.Query.Resolver.labels/1` are reached only from tests, since the Resolver
       rewrites SHOW and DESC first; drop them and test SHOW/DESC labels through
@@ -177,6 +177,11 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Interfaces and operations
 
+- [x] guardian-module-paths: align source, test and compiled-helper paths under
+      `guardian/`, preserving subsystem test grouping and updating all path references
+      (`docs/changes/guardian-module-paths.md`)
+- [ ] guardian-application-name: rename the application callback to
+      `Guardian.Application` after the path moves (`docs/changes/guardian-module-paths.md`)
 - [x] guardian-namespace: qualify every owned module under `Guardian.*`, including
       web modules, native entry points and the compiled rule pool; preserve disk
       formats and document full-restart compatibility (`docs/changes/guardian-namespace.md`)

@@ -49,9 +49,9 @@ at https://www.gnu.org/licenses/lgpl-3.0.html.
 
 ## Vendored code
 
-1. `lib/query/distributed_stream.ex`: vendored and changed from distributed_stream
+1. `lib/guardian/query/distributed_stream.ex`: vendored and changed from distributed_stream
    0.1.4 (https://github.com/pguillory/distributed_stream) by Preston Guillory, MIT
-   license. Its notice is kept in `lib/query/distributed_stream/LICENSE`.
+   license. Its notice is kept in `lib/guardian/query/distributed_stream/LICENSE`.
 2. `src/mmap.c`: Guardian's read-only mmap NIF. It replaces the mmap 0.1.1 Hex package
    (https://github.com/pguillory/elixir-mmap, MIT, by the same author), with fixes to
    its resource and file-descriptor handling.

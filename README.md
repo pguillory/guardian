@@ -140,7 +140,7 @@ GROUP BY user.id
 ```
 
 `SHOW TABLES` and `DESC requests` show what's there. The full language, including
-every function, is in the [query language reference](lib/web/mcp/query_language.md).
+every function, is in the [query language reference](lib/guardian/web/mcp/query_language.md).
 
 ## Rules: decide as events arrive
 
@@ -332,7 +332,7 @@ Using it:
 
 - [HTTP and MCP API](docs/reference/api.md): authentication, request and response
   shapes, table names, and Guardian's built-in tables.
-- [Query language](lib/web/mcp/query_language.md).
+- [Query language](lib/guardian/web/mcp/query_language.md).
 
 Working on it:
 

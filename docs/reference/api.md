@@ -148,7 +148,7 @@ Guardian supports `SELECT`, `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT`,
 `SHOW TABLES` and `DESC`, along with query-time aggregations and scalar functions
 (including `RLIKE` and `replace()` with Perl-compatible regular expressions). Queries
 are read-only: there's no `INSERT` or `DELETE`. The full reference is
-[`lib/web/mcp/query_language.md`](../../lib/web/mcp/query_language.md), which MCP also
+[`lib/guardian/web/mcp/query_language.md`](../../lib/guardian/web/mcp/query_language.md), which MCP also
 serves as the resource `guardian://query-language`.
 
 ## MCP

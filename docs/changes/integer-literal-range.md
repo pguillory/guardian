@@ -28,7 +28,7 @@ A float literal too large to represent (`1e400`) was already the parse error
 ## Product spec impact
 
 `docs/product/spec.md` section 7, item 3, and the "Expressions" section of
-`lib/web/mcp/query_language.md` now state the range of integer literals (0 to
+`lib/guardian/web/mcp/query_language.md` now state the range of integer literals (0 to
 9223372036854775807), the parse error, and how to write the smallest int64.
 `docs/product/overview.md`: none.
 

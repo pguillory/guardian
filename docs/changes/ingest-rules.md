@@ -859,9 +859,9 @@ expanding the four pieces.
    before storage; `return_keys` returns null for missing keys), the MCP tool list,
    Non-features item 1 (rules exist; still no alerting, counters, or enrichment from
    services), configuration.
-3. Also: `CLAUDE.md`, `lib/CLAUDE.md`, `lib/engine/CLAUDE.md`, `lib/ast/CLAUDE.md`,
-   `lib/ast/node/CLAUDE.md` (LOOKUP line), `lib/web/CLAUDE.md`, `lib/web/mcp/CLAUDE.md`
-   (drop "Do not add ... rule-management tools"), a new `lib/rules/CLAUDE.md`,
+3. Also: `CLAUDE.md`, `lib/guardian/CLAUDE.md`, `lib/guardian/engine/CLAUDE.md`, `lib/guardian/ast/CLAUDE.md`,
+   `lib/guardian/ast/node/CLAUDE.md` (LOOKUP line), `lib/guardian/web/CLAUDE.md`, `lib/guardian/web/mcp/CLAUDE.md`
+   (drop "Do not add ... rule-management tools"), a new `lib/guardian/rules/CLAUDE.md`,
    `docs/architecture/system.md` (supervision tree, ingest path, a rules section),
    `docs/architecture/security.md` (rules can rewrite or drop any incoming field at
    the key holder's trust level; their cost on the ingest path; generated code from

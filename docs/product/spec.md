@@ -6,7 +6,7 @@ This is the fourth tier of Guardian's spec chain. It extends the one-page overvi
 The spec describes behavior a producer, reader, or operator can observe. It links the
 detailed references instead of repeating them:
 
-- Query language: [`lib/web/mcp/query_language.md`](../../lib/web/mcp/query_language.md),
+- Query language: [`lib/guardian/web/mcp/query_language.md`](../../lib/guardian/web/mcp/query_language.md),
   also served over MCP as `guardian://query-language`. It is the authoritative
   reference for syntax, functions, and aggregates.
 - Deployment, configuration, and operations procedures: the guides in
@@ -566,7 +566,7 @@ string operations.
 
 ## 7. Queries
 
-Full reference: [`query_language.md`](../../lib/web/mcp/query_language.md). Summary of
+Full reference: [`query_language.md`](../../lib/guardian/web/mcp/query_language.md). Summary of
 the shipped surface:
 
 1. Statements: `SELECT`, `SHOW TABLES`, `DESC <table>`, and `LET name = expr;`

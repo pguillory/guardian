@@ -90,7 +90,7 @@ registers `test_raise/1` for the tests that need one.
 
 `docs/product/spec.md` section 7: item 3 gains the integer and null rules; item 4
 gains the aggregate overflow sentence; item 8 drops "`factorial` takes at most 20".
-`lib/web/mcp/query_language.md` says the same. `overview.md`: none. Architecture docs
+`lib/guardian/web/mcp/query_language.md` says the same. `overview.md`: none. Architecture docs
 drop the factorial limit too (`docs/architecture/security.md`, `system.md` 5.7).
 
 Strings: spec section 5.1 item 5 (a rule statement no longer fails on a regular
@@ -102,7 +102,7 @@ and `docs/reference/limitations.md` follow.
 
 ## Validation
 
-- `test/query/totality_test.exs`: every registered function and every operator over
+- `test/guardian/query/totality_test.exs`: every registered function and every operator over
   every pair of 24 edge values (0, 0.0, -1, -0.5, ±int64 limits and the floats at
   ±2^63, ±1e308, 1e-308, timestamps at the year 9999 limit, with an offset and with
   out-of-range fields, interval strings at and past int64, an oversized port, invalid
@@ -112,23 +112,23 @@ and `docs/reference/limitations.md` follow.
   pattern is read only from a literal). Timestamp string `+`/`-` an integer over
   columns was a second exception until it was fixed (TODO.md,
   timestamp-arithmetic-columns).
-- `test/query/numeric_test.exs`: wrapping on both paths, non-finite floats, domain
+- `test/guardian/query/numeric_test.exs`: wrapping on both paths, non-finite floats, domain
   errors, rounding at 2^63, the interval cases, the date range, ip and port inputs,
   list depth, comparisons at the boundaries, and a GROUP BY `sum` past the float
   range through a query.
 - Aggregate tests: `sum` wraps and stays null after an overflow however later rows
-  merge; `avg` and `var_pop` likewise. `test/aggregation/overflow_test.exs` merges an
+  merge; `avg` and `var_pop` likewise. `test/guardian/aggregation/overflow_test.exs` merges an
   overflowed `sum`, `avg` and each variance and deviation state with overflowed,
   empty, non-number and ordinary states in both orders.
-- `test/rules/ingest_test.exs`: a rule's `div(a, 0)` and `sqrt` of a negative store
+- `test/guardian/rules/ingest_test.exs`: a rule's `div(a, 0)` and `sqrt` of a negative store
   null and its overflowing `a * 2` wraps, instead of failing the event.
-- `test/query/text_test.exs`: truncation at character boundaries and its copy; string
+- `test/guardian/query/text_test.exs`: truncation at character boundaries and its copy; string
   forms of every kind of value and their budget on a huge nested list; `concat`, `||`,
   `lpad` and `rpad` at and past the cap; `lower`, `upper` and `normalize` where
   expansion passes the cap (ŉ, İ, NFD é); `format_timestamp` with a long format;
   `concat` and `||` stopping at their first cut piece; `replace` cutting a long
   replacement or slice before appending it.
-- `test/ast/node/operators/ilike_operator_test.exs`: `ILIKE` and `NOT ILIKE` on a
+- `test/guardian/ast/node/operators/ilike_operator_test.exs`: `ILIKE` and `NOT ILIKE` on a
   value whose match lies past 64 KiB, and agreement with `LIKE` on lowercased text,
   invalid UTF-8 included.
 - String tests: `to_string` forms, escapes and invalid UTF-8 in a list, the cap, and

@@ -94,7 +94,7 @@ fail to parse, capped at 60 an hour.
   it); spec sections 2 (table of Guardian's tables), 3
   (query text kept for retention), 4.1/4.2 (queries recorded), 8 (fields); overview;
   `docs/architecture/system.md` 6.5 and the supervision tree; security.md (data at
-  rest and B7, query text in `queries`); `lib/web/CLAUDE.md`, `lib/CLAUDE.md`.
+  rest and B7, query text in `queries`); `lib/guardian/web/CLAUDE.md`, `lib/guardian/CLAUDE.md`.
 
 ## Product spec impact
 
@@ -110,7 +110,7 @@ fail to parse, capped at 60 an hour.
 
 ## Validation
 
-- `test/web/query_log_test.exs`: over HTTP and MCP, a success, a query error (400), a
+- `test/guardian/web/query_log_test.exs`: over HTTP and MCP, a success, a query error (400), a
   statement-count rejection, a parse error and an internal error (ambiguous column)
   each write one row with the right outcome, kind, message and row count, and the
   response is unchanged; no key or header value reaches the row; a suspended
@@ -120,6 +120,6 @@ fail to parse, capped at 60 an hour.
   function loses only the row; UTF-8-safe truncation of SQL and error; caller-field
   filtering and bounds; a failed write and a full backlog are counted in
   `dropped_before`, with one log line per backlog.
-- `test/cluster/query_log_test.exs`: a query fanning out to a peer writes one row on
+- `test/guardian/cluster/query_log_test.exs`: a query fanning out to a peer writes one row on
   the coordinator and none on the peer.
 - `mix test` passes.

@@ -9,8 +9,8 @@ rule modules. References, RPC targets, native NIF entry points, examples and
 subsystem instructions follow that convention. External protocols keep their own
 prefix on generated implementations. There are no old-name forwarding modules.
 
-Existing source and test paths stay in place to keep this change focused on names;
-moving them under a matching `guardian/` directory is separate follow-up work.
+The namespace change kept source and test paths in place. The separate
+[module-path alignment](guardian-module-paths.md) moves them under `guardian/`.
 
 The Mix application remains `:guardian`. Existing scalar configuration keys,
 environment variables, release/node names, directories and file names already

@@ -40,16 +40,16 @@ rewrite or data migration is part of this change.
 
 `docs/product/spec.md` section 6.4 now specifies the exact UTC format and null for
 numeric offsets and all alternate formats. The MCP query description and
-`lib/web/mcp/query_language.md` state that contract, and README timestamp guidance
+`lib/guardian/web/mcp/query_language.md` state that contract, and README timestamp guidance
 names it. `docs/product/overview.md`: none. Security architecture: none; no trust
 boundary or security invariant changes.
 
 ## Validation
 
-Focused coverage in `test/utils/timestamp_test.exs` checks canonical round trips,
+Focused coverage in `test/guardian/timestamp_test.exs` checks canonical round trips,
 epoch, leap day and year boundaries, and rejection of offset forms of both signs
 (including zero) with either separator, alternate formats, invalid calendar fields,
-invalid UTF-8 and nonstrings. `test/query/timestamp_test.exs` checks exact results
+invalid UTF-8 and nonstrings. `test/guardian/query/timestamp_test.exs` checks exact results
 and nulls for every time-arithmetic alias, both addition orders, subtraction,
 `date(ts)` and `format_timestamp`, over literals, event maps and mixed segment
 columns, including mixed strings, integers and nulls. Totality inputs retain

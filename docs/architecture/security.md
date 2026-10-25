@@ -193,10 +193,10 @@ It reads the first `x-api-key` header if present. Otherwise, only when
 where it was found. No key is `{:error, :missing}`; with query keys allowed, a query
 string that cannot be decoded is `{:error, {:invalid_query, status}}` (400, or 414
 over Plug's length limit). Each router sends its own body for these and for a wrong
-key, pinned for each credential form by `test/web/auth_routes_test.exs` (an
-undecodable query string is covered at `check_conn/1` in `test/web/auth_test.exs`,
+key, pinned for each credential form by `test/guardian/web/auth_routes_test.exs` (an
+undecodable query string is covered at `check_conn/1` in `test/guardian/web/auth_test.exs`,
 MCP's answer to it in `auth_routes_test.exs`, and the JSON API's in
-`test/web/json_api_test.exs`). `Guardian.Web.Auth.authorize_api_key/1` requires
+`test/guardian/web/json_api_test.exs`). `Guardian.Web.Auth.authorize_api_key/1` requires
 `byte_size(supplied) == byte_size(configured)` and
 `Plug.Crypto.secure_compare(supplied, configured)`. A structured parameter, which
 Plug decodes from `?api_key[]=x` to a list or from `?api_key[a]=x` to a map, is not a
@@ -876,7 +876,7 @@ Open gaps named above, by boundary:
 ## 10. How this was checked
 
 Written from the code: the routers, `Guardian.Web.Auth`, `Guardian.Web.Logger`, `Guardian.Web.QueryParseErrors`,
-`Guardian.Web.QueryLog`, `Guardian.Engine`, `lib/rules`, `Guardian.Cluster`, `Guardian.Query.Limits`, `config/runtime.exs`,
+`Guardian.Web.QueryLog`, `Guardian.Engine`, `lib/guardian/rules`, `Guardian.Cluster`, `Guardian.Query.Limits`, `config/runtime.exs`,
 `rel/env.sh.eex`, `bin/fly-start`, `Dockerfile`, and `fly.toml` in this repository,
 and the pinned dependencies `cors_plug` 3.0.3, `anubis_mcp` 0.16.0, and `req` 0.7.5
 (its SigV4 step accepts an MFA for credentials, read from its source). Regular

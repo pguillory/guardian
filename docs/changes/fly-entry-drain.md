@@ -47,7 +47,7 @@ Whether a caller retries a failed request is the caller's choice.
 
 ## Validation
 
-`test/deployment_test.exs` runs the script against fake Guardian and cloudflared
+`test/guardian/deployment_test.exs` runs the script against fake Guardian and cloudflared
 binaries and a fake `/proc/net` directory: connector only after the listener (decoy
 sockets don't count), drain before Guardian's SIGTERM, Guardian's exit status passed
 on, the token kept from Guardian, `GUARDIAN_TUNNEL=off`, the `exec` path, the IPv4

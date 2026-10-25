@@ -8,8 +8,9 @@ appropriate section.
 Markdown style: Do not use `**` to highlight list items. Write `1. First thing: text`
 instead.
 
-Every directory in `lib/` may have a CLAUDE.md with subsystem-specific guidance. Read
-the applicable file before editing that subsystem.
+Guardian modules live under `lib/guardian/`. Every directory there may have a
+CLAUDE.md with subsystem-specific guidance. Read every applicable file from
+`lib/guardian/CLAUDE.md` down to the file's directory before editing that subsystem.
 
 ## Change Tracking
 
@@ -47,7 +48,7 @@ MCP routers, query functions, logging, secrets, or the Fly deployment, and updat
 when those change.
 
 Rules are files of SET, UNSET, TRACK and LOOKUP statements per table (`<table>/<name>.gsql`), run on
-each ingested event before storage (`lib/rules/CLAUDE.md`, `docs/changes/ingest-rules.md`).
+each ingested event before storage (`lib/guardian/rules/CLAUDE.md`, `docs/changes/ingest-rules.md`).
 SET/UNSET are stateless. TRACK/LOOKUP use ephemeral counters on Guardian nodes,
 bounded peer calls and aggregate defaults on failure; final UNSETs still run.
 Counters are advisory, lose state on restart/eviction/cluster changes and use private
@@ -71,6 +72,11 @@ All Guardian-owned modules use `Guardian.*`, including `Guardian.Web.*`; do not 
 unprefixed modules. The Mix application/configuration namespace remains `:guardian`.
 The namespace transition requires a full release restart, with no disk migration
 (`docs/changes/guardian-namespace.md`).
+
+Source paths follow module names under `lib/guardian/`; tests mirror their subjects
+under `test/guardian/`, and compiled test helpers follow module names under
+`libtest/guardian/`. Keep multi-module files together, and keep the shared test
+bootstrap and fixtures at `test/test_helper.exs` and `test/fixtures/`.
 
 Summary; the full description is `docs/architecture/system.md`.
 
@@ -111,7 +117,7 @@ Node naming (`rel/env.sh.eex`) has three modes: Fly.io (`FLY_PRIVATE_IP`), a clu
 member elsewhere (`GUARDIAN_NODE_HOST`), and a single node (`guardian@localhost`, with
 distribution on loopback only). Clustered modes need `RELEASE_COOKIE`; peers are found
 through `DNS_CLUSTER_QUERY` (on Fly, `<app>.internal` by default). Keep Fly's output of
-`rel/env.sh.eex` unchanged unless the change is meant for Fly: `test/deployment_test.exs`
+`rel/env.sh.eex` unchanged unless the change is meant for Fly: `test/guardian/deployment_test.exs`
 pins it.
 
 Fly.io is the best-supported deploy path (`Dockerfile`, `fly.toml`, `docs/guides/fly.md`).
@@ -137,13 +143,13 @@ No CI: never add GitHub Actions or other hosted CI; tests run locally at commit 
 
 Key subsystem documentation:
 
-- `lib/storage/CLAUDE.md`
-- `lib/query/CLAUDE.md`
-- `lib/query/function/CLAUDE.md`
-- `lib/aggregation/CLAUDE.md`
-- `lib/ast/CLAUDE.md`
-- `lib/web/CLAUDE.md`
-- `lib/rules/CLAUDE.md`
-- `lib/counters/CLAUDE.md`
+- `lib/guardian/storage/CLAUDE.md`
+- `lib/guardian/query/CLAUDE.md`
+- `lib/guardian/query/function/CLAUDE.md`
+- `lib/guardian/aggregation/CLAUDE.md`
+- `lib/guardian/ast/CLAUDE.md`
+- `lib/guardian/web/CLAUDE.md`
+- `lib/guardian/rules/CLAUDE.md`
+- `lib/guardian/counters/CLAUDE.md`
 
 Last updated: 2026-10-24
