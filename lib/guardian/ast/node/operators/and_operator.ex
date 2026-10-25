@@ -2,6 +2,7 @@ defmodule Guardian.AST.Node.Operators.AndOperator do
   use Guardian.AST.Node.BinaryOperator, symbol: "AND"
 
   alias Guardian.Query.ColumnOrConstant
+  alias Guardian.Query.NativeDispatch
   alias Guardian.Storage.Column.Metadata
   require Metadata
 
@@ -27,7 +28,7 @@ defmodule Guardian.AST.Node.Operators.AndOperator do
 
         [Metadata.tuple() | _] ->
           column2 = Guardian.Query.Eval.eval(right, context)
-          ColumnOrConstant.evaluate(:and, column1, column2, &@for.eval/2)
+          NativeDispatch.evaluate(:and, column1, column2, &@for.eval/2)
       end
     end
   end

@@ -1,6 +1,9 @@
 # Query scalar/native dispatch policy
 
-Status: implemented and validated.
+Status: implemented and validated. Superseded in part by
+`native-dispatch-boundary.md`: the policy moved to `Guardian.Query.NativeDispatch`, and
+`ColumnOrConstant`'s `map_or_nif` arities and `holds?/2` are no longer public (the
+ternary arity is gone).
 
 Product spec impact: none. No statements change in `docs/product/overview.md` or
 `docs/product/spec.md`. Query results, null/error handling and coercions remain

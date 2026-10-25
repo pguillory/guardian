@@ -52,7 +52,7 @@ When a query is evaluated:
 2. `eval2(context, %Guardian.AST.Node.FunctionCall{})` - Columnar evaluation (optional)
    - Define it only when the default per-row evaluation is not enough: short
      circuits (`if`, `coalesce`), compiling a literal argument once (`replace`), a
-     NIF fast path (`to_boolean`, `to_string` with `ColumnOrConstant.evaluate`),
+     NIF fast path (`to_boolean`, `to_string` with `NativeDispatch.evaluate`),
      rewrites (`concat`), or a constant (`pi`)
    - Takes: evaluation context (SegmentSnapshot or event map) and function call AST
    - Returns: `%Column{}` or `%Constant{}` (from `Guardian.Query.ColumnOrConstant`)
@@ -235,11 +235,15 @@ Handles dual representation of columnar data:
 - `map(col1, col2, fun)` - Map binary function over two columns
 - `map(col1, col2, col3, fun)` - Map ternary function
 - `map(col1, col2, col3, col4, fun)` - Map 4-ary function
-- `evaluate(operation, col, fun)` / `evaluate(operation, col1, col2, fun)` - Use the
-  shared scalar/native policy for supported native-backed operations; supply the
-  scalar callback and leave native eligibility/selection to ColumnOrConstant
 - `generate(fun, count)` - Generate `count` values by calling `fun` repeatedly
 - `metadata(column)` - Get column metadata for optimizations
+
+### Guardian.Query.NativeDispatch
+
+- `evaluate(operation, col, fun)` / `evaluate(operation, col1, col2, fun)` - Use the
+  shared scalar/native policy for supported native-backed operations; supply the
+  scalar callback and leave native eligibility/selection to NativeDispatch. A new
+  native-backed operation gets a new `evaluate` clause there
 
 ### Guardian.Query.Eval and Guardian.Query.Evaluation
 
@@ -435,5 +439,6 @@ The `Guardian.Query.EvaluationTestCase` provides the `eval/2` helper for easy te
 - `lib/guardian/query/function.ex` - Function registry
 - `lib/guardian/query/evaluation.ex` - Evaluation engine that calls functions
 - `lib/guardian/query/column_or_constant.ex` - Columnar data utilities
+- `lib/guardian/query/native_dispatch.ex` - Scalar/native selection for native-backed operations
 - `lib/guardian/ast.ex` - AST node definitions
 - `test/guardian/query/function/` - Function tests

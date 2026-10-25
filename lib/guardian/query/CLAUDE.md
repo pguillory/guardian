@@ -14,10 +14,13 @@ Schemas come from every connected node's Storage through `Guardian.Cluster.Metad
 adds the per-type counts together; there is no schema cache. `Guardian.Query.Planner` builds
 primitive steps for SELECT, WHERE, GROUP BY, HAVING, ORDER BY, and LIMIT. `Guardian.Query.Evaluation`
 evaluates scalar functions and operators against constants, maps, or segment columns.
-`Guardian.Query.ColumnOrConstant.evaluate/3,4` owns scalar/native selection for
+`Guardian.Query.NativeDispatch.evaluate/3,4` owns scalar/native selection for
 native-backed operations, including timestamp arithmetic and string-rendering
-eligibility. Callers supply the operation and scalar callback, not a native callback
-or eligibility test. AND/OR retain lazy right-operand evaluation in their AST nodes.
+eligibility, on top of `Guardian.Query.ColumnOrConstant`'s column/constant
+representation. Callers supply the operation and scalar callback, not a native callback
+or eligibility test; a new native-backed operation gets a new `evaluate` clause there,
+not its own constant-or-native helper. AND/OR retain lazy right-operand evaluation in
+their AST nodes.
 Query temporaries (SELECT without FROM, the `schema` table, reassembled GROUP BY
 output) are `SegmentSnapshot`s whose `columns` map holds packed binaries. Don't start
 Segment processes from query code: no query process owns them long enough to stop them.

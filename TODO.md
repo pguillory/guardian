@@ -166,9 +166,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 - [x] query-dispatch-policy: centralize scalar/native selection and metadata
       eligibility without changing query results (`docs/changes/query-dispatch-policy.md`)
-- [ ] native-dispatch-boundary: consider extracting operation policy from
-      ColumnOrConstant and narrowing its generic map/native helper API, including
-      removal of unused ternary native dispatch (code review follow-up)
+- [x] native-dispatch-boundary: extract the scalar/native operation policy from
+      ColumnOrConstant into NativeDispatch and narrow the generic map/native helper
+      API, removing unused ternary native dispatch (`docs/changes/native-dispatch-boundary.md`)
 - [x] evaluation-alias-block: consolidate Evaluation's two alias blocks into one
       sorted block after its moduledoc (code review follow-up)
 - [x] timestamp-offsets: time arithmetic and epoch conversion accept only UTC

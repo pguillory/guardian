@@ -1,7 +1,7 @@
 defmodule Guardian.AST.Node.Operators.NotOperator do
   use Guardian.AST.Node
 
-  alias Guardian.Query.ColumnOrConstant
+  alias Guardian.Query.NativeDispatch
 
   @enforce_keys [:right]
   defstruct [:right]
@@ -9,7 +9,7 @@ defmodule Guardian.AST.Node.Operators.NotOperator do
   defimpl Guardian.Query.Eval do
     def eval(%@for{right: right}, context) do
       column1 = Guardian.Query.Eval.eval(right, context)
-      ColumnOrConstant.evaluate(:not, column1, &@for.eval/1)
+      NativeDispatch.evaluate(:not, column1, &@for.eval/1)
     end
   end
 

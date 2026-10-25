@@ -964,14 +964,15 @@ key to packed binary, with no process behind it, freed when the last stage drops
 5. Column metadata enables short cuts: an all-true or all-false WHERE column skips
    filtering, and `if` and `coalesce` skip branches that cannot be taken.
 
-`Guardian.Query.ColumnOrConstant.evaluate/3,4` owns scalar/native selection for
+`Guardian.Query.NativeDispatch.evaluate/3,4` owns scalar/native selection for
 arithmetic, boolean operations, `to_boolean` and `to_string`. Callers identify the
 operation and supply its scalar callback. Constants use scalar evaluation; native
 arithmetic over columns falls back to scalar evaluation for timestamp/seconds
 metadata, and native string conversion applies only to strings/nulls. AND/OR keep
-lazy right-operand evaluation in their nodes. The policy lives beside the existing
-map/native machinery so operand representation and native eligibility have one
-owner, without depending on the AST operator or scalar function modules.
+lazy right-operand evaluation in their nodes. The policy is its own module on top of
+`Guardian.Query.ColumnOrConstant`, which keeps only operand representation and
+mapping. NativeDispatch keeps its native helpers private and depends on neither
+the AST operator nor the scalar function modules.
 
 `Guardian.Timestamp` layers raw date/time reading, canonical field reading and
 strict calendar parsing, and owns bounded epoch arithmetic for date addition and

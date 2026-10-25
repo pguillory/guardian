@@ -4,12 +4,12 @@ defmodule Guardian.Query.Function.ToString do
   a string as it is; null for null.
   """
 
-  alias Guardian.Query.ColumnOrConstant
+  alias Guardian.Query.NativeDispatch
 
   # to_string/1
   def eval2(context, %Guardian.AST.Node.FunctionCall{args: [expr1]}) do
     column1 = Guardian.Query.Eval.eval(expr1, context)
-    ColumnOrConstant.evaluate(:to_string, column1, &__MODULE__.eval/1)
+    NativeDispatch.evaluate(:to_string, column1, &__MODULE__.eval/1)
   end
 
   def eval(string) when is_binary(string) do

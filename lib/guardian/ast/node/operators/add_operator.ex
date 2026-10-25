@@ -1,13 +1,13 @@
 defmodule Guardian.AST.Node.Operators.AddOperator do
   use Guardian.AST.Node.BinaryOperator, symbol: "+"
 
-  alias Guardian.Query.ColumnOrConstant
+  alias Guardian.Query.NativeDispatch
 
   defimpl Guardian.Query.Eval do
     def eval(%@for{left: left, right: right}, context) do
       column1 = Guardian.Query.Eval.eval(left, context)
       column2 = Guardian.Query.Eval.eval(right, context)
-      ColumnOrConstant.evaluate(:add, column1, column2, &@for.eval/2)
+      NativeDispatch.evaluate(:add, column1, column2, &@for.eval/2)
     end
   end
 
