@@ -276,16 +276,6 @@ defmodule Guardian.TestHelpers do
   restores the previous setting, or removes it if there was none.
   """
   def with_time_limit(ms, fun) do
-    previous = Application.fetch_env(:guardian, :query_time_limit_ms)
-    Application.put_env(:guardian, :query_time_limit_ms, ms)
-
-    try do
-      fun.()
-    after
-      case previous do
-        {:ok, value} -> Application.put_env(:guardian, :query_time_limit_ms, value)
-        :error -> Application.delete_env(:guardian, :query_time_limit_ms)
-      end
-    end
+    Guardian.TestEnv.with_env([query_time_limit_ms: ms], fun)
   end
 end

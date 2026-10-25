@@ -27,17 +27,8 @@ defmodule Guardian.QueryApiKeys do
     |> List.flatten()
   end
 
+  @doc "Runs `fun` with the `api_key` query parameter allowed or refused."
   def with_query_api_keys(allowed?, fun) when is_boolean(allowed?) do
-    previous = Application.fetch_env(:guardian, :allow_query_api_key)
-    Application.put_env(:guardian, :allow_query_api_key, allowed?)
-
-    try do
-      fun.()
-    after
-      case previous do
-        {:ok, value} -> Application.put_env(:guardian, :allow_query_api_key, value)
-        :error -> Application.delete_env(:guardian, :allow_query_api_key)
-      end
-    end
+    Guardian.TestEnv.with_env([allow_query_api_key: allowed?], fun)
   end
 end

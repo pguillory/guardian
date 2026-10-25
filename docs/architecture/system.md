@@ -1555,7 +1555,12 @@ released NIF resources), waits for a call queued at a suspended process
 appends a nested row straight to a segment (`segment_append/2`), writes a segment file
 from rows (`write_segment_file/2`), and registers a
 one-call fake segment to inject an append's reply (`intercept_append/2`), and
-`Guardian.TestCluster.data_root/0` gives a peer a fresh data directory. Tests do not use
+`Guardian.TestCluster.data_root/0` gives a peer a fresh data directory.
+`Guardian.TestEnv` (in `libtest/guardian/`) puts `:guardian` application env for an
+`async: false` test, on this node or on named peers, and restores it when the test or a
+block ends; `with_time_limit/2`, `Guardian.QueryApiKeys.with_query_api_keys/2`,
+`Guardian.RulesTestHelper.put_env/2`
+and `Guardian.CounterBudgetHelper.relax/1` delegate to it. Tests do not use
 `:global` names: `Guardian.Query.DistributedStream.ClusterTest` suspends `:global` and checks on
 teardown that it still registers names. A bare `assert_receive` waits up to 5 s
 (`assert_receive_timeout` in `test/test_helper.exs`), not ExUnit's 100 ms, so tests

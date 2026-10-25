@@ -24,25 +24,6 @@ defmodule Guardian.CounterBudgetHelper do
   that restores them earlier, for a test whose later phases are about budgets.
   """
   def relax(peers \\ []) do
-    restores =
-      for node <- [node() | peers] do
-        previous = :erpc.call(node, Application, :fetch_env, [:guardian, @context])
-        :ok = :erpc.call(node, Application, :put_env, [:guardian, @context, @relaxed])
-        fn -> restore(node, previous) end
-      end
-
-    restore_all = fn -> Enum.each(restores, & &1.()) end
-    ExUnit.Callbacks.on_exit(restore_all)
-    restore_all
-  end
-
-  defp restore(node, previous) do
-    case previous do
-      {:ok, value} -> :erpc.call(node, Application, :put_env, [:guardian, @context, value])
-      :error -> :erpc.call(node, Application, :delete_env, [:guardian, @context])
-    end
-  catch
-    # A peer the test already stopped needs no restore.
-    _, _ -> :ok
+    Guardian.TestEnv.put([{@context, @relaxed}], [node() | peers])
   end
 end

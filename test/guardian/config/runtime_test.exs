@@ -240,7 +240,7 @@ defmodule Guardian.Config.RuntimeTest do
     System.put_env("GUARDIAN_API_KEY", @key)
     System.put_env("GUARDIAN_COUNTER_MEMORY_MB", "2")
     budget = get_in(read_runtime_config(), [:guardian, :counter_memory_budget_bytes])
-    Guardian.RulesTestHelper.put_env(:counter_memory_budget_bytes, budget)
+    Guardian.TestEnv.put(counter_memory_budget_bytes: budget)
     store = start_supervised!({Guardian.Counters.Store, name: nil})
     assert {:ok, %{memory_budget_bytes: 2_097_152}} = Guardian.Counters.Store.stats(server: store)
   end

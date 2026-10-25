@@ -47,8 +47,10 @@ defmodule Guardian.ObjectStore.S3Test do
   end
 
   test "S3 failures are classified by kind", %{s3: s3, store: store} do
-    put_env(:object_store_s3_receive_timeout_ms, 200)
-    put_env(:object_store_s3_write_deadline_ms, 300)
+    Guardian.TestEnv.put(
+      object_store_s3_receive_timeout_ms: 200,
+      object_store_s3_write_deadline_ms: 300
+    )
 
     Guardian.FakeS3.fault(s3, {:status, 503})
     assert ObjectStore.list(store) == {:error, {:unreachable, "HTTP 503"}}
@@ -91,18 +93,6 @@ defmodule Guardian.ObjectStore.S3Test do
       ~s(<?xml version="1.0"?><!DOCTYPE a [<!ENTITY e "x">]><ListBucketResult>&e;</ListBucketResult>)
 
     assert catch_exit(S3.parse_list(body, ""))
-  end
-
-  defp put_env(key, value) do
-    previous = Application.fetch_env(:guardian, key)
-    Application.put_env(:guardian, key, value)
-
-    on_exit(fn ->
-      case previous do
-        {:ok, value} -> Application.put_env(:guardian, key, value)
-        :error -> Application.delete_env(:guardian, key)
-      end
-    end)
   end
 
   test "a listing stops after max_list_pages pages", %{s3: s3} do

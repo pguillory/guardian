@@ -58,15 +58,7 @@ defmodule Guardian.RulesTestHelper do
 
   @doc "Puts app env for a test, restoring the previous value when it exits."
   def put_env(key, value) do
-    previous = Application.fetch_env(:guardian, key)
-    Application.put_env(:guardian, key, value)
-
-    on_exit(fn ->
-      case previous do
-        {:ok, value} -> Application.put_env(:guardian, key, value)
-        :error -> Application.delete_env(:guardian, key)
-      end
-    end)
+    Guardian.TestEnv.put([{key, value}])
   end
 
   def unique_table(prefix) do
