@@ -398,6 +398,11 @@ and no single request that takes the service down or destroys stored data.
    SET/UNSET failures remain fail closed. Arrival coordinates are captured before
    validation, outside caller-writable fields, and are never automatically stored.
    Runner holds the shared failed-wait budget outside replaceable workers.
+   Compiled dependency levels batch counters through per-key machines. Store
+   pipelines contain at most 4,000 operations and check the queued deadline before
+   each. Owner calls reserve independently and run concurrently; pending owners
+   wait for refunds within the same event deadline. Pipeline errors retain the
+   whole-statement default and no-rollback policy; no uncertain write is replayed.
    `Counters.Cluster` routes native terms to one owner through the fully trusted Erlang
    distribution boundary (section 6), without another API or authorization layer.
    It captures connected members without readiness RPCs. Calls are bounded at

@@ -203,6 +203,21 @@ defmodule Rules.CounterPlanTest do
            )
   end
 
+  test "levels sort independent statements by location while retaining greedy flat metadata" do
+    p =
+      plan(%{
+        "t/a.gsql" => "TRACK a = count() BY z LAST '1h'",
+        "t/b.gsql" => "TRACK b = count() BY y LAST '1h'",
+        "t/y.gsql" => "SET y = raw_y",
+        "t/z.gsql" => "SET z = raw_z",
+      })
+
+    assert Enum.map(p.steps, & &1.field) == ["y", "b", "z", "a"]
+
+    assert Enum.map(p.levels, fn level -> Enum.map(level, & &1.field) end) ==
+             [["y", "z"], ["a", "b"]]
+  end
+
   test "identical TRACK copies deduplicate and conflicts use the shared namespace" do
     files = %{
       "t/a.gsql" => "TRACK c = count(*) LAST '1h'",

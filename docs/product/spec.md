@@ -388,9 +388,10 @@ Running:
 2. WHERE applies a statement only when it is true; false or null leaves the field as
    sent.
 3. LOOKUPs and the SETs their inputs require run first, then remaining SETs/TRACKs in
-   dependency order, then every UNSET. A statement reading a field another statement
-   defines runs after it; a self-read sees the incoming field. Independent statements
-   use file-name then statement order. A LOOKUP input or WHERE cannot depend, even
+   dependency levels, then every UNSET. A statement reading a field another statement
+   defines runs after it; a self-read sees the incoming field. Within a level, scalar
+   work finishes before independent counters run together; their results are applied
+   in file-name then statement order. A LOOKUP input or WHERE cannot depend, even
    through SETs, on a TRACK output. All of an event's LOOKUP reads precede its TRACK
    updates, so LOOKUP of that counter sees 49 when TRACK sees 50. Other events may
    update between reads: this is a per-event barrier, not a global snapshot.

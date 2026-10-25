@@ -17,3 +17,42 @@ defmodule CounterClusterHelper do
     end
   end
 end
+
+defmodule CounterPipelineProbe do
+  @moduledoc false
+  use GenServer
+
+  def start_link(observer), do: GenServer.start_link(__MODULE__, observer, name: __MODULE__)
+
+  def start(observer) do
+    caller = self()
+
+    spawn(fn ->
+      send(caller, {:probe_started, GenServer.start_link(__MODULE__, observer, name: __MODULE__)})
+      Process.sleep(:infinity)
+    end)
+
+    receive do
+      {:probe_started, result} -> result
+    end
+  end
+
+  def init(observer), do: {:ok, observer}
+
+  def handle_call({:operation, _deadline, {:batch, ops}}, _from, observer) do
+    send(observer, {:pipeline, node(), self(), ops})
+
+    receive do
+      :release ->
+        results =
+          Enum.map(ops, fn
+            {:get, {_, _, bucket}} -> {:ok, bucket}
+            _ -> {:ok, 1}
+          end)
+
+        {:reply, {:ok, results}, observer}
+    end
+  end
+
+  def handle_info(:release, observer), do: {:noreply, observer}
+end

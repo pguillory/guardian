@@ -36,6 +36,314 @@ defmodule Counters.ClusterTest do
 
   defp route({identity, group, _bucket}), do: {identity, group}
 
+  defp owned_key(owner, members) do
+    group =
+      Enum.find(1..10_000, fn n ->
+        CountersCluster.owner(route(key({n})), members) == owner
+      end)
+
+    key({group})
+  end
+
+  test "owner pipelines run concurrently, group every key, and refund healthy waits", %{
+    peer_node: peer,
+  } do
+    local = start_supervised!({CounterPipelineProbe, self()})
+    {:ok, remote} = :erpc.call(peer, CounterPipelineProbe, :start, [self()])
+
+    on_exit(fn ->
+      send(local, :release)
+      send(remote, :release)
+      :erpc.call(peer, GenServer, :stop, [remote])
+    end)
+
+    members = [node(), peer]
+
+    ops =
+      for owner <- members, bucket <- 1..4, into: %{} do
+        {identity, group, _} = owned_key(owner, members)
+        {{owner, bucket}, {:get, {identity, group, bucket}}}
+      end
+
+    batch = CountersCluster.new_batch()
+
+    task =
+      Task.async(fn ->
+        context =
+          CountersCluster.new_event(batch,
+            store: CounterPipelineProbe,
+            members: members,
+            cooldown_table: :counter_cluster_test
+          )
+
+        CountersCluster.batch(ops, context)
+      end)
+
+    assert_receive {:pipeline, one, first, first_ops}
+    assert_receive {:pipeline, two, second, second_ops}
+    assert one != two
+    assert length(first_ops) == 4
+    assert length(second_ops) == 4
+    send(first, :release)
+    send(second, :release)
+
+    assert Task.await(task) ==
+             Map.new(ops, fn {id, {:get, {_, _, bucket}}} ->
+               {id, {:ok, bucket}}
+             end)
+
+    assert :atomics.get(batch, 1) == 250_000
+
+    # One available reservation queues the second owner. Its absolute write expiry
+    # must be checked after the first owner refunds, not when the round was built.
+    [earlier, later] = Enum.sort(members)
+    limited = CountersCluster.new_batch()
+    :atomics.put(limited, 1, 50_000)
+    expiry = System.monotonic_time(:millisecond) + 10
+
+    task =
+      Task.async(fn ->
+        context =
+          CountersCluster.new_event(limited,
+            store: CounterPipelineProbe,
+            members: members,
+            cooldown_table: :counter_cluster_test
+          )
+
+        CountersCluster.batch(
+          %{
+            first: {:get, owned_key(earlier, members)},
+            expired: {:incr, owned_key(later, members), 1, {:expires, expiry}},
+          },
+          context
+        )
+      end)
+
+    assert_receive {:pipeline, ^earlier, waiting, _}
+    Process.sleep(15)
+    send(waiting, :release)
+    assert Task.await(task) == %{first: {:ok, 1}, expired: {:error, :expired}}
+    refute_receive {:pipeline, _, _, _}, 10
+    assert :atomics.get(limited, 1) == 50_000
+
+    limited = CountersCluster.new_batch()
+    :atomics.put(limited, 1, 20_000)
+
+    task =
+      Task.async(fn ->
+        context =
+          CountersCluster.new_event(limited,
+            store: CounterPipelineProbe,
+            members: members,
+            cooldown_table: :counter_cluster_test
+          )
+
+        CountersCluster.batch(
+          %{
+            first: {:get, owned_key(earlier, members)},
+            pending: {:get, owned_key(later, members)},
+          },
+          context
+        )
+      end)
+
+    assert_receive {:pipeline, ^earlier, stalled, [_]}
+    assert Task.await(task) == %{first: {:error, :timeout}, pending: {:error, :budget_exhausted}}
+    send(stalled, :release)
+    assert :atomics.get(limited, 1) < 10_000
+    refute_receive {:pipeline, _, _, _}, 10
+    TestHelpers.eventually(fn -> counter_helpers() == [] end)
+    assert {:messages, []} = Process.info(self(), :messages)
+  end
+
+  test "pending healthy owners use refunds, even with more than five owners or a spent budget", %{
+    peer_node: peer,
+  } do
+    extra = for _ <- 1..4, do: TestCluster.start_peer(nil)
+    on_exit(fn -> Enum.each(extra, fn {controller, _} -> :peer.stop(controller) end) end)
+    members = [node(), peer | Enum.map(extra, &elem(&1, 1))]
+    start_supervised!({Store, name: :counter_pipeline_store}, id: :counter_pipeline_store)
+
+    for member <- tl(members),
+        do:
+          assert(
+            {:ok, _} =
+              :erpc.call(member, CounterClusterHelper, :start_store, [
+                [name: :counter_pipeline_store],
+              ])
+          )
+
+    for allowance <- [250_000, 50_000] do
+      batch = CountersCluster.new_batch()
+      :atomics.put(batch, 1, allowance)
+      ops = for owner <- members, into: %{}, do: {owner, {:get, owned_key(owner, members)}}
+
+      context =
+        CountersCluster.new_event(batch,
+          store: :counter_pipeline_store,
+          members: members,
+          cooldown_table: :counter_cluster_test
+        )
+
+      assert CountersCluster.batch(ops, context) == Map.new(members, &{&1, :not_found})
+      assert :atomics.get(batch, 1) == allowance
+    end
+
+    # A later refund must release pending work while the earliest owner is blocked.
+    local = start_supervised!({CounterPipelineProbe, self()})
+
+    probes =
+      Map.new(tl(members), fn member ->
+        {:ok, pid} = :erpc.call(member, CounterPipelineProbe, :start, [self()])
+        {member, pid}
+      end)
+      |> Map.put(node(), local)
+
+    on_exit(fn ->
+      Enum.each(probes, fn {_, pid} -> send(pid, :release) end)
+      :erpc.call(peer, GenServer, :stop, [probes[peer]])
+    end)
+
+    ops = Map.new(members, &{&1, {:get, owned_key(&1, members)}})
+
+    task =
+      Task.async(fn ->
+        context = event(CounterPipelineProbe, members: members)
+        CountersCluster.batch(ops, context)
+      end)
+
+    started =
+      for _ <- 1..5 do
+        assert_receive {:pipeline, member, _, [_]}
+        member
+      end
+
+    sorted = Enum.sort(members)
+    assert Enum.sort(started) == Enum.take(sorted, 5)
+    later = Enum.at(sorted, 4)
+    send(probes[later], :release)
+    sixth = List.last(sorted)
+    assert_receive {:pipeline, ^sixth, _, [_]}
+    Enum.each(probes, fn {member, pid} -> if member != later, do: send(pid, :release) end)
+    assert Task.await(task) == Map.new(members, &{&1, {:ok, 1}})
+    TestHelpers.eventually(fn -> counter_helpers() == [] end)
+    assert {:messages, []} = Process.info(self(), :messages)
+    :erpc.call(peer, GenServer, :stop, [:counter_pipeline_store])
+  end
+
+  test "one stalled owner does not lose another owner's results or leak queued mutations", %{
+    peer_node: peer,
+  } do
+    local = start_supervised!({Store, name: :counter_partial_store}, id: :counter_partial_store)
+
+    {:ok, remote} =
+      :erpc.call(peer, CounterClusterHelper, :start_store, [[name: :counter_partial_store]])
+
+    members = [node(), peer]
+    local_key = owned_key(node(), members)
+    remote_key = owned_key(peer, members)
+    :ok = :erpc.call(peer, :sys, :suspend, [remote])
+
+    try do
+      context = event(:counter_partial_store, members: members)
+
+      results =
+        CountersCluster.batch(
+          %{local: {:incr, local_key, 1, 5_000}, remote: {:incr, remote_key, 1, 5_000}},
+          context
+        )
+
+      assert results == %{local: {:ok, 1}, remote: {:error, :timeout}}
+      assert :atomics.get(context.batch, 1) in 200_000..225_000
+      assert Store.get(local_key, server: local) == {:ok, 1}
+      assert [{^peer, _}] = :ets.lookup(:counter_cluster_test, peer)
+      assert :ets.lookup(:counter_cluster_test, node()) == []
+
+      assert CountersCluster.batch(
+               %{remote: {:get, remote_key}},
+               event(:counter_partial_store, members: members)
+             ) == %{remote: {:error, :cooldown}}
+
+      # A translated remote deadline may outlive the caller by transit time.
+      TestHelpers.await_queued_call(remote, node: peer)
+      Process.sleep(55)
+    after
+      :erpc.call(peer, :sys, :resume, [remote])
+    end
+
+    assert :erpc.call(peer, Store, :get, [remote_key, [server: remote]]) == :not_found
+    :erpc.call(peer, GenServer, :stop, [remote])
+    TestHelpers.eventually(fn -> counter_helpers() == [] end)
+    assert {:messages, []} = Process.info(self(), :messages)
+  end
+
+  test "batch caller death terminates every owner helper and retains reservations", %{
+    store: store,
+  } do
+    :sys.suspend(store)
+    batch = CountersCluster.new_batch()
+
+    caller =
+      spawn(fn ->
+        context =
+          CountersCluster.new_event(batch,
+            store: store,
+            members: [node()],
+            cooldown_table: :counter_cluster_test
+          )
+
+        CountersCluster.batch(%{a: {:incr, key(), 1, 5_000}}, context)
+      end)
+
+    try do
+      TestHelpers.await_queued_call(store)
+      helpers = counter_helpers()
+      Process.exit(caller, :kill)
+      TestHelpers.eventually(fn -> Enum.all?(helpers, &(not Process.alive?(&1))) end)
+      assert :atomics.get(batch, 1) in 200_000..249_999
+      # A dispatched call can survive its caller. Leave it queued past its own deadline.
+      Process.sleep(55)
+    after
+      :sys.resume(store)
+    end
+
+    assert Store.get(key(), server: store) == :not_found
+  end
+
+  test "malformed pipeline replies are charged consistently and never escape as exceptions" do
+    responses = [
+      {:ok, []},
+      {:ok, [:not_found | :improper]},
+      {:error, "private"},
+      {:ok, [{:error, "private"}]},
+    ]
+
+    for {response, index} <- Enum.with_index(responses) do
+      store =
+        start_supervised!(
+          {Task,
+           fn ->
+             receive do
+               {:"$gen_call", from, _} ->
+                 Process.sleep(2)
+                 GenServer.reply(from, response)
+             end
+
+             Process.sleep(:infinity)
+           end},
+          id: {:malformed, index}
+        )
+
+      context = event(store)
+
+      assert CountersCluster.batch(%{a: {:get, key()}}, context) ==
+               %{a: {:error, :invalid_response}}
+
+      assert :atomics.get(context.batch, 1) < 250_000
+      assert :ets.lookup(:counter_cluster_test, node()) == []
+    end
+  end
+
   test "canonical rendezvous is order-independent, typed, and only moves to an added member" do
     members = [:a@host, :b@host, :c@host]
 

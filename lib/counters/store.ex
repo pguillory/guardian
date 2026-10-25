@@ -43,6 +43,9 @@ defmodule Counters.Store do
 
   def gets(key, opts \\ []), do: request({:gets, key}, opts)
 
+  @doc "Pipelines up to 4,000 operations, checking the queued deadline before each."
+  def batch(operations, opts \\ []), do: request({:batch, operations}, opts)
+
   def cas(key, expected, value, ttl_ms, opts \\ []),
     do: request({:cas, key, expected, value, ttl_ms}, opts)
 
@@ -121,7 +124,7 @@ defmodule Counters.Store do
       if System.monotonic_time(:millisecond) >= deadline do
         {:reply, {:error, :timeout}, state}
       else
-        {reply, state} = execute(operation, state, state.clock.())
+        {reply, state} = execute_request(operation, state, deadline)
         {:reply, reply, state}
       end
     end)
@@ -146,6 +149,23 @@ defmodule Counters.Store do
     do: scrubbed(fn -> {:noreply, sweep(state, state.clock.(), @sweep_batch)} end)
 
   def handle_info(_message, state), do: {:noreply, state}
+
+  defp execute_request({:batch, operations}, state, deadline)
+       when is_list(operations) and length(operations) <= 4_000 do
+    {results, state} =
+      Enum.map_reduce(operations, state, fn operation, state ->
+        if System.monotonic_time(:millisecond) >= deadline do
+          {{:error, :timeout}, state}
+        else
+          execute(operation, state, state.clock.())
+        end
+      end)
+
+    {{:ok, results}, state}
+  end
+
+  defp execute_request(operation, state, _deadline),
+    do: execute(operation, state, state.clock.())
 
   defp execute({operation, key}, state, now) when operation in [:get, :gets] do
     {entry, state} = fetch(state, key, now)

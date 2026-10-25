@@ -9,6 +9,8 @@ explicit empty/invalid values refuse startup.
 
 `Counters.Store` owns private ETS tables for entries, insertion order and expiry.
 Its serialized get/get_many/gets/cas/incr operations are atomic on one node.
+`batch/2` pipelines up to 4,000 Store operations and checks the original queued
+deadline before each; a pipeline is ordered but is not a rollback transaction.
 Start it after Rules.Server and before Storage, independently of both. Store and
 Cluster run under Counters.Supervisor, owned by a trapping Counters.Restarter.
 Exhausting the subtree's restart intensity stops only counters; its owner logs a
@@ -81,6 +83,16 @@ Storage readiness calls. Remote endpoints call only the owner's local store.
    restarts, eviction and uncertain writes can lose or split counts. The remote
    endpoint uses the existing cookie-authenticated, fully trusted distribution
    boundary; it is not an HTTP endpoint or a new authorization mechanism.
+
+`Counters.Machine.run_nested/3` preserves counter/bucket nesting while executing
+every pending key machine together per round. `Counters.KeyMachines` implements
+read, incr and gets/merge/CAS response callbacks. Machine errors remain errors:
+missing keys alone default at the bucket layer; a failed bucket defaults the whole
+statement. Cluster batches by owner and dispatches concurrent pipelines. Pending
+owners wait for any completed call's reservation refund; cooldown, truly exhausted
+budgets or deadlines skip them. Charge failed waits once per pipeline using its
+completion timestamp. Recompute anchored mutation TTLs at actual pipeline dispatch,
+including after waiting for a reservation. Keep no get_many in this execution path.
 
 `Counters.Aggregate` is independent of store operations and query execution. Its
 fixed `{name, arity}` allowlist exposes create/merge/resolve/default. Every default

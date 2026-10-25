@@ -110,7 +110,8 @@ path        := identifier, dots allowed, no list boundaries ('..')
    that an UNSET removes (`SET has_card = card_number IS NOT NULL; UNSET
    card_number`). SETs run in dependency order (reads in the value and in WHERE
    both count): one that reads a field another SET writes runs after it.
-   Independent statements run in file-name then statement order. A SET that reads
+   Independent statements are grouped into dependency levels, with file-name then
+   statement order within each level. A SET that reads
    its own field reads the incoming value (`SET email = lower(email)`), and runs
    once however many files contain it.
 7. Rules run in a short-lived worker process with the query heap limit
@@ -345,6 +346,12 @@ hot-key sharding or replication. Separate best-effort same-node idempotency-key
 receipts can skip completed retries; this is not cluster-wide deduplication.
 
 ### Counter behavior
+
+Execution now batches dependency levels and key state machines through concurrent
+owner pipelines; see [counter-batching.md](counter-batching.md). Independent
+statements share levels; scalar work finishes before counter dispatch, including
+when an event later fails. Counter results, LOOKUP barriers and failure defaults
+below remain unchanged.
 
 1. TRACK updates its named counter and writes the resolved window value into the
    event under that name. A successful update includes the current event: the
@@ -784,9 +791,9 @@ The complete C4 contract:
    incoming fields. Reject cycles and any LOOKUP whose inputs or WHERE transitively
    depend on a TRACK output: that would require a TRACK before the LOOKUP barrier.
    Run LOOKUPs and their prerequisite SETs first, then remaining SETs/TRACKs in
-   dependency order, then all UNSETs. Independent order stays deterministic. SETs
+   dependency levels, then all UNSETs. Independent order within a level stays deterministic. SETs
    can use TRACK results (for example a blocking decision) and TRACKs can use SET
-   and LOOKUP results. An all-SET/UNSET table preserves its current ordering.
+   and LOOKUP results. All-SET/UNSET tables use the same dependency levels.
 3. Capture arrival metadata and membership at event entry, bind target definition
    hashes into immutable compiled plans, and include those hashes in recompile
    dependencies. Old in-flight modules keep their old identities; publishing a

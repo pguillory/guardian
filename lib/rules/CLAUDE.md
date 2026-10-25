@@ -17,7 +17,8 @@ Modules:
   Only resolved plans have `resolved?: true`.
 - `Rules.Step`: typed per-kind inputs and read derivation.
 - `Rules.Validation`: scalar, counter aggregate, interval and FROM checks.
-- `Rules.DependencyGraph`: deterministic field ordering.
+- `Rules.DependencyGraph`: deterministic flat ordering and dependency levels with
+  the explicit LOOKUP barrier. Resolved plans retain both; levels rebuild after binding.
 - `Rules.Resolution`: immutable target definitions and fixed-point invalidity.
 - `Rules.CounterDefinition`: immutable target metadata and window/bucket sizes.
 - `Rules.Activation`: pure coherent reload selection, used by Server.
@@ -26,12 +27,14 @@ Modules:
   plan for reload/restart recovery, bounded and reclaimed with the module pool.
   No rule text becomes code. Unresolved plans and unbound LOOKUPs cannot compile.
 - `Rules.Runtime`: the dispatcher called by generated modules (reads, SET, UNSET,
-  failures), threading a `Rules.RowIndex` through ordered typed steps. Internal
+  failures), threading a `Rules.RowIndex` through dependency levels. Internal
   TRACK/LOOKUP dispatch uses bound identities and aggregate defaults on failure.
 - `Rules.Event`: private Unix/monotonic arrival coordinates outside the row; Engine
   captures them before validation. Runner adds a per-event Cluster context on worker
   entry, sharing one batch atomics budget across replacement workers.
-- `Rules.CounterRuntime`: counter execution using Cluster and Aggregate.
+- `Rules.CounterRuntime`: expands each counter into bucket key machines and
+  combines their states chronologically after one shared run_nested per level.
+  Any failed bucket defaults its whole statement; missing buckets use empty states.
   Whole intersecting buckets bias reads toward overcount: floor((arrival-W)/B)
   through floor(arrival/B), B=ceil(W/3). Native count increments and generic
   gets/merge/CAS use their returned state, never a post-update read. Only definite

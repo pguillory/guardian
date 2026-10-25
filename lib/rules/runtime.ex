@@ -1,6 +1,6 @@
 defmodule Rules.Runtime do
   @moduledoc """
-  The ordered-step dispatcher called by compiled table modules, on one event's
+  The dependency-level dispatcher called by compiled table modules, on one event's
   flattened row (dot-notation keys, as Storage stores it).
 
   - Reads: a field the row lacks is null. Names match ignoring case: an exact key wins,
@@ -31,28 +31,62 @@ defmodule Rules.Runtime do
     end
   end
 
-  @doc "The row index the dispatcher threads through ordered statements."
+  @doc "The row index the dispatcher threads through dependency levels."
   def start(row), do: RowIndex.new(row)
 
   @doc "The row once every statement has run."
   def finish(%RowIndex{row: row}), do: row
 
   @doc false
-  def run(row, steps, %Rules.Event{} = event) do
-    steps
-    |> Enum.reduce(start(row), fn step, index ->
-      case step do
-        %Rules.Step.Set{} -> set(index, step)
-        %Rules.Step.Unset{} -> unset(index, step)
-        %Rules.Step.Track{} -> counter(index, step, event)
-        %Rules.Step.Lookup{} -> counter(index, step, event)
-      end
-    end)
+  def run(row, levels, %Rules.Event{} = event) do
+    levels
+    |> Enum.reduce(start(row), &level(&2, &1, event))
     |> finish()
   end
 
-  defp counter(index, step, event) do
+  defp level(index, steps, event) do
     index = RowIndex.ensure(index)
+    # Complete scalar work and prepare inputs before dispatching any counter.
+    {index, counters} =
+      Enum.reduce(steps, {index, []}, fn step, {index, counters} ->
+        case step do
+          %Rules.Step.Set{} -> {set(index, step), counters}
+          %Rules.Step.Unset{} -> {unset(index, step), counters}
+          _ -> {index, [prepare_counter(index, step, event) | counters]}
+        end
+      end)
+
+    counters = Enum.reverse(counters)
+    results = run_counters(counters, event)
+
+    Enum.zip(counters, results)
+    |> Enum.reduce(index, fn
+      {{_step, _machines, :skip}, _}, index ->
+        index
+
+      {{step, _machines, definition}, results}, index ->
+        value =
+          counter_guard(step, definition, fn ->
+            Rules.CounterRuntime.combine(definition.operator, results)
+          end)
+
+        RowIndex.put_field(index, step.field, value)
+    end)
+  end
+
+  defp run_counters(counters, event) do
+    Counters.Machine.run_nested(Enum.map(counters, &elem(&1, 1)), event.counters)
+  catch
+    kind, reason ->
+      failure = Engine.failure_kind(kind, reason, __STACKTRACE__)
+
+      Enum.map(counters, fn {step, machines, definition} ->
+        if definition != :skip and machines != [], do: note_failure(step.file, step.line, failure)
+        Enum.map(machines, fn _ -> {:error, :unavailable} end)
+      end)
+  end
+
+  defp prepare_counter(index, step, event) do
     definition = counter_definition(step)
 
     try do
@@ -61,25 +95,33 @@ defmodule Rules.Runtime do
       if applies?(context, step.where_expr) do
         group = step.by_exprs |> Enum.map(&Query.Evaluation.eval(context, &1)) |> List.to_tuple()
 
-        value =
+        machines =
           case step do
             %Rules.Step.Track{} ->
               values = Enum.map(step.aggregate_expr.args, &Query.Evaluation.eval(context, &1))
-              Rules.CounterRuntime.track(definition, group, values, event)
+              Rules.CounterRuntime.expand_track(definition, group, values, event)
 
             %Rules.Step.Lookup{} ->
-              Rules.CounterRuntime.lookup(definition, group, event)
+              Rules.CounterRuntime.expand_lookup(definition, group, event)
           end
 
-        RowIndex.put_field(index, step.field, value)
+        {step, machines, definition}
       else
-        index
+        {step, [], :skip}
       end
     catch
       kind, reason ->
         note_failure(step.file, step.line, Engine.failure_kind(kind, reason, __STACKTRACE__))
-        RowIndex.put_field(index, step.field, Rules.CounterRuntime.missing(definition.operator))
+        {step, [], definition}
     end
+  end
+
+  defp counter_guard(step, definition, fun) do
+    fun.()
+  catch
+    kind, reason ->
+      note_failure(step.file, step.line, Engine.failure_kind(kind, reason, __STACKTRACE__))
+      Rules.CounterRuntime.missing(definition.operator)
   end
 
   defp counter_definition(%Rules.Step.Track{} = step),

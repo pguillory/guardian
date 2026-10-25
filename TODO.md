@@ -79,6 +79,11 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
              shared event/batch budgets; both counter gates remain closed
            3. [x] C4c3: enable both gates together, live counter reload/restart and
              HTTP/MCP return_keys coverage, memory config and full feature docs
+- [x] counter-batching: run dependency levels through nested key state machines,
+      with concurrent owner pipelines and existing fail-open budgets
+      (`docs/changes/counter-batching.md`)
+- [ ] counter-capacity-reclamation: move full expiry reclamation and oldest-half
+      eviction out of the synchronous write turn while preserving the memory budget
 - [x] rules-open-questions: the failure and invalid-at-boot defaults are confirmed
       and their switches (`:rules_on_failure`, `:rules_invalid_at_boot`) removed
 - [x] rules-server-redaction: Rules.Server's formatted status and crash reports

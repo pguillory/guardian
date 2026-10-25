@@ -336,7 +336,7 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    boot, reload and both sides of write admission. Local candidates have `resolved?: false`; only successful
    whole-set resolution marks them ready for compilation.
 2. Compilation: `Rules.Compiler` turns a plan into a module from a fixed template,
-   calling `Rules.Runtime.run/3` with ordered typed steps as escaped literals
+   calling `Rules.Runtime.run/3` with dependency levels of typed steps as escaped literals
    (expressions run through the scalar evaluator, `Query.Eval` on an event map). Names
    come from a pool of 1,024 (`Rules.Compiled.M0`...), so atoms are bounded.
    Compiler independently refuses unresolved candidates and LOOKUPs without bound
@@ -417,7 +417,11 @@ stored historical output fields. No later rule/storage failure rolls back update
 One GenServer owns a private ETS set of values and reference CAS tokens, plus
 ordered indexes of insertion order and expiry. It serializes get, gets, CAS and
 increment operations, including create-if-missing CAS and create-on-increment.
-get_many reads up to four keys in one turn. A successful mutation renews the key's
+The legacy get_many API reads up to four keys in one turn. Store.batch pipelines
+up to 4,000 Store operations, checking the original queued deadline before each.
+Cluster pipelines restrict these to get/gets/incr/cas; Store also retains its
+legacy get_many and stats operations.
+A successful mutation renews the key's
 positive millisecond TTL and replaces its token. Reads do neither; expiry is
 checked before access and a periodic sweep removes up to 256 expired keys per turn.
 A turn with more expired entries schedules its next page immediately, interleaving
@@ -449,8 +453,24 @@ provides owner routing for TRACK/LOOKUP. It takes
 one connected-member snapshot per event, without Storage readiness RPCs, then
 chooses the highest SHA-256 rendezvous score for `{identity, group}` and node name.
 Its explicit typed encoding is independent of Erlang external-term format and
-preserves integer/float and signed-zero distinctions. All buckets share one owner;
-up to four bucket reads fit one Store turn. Remote operations call Store directly
+preserves integer/float and signed-zero distinctions. All buckets share one owner.
+Each dependency level expands its counter statements into bucket key machines;
+`Counters.Machine.run_nested/3` runs them together in batched rounds and restores
+the per-counter result lists. `Counters.KeyMachines` supplies read, native incr,
+and gets/merge/CAS callbacks. Buckets combine oldest to newest, resolving once;
+any failed bucket defaults its whole statement. LOOKUP ancestors and LOOKUP levels
+drain before any TRACK level. Scalar work finishes before a level dispatches, and
+UNSETs remain last. Resolved plans retain both levels and flat metadata steps.
+
+Each round groups operations by owner into one Store.batch pipeline per owner;
+owners run concurrently within the reservation budget. Pending owners wait for
+any completed pipeline's refund instead of defaulting while allowances are merely
+reserved. With a small remaining allowance, a slow owner can delay pending owners
+until it completes or times out. A pipeline with any failed operation except CAS
+conflict charges one
+owner wait, using its completion timestamp; healthy pipelines refund fully.
+Anchored bucket expiries become decreasing TTLs when each pipeline dispatches.
+Remote operations call Store directly
 on that owner, preserving terms and CAS references, never re-routing or failing
 over to another owner. Booting or older peers without the endpoint fail open.
 

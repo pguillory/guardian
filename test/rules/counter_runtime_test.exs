@@ -36,7 +36,7 @@ defmodule Rules.CounterRuntimeTest do
     plans(%{"#{table}/r.gsql" => source}) |> Map.fetch!(table)
   end
 
-  defp run(plan, row, event), do: Runtime.run(row, plan.steps, event)
+  defp run(plan, row, event), do: Runtime.run(row, plan.levels, event)
 
   defp definition(plan),
     do: plan.steps |> Enum.find(&(&1.kind == :track)) |> Rules.CounterDefinition.from_track()
@@ -86,6 +86,31 @@ defmodule Rules.CounterRuntimeTest do
       assert run(plans[read], %{"x" => value, "y" => "b"}, event(store))["prior"] == 1
       assert run(plans[read], %{"x" => "b", "y" => value}, event(store))["prior"] == 0
     end
+  end
+
+  test "initial counter levels index case-insensitive and absent inputs once", %{store: store} do
+    grouped = plan("TRACK hits = count() BY ip LAST '1h'")
+    assert run(grouped, %{"IP" => "a"}, event(store))["hits"] == 1
+    assert run(grouped, %{"ip" => "a"}, event(store))["hits"] == 2
+    assert run(grouped, %{}, event(store))["hits"] == 1
+    assert run(grouped, %{"IP" => nil}, event(store))["hits"] == 2
+
+    conditional = plan("TRACK hits = count() WHERE enabled LAST '1h';
+      LOOKUP prior = hits WHERE enabled")
+
+    assert run(conditional, %{"hits" => 99, "prior" => 98}, event(store)) ==
+             %{"hits" => 99, "prior" => 98}
+
+    assert Map.take(run(conditional, %{"ENABLED" => true}, event(store)), ~w(hits prior)) ==
+             %{"hits" => 1, "prior" => 0}
+
+    aggregates = plan("TRACK present = count(v) LAST '1h'; TRACK total = sum(v) LAST '1h'")
+
+    assert Map.take(run(aggregates, %{"V" => 3}, event(store)), ~w(present total)) ==
+             %{"present" => 1, "total" => 3}
+
+    assert Map.take(run(aggregates, %{}, event(store)), ~w(present total)) ==
+             %{"present" => 1, "total" => 3}
   end
 
   test "all operators merge windows and use their own missing results", %{store: store} do
@@ -261,8 +286,149 @@ defmodule Rules.CounterRuntimeTest do
     def start_link(handler), do: GenServer.start_link(__MODULE__, handler)
     def init(handler), do: {:ok, handler}
 
+    def handle_call(
+          {:operation, _deadline, {:batch, operations}},
+          _from,
+          {:pipeline, handler} = state
+        ),
+        do: {:reply, handler.(operations), state}
+
+    def handle_call({:operation, _deadline, {:batch, operations}}, _from, handler),
+      do: {:reply, {:ok, Enum.map(operations, handler)}, handler}
+
     def handle_call({:operation, _deadline, operation}, _from, handler),
       do: {:reply, handler.(operation), handler}
+  end
+
+  test "each dependency level batches every counter and bucket into the longest machine's rounds" do
+    parent = self()
+
+    store =
+      start_supervised!(
+        {ProbeStore,
+         {:pipeline,
+          fn operations ->
+            send(parent, {:pipeline_ops, operations})
+
+            {:ok,
+             Enum.map(operations, fn
+               {:get, _} -> :not_found
+               {:gets, _} -> :not_found
+               {:incr, _, _, _} -> {:ok, 1}
+               {:cas, _, _, _, _} -> :ok
+             end)}
+          end}}
+      )
+
+    plan =
+      plan("""
+      TRACK c = count() BY group_key LAST '1h';
+      TRACK total = sum(v) LAST '1h';
+      TRACK next_value = sum(c) LAST '1h';
+      SET decision = next_value > 0;
+      LOOKUP prior = c BY group_key;
+      SET group_key = normalized;
+      SET normalized = lower(ip);
+      UNSET secret
+      """)
+
+    assert Enum.map(plan.levels, fn level -> Enum.map(level, & &1.field) end) ==
+             [
+               ["normalized"],
+               ["group_key"],
+               ["prior"],
+               ["c", "total"],
+               ["next_value"],
+               ["decision"],
+               ["secret"],
+             ]
+
+    row = run(plan, %{"ip" => "A", "v" => 5, "secret" => "private"}, event(store))
+
+    assert Map.take(row, ~w(prior c total next_value decision)) ==
+             %{"prior" => 0, "c" => 1, "total" => 5, "next_value" => 1, "decision" => true}
+
+    refute Map.has_key?(row, "secret")
+
+    rounds =
+      for _ <- 1..5 do
+        assert_receive {:pipeline_ops, operations}
+        operations
+      end
+
+    assert Enum.map(rounds, &length/1) == [4, 8, 1, 4, 1]
+    assert Enum.all?(hd(rounds), &match?({:get, _}, &1))
+    assert Enum.count(Enum.at(rounds, 1), &match?({:incr, _, _, _}, &1)) == 1
+    assert Enum.count(Enum.at(rounds, 1), &match?({:gets, _}, &1)) == 1
+    refute_receive {:pipeline_ops, _}, 10
+  end
+
+  test "a scalar failure prevents all dispatch for its level" do
+    parent = self()
+
+    store =
+      start_supervised!(
+        {ProbeStore,
+         {:pipeline,
+          fn operations ->
+            send(parent, {:unexpected, operations})
+            {:ok, []}
+          end}}
+      )
+
+    plan = plan("TRACK hits = count() LAST '1h'; SET bad = test_raise(v)")
+
+    ExUnit.CaptureLog.capture_log(fn ->
+      assert_raise Runtime.Failure, fn -> run(plan, %{"v" => "private"}, event(store)) end
+    end)
+
+    refute_receive {:unexpected, _}, 10
+  end
+
+  test "one counter expression failure does not prevent its sibling's dispatch", %{store: store} do
+    plan = plan("TRACK bad = sum(test_raise(v)) LAST '1h';
+      TRACK good = count() LAST '1h'; UNSET secret")
+
+    ExUnit.CaptureLog.capture_log(fn ->
+      assert run(plan, %{"v" => "private", "secret" => "private"}, event(store)) ==
+               %{"v" => "private", "bad" => nil, "good" => 1}
+    end)
+  end
+
+  test "unexpected infrastructure exceptions default the level and still run final UNSET", %{
+    store: store,
+  } do
+    plan = plan("TRACK hits = count() LAST '1h'; TRACK total = sum(v) LAST '1h';
+      SET safe = hits = 0; UNSET secret")
+    context = event(store)
+    context = %{context | counters: %{context.counters | batch: :invalid_budget_handle}}
+
+    ExUnit.CaptureLog.capture_log(fn ->
+      assert run(plan, %{"v" => "private", "secret" => "private"}, context) ==
+               %{"v" => "private", "hits" => 0, "total" => nil, "safe" => true}
+    end)
+
+    assert {:messages, []} = Process.info(self(), :messages)
+  end
+
+  test "bucket merging remains chronological and retains the newest numeric tie type", %{
+    store: store,
+  } do
+    for operator <- ["min", "max"] do
+      definition = definition(plan("TRACK extreme = #{operator}(v) LAST '1h'"))
+      context = event(store)
+      current = Integer.floor_div(context.arrival_ms, definition.bucket_ms)
+
+      assert :ok =
+               Store.cas({definition.identity, {}, current - 1}, :missing, 1.0, 5_000,
+                 server: store
+               )
+
+      assert CounterRuntime.track(definition, {}, [1], context) === 1
+
+      assert CounterRuntime.lookup(definition, {}, context) === 1
+      assert CounterRuntime.track(definition, {}, [1.0], event(store)) === 1.0
+    end
   end
 
   test "CAS conflicts have three total attempts and uncertain writes are never retried" do
@@ -275,8 +441,8 @@ defmodule Rules.CounterRuntimeTest do
           {ProbeStore,
            fn operation ->
              case operation do
-               {:get_many, keys} ->
-                 {:ok, Enum.map(keys, fn _ -> :not_found end)}
+               {:get, _} ->
+                 :not_found
 
                {:gets, _} ->
                  :not_found
@@ -313,8 +479,8 @@ defmodule Rules.CounterRuntimeTest do
       start_supervised!(
         {ProbeStore,
          fn
-           {:get_many, keys} ->
-             {:ok, Enum.map(keys, fn _ -> :not_found end)}
+           {:get, _} ->
+             :not_found
 
            {:gets, _} ->
              {:ok, if(Agent.get(attempt, & &1) == 0, do: 3, else: 5), make_ref()}
@@ -334,7 +500,7 @@ defmodule Rules.CounterRuntimeTest do
     assert Agent.get(attempt, & &1) == 2
   end
 
-  test "any failed read defaults the whole result, without issuing an increment" do
+  test "a failed bucket defaults the whole result even when its parallel writer succeeds" do
     definition = definition(plan("TRACK hits = count() LAST '1h'"))
     parent = self()
 
@@ -343,13 +509,17 @@ defmodule Rules.CounterRuntimeTest do
         {ProbeStore,
          fn operation ->
            send(parent, operation)
-           {:error, :evicted}
+
+           case operation do
+             {:get, _} -> {:error, :evicted}
+             {:incr, _, _, _} -> {:ok, 99}
+           end
          end}
       )
 
     assert CounterRuntime.track(definition, {}, [], event(store)) == 0
-    assert_receive {:get_many, _}
-    refute_receive {:incr, _, _, _}, 10
+    assert_receive {:get, _}
+    assert_receive {:incr, _, _, _}
   end
 
   test "TTL uses fixed expiry and decreases with elapsed private monotonic time" do
@@ -360,8 +530,8 @@ defmodule Rules.CounterRuntimeTest do
       start_supervised!(
         {ProbeStore,
          fn
-           {:get_many, keys} ->
-             {:ok, Enum.map(keys, fn _ -> :not_found end)}
+           {:get, _} ->
+             :not_found
 
            {:incr, _, _, ttl} ->
              send(parent, {:ttl, ttl})
@@ -405,7 +575,7 @@ defmodule Rules.CounterRuntimeTest do
            send(parent, operation)
 
            case operation do
-             {:get_many, keys} -> {:ok, Enum.map(keys, fn _ -> {:ok, 2} end)}
+             {:get, _} -> {:ok, 2}
              {:gets, _} -> {:ok, 3, :token}
              {:cas, _, :token, 8, _} -> :ok
            end
@@ -419,15 +589,15 @@ defmodule Rules.CounterRuntimeTest do
         Integer.floor_div(context.arrival_ms - definition.window_ms, definition.bucket_ms)
 
     assert CounterRuntime.track(definition, {}, [5], context) == 8 + 2 * expected_prior
-    assert_receive {:get_many, _}
+    for _ <- 1..expected_prior, do: assert_receive({:get, _})
     assert_receive {:gets, _}
     assert_receive {:cas, _, :token, 8, _}
     refute_receive {:gets, _}, 10
-    refute_receive {:get_many, _}, 10
+    refute_receive {:get, _}, 10
   end
 
-  test "a slow read cannot dispatch a mutation after fixed expiry" do
-    definition = definition(plan("TRACK hits = count() LAST '1s'"))
+  test "a slow gets cannot dispatch a CAS after fixed expiry" do
+    definition = definition(plan("TRACK hits = sum(v) LAST '1s'"))
     parent = self()
 
     store =
@@ -437,32 +607,35 @@ defmodule Rules.CounterRuntimeTest do
            send(parent, operation)
 
            case operation do
-             {:get_many, keys} ->
-               Process.sleep(60)
-               {:ok, Enum.map(keys, fn _ -> {:ok, 4} end)}
+             {:get, _} ->
+               :not_found
 
-             {:incr, _, _, _} ->
-               {:ok, 99}
+             {:gets, _} ->
+               Process.sleep(25)
+               :not_found
+
+             {:cas, _, _, _, _} ->
+               :ok
            end
          end}
       )
 
-    # At Unix 0 the fixed expiry is 1334 ms later; leave 40 ms now.
+    # At Unix 0 the fixed expiry is 1334 ms later; leave 15 ms now.
     arrival = %{
       Event.arrival()
       | arrival_ms: 0,
-        monotonic_ms: System.monotonic_time(:millisecond) - 1_294,
+        monotonic_ms: System.monotonic_time(:millisecond) - 1_319,
     }
 
     assert CounterRuntime.track(
              definition,
              {},
-             [],
+             [5],
              event(store, Counters.Cluster.new_batch(), arrival)
-           ) == 0
+           ) == nil
 
-    assert_receive {:get_many, _}
-    refute_receive {:incr, _, _, _}, 10
+    assert_receive {:gets, _}
+    refute_receive {:cas, _, _, _, _}, 10
   end
 
   test "healthy large batches refund the budget and include every event", %{store: store} do
@@ -495,11 +668,12 @@ defmodule Rules.CounterRuntimeTest do
     store =
       start_supervised!(
         {ProbeStore,
-         fn {:get_many, _} ->
-           send(parent, :dispatched)
-           Process.sleep(15)
-           {:error, :evicted}
-         end}
+         {:pipeline,
+          fn operations ->
+            send(parent, :dispatched)
+            Process.sleep(15)
+            {:ok, Enum.map(operations, fn _ -> {:error, :evicted} end)}
+          end}}
       )
 
     plan =
@@ -508,7 +682,7 @@ defmodule Rules.CounterRuntimeTest do
     batch = Counters.Cluster.new_batch()
     started = System.monotonic_time(:millisecond)
 
-    for _ <- 1..8 do
+    for _ <- 1..25 do
       row = run(plan, %{"secret" => "PRIVATE"}, event(store, batch))
       assert map_size(row) == 40
       assert Enum.all?(row, fn {_field, value} -> value == 0 end)

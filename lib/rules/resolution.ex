@@ -51,8 +51,18 @@ defmodule Rules.Resolution do
       end)
 
     case errors do
-      [] -> {:ok, %{plan | steps: steps, hash: hash(plan.hash, steps), resolved?: true}}
-      _ -> {:error, errors}
+      [] ->
+        {:ok,
+         %{
+           plan
+           | steps: steps,
+             levels: Rules.DependencyGraph.levels(steps),
+             hash: hash(plan.hash, steps),
+             resolved?: true,
+         }}
+
+      _ ->
+        {:error, errors}
     end
   end
 

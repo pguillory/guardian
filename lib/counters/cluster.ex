@@ -50,6 +50,189 @@ defmodule Counters.Cluster do
   def incr(key, delta, ttl_ms, event),
     do: request({:incr, key, delta, ttl_ms}, [key], event)
 
+  @doc "Runs indexed operations in concurrent owner pipelines within the shared budgets."
+  def batch(operations, event) when is_map(operations) do
+    {groups, errors} =
+      Enum.reduce(operations, {%{}, %{}}, fn {id, operation}, {groups, errors} ->
+        case operation_owner(operation, event.members) do
+          {:ok, owner} ->
+            {Map.update(groups, owner, [{id, operation}], &[{id, operation} | &1]), errors}
+
+          error ->
+            {groups, Map.put(errors, id, error)}
+        end
+      end)
+
+    pending = groups |> Enum.sort() |> Enum.map(fn {owner, ops} -> {owner, Enum.reverse(ops)} end)
+    pipelines(pending, %{}, errors, event)
+  end
+
+  defp operation_owner(operation, members) do
+    with true <- is_tuple(operation) and tuple_size(operation) in [2, 4, 5],
+         kind when kind in [:get, :gets, :incr, :cas] <- elem(operation, 0),
+         {:ok, routing} <- routing_key([elem(operation, 1)]) do
+      {:ok, owner(routing, members)}
+    else
+      _ -> {:error, :invalid_request}
+    end
+  rescue
+    _ -> {:error, :invalid_request}
+  end
+
+  defp pipelines(pending, running, results, event) do
+    {pending, running, results} = dispatch(pending, running, results, event)
+
+    try do
+      if map_size(running) == 0 do
+        Enum.reduce(pending, results, fn {_, ops}, results ->
+          put_results(results, ops, {:error, :budget_exhausted})
+        end)
+      else
+        {reply, result, completed} = await_pipeline(running)
+        handle = Map.fetch!(running, reply)
+        cleanup_call(handle)
+        result = normalize_pipeline(result, length(handle.operations))
+
+        accounting =
+          case result do
+            {:ok, responses} -> {:pipeline, responses}
+            other -> other
+          end
+
+        settle(accounting, handle.owner, event, handle.started, handle.reserved, completed)
+
+        results =
+          case result do
+            {:ok, responses} ->
+              Enum.zip(handle.operations, responses)
+              |> Enum.reduce(results, fn {{id, _}, response}, acc ->
+                Map.put(acc, id, response)
+              end)
+
+            {:error, _} = error ->
+              put_results(results, handle.operations, error)
+          end
+
+        pipelines(pending, Map.delete(running, reply), results, event)
+      end
+    catch
+      kind, reason ->
+        Enum.each(running, fn {_, handle} -> cleanup_call(handle) end)
+        :erlang.raise(kind, reason, __STACKTRACE__)
+    end
+  end
+
+  defp dispatch([], running, results, _event), do: {[], running, results}
+
+  defp dispatch(pending, running, results, event) do
+    try do
+      dispatch_owner(pending, running, results, event)
+    catch
+      kind, reason ->
+        Enum.each(running, fn {_, handle} -> cleanup_call(handle) end)
+        :erlang.raise(kind, reason, __STACKTRACE__)
+    end
+  end
+
+  defp dispatch_owner([{owner, operations} | rest] = pending, running, results, event) do
+    if available?(event.cooldown_table, owner) do
+      started = now()
+
+      case reserve(event.batch, min(event.timeout_us, event.deadline - started)) do
+        :exhausted ->
+          {pending, running, results}
+
+        reserved ->
+          {operations, results} = prepare_operations(operations, results)
+
+          if operations == [] do
+            :atomics.add(event.batch, 1, reserved)
+            dispatch(rest, running, results, event)
+          else
+            handle =
+              start_call(
+                owner,
+                {:batch, Enum.map(operations, &elem(&1, 1))},
+                event.store,
+                started + reserved
+              )
+
+            handle =
+              Map.merge(handle, %{
+                owner: owner,
+                operations: operations,
+                started: started,
+                reserved: reserved,
+              })
+
+            dispatch(rest, Map.put(running, handle.reply, handle), results, event)
+          end
+      end
+    else
+      dispatch(rest, running, put_results(results, operations, {:error, :cooldown}), event)
+    end
+  end
+
+  # Pending owners may wait for a reservation refund. Translate anchored expiries
+  # only when their pipeline is about to dispatch, never when it first queues.
+  defp prepare_operations(operations, results) do
+    {ready, results} =
+      Enum.reduce(operations, {[], results}, fn {id, op}, {ready, results} ->
+        case prepare_operation(op) do
+          {:ok, op} -> {[{id, op} | ready], results}
+          error -> {ready, Map.put(results, id, error)}
+        end
+      end)
+
+    {Enum.reverse(ready), results}
+  end
+
+  defp prepare_operation({:incr, key, delta, {:expires, expiry}}),
+    do: mutation(expiry, fn ttl -> {:incr, key, delta, ttl} end)
+
+  defp prepare_operation({:cas, key, token, value, {:expires, expiry}}),
+    do: mutation(expiry, fn ttl -> {:cas, key, token, value, ttl} end)
+
+  defp prepare_operation(op), do: {:ok, op}
+
+  defp mutation(expiry, build) do
+    ttl = expiry - System.monotonic_time(:millisecond)
+    if ttl > 0, do: {:ok, build.(ttl)}, else: {:error, :expired}
+  end
+
+  defp await_pipeline(running) do
+    deadline = running |> Map.values() |> Enum.map(& &1.deadline) |> Enum.min()
+    monitors = Map.new(running, fn {reply, handle} -> {handle.monitor, reply} end)
+
+    receive do
+      {reply, result, completed} when is_map_key(running, reply) ->
+        {reply, result, completed}
+
+      {:DOWN, monitor, :process, _, _} when is_map_key(monitors, monitor) ->
+        {Map.fetch!(monitors, monitor), {:error, :unavailable}, now()}
+    after
+      remaining_ms(deadline) ->
+        {reply, _} = Enum.min_by(running, fn {_, handle} -> handle.deadline end)
+        {reply, {:error, :timeout}, now()}
+    end
+  end
+
+  defp normalize_pipeline({:ok, responses}, count)
+       when is_list(responses) and length(responses) == count,
+       do: {:ok, Enum.map(responses, &normalize_response/1)}
+
+  defp normalize_pipeline({:error, reason} = error, _count) when is_atom(reason), do: error
+  defp normalize_pipeline(_, _count), do: {:error, :invalid_response}
+
+  defp normalize_response(response) when response in [:ok, :not_found], do: response
+  defp normalize_response({:ok, _} = response), do: response
+  defp normalize_response({:ok, _, _} = response), do: response
+  defp normalize_response({:error, reason} = response) when is_atom(reason), do: response
+  defp normalize_response(_), do: {:error, :invalid_response}
+
+  defp put_results(results, operations, error),
+    do: Enum.reduce(operations, results, fn {id, _}, acc -> Map.put(acc, id, error) end)
+
   @doc "Rendezvous owner of {identity, group}; membership order never matters."
   def owner(routing_key, members) when is_list(members) and members != [] do
     encoded = encode(routing_key)
@@ -106,12 +289,15 @@ defmodule Counters.Cluster do
 
       reserved ->
         result = bounded_call(owner, operation, event.store, started + reserved)
-        elapsed = max(0, now() - started)
-        charged = if failed?(result), do: min(reserved, elapsed), else: 0
-        :atomics.add(event.batch, 1, reserved - charged)
-        if suspect?(result, reserved), do: suspect(event.cooldown_table, owner)
+        settle(result, owner, event, started, reserved, now())
         result
     end
+  end
+
+  defp settle(result, owner, event, started, reserved, completed) do
+    charged = if failed?(result), do: min(reserved, max(0, completed - started)), else: 0
+    :atomics.add(event.batch, 1, reserved - charged)
+    if suspect?(result, reserved), do: suspect(event.cooldown_table, owner)
   end
 
   defp reserve(_batch, allowance) when allowance < @minimum_us, do: :exhausted
@@ -130,31 +316,45 @@ defmodule Counters.Cluster do
   # The guard never sends over distribution. Its linked worker may be blocked in
   # distribution flow control, so either caller timeout or caller death kills both.
   defp bounded_call(owner, operation, store, deadline) do
+    handle = start_call(owner, operation, store, deadline)
+
+    try do
+      receive do
+        {reply, result, _} when reply == handle.reply ->
+          result
+
+        {:DOWN, monitor, :process, guard, _}
+        when monitor == handle.monitor and guard == handle.guard ->
+          {:error, :unavailable}
+      after
+        remaining_ms(deadline) -> {:error, :timeout}
+      end
+    after
+      cleanup_call(handle)
+    end
+  end
+
+  defp start_call(owner, operation, store, deadline) do
     caller = self()
     reply = :erlang.alias()
 
     {guard, monitor} =
       spawn_monitor(fn -> guard(caller, reply, owner, operation, store, deadline) end)
 
-    try do
-      receive do
-        {^reply, result} -> result
-        {:DOWN, ^monitor, :process, ^guard, _} -> {:error, :unavailable}
-      after
-        remaining_ms(deadline) -> {:error, :timeout}
-      end
-    after
-      :erlang.unalias(reply)
-      cleanup_monitor = Process.monitor(guard)
-      Process.exit(guard, :kill)
+    %{reply: reply, guard: guard, monitor: monitor, deadline: deadline}
+  end
 
-      receive do
-        {:DOWN, ^cleanup_monitor, :process, ^guard, _} -> :ok
-      end
+  defp cleanup_call(%{reply: reply, guard: guard, monitor: monitor}) do
+    :erlang.unalias(reply)
+    cleanup_monitor = Process.monitor(guard)
+    Process.exit(guard, :kill)
 
-      Process.demonitor(monitor, [:flush])
-      flush(reply)
+    receive do
+      {:DOWN, ^cleanup_monitor, :process, ^guard, _} -> :ok
     end
+
+    Process.demonitor(monitor, [:flush])
+    flush(reply)
   end
 
   defp guard(caller, reply, owner, operation, store, deadline) do
@@ -182,7 +382,7 @@ defmodule Counters.Cluster do
       end
     end
 
-    send(reply, {reply, result})
+    send(reply, {reply, result, now()})
   end
 
   defp invoke(owner, operation, store, deadline) do
@@ -226,6 +426,7 @@ defmodule Counters.Cluster do
       {:get_many, keys} -> Counters.Store.get_many(keys, opts)
       {:cas, key, token, value, ttl} -> Counters.Store.cas(key, token, value, ttl, opts)
       {:incr, key, delta, ttl} -> Counters.Store.incr(key, delta, ttl, opts)
+      {:batch, operations} -> Counters.Store.batch(operations, opts)
       _ -> {:error, :invalid_request}
     end
   catch
@@ -233,10 +434,15 @@ defmodule Counters.Cluster do
   end
 
   defp failed?({:error, :conflict}), do: false
+  defp failed?({:pipeline, results}), do: Enum.any?(results, &failed?/1)
   defp failed?({:error, _}), do: true
   defp failed?(_), do: false
   defp suspect?({:error, :timeout}, allowance), do: allowance >= 25_000
   defp suspect?({:error, :unavailable}, _), do: true
+
+  defp suspect?({:pipeline, results}, allowance),
+    do: Enum.any?(results, &suspect?(&1, allowance))
+
   defp suspect?(_, _), do: false
 
   defp available?(table, owner) do
@@ -323,7 +529,7 @@ defmodule Counters.Cluster do
 
   defp flush(reply) do
     receive do
-      {^reply, _} -> flush(reply)
+      {^reply, _, _} -> flush(reply)
     after
       0 -> :ok
     end

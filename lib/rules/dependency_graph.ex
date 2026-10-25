@@ -10,17 +10,44 @@ defmodule Rules.DependencyGraph do
   def order(steps) do
     deps = dependencies(steps)
 
-    first_phase =
-      steps
-      |> Enum.filter(&(&1.kind == :lookup))
-      |> Enum.reduce(MapSet.new(), fn step, acc ->
-        MapSet.union(acc, ancestors(step.field, deps, MapSet.new()))
-      end)
+    first_phase = lookup_ancestors(steps, deps)
 
     ordered =
       Enum.sort_by(steps, &{if(&1.field in first_phase, do: 0, else: 1), &1.file, &1.index})
 
     order(ordered, deps, [])
+  end
+
+  @doc "Dependency levels, draining LOOKUP ancestors before any TRACK and UNSETs last."
+  def levels(steps) do
+    {unsets, steps} = Enum.split_with(steps, &(&1.kind == :unset))
+    deps = dependencies(steps)
+
+    first = lookup_ancestors(steps, deps)
+
+    {lookups, rest} = Enum.split_with(steps, &(&1.field in first))
+    {before, deps} = levels(lookups, deps, [])
+    {afterwards, _} = levels(rest, deps, [])
+    before ++ afterwards ++ Enum.map(unsets, &[&1])
+  end
+
+  defp lookup_ancestors(steps, deps) do
+    steps
+    |> Enum.filter(&(&1.kind == :lookup))
+    |> Enum.reduce(MapSet.new(), fn step, acc ->
+      MapSet.union(acc, ancestors(step.field, deps, MapSet.new()))
+    end)
+  end
+
+  defp levels([], deps, acc), do: {Enum.reverse(acc), deps}
+
+  defp levels(pending, deps, acc) do
+    {ready, waiting} = Enum.split_with(pending, &(MapSet.size(Map.fetch!(deps, &1.field)) == 0))
+    if ready == [], do: raise(ArgumentError, "cyclic rule levels")
+    ready = Enum.sort_by(ready, &{&1.file, &1.index})
+    fields = MapSet.new(ready, & &1.field)
+    deps = Map.new(deps, fn {field, reads} -> {field, MapSet.difference(reads, fields)} end)
+    levels(waiting, deps, [ready | acc])
   end
 
   @doc "LOOKUPs whose input expressions transitively read TRACK outputs on this table."

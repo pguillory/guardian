@@ -1,13 +1,13 @@
 defmodule Rules.Compiler do
   @moduledoc """
   Compiles one table's resolved `Rules.Plan` into a generated module with `apply/2`,
-  which runs the table's statements in order on a flattened row and returns the new
+  which runs the table's dependency levels on a flattened row and returns the new
   row. `plan/0` recovers the exact immutable plan for reload selection after a
   Server restart. Metadata lives and is reclaimed with its bounded pool module.
   Unresolved candidates return `:unresolved_plan`; a LOOKUP without a bound target
   returns `:unbound_lookup`. `apply/1` creates a fresh event and batch context.
 
-  The module body comes only from the fixed template below: ordered typed steps
+  The module body comes only from the fixed template below: dependency levels of typed steps
   are escaped as literal data for `Rules.Runtime.run/3`. No rule text
   becomes code. Expressions are evaluated by the query engine's scalar evaluator;
   generating native code per expression is a later optimization. AST literals hold
@@ -53,7 +53,7 @@ defmodule Rules.Compiler do
         def apply(row), do: __MODULE__.apply(row, Rules.Event.new())
 
         def apply(row, event) do
-          Rules.Runtime.run(row, unquote(Macro.escape(plan.steps)), event)
+          Rules.Runtime.run(row, unquote(Macro.escape(plan.levels)), event)
         end
       end
 
