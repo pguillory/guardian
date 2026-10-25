@@ -156,9 +156,15 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] timestamp-offsets: time arithmetic and epoch conversion accept only UTC
       `YYYY-MM-DD HH:MM:SS`; numeric offsets and other formats give null
       (`docs/changes/timestamp-offsets.md`)
-- [ ] timestamp-arithmetic-helper: consolidate date_add/date_sub's duplicated
-      bounds and arithmetic with shared timestamp-to-seconds validation, avoiding
-      double parsing and exception-based invalid-input handling (code review follow-up)
+- [x] timestamp-arithmetic-helper: share timestamp readers and date_add/date_sub's
+      bounded arithmetic without double parsing or changing caller acceptance
+      (`docs/changes/timestamp-arithmetic-helper.md`)
+- [ ] timestamp-to-seconds-nonraising: expose nonraising epoch conversion so
+      ToSeconds can avoid catch-based invalid-input handling while preserving the
+      existing raising utility API (code review follow-up)
+- [ ] format-timestamp-names-nonraising: return null for unknown month/hour names
+      without exception-based lookup, preserving terminal cap and invalid-name
+      behavior (code review follow-up)
 - [x] regex-on-re-drop-jq: `replace()` with growing or overlapping matches aborted the
       VM in the Hyperscan NIF; regular expressions now run on `:re` with backtracking
       limits, and jq() and the Hyperscan and libjq dependencies are gone

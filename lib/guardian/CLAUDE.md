@@ -80,8 +80,13 @@ a single user next to that user instead.
   Callers keep their logging and catch/reraise policies; caller-facing query
   messages belong to `Guardian.Query.Failure` instead.
 - `Guardian.Timestamp.now/0` is UTC, formatted `YYYY-MM-DD HH:MM:SS`.
+  `read/1` splits the loose 10-byte date, space, 8-byte time shape used by `date(ts)`.
+  `read_fields/1` layers canonical separator checks on it for formatting and strict
+  parsing; both readers retain raw field bytes without validating their contents.
   `Guardian.Timestamp.from_string/1` and `to_seconds/1` accept only that exact UTC
   format: no `T`, `Z`, fractional seconds or numeric offsets. They validate calendar
-  fields and years 0000 to 9999.
+  fields and years 0000 to 9999. `shift/2` shares strict parsing and integer-second
+  arithmetic for date addition/subtraction, returning nil on invalid input or a
+  result outside those inclusive year bounds.
 
 Utility changes should include focused unit tests.

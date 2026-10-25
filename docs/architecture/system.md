@@ -960,6 +960,10 @@ lazy right-operand evaluation in their nodes. The policy lives beside the existi
 map/native machinery so operand representation and native eligibility have one
 owner, without depending on the AST operator or scalar function modules.
 
+`Guardian.Timestamp` layers raw date/time reading, canonical field reading and
+strict calendar parsing, and owns bounded epoch arithmetic for date addition and
+subtraction; each caller keeps its own acceptance rules and null results.
+
 ### 5.6 Regular expressions
 
 `Guardian.Query.Regex` is the one place patterns are compiled and run, on Erlang's `:re`

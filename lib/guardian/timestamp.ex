@@ -1,32 +1,31 @@
 defmodule Guardian.Timestamp do
-  defmacro match(opts \\ []) do
-    underscore =
-      quote do
-        _
-      end
+  @earliest NaiveDateTime.diff(~N[0000-01-01 00:00:00], ~N[1970-01-01 00:00:00])
+  @latest NaiveDateTime.diff(~N[9999-12-31 23:59:59], ~N[1970-01-01 00:00:00])
 
-    {year, opts} = Keyword.pop_first(opts, :year, underscore)
-    {month, opts} = Keyword.pop_first(opts, :month, underscore)
-    {day, opts} = Keyword.pop_first(opts, :day, underscore)
-    {hour, opts} = Keyword.pop_first(opts, :hour, underscore)
-    {minute, opts} = Keyword.pop_first(opts, :minute, underscore)
-    {second, opts} = Keyword.pop_first(opts, :second, underscore)
-    [] = opts
+  @doc """
+  Reads a raw 10-byte date and 8-byte time separated by a space. No other
+  separators, digits, calendar fields or UTF-8 bytes are validated.
+  """
+  def read(<<date::binary-size(10), " ", time::binary-size(8)>>) do
+    {:ok, {date, time}}
+  end
 
-    quote do
-      <<
-        unquote(year)::binary-size(4),
-        "-",
-        unquote(month)::binary-size(2),
-        "-",
-        unquote(day)::binary-size(2),
-        " ",
-        unquote(hour)::binary-size(2),
-        ":",
-        unquote(minute)::binary-size(2),
-        ":",
-        unquote(second)::binary-size(2)
-      >>
+  def read(_) do
+    :error
+  end
+
+  @doc """
+  Reads the six raw binary fields of the exact `YYYY-MM-DD HH:MM:SS` shape.
+  Checks separators and byte lengths only; field contents need not be valid.
+  """
+  def read_fields(string) do
+    with {:ok,
+          {<<year::binary-size(4), "-", month::binary-size(2), "-", day::binary-size(2)>>,
+           <<hour::binary-size(2), ":", minute::binary-size(2), ":", second::binary-size(2)>>}} <-
+           read(string) do
+      {:ok, %{year: year, month: month, day: day, hour: hour, minute: minute, second: second}}
+    else
+      _ -> :error
     end
   end
 
@@ -63,18 +62,31 @@ defmodule Guardian.Timestamp do
     end
   end
 
-  # Require the canonical format before ISO parsing, which otherwise accepts alternatives.
-  defp parse(match() = string) do
-    case NaiveDateTime.from_iso8601(string) do
-      {:ok, naive_datetime} ->
-        {:ok, naive_datetime}
-
-      _ ->
-        :error
+  @doc """
+  Shifts a valid canonical UTC timestamp by integer seconds. Returns nil for
+  invalid input or a result outside years 0000 to 9999.
+  """
+  def shift(timestamp, delta) when is_binary(timestamp) and is_integer(delta) do
+    with {:ok, naive_datetime} <- parse(timestamp),
+         seconds when seconds >= @earliest and seconds <= @latest <-
+           NaiveDateTime.diff(naive_datetime, ~N[1970-01-01 00:00:00]) + delta do
+      from_seconds(seconds)
+    else
+      _ -> nil
     end
   end
 
-  defp parse(_) do
-    :error
+  def shift(_, _) do
+    nil
+  end
+
+  # Require the canonical shape before ISO parsing, which otherwise accepts alternatives.
+  defp parse(string) do
+    with {:ok, _fields} <- read_fields(string),
+         {:ok, naive_datetime} <- NaiveDateTime.from_iso8601(string) do
+      {:ok, naive_datetime}
+    else
+      _ -> :error
+    end
   end
 end

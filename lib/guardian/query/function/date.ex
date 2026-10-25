@@ -4,11 +4,10 @@ defmodule Guardian.Query.Function.Date do
     |> eval()
   end
 
-  def eval(<<date::binary-size(10), " ", _time::binary-size(8)>>) do
-    date
-  end
-
-  def eval(_) do
-    nil
+  def eval(timestamp) do
+    case Guardian.Timestamp.read(timestamp) do
+      {:ok, {date, _time}} -> date
+      :error -> nil
+    end
   end
 end

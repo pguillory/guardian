@@ -1,11 +1,12 @@
 defmodule Guardian.Query.Function.FormatTimestamp do
   alias Guardian.Timestamp
-  require Timestamp
 
-  # A field outside its range (month 13, hour 25: Guardian.Timestamp.match/0 checks only the
-  # shape) has no name to format: null.
-  def eval(Timestamp.match() = timestamp, format) when is_binary(format) do
-    eval_format(format, timestamp, "")
+  # Raw fields are intentional: only a requested month/hour name checks its range.
+  def eval(timestamp, format) when is_binary(format) do
+    case Timestamp.read_fields(timestamp) do
+      {:ok, fields} -> eval_format(format, fields, "")
+      :error -> nil
+    end
   rescue
     CaseClauseError -> nil
   end
@@ -14,110 +15,110 @@ defmodule Guardian.Query.Function.FormatTimestamp do
     nil
   end
 
-  defp eval_format("yyyy" <> format, timestamp, output) do
-    Timestamp.match(year: year) = timestamp
-    eval_format(format, timestamp, [output | year])
+  defp eval_format("yyyy" <> format, fields, output) do
+    year = fields.year
+    eval_format(format, fields, [output | year])
   end
 
-  defp eval_format("y" <> format, timestamp, output) do
-    Timestamp.match(year: year) = timestamp
+  defp eval_format("y" <> format, fields, output) do
+    year = fields.year
     year = String.trim_leading(year, "0")
-    eval_format(format, timestamp, [output | year])
+    eval_format(format, fields, [output | year])
   end
 
-  defp eval_format("MMMM" <> format, timestamp, output) do
-    Timestamp.match(month: month) = timestamp
+  defp eval_format("MMMM" <> format, fields, output) do
+    month = fields.month
     month = month_name(month)
-    eval_format(format, timestamp, [output | month])
+    eval_format(format, fields, [output | month])
   end
 
-  defp eval_format("MMM" <> format, timestamp, output) do
-    Timestamp.match(month: month) = timestamp
+  defp eval_format("MMM" <> format, fields, output) do
+    month = fields.month
     month = month_abbreviation(month)
-    eval_format(format, timestamp, [output | month])
+    eval_format(format, fields, [output | month])
   end
 
-  defp eval_format("MM" <> format, timestamp, output) do
-    Timestamp.match(month: month) = timestamp
-    eval_format(format, timestamp, [output | month])
+  defp eval_format("MM" <> format, fields, output) do
+    month = fields.month
+    eval_format(format, fields, [output | month])
   end
 
-  defp eval_format("M" <> format, timestamp, output) do
-    Timestamp.match(month: month) = timestamp
+  defp eval_format("M" <> format, fields, output) do
+    month = fields.month
     month = String.trim_leading(month, "0")
-    eval_format(format, timestamp, [output | month])
+    eval_format(format, fields, [output | month])
   end
 
-  defp eval_format("dd" <> format, timestamp, output) do
-    Timestamp.match(day: day) = timestamp
-    eval_format(format, timestamp, [output | day])
+  defp eval_format("dd" <> format, fields, output) do
+    day = fields.day
+    eval_format(format, fields, [output | day])
   end
 
-  defp eval_format("d" <> format, timestamp, output) do
-    Timestamp.match(day: day) = timestamp
+  defp eval_format("d" <> format, fields, output) do
+    day = fields.day
     day = String.trim_leading(day, "0")
-    eval_format(format, timestamp, [output | day])
+    eval_format(format, fields, [output | day])
   end
 
-  defp eval_format("hh" <> format, timestamp, output) do
-    Timestamp.match(hour: hour) = timestamp
-    eval_format(format, timestamp, [output | hour])
+  defp eval_format("hh" <> format, fields, output) do
+    hour = fields.hour
+    eval_format(format, fields, [output | hour])
   end
 
-  defp eval_format("h" <> format, timestamp, output) do
-    Timestamp.match(hour: hour) = timestamp
+  defp eval_format("h" <> format, fields, output) do
+    hour = fields.hour
     hour = String.trim_leading(hour, "0")
-    eval_format(format, timestamp, [output | hour])
+    eval_format(format, fields, [output | hour])
   end
 
-  defp eval_format("mm" <> format, timestamp, output) do
-    Timestamp.match(minute: minute) = timestamp
-    eval_format(format, timestamp, [output | minute])
+  defp eval_format("mm" <> format, fields, output) do
+    minute = fields.minute
+    eval_format(format, fields, [output | minute])
   end
 
-  defp eval_format("m" <> format, timestamp, output) do
-    Timestamp.match(minute: minute) = timestamp
+  defp eval_format("m" <> format, fields, output) do
+    minute = fields.minute
     minute = String.trim_leading(minute, "0")
-    eval_format(format, timestamp, [output | minute])
+    eval_format(format, fields, [output | minute])
   end
 
-  defp eval_format("ss" <> format, timestamp, output) do
-    Timestamp.match(second: second) = timestamp
-    eval_format(format, timestamp, [output | second])
+  defp eval_format("ss" <> format, fields, output) do
+    second = fields.second
+    eval_format(format, fields, [output | second])
   end
 
-  defp eval_format("s" <> format, timestamp, output) do
-    Timestamp.match(second: second) = timestamp
+  defp eval_format("s" <> format, fields, output) do
+    second = fields.second
     second = String.trim_leading(second, "0")
-    eval_format(format, timestamp, [output | second])
+    eval_format(format, fields, [output | second])
   end
 
-  defp eval_format("AM" <> format, timestamp, output) do
-    Timestamp.match(hour: hour) = timestamp
-    eval_format(format, timestamp, [output | am_pm_upper(hour)])
+  defp eval_format("AM" <> format, fields, output) do
+    hour = fields.hour
+    eval_format(format, fields, [output | am_pm_upper(hour)])
   end
 
-  defp eval_format("PM" <> format, timestamp, output) do
-    Timestamp.match(hour: hour) = timestamp
-    eval_format(format, timestamp, [output | am_pm_upper(hour)])
+  defp eval_format("PM" <> format, fields, output) do
+    hour = fields.hour
+    eval_format(format, fields, [output | am_pm_upper(hour)])
   end
 
-  defp eval_format("am" <> format, timestamp, output) do
-    Timestamp.match(hour: hour) = timestamp
-    eval_format(format, timestamp, [output | am_pm_lower(hour)])
+  defp eval_format("am" <> format, fields, output) do
+    hour = fields.hour
+    eval_format(format, fields, [output | am_pm_lower(hour)])
   end
 
-  defp eval_format("pm" <> format, timestamp, output) do
-    Timestamp.match(hour: hour) = timestamp
-    eval_format(format, timestamp, [output | am_pm_lower(hour)])
+  defp eval_format("pm" <> format, fields, output) do
+    hour = fields.hour
+    eval_format(format, fields, [output | am_pm_lower(hour)])
   end
 
-  defp eval_format(<<c::binary-size(1), format::binary>>, timestamp, output) do
-    eval_format(format, timestamp, [output | c])
+  defp eval_format(<<c::binary-size(1), format::binary>>, fields, output) do
+    eval_format(format, fields, [output | c])
   end
 
   # A long format can name more than the string cap holds.
-  defp eval_format("", _timestamp, output) do
+  defp eval_format("", _fields, output) do
     output |> IO.iodata_to_binary() |> Guardian.Query.Text.cap()
   end
 
