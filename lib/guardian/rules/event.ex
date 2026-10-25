@@ -11,10 +11,10 @@ defmodule Guardian.Rules.Event do
   end
 
   def start(%__MODULE__{} = arrival, batch, opts \\ []) do
-    %{arrival | counters: Guardian.Counters.Cluster.new_event(batch, opts)}
+    %{arrival | counters: Guardian.Counters.Client.new_event(batch, opts)}
   end
 
   def new do
-    start(arrival(), Guardian.Counters.Cluster.new_batch())
+    start(arrival(), Guardian.Counters.Client.new_batch())
   end
 end

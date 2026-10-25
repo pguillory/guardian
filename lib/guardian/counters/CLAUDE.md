@@ -47,20 +47,28 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    Successful writes return success even if housekeeping later evicts them.
 5. Operations check real monotonic deadlines; batch executes at most 4,000 operations
    in order, with a check before each, without rollback or a multi-key snapshot.
-   Cluster retains its wait budgets/cooldowns and never replays uncertain increments.
-   The internal {backend_module, server} Cluster store option supports transport
+   Budget retains its wait budgets/cooldowns and never replays uncertain increments.
+   The internal {backend_module, server} Client store option supports transport
    probes in libtest; production defaults to Store with no mailbox fallback.
 6. Return fixed errors; no key/value/exception logging. Housekeeping callback
    failures scrub stacks and reset the store. Status redacts state/messages/logs.
    Tests use a private injectable expiry clock, while deadlines use real time;
    fault injection pauses callers through a libtest clock gate, not the housekeeper.
 
-`Guardian.Counters.Cluster` routes `{identity, group_tuple, bucket}` keys with rendezvous
+`Guardian.Counters.Client` is the batched facade used by Rules and Machine. It
+creates the event deadline before snapshotting connected members. Internal
+`Guardian.Counters.Transport` routes `{identity, group_tuple, bucket}` keys with rendezvous
 hashing over identity and group only. Explicit tagged encoding preserves types
 (including integer/float and signed zero), supports JSON lists/maps and nested
 tuples, rejects other atoms/terms, and stays independent of ETF/OTP versions.
 Membership comes from this node plus connected peers, once per event, without
 Storage readiness calls. Remote endpoints call only the owner's local store.
+
+`Guardian.Counters.Budget` is supervised after Store and owns cooldown ETS lifecycle,
+reservations, deadlines and settlement. Its hot path uses atomics/ETS directly;
+Transport has no process. Client delegates batch dispatch to Transport, which calls
+Budget before dispatch and after normalized pipeline completion. Settlement unwraps
+the pipeline once; successful stored values are never inspected for errors.
 
 1. Keep `new_batch/0` outside replaceable workers; its atomics handle holds 250 ms
    of failed-call allowance. `new_event(batch)` snapshots members and starts a
@@ -79,7 +87,7 @@ Storage readiness calls. Remote endpoints call only the owner's local store.
    on membership changes and every second. Unavailability marks the owner for one
    second; timeout does so only with at least 25 ms allowance. Budget skips and
    definite errors never mark it. Cooldown fast-fail precedes reservation/dispatch.
-   Restarting Cluster clears cooldown; while absent, calls fail immediately.
+   Restarting Budget clears cooldown; while absent, calls fail immediately.
 5. These counters are ephemeral and advisory. Membership changes, partitions,
    restarts, eviction and uncertain writes can lose or split counts. The remote
    endpoint uses the existing cookie-authenticated, fully trusted distribution
@@ -89,12 +97,15 @@ Storage readiness calls. Remote endpoints call only the owner's local store.
 every pending key machine together per round. `Guardian.Counters.KeyMachines` implements
 read, incr and gets/merge/CAS response callbacks. Machine errors remain errors:
 missing keys alone default at the bucket layer; a failed bucket defaults the whole
-statement. Cluster batches by owner and dispatches concurrent pipelines. Pending
+statement. Transport batches by owner and dispatches concurrent pipelines. Pending
 owners wait for any completed call's reservation refund; cooldown, truly exhausted
 budgets or deadlines skip them. Charge failed waits once per pipeline using its
 completion timestamp. Recompute anchored mutation TTLs at actual pipeline dispatch,
-including after waiting for a reservation. Cluster exposes only batched operations;
-the remote endpoint accepts only owner pipelines. Store retains its local atomic primitives.
+including after waiting for a reservation. Client exposes only batched operations;
+the Transport remote endpoint accepts only owner pipelines. Its renamed RPC module
+requires all nodes to restart on the same build; mixed-version rolling deploys across
+this split are unsupported (`docs/changes/counter-client.md`). Store retains its
+local atomic primitives.
 
 Validated TRACK steps carry shared `Guardian.Aggregation` configurations into
 immutable counter definitions, bound LOOKUPs and key machines. The fixed

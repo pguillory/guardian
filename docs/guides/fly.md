@@ -59,6 +59,10 @@ peer calls can supply defaults until every machine runs the new build. Stored
 segments and rule files need no migration; see the
 [namespace compatibility audit](../changes/guardian-namespace.md).
 
+The [counter client split](../changes/counter-client.md) also renames a peer RPC
+module. Upgrade and restart every machine before relying on distributed counters;
+mixed-version peer calls fail open with owner cooldown.
+
 Later deploys run the same `fly deploy` command. With one machine, each deploy briefly
 stops ingestion, because the volume attaches to only one machine: the old release stops
 before the new one starts, so producers must retry. A new release that fails its health

@@ -33,7 +33,7 @@ defmodule Guardian.Rules.Runner do
 
   @doc false
   def run_with_metadata(table, rows) do
-    batch = Guardian.Counters.Cluster.new_batch()
+    batch = Guardian.Counters.Client.new_batch()
 
     rows
     |> Enum.with_index()

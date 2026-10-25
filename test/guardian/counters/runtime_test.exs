@@ -6,12 +6,12 @@ defmodule Guardian.Counters.RuntimeTest do
   @names [
     :counter_runtime_supervisor,
     :counter_runtime_store,
-    :counter_runtime_cluster,
+    :counter_runtime_budget,
   ]
   @counters [
     name: :counter_runtime_supervisor,
     store: [name: :counter_runtime_store],
-    cluster: [name: :counter_runtime_cluster],
+    budget: [name: :counter_runtime_budget],
   ]
 
   defp start_runtime(opts \\ []) do
@@ -51,7 +51,7 @@ defmodule Guardian.Counters.RuntimeTest do
     # old generation release every registered process/table name.
     eventually(fn ->
       Enum.all?(@names, &(Process.whereis(&1) == nil)) and
-        :ets.whereis(:counter_runtime_cluster) == :undefined
+        :ets.whereis(:counter_runtime_budget) == :undefined
     end)
   end
 
@@ -78,8 +78,8 @@ defmodule Guardian.Counters.RuntimeTest do
     subtree = Process.whereis(:counter_runtime_supervisor)
 
     for {failed, untouched} <- [
-          {:counter_runtime_store, :counter_runtime_cluster},
-          {:counter_runtime_cluster, :counter_runtime_store},
+          {:counter_runtime_store, :counter_runtime_budget},
+          {:counter_runtime_budget, :counter_runtime_store},
         ] do
       old = Process.whereis(failed)
       survivor = Process.whereis(untouched)
@@ -93,7 +93,7 @@ defmodule Guardian.Counters.RuntimeTest do
     end
   end
 
-  test "mixed Store/Cluster crash loops exhaust only the counter subtree, then recover" do
+  test "mixed Store/Budget crash loops exhaust only the counter subtree, then recover" do
     {root, owner, sibling} = start_runtime(initial_delay_ms: 30)
 
     previous_level = Logger.level()
@@ -107,9 +107,9 @@ defmodule Guardian.Counters.RuntimeTest do
       capture_log([level: :info], fn ->
         for name <- [
               :counter_runtime_store,
-              :counter_runtime_cluster,
+              :counter_runtime_budget,
               :counter_runtime_store,
-              :counter_runtime_cluster,
+              :counter_runtime_budget,
             ] do
           pid = Process.whereis(name)
           crash(pid)
@@ -149,15 +149,15 @@ defmodule Guardian.Counters.RuntimeTest do
         assert state.next_delay == 30_000
 
         event =
-          Guardian.Counters.Cluster.new_event(Guardian.Counters.Cluster.new_batch(),
+          Guardian.Counters.Client.new_event(Guardian.Counters.Client.new_batch(),
             members: [node()],
             store: :counter_runtime_store,
-            cooldown_table: :counter_runtime_cluster
+            cooldown_table: :counter_runtime_budget
           )
 
         key = {{"events", "hits", "hash"}, {}, 1}
 
-        assert Guardian.Counters.Cluster.batch(%{one: {:incr, key, 1, 1_000}}, event) ==
+        assert Guardian.Counters.Client.batch(%{one: {:incr, key, 1, 1_000}}, event) ==
                  %{one: {:error, :cooldown}}
 
         # Failed linked starts return a shutdown tuple and may deliver a stray EXIT.
@@ -273,7 +273,7 @@ defmodule Guardian.Counters.RuntimeTest do
     subtree = :sys.get_state(owner).subtree
 
     old_children =
-      for name <- [:counter_runtime_store, :counter_runtime_cluster], do: Process.whereis(name)
+      for name <- [:counter_runtime_store, :counter_runtime_budget], do: Process.whereis(name)
 
     # VM suspension keeps the old generation's names until we release it, even
     # though OTP would handle its parent's EXIT while merely sys-suspended.

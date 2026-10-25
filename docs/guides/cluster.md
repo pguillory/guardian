@@ -44,6 +44,10 @@ exchange module-bearing RPCs or terms: distributed queries can fail and unavaila
 counter peer calls supply defaults. Finish upgrading every node before relying on
 distributed operations. Stored segments and rule files need no migration.
 
+The [counter client split](../changes/counter-client.md) also renames a peer RPC
+module. Mixed-version rolling deploys across that change are unsupported: counter
+peer calls fail open with owner cooldown until every node runs the same build.
+
 ## Network security
 
 Keep epmd and the distribution port on a private network. Anyone who can reach them

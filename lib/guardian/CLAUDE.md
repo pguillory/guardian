@@ -20,7 +20,9 @@ prefix. Keep the Mix application and its configuration under `:guardian`.
 - `Guardian.Counters.Store`: node-local, ephemeral ETS get/gets/cas/incr store with TTLs and
   a memory budget (`lib/guardian/counters/CLAUDE.md`); TRACK/LOOKUP run through Rules using
   bounded owner routing and fail-open defaults.
-- `Guardian.Counters.Restarter`: owns the disposable Store/Cluster supervisor and recovers
+- `Guardian.Counters.Client`: facade for batched counter calls; internal Transport owns routing
+  and bounded dispatch, and supervised Budget owns reservations, deadlines and cooldowns.
+- `Guardian.Counters.Restarter`: owns the disposable Store/Budget supervisor and recovers
   it with backoff, so counter crash loops cannot exhaust Guardian.Application's restart intensity.
 - `Guardian.Storage`: custom columnar segment storage.
 - `Guardian.Query`: plans and executes SQL-like queries. `Guardian.Query.Limits` holds the per-query

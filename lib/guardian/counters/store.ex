@@ -11,7 +11,7 @@ defmodule Guardian.Counters.Store do
 
   Operations accept :server (registered name, PID or table reference), :timeout
   (50 ms by default) and a local monotonic-millisecond :deadline. Pipelines check
-  the deadline before every operation. Cluster bounds caller waits separately.
+  the deadline before every operation. Transport bounds caller waits separately.
   """
   use GenServer
   @default_budget 64 * 1024 * 1024

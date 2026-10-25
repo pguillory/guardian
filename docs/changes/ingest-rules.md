@@ -493,8 +493,9 @@ internal app setting; the user-facing environment setting belongs to C4.
 
 The original single-call client described below was superseded by owner pipelines
 in [counter-batching.md](counter-batching.md) and removed in
-[counter-retirement.md](counter-retirement.md). Native values, tokens and budgets
-retain the same contract through the batched endpoint.
+[counter-retirement.md](counter-retirement.md). The later split into Client,
+Transport and Budget is described in [counter-client.md](counter-client.md).
+Native values, tokens and budgets retain the same contract through the batched endpoint.
 
 Implemented as `Guardian.Counters.Cluster`. Product spec impact: none; no statements are
 enabled until C4. `new_batch/0` provides a shared atomics failure budget kept outside

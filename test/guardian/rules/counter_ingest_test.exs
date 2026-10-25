@@ -8,14 +8,14 @@ defmodule Guardian.Rules.CounterIngestTest do
   setup do
     # Named counter processes and cooldowns are shared; these tests are serial.
     assert Guardian.Counters.Supervisor.available?()
-    :ets.delete_all_objects(Guardian.Counters.Cluster)
+    :ets.delete_all_objects(Guardian.Counters.Budget)
 
     on_exit(fn ->
       if Process.whereis(Store) == nil,
         do: Supervisor.restart_child(Guardian.Counters.Supervisor, Store)
 
       assert Guardian.Counters.Supervisor.available?()
-      :ets.delete_all_objects(Guardian.Counters.Cluster)
+      :ets.delete_all_objects(Guardian.Counters.Budget)
     end)
 
     :ok
@@ -49,7 +49,7 @@ defmodule Guardian.Rules.CounterIngestTest do
 
   defp await_cooldown(owner) do
     Guardian.TestHelpers.eventually(fn ->
-      case :ets.lookup(Guardian.Counters.Cluster, owner) do
+      case :ets.lookup(Guardian.Counters.Budget, owner) do
         [] -> true
         [{_, until}] -> until <= System.monotonic_time(:microsecond)
       end
@@ -315,7 +315,7 @@ defmodule Guardian.Rules.CounterIngestTest do
       results = ingest(table, List.duplicate(%{"secret" => "private", "c1" => 99}, 100))
       assert Enum.all?(results, fn {:ok, row} -> row == Map.new(1..16, &{"c#{&1}", 0}) end)
       assert System.monotonic_time(:millisecond) - started < 1_500
-      assert [{_, _}] = :ets.lookup(Guardian.Counters.Cluster, node())
+      assert [{_, _}] = :ets.lookup(Guardian.Counters.Budget, node())
     after
       :ok = Guardian.CounterStoreProbe.resume(pause)
     end
@@ -352,7 +352,7 @@ defmodule Guardian.Rules.CounterIngestTest do
       ExUnit.CaptureLog.capture_log(fn ->
         for send_events <- [&http/1, &mcp("send_events", &1)] do
           # Exercise a real timeout for each interface, not the other's cooldown.
-          :ets.delete(Guardian.Counters.Cluster, node())
+          :ets.delete(Guardian.Counters.Budget, node())
 
           assert send_events.(args)["results"] == [
                    %{"success" => true, "event" => %{"hits" => 0, "secret" => nil}},
@@ -363,7 +363,7 @@ defmodule Guardian.Rules.CounterIngestTest do
     :ok = Guardian.CounterStoreProbe.resume(pause)
     refute log =~ marker
 
-    for process <- [Store, Guardian.Counters.Cluster, Guardian.Rules.Server] do
+    for process <- [Store, Guardian.Counters.Budget, Guardian.Rules.Server] do
       refute inspect(:sys.get_status(process), limit: :infinity, printable_limit: :infinity) =~
                marker
     end
@@ -385,13 +385,13 @@ defmodule Guardian.Rules.CounterIngestTest do
       if distributed, do: Node.stop()
     end)
 
-    assert {:ok, _} = :erpc.call(peer_node, Guardian.CounterClusterHelper, :start_store, [])
+    assert {:ok, _} = :erpc.call(peer_node, Guardian.CounterClientHelper, :start_store, [])
     identity = track(table).identity
 
     group =
       Enum.find(
         1..1_000,
-        &(Guardian.Counters.Cluster.owner({identity, {&1}}, [node(), peer_node]) == peer_node)
+        &(Guardian.Counters.Transport.owner({identity, {&1}}, [node(), peer_node]) == peer_node)
       )
 
     assert group
@@ -422,7 +422,7 @@ defmodule Guardian.Rules.CounterIngestTest do
       assert Enum.all?(results, &match?({:ok, %{"hits" => 0, "prior" => 0}}, &1))
       assert Enum.all?(results, fn {:ok, row} -> not Map.has_key?(row, "secret") end)
       assert System.monotonic_time(:millisecond) - started < 1_500
-      assert [{_, _}] = :ets.lookup(Guardian.Counters.Cluster, peer_node)
+      assert [{_, _}] = :ets.lookup(Guardian.Counters.Budget, peer_node)
     after
       :ok = :erpc.call(peer_node, Guardian.CounterStoreProbe, :resume, [pause])
     end
@@ -431,7 +431,7 @@ defmodule Guardian.Rules.CounterIngestTest do
     assert [{:ok, %{"hits" => 62, "prior" => 61}}] = ingest(table, [%{"g" => group}])
     assert :ok = :erpc.call(peer_node, GenServer, :stop, [Store])
     assert [{:ok, %{"hits" => 0}}] = ingest(table, [%{"g" => group}])
-    assert {:ok, _} = :erpc.call(peer_node, Guardian.CounterClusterHelper, :start_store, [])
+    assert {:ok, _} = :erpc.call(peer_node, Guardian.CounterClientHelper, :start_store, [])
     await_cooldown(peer_node)
     assert [{:ok, %{"hits" => 1, "prior" => 0}}] = ingest(table, [%{"g" => group}])
   end

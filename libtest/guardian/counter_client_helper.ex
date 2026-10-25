@@ -1,8 +1,8 @@
-defmodule Guardian.CounterClusterHelper do
+defmodule Guardian.CounterClientHelper do
   @moduledoc false
 
   def start_store(opts \\ []) do
-    Code.ensure_loaded!(Guardian.Counters.Cluster)
+    Code.ensure_loaded!(Guardian.Counters.Transport)
     caller = self()
 
     spawn(fn ->

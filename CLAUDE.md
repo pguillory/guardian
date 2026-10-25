@@ -85,8 +85,8 @@ Summary; the full description is `docs/architecture/system.md`.
 The runtime consists of Guardian.Rules.Server (loads the rule store first; an
 unreachable or misconfigured store refuses startup), Guardian.Counters.Restarter
 (isolates and recovers Guardian.Counters.Supervisor, with node-local
-Guardian.Counters.Store and bounded Guardian.Counters.Cluster routing for
-TRACK/LOOKUP), Guardian.Storage, Guardian.SystemStats,
+Guardian.Counters.Store and Guardian.Counters.Budget behind the bounded
+Guardian.Counters.Client facade for TRACK/LOOKUP), Guardian.Storage, Guardian.SystemStats,
 Guardian.Web.QueryParseErrors (records query parse failures), Guardian.Web.QueryLog
 (records every API query in `queries`), Guardian.Web.IngestIdempotency (short-lived,
 node-local client-key receipts), Guardian.Web, and Guardian.Cluster (DNS discovery

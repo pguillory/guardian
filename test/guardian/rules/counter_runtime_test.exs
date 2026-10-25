@@ -7,13 +7,13 @@ defmodule Guardian.Rules.CounterRuntimeTest do
 
   setup do
     store = start_supervised!({Store, name: nil})
-    start_supervised!({Guardian.Counters.Cluster, name: :rules_counter_runtime_test})
+    start_supervised!({Guardian.Counters.Budget, name: :rules_counter_runtime_test})
     %{store: store}
   end
 
   defp event(
          store,
-         batch \\ Guardian.Counters.Cluster.new_batch(),
+         batch \\ Guardian.Counters.Client.new_batch(),
          arrival \\ Event.arrival(),
          opts \\ []
        ) do
@@ -82,7 +82,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
         "#{table}/copy.gsql" => "TRACK hits = count() BY group_key LAST '1h'",
       })[table]
 
-    batch = Guardian.Counters.Cluster.new_batch()
+    batch = Guardian.Counters.Client.new_batch()
 
     for n <- 1..50 do
       row = run(plan, %{"ip" => "A", "secret" => "private"}, event(store, batch))
@@ -244,14 +244,14 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     assert CounterRuntime.lookup(
              definition,
              {},
-             event(store, Guardian.Counters.Cluster.new_batch(), arrival)
+             event(store, Guardian.Counters.Client.new_batch(), arrival)
            ) == current - first + 1
 
     assert CounterRuntime.track(
              definition,
              {},
              [],
-             event(store, Guardian.Counters.Cluster.new_batch(), arrival)
+             event(store, Guardian.Counters.Client.new_batch(), arrival)
            ) == current - first + 2
   end
 
@@ -263,7 +263,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
              definition,
              {},
              [],
-             event(store, Guardian.Counters.Cluster.new_batch(), arrival)
+             event(store, Guardian.Counters.Client.new_batch(), arrival)
            ) == 0
 
     assert {:ok, %{keys: 0}} = Store.stats(server: store)
@@ -487,7 +487,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
 
       # Below the 25 ms suspicion threshold, so cooldown cannot mask a retry.
       context =
-        event(store, Guardian.Counters.Cluster.new_batch(), Event.arrival(), timeout_ms: 20)
+        event(store, Guardian.Counters.Client.new_batch(), Event.arrival(), timeout_ms: 20)
 
       assert CounterRuntime.track(definition, {}, [5], context) == nil
       assert_receive :attempt
@@ -579,7 +579,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
              definition,
              {},
              [],
-             event(store, Guardian.Counters.Cluster.new_batch(), arrival)
+             event(store, Guardian.Counters.Client.new_batch(), arrival)
            ) == 1
 
     assert_receive {:ttl, first}
@@ -590,7 +590,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
              definition,
              {},
              [],
-             event(store, Guardian.Counters.Cluster.new_batch(), older)
+             event(store, Guardian.Counters.Client.new_batch(), older)
            ) == 1
 
     assert_receive {:ttl, second}
@@ -664,7 +664,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
              definition,
              {},
              [5],
-             event(store, Guardian.Counters.Cluster.new_batch(), arrival)
+             event(store, Guardian.Counters.Client.new_batch(), arrival)
            ) == nil
 
     assert_receive {:gets, _}
@@ -673,7 +673,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
 
   test "healthy large batches refund the budget and include every event", %{store: store} do
     definition = definition(plan("TRACK hits = count() LAST '1h'"))
-    batch = Guardian.Counters.Cluster.new_batch()
+    batch = Guardian.Counters.Client.new_batch()
 
     for n <- 1..300,
         do: assert(CounterRuntime.track(definition, {}, [], event(store, batch)) == n)
@@ -712,7 +712,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     plan =
       plan(Enum.map_join(1..40, ";", &"TRACK c#{&1} = count() LAST '1h'") <> "; UNSET secret")
 
-    batch = Guardian.Counters.Cluster.new_batch()
+    batch = Guardian.Counters.Client.new_batch()
     started = System.monotonic_time(:millisecond)
 
     for _ <- 1..25 do

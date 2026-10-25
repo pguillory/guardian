@@ -1,12 +1,12 @@
-defmodule Guardian.Counters.ClusterTest do
+defmodule Guardian.Counters.ClientTest do
   use ExUnit.Case, async: false
-  alias Guardian.Counters.Cluster, as: CountersCluster
+  alias Guardian.Counters.{Budget, Client, Transport}
   alias Guardian.Counters.Store
 
   setup_all do
     distributed = Guardian.TestCluster.ensure_distributed()
     {peer, peer_node} = Guardian.TestCluster.start_peer(nil)
-    {:ok, _} = :erpc.call(peer_node, Guardian.CounterClusterHelper, :start_store, [])
+    {:ok, _} = :erpc.call(peer_node, Guardian.CounterClientHelper, :start_store, [])
 
     on_exit(fn ->
       :peer.stop(peer)
@@ -18,7 +18,7 @@ defmodule Guardian.Counters.ClusterTest do
 
   setup do
     store = start_supervised!({Store, name: nil})
-    start_supervised!({CountersCluster, name: :counter_cluster_test})
+    start_supervised!({Budget, name: :counter_client_test})
     %{store: store}
   end
 
@@ -27,10 +27,10 @@ defmodule Guardian.Counters.ClusterTest do
   end
 
   defp event(store, opts \\ []) do
-    CountersCluster.new_event(
-      CountersCluster.new_batch(),
+    Client.new_event(
+      Client.new_batch(),
       Keyword.merge(
-        [store: store, members: [node()], cooldown_table: :counter_cluster_test],
+        [store: store, members: [node()], cooldown_table: :counter_client_test],
         opts
       )
     )
@@ -43,7 +43,7 @@ defmodule Guardian.Counters.ClusterTest do
   defp owned_key(owner, members) do
     group =
       Enum.find(1..10_000, fn n ->
-        CountersCluster.owner(route(key({n})), members) == owner
+        Transport.owner(route(key({n})), members) == owner
       end)
 
     key({group})
@@ -69,18 +69,18 @@ defmodule Guardian.Counters.ClusterTest do
         {{owner, bucket}, {:get, {identity, group, bucket}}}
       end
 
-    batch = CountersCluster.new_batch()
+    batch = Client.new_batch()
 
     task =
       Task.async(fn ->
         context =
-          CountersCluster.new_event(batch,
+          Client.new_event(batch,
             store: {Guardian.CounterStoreProbe, Guardian.CounterPipelineProbe},
             members: members,
-            cooldown_table: :counter_cluster_test
+            cooldown_table: :counter_client_test
           )
 
-        CountersCluster.batch(ops, context)
+        Client.batch(ops, context)
       end)
 
     assert_receive {:pipeline, one, first, first_ops}
@@ -101,20 +101,20 @@ defmodule Guardian.Counters.ClusterTest do
     # One available reservation queues the second owner. Its absolute write expiry
     # must be checked after the first owner refunds, not when the round was built.
     [earlier, later] = Enum.sort(members)
-    limited = CountersCluster.new_batch()
+    limited = Client.new_batch()
     :atomics.put(limited, 1, 50_000)
     expiry = System.monotonic_time(:millisecond) + 10
 
     task =
       Task.async(fn ->
         context =
-          CountersCluster.new_event(limited,
+          Client.new_event(limited,
             store: {Guardian.CounterStoreProbe, Guardian.CounterPipelineProbe},
             members: members,
-            cooldown_table: :counter_cluster_test
+            cooldown_table: :counter_client_test
           )
 
-        CountersCluster.batch(
+        Client.batch(
           %{
             first: {:get, owned_key(earlier, members)},
             expired: {:incr, owned_key(later, members), 1, {:expires, expiry}},
@@ -130,19 +130,19 @@ defmodule Guardian.Counters.ClusterTest do
     refute_receive {:pipeline, _, _, _}, 10
     assert :atomics.get(limited, 1) == 50_000
 
-    limited = CountersCluster.new_batch()
+    limited = Client.new_batch()
     :atomics.put(limited, 1, 20_000)
 
     task =
       Task.async(fn ->
         context =
-          CountersCluster.new_event(limited,
+          Client.new_event(limited,
             store: {Guardian.CounterStoreProbe, Guardian.CounterPipelineProbe},
             members: members,
-            cooldown_table: :counter_cluster_test
+            cooldown_table: :counter_client_test
           )
 
-        CountersCluster.batch(
+        Client.batch(
           %{
             first: {:get, owned_key(earlier, members)},
             pending: {:get, owned_key(later, members)},
@@ -172,24 +172,24 @@ defmodule Guardian.Counters.ClusterTest do
         do:
           assert(
             {:ok, _} =
-              :erpc.call(member, Guardian.CounterClusterHelper, :start_store, [
+              :erpc.call(member, Guardian.CounterClientHelper, :start_store, [
                 [name: :counter_pipeline_store],
               ])
           )
 
     for allowance <- [250_000, 50_000] do
-      batch = CountersCluster.new_batch()
+      batch = Client.new_batch()
       :atomics.put(batch, 1, allowance)
       ops = for owner <- members, into: %{}, do: {owner, {:get, owned_key(owner, members)}}
 
       context =
-        CountersCluster.new_event(batch,
+        Client.new_event(batch,
           store: :counter_pipeline_store,
           members: members,
-          cooldown_table: :counter_cluster_test
+          cooldown_table: :counter_client_test
         )
 
-      assert CountersCluster.batch(ops, context) == Map.new(members, &{&1, :not_found})
+      assert Client.batch(ops, context) == Map.new(members, &{&1, :not_found})
       assert :atomics.get(batch, 1) == allowance
     end
 
@@ -215,7 +215,7 @@ defmodule Guardian.Counters.ClusterTest do
         context =
           event({Guardian.CounterStoreProbe, Guardian.CounterPipelineProbe}, members: members)
 
-        CountersCluster.batch(ops, context)
+        Client.batch(ops, context)
       end)
 
     started =
@@ -243,7 +243,7 @@ defmodule Guardian.Counters.ClusterTest do
     local = start_supervised!({Store, name: :counter_partial_store}, id: :counter_partial_store)
 
     {:ok, remote} =
-      :erpc.call(peer, Guardian.CounterClusterHelper, :start_store, [
+      :erpc.call(peer, Guardian.CounterClientHelper, :start_store, [
         [name: :counter_partial_store],
       ])
 
@@ -256,7 +256,7 @@ defmodule Guardian.Counters.ClusterTest do
       context = event(:counter_partial_store, members: members)
 
       results =
-        CountersCluster.batch(
+        Client.batch(
           %{local: {:incr, local_key, 1, 5_000}, remote: {:incr, remote_key, 1, 5_000}},
           context
         )
@@ -264,10 +264,10 @@ defmodule Guardian.Counters.ClusterTest do
       assert results == %{local: {:ok, 1}, remote: {:error, :timeout}}
       assert :atomics.get(context.batch, 1) in 200_000..225_000
       assert Store.get(local_key, server: local) == {:ok, 1}
-      assert [{^peer, _}] = :ets.lookup(:counter_cluster_test, peer)
-      assert :ets.lookup(:counter_cluster_test, node()) == []
+      assert [{^peer, _}] = :ets.lookup(:counter_client_test, peer)
+      assert :ets.lookup(:counter_client_test, node()) == []
 
-      assert CountersCluster.batch(
+      assert Client.batch(
                %{remote: {:get, remote_key}},
                event(:counter_partial_store, members: members)
              ) == %{remote: {:error, :cooldown}}
@@ -289,18 +289,18 @@ defmodule Guardian.Counters.ClusterTest do
     store: store,
   } do
     pause = Guardian.CounterStoreProbe.pause(store)
-    batch = CountersCluster.new_batch()
+    batch = Client.new_batch()
 
     caller =
       spawn(fn ->
         context =
-          CountersCluster.new_event(batch,
+          Client.new_event(batch,
             store: store,
             members: [node()],
-            cooldown_table: :counter_cluster_test
+            cooldown_table: :counter_client_test
           )
 
-        CountersCluster.batch(%{a: {:incr, key(), 1, 5_000}}, context)
+        Client.batch(%{a: {:incr, key(), 1, 5_000}}, context)
       end)
 
     try do
@@ -322,20 +322,43 @@ defmodule Guardian.Counters.ClusterTest do
     context = event(store)
 
     for operation <- [nil, {:unsupported, key()}, {:get, :bad_key}, {:get, {nil, {}, 1}}] do
-      assert CountersCluster.batch(%{one: operation}, context) ==
+      assert Client.batch(%{one: operation}, context) ==
                %{one: {:error, :invalid_request}}
     end
 
     assert :atomics.get(context.batch, 1) == 250_000
-    assert :ets.lookup(:counter_cluster_test, node()) == []
+    assert :ets.lookup(:counter_client_test, node()) == []
   end
 
   test "the remote endpoint refuses scalar operations", %{store: store} do
     for operation <- [{:get, key()}, {:incr, key(), 1, 5_000}] do
-      assert CountersCluster.remote_operation(operation, store, 50) == {:error, :invalid_request}
+      assert Transport.remote_operation(operation, store, 50) == {:error, :invalid_request}
     end
 
     assert Store.get(key(), server: store) == :not_found
+  end
+
+  test "the renamed remote endpoint preserves batch replies and duration bounds", %{
+    peer_node: peer,
+  } do
+    remote_key = key({"remote-endpoint"})
+
+    assert :erpc.call(peer, Transport, :remote_operation, [
+             {:batch, [{:get, remote_key}]},
+             Store,
+             50,
+           ]) ==
+             {:ok, [:not_found]}
+
+    for duration <- [0, -1, 51, 1.0, nil] do
+      assert :erpc.call(peer, Transport, :remote_operation, [
+               {:batch, [{:incr, remote_key, 1, 1_000}]},
+               Store,
+               duration,
+             ]) == {:error, :invalid_request}
+    end
+
+    assert :erpc.call(peer, Store, :get, [remote_key]) == :not_found
   end
 
   test "malformed pipeline replies are charged consistently and never escape as exceptions" do
@@ -364,11 +387,11 @@ defmodule Guardian.Counters.ClusterTest do
 
       context = event({Guardian.CounterStoreProbe, store})
 
-      assert CountersCluster.batch(%{a: {:get, key()}}, context) ==
+      assert Client.batch(%{a: {:get, key()}}, context) ==
                %{a: {:error, :invalid_response}}
 
       assert :atomics.get(context.batch, 1) < 250_000
-      assert :ets.lookup(:counter_cluster_test, node()) == []
+      assert :ets.lookup(:counter_client_test, node()) == []
     end
   end
 
@@ -377,19 +400,19 @@ defmodule Guardian.Counters.ClusterTest do
 
     for n <- 1..300 do
       routing = route(key({n}))
-      original = CountersCluster.owner(routing, members)
-      assert CountersCluster.owner(routing, Enum.reverse(members)) == original
-      expanded = CountersCluster.owner(routing, [:d@host | members])
+      original = Transport.owner(routing, members)
+      assert Transport.owner(routing, Enum.reverse(members)) == original
+      expanded = Transport.owner(routing, [:d@host | members])
       assert expanded in [original, :d@host]
       remaining = List.delete(members, original)
-      assert CountersCluster.owner(routing, remaining) in remaining
-      assert CountersCluster.owner(route(key({n}, 4)), members) == original
+      assert Transport.owner(routing, remaining) in remaining
+      assert Transport.owner(route(key({n}, 4)), members) == original
     end
 
     # A golden mapping pins the explicit encoding, including signed float zero.
     owners =
       for group <- [{1}, {1.0}, {0.0}, {-0.0}, {nil}, {true}, {"1"}, {[1, 2]}, {%{"x" => 1}}],
-          do: CountersCluster.owner(route(key(group)), members)
+          do: Transport.owner(route(key(group)), members)
 
     assert owners == [
              :c@host,
@@ -403,12 +426,12 @@ defmodule Guardian.Counters.ClusterTest do
              :c@host,
            ]
 
-    assert CountersCluster.owner(route(key({%{"a" => 1, "b" => 2}})), members) ==
-             CountersCluster.owner(route(key({Map.new([{"b", 2}, {"a", 1}])})), members)
+    assert Transport.owner(route(key({%{"a" => 1, "b" => 2}})), members) ==
+             Transport.owner(route(key({Map.new([{"b", 2}, {"a", 1}])})), members)
 
     signatures =
       for value <- [1, 1.0, 0.0, -0.0],
-          do: for(n <- 1..30, do: CountersCluster.owner(route(key({value, n})), members))
+          do: for(n <- 1..30, do: Transport.owner(route(key({value, n})), members))
 
     assert length(Enum.uniq(signatures)) == 4
   end
@@ -423,14 +446,30 @@ defmodule Guardian.Counters.ClusterTest do
     assert batch_one({:cas, key(), token, 8, 5_000}, context) == {:error, :conflict}
     assert batch_one({:incr, key(), 2, 5_000}, context) == {:ok, 9}
 
-    assert CountersCluster.batch(
+    assert Client.batch(
              %{missing: {:get, key({}, 2)}, present: {:get, key()}},
              context
            ) == %{missing: :not_found, present: {:ok, 9}}
 
     assert batch_one({:cas, key({}, 3), :missing, "text", 5_000}, context) == :ok
     assert batch_one({:incr, key({}, 3), 1, 5_000}, context) == {:error, :not_integer}
-    assert :ets.lookup(:counter_cluster_test, node()) == []
+    assert :ets.lookup(:counter_client_test, node()) == []
+  end
+
+  test "successful error-shaped values remain opaque through local and peer pipelines", %{
+    store: store,
+    peer_node: peer,
+  } do
+    for {server, members} <- [{store, [node()]}, {Store, [peer]}],
+        value <- [{:error, :unavailable}, [{:error, :timeout}, {:error, :unavailable}]] do
+      context = event(server, members: members)
+      stored_key = key({System.unique_integer([:positive])})
+      assert batch_one({:cas, stored_key, :missing, value, 5_000}, context) == :ok
+      assert batch_one({:get, stored_key}, context) == {:ok, value}
+      assert {:ok, ^value, _token} = batch_one({:gets, stored_key}, context)
+      assert :atomics.get(context.batch, 1) == 250_000
+      assert :ets.tab2list(:counter_client_test) == []
+    end
   end
 
   test "peer get/gets/CAS/incr carry native terms and reference tokens", %{peer_node: peer} do
@@ -444,7 +483,7 @@ defmodule Guardian.Counters.ClusterTest do
     assert batch_one({:cas, key, token, 3, 5_000}, context) == :ok
     assert batch_one({:incr, key, 2, 5_000}, context) == {:ok, 5}
 
-    assert CountersCluster.batch(%{one: {:get, key}, two: {:get, key}}, context) ==
+    assert Client.batch(%{one: {:get, key}, two: {:get, key}}, context) ==
              %{one: {:ok, 5}, two: {:ok, 5}}
 
     assert :erpc.call(peer, Store, :get, [key]) == {:ok, 5}
@@ -507,7 +546,7 @@ defmodule Guardian.Counters.ClusterTest do
     {peer, booting} = Guardian.TestCluster.start_peer(nil)
     on_exit(fn -> if Process.alive?(peer), do: :peer.stop(peer) end)
 
-    for module <- [CountersCluster, Store],
+    for module <- [Transport, Store],
         do: :erpc.call(booting, Code, :ensure_loaded!, [module])
 
     context = event(Store, members: [booting])
@@ -541,20 +580,20 @@ defmodule Guardian.Counters.ClusterTest do
 
     try do
       assert batch_one({:get, key()}, event(store, timeout_ms: 15)) == {:error, :timeout}
-      assert :ets.lookup(:counter_cluster_test, node()) == []
-      batch = CountersCluster.new_batch()
+      assert :ets.lookup(:counter_client_test, node()) == []
+      batch = Client.new_batch()
 
       context =
-        CountersCluster.new_event(batch,
+        Client.new_event(batch,
           event_timeout_ms: 5,
           members: [node()],
           store: store,
-          cooldown_table: :counter_cluster_test
+          cooldown_table: :counter_client_test
         )
 
       assert batch_one({:get, key()}, context) == {:error, :budget_exhausted}
       assert :atomics.get(batch, 1) == 250_000
-      assert :ets.lookup(:counter_cluster_test, node()) == []
+      assert :ets.lookup(:counter_client_test, node()) == []
     after
       Guardian.CounterStoreProbe.resume(pause)
     end
@@ -565,15 +604,15 @@ defmodule Guardian.Counters.ClusterTest do
     peer_node: peer,
   } do
     for {target, members} <- [{store, [node()]}, {Store, [peer]}] do
-      batch = CountersCluster.new_batch()
+      batch = Client.new_batch()
       key = key({System.unique_integer([:positive])})
 
       for n <- 1..300 do
         context =
-          CountersCluster.new_event(batch,
+          Client.new_event(batch,
             store: target,
             members: members,
-            cooldown_table: :counter_cluster_test
+            cooldown_table: :counter_client_test
           )
 
         assert batch_one({:incr, key, 1, 30_000}, context) == {:ok, n}
@@ -589,7 +628,7 @@ defmodule Guardian.Counters.ClusterTest do
   } do
     for {target, members, suspend_node} <- [{store, [node()], node()}, {Store, [peer], peer}] do
       pause = :erpc.call(suspend_node, Guardian.CounterStoreProbe, :pause, [target])
-      batch = CountersCluster.new_batch()
+      batch = Client.new_batch()
       started = System.monotonic_time(:millisecond)
 
       try do
@@ -598,11 +637,11 @@ defmodule Guardian.Counters.ClusterTest do
           task =
             Task.async(fn ->
               context =
-                CountersCluster.new_event(batch,
+                Client.new_event(batch,
                   store: target,
                   members: members,
                   timeout_ms: 15,
-                  cooldown_table: :counter_cluster_test
+                  cooldown_table: :counter_client_test
                 )
 
               batch_one({:get, key()}, context)
@@ -623,13 +662,13 @@ defmodule Guardian.Counters.ClusterTest do
     store: store,
   } do
     pause = Guardian.CounterStoreProbe.pause(store)
-    batch = CountersCluster.new_batch()
+    batch = Client.new_batch()
 
     context =
-      CountersCluster.new_event(batch,
+      Client.new_event(batch,
         store: store,
         members: [node()],
-        cooldown_table: :counter_cluster_test
+        cooldown_table: :counter_client_test
       )
 
     caller = spawn(fn -> batch_one({:incr, key(), 1, 5_000}, context) end)
@@ -665,7 +704,7 @@ defmodule Guardian.Counters.ClusterTest do
     store: store,
   } do
     pause = Guardian.CounterStoreProbe.pause(store)
-    batch = CountersCluster.new_batch()
+    batch = Client.new_batch()
 
     try do
       outcomes =
@@ -673,10 +712,10 @@ defmodule Guardian.Counters.ClusterTest do
         |> Task.async_stream(
           fn _ ->
             context =
-              CountersCluster.new_event(batch,
+              Client.new_event(batch,
                 store: store,
                 members: [node()],
-                cooldown_table: :counter_cluster_test
+                cooldown_table: :counter_client_test
               )
 
             batch_one({:incr, key(), 1, 5_000}, context)
@@ -701,7 +740,7 @@ defmodule Guardian.Counters.ClusterTest do
 
   test "frozen peer and distribution backpressure cannot outlive the failure budget" do
     {peer_controller, peer} = Guardian.TestCluster.start_peer(nil)
-    {:ok, _} = :erpc.call(peer, Guardian.CounterClusterHelper, :start_store, [])
+    {:ok, _} = :erpc.call(peer, Guardian.CounterClientHelper, :start_store, [])
     # This PID is obtained directly from our local test peer, never discovered by
     # a process-name search. Always resume it before peer teardown.
     os_pid = :erpc.call(peer, :os, :getpid, []) |> List.to_string()
@@ -713,7 +752,7 @@ defmodule Guardian.Counters.ClusterTest do
       end
     end)
 
-    batch = CountersCluster.new_batch()
+    batch = Client.new_batch()
     key = key({System.unique_integer([:positive])})
     payload = :binary.copy("x", 8 * 1_024 * 1_024)
     {_, 0} = System.cmd("/bin/kill", ["-STOP", os_pid])
@@ -723,11 +762,11 @@ defmodule Guardian.Counters.ClusterTest do
       outcomes =
         for _ <- 1..60 do
           context =
-            CountersCluster.new_event(batch,
+            Client.new_event(batch,
               store: Store,
               members: [peer],
               timeout_ms: 15,
-              cooldown_table: :counter_cluster_test
+              cooldown_table: :counter_client_test
             )
 
           batch_one({:cas, key, :missing, payload, 5_000}, context)
@@ -750,29 +789,29 @@ defmodule Guardian.Counters.ClusterTest do
     {peer, member} = Guardian.TestCluster.start_peer(nil)
     on_exit(fn -> if Process.alive?(peer), do: :peer.stop(peer) end)
     future = System.monotonic_time(:microsecond) + 10_000_000
-    :ets.insert(:counter_cluster_test, {member, future})
+    :ets.insert(:counter_client_test, {member, future})
     :peer.stop(peer)
-    Guardian.TestHelpers.eventually(fn -> :ets.lookup(:counter_cluster_test, member) == [] end)
+    Guardian.TestHelpers.eventually(fn -> :ets.lookup(:counter_client_test, member) == [] end)
 
-    :ets.insert(:counter_cluster_test, {node(), System.monotonic_time(:microsecond) - 1})
-    send(Process.whereis(:counter_cluster_test), :cleanup)
-    Guardian.TestHelpers.eventually(fn -> :ets.tab2list(:counter_cluster_test) == [] end)
+    :ets.insert(:counter_client_test, {node(), System.monotonic_time(:microsecond) - 1})
+    send(Process.whereis(:counter_client_test), :cleanup)
+    Guardian.TestHelpers.eventually(fn -> :ets.tab2list(:counter_client_test) == [] end)
 
-    stop_supervised(CountersCluster)
+    stop_supervised(Budget)
     started = System.monotonic_time(:millisecond)
     assert batch_one({:get, key()}, event(store)) == {:error, :cooldown}
     assert System.monotonic_time(:millisecond) - started < 50
   end
 
   defp batch_one(operation, event) do
-    CountersCluster.batch(%{one: operation}, event).one
+    Client.batch(%{one: operation}, event).one
   end
 
   defp counter_helpers do
     for pid <- Process.list(),
         {:registered_name, []} <- [Process.info(pid, :registered_name)],
         {:current_stacktrace, stack} <- [Process.info(pid, :current_stacktrace)],
-        Enum.any?(stack, fn {module, _, _, _} -> module == CountersCluster end),
+        Enum.any?(stack, fn {module, _, _, _} -> module == Transport end),
         do: pid
   end
 

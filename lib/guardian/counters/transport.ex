@@ -1,45 +1,9 @@
-defmodule Guardian.Counters.Cluster do
+defmodule Guardian.Counters.Transport do
   @moduledoc """
-  Availability-first routing for ephemeral counters. Store keys are
-  `{identity, group_tuple, bucket}`; all buckets of a group share one owner.
-
-  Keep `new_batch/0` outside replaceable rule workers and create one `new_event/2`
-  per event. The event captures membership without readiness RPCs and has a 100 ms
-  wall-clock counter phase. Calls have at most 50 ms; only failed call time spends
-  the shared 250 ms batch allowance. A killed caller conservatively spends its
-  outstanding reservation. Never retry an uncertain mutation.
-
-  Errors are fixed atoms, never remote exceptions or event values. Missing keys
-  and CAS conflicts are healthy responses. The rule integration supplies aggregate
-  defaults on errors; this module does not change rules or ingest behavior itself.
+  Internal owner routing and bounded pipeline transport for Counters.Client.
+  Budget owns admission and settlement; this module owns dispatch and cleanup.
   """
-  use GenServer
-
-  @operation_us 50_000
-  @minimum_us 10_000
-  @cooldown_us 1_000_000
-
-  def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
-  end
-
-  def new_batch do
-    batch = :atomics.new(1, [])
-    :atomics.put(batch, 1, 250_000)
-    batch
-  end
-
-  @doc "Test options may shorten deadlines or substitute members/store/cooldown table."
-  def new_event(batch, opts \\ []) do
-    %{
-      batch: batch,
-      deadline: now() + min(100_000, Keyword.get(opts, :event_timeout_ms, 100) * 1_000),
-      members: Keyword.get_lazy(opts, :members, fn -> [node() | Node.list()] end),
-      timeout_us: min(@operation_us, Keyword.get(opts, :timeout_ms, 50) * 1_000),
-      store: Keyword.get(opts, :store, Guardian.Counters.Store),
-      cooldown_table: Keyword.get(opts, :cooldown_table, __MODULE__),
-    }
-  end
+  alias Guardian.Counters.Budget
 
   @doc "Runs indexed operations in concurrent owner pipelines within the shared budgets."
   def batch(operations, event) when is_map(operations) do
@@ -84,13 +48,7 @@ defmodule Guardian.Counters.Cluster do
         cleanup_call(handle)
         result = normalize_pipeline(result, length(handle.operations))
 
-        accounting =
-          case result do
-            {:ok, responses} -> {:pipeline, responses}
-            other -> other
-          end
-
-        settle(accounting, handle.owner, event, handle.started, handle.reserved, completed)
+        Budget.settle(result, handle.owner, event, handle.started, handle.reserved, completed)
 
         results =
           case result do
@@ -128,41 +86,38 @@ defmodule Guardian.Counters.Cluster do
   end
 
   defp dispatch_owner([{owner, operations} | rest] = pending, running, results, event) do
-    if available?(event.cooldown_table, owner) do
-      started = now()
+    case Budget.reserve(event, owner) do
+      :exhausted ->
+        {pending, running, results}
 
-      case reserve(event.batch, min(event.timeout_us, event.deadline - started)) do
-        :exhausted ->
-          {pending, running, results}
+      :cooldown ->
+        dispatch(rest, running, put_results(results, operations, {:error, :cooldown}), event)
 
-        reserved ->
-          {operations, results} = prepare_operations(operations, results)
+      {:ok, started, reserved} ->
+        {operations, results} = prepare_operations(operations, results)
 
-          if operations == [] do
-            :atomics.add(event.batch, 1, reserved)
-            dispatch(rest, running, results, event)
-          else
-            handle =
-              start_call(
-                owner,
-                {:batch, Enum.map(operations, &elem(&1, 1))},
-                event.store,
-                started + reserved
-              )
+        if operations == [] do
+          Budget.refund(event, reserved)
+          dispatch(rest, running, results, event)
+        else
+          handle =
+            start_call(
+              owner,
+              {:batch, Enum.map(operations, &elem(&1, 1))},
+              event.store,
+              started + reserved
+            )
 
-            handle =
-              Map.merge(handle, %{
-                owner: owner,
-                operations: operations,
-                started: started,
-                reserved: reserved,
-              })
+          handle =
+            Map.merge(handle, %{
+              owner: owner,
+              operations: operations,
+              started: started,
+              reserved: reserved,
+            })
 
-            dispatch(rest, Map.put(running, handle.reply, handle), results, event)
-          end
-      end
-    else
-      dispatch(rest, running, put_results(results, operations, {:error, :cooldown}), event)
+          dispatch(rest, Map.put(running, handle.reply, handle), results, event)
+        end
     end
   end
 
@@ -277,27 +232,6 @@ defmodule Guardian.Counters.Cluster do
     {:error, :invalid_request}
   end
 
-  defp settle(result, owner, event, started, reserved, completed) do
-    charged = if failed?(result), do: min(reserved, max(0, completed - started)), else: 0
-    :atomics.add(event.batch, 1, reserved - charged)
-    if suspect?(result, reserved), do: suspect(event.cooldown_table, owner)
-  end
-
-  defp reserve(_batch, allowance) when allowance < @minimum_us do
-    :exhausted
-  end
-
-  defp reserve(batch, allowance) do
-    remaining = :atomics.get(batch, 1)
-    take = min(remaining, allowance)
-
-    cond do
-      take < @minimum_us -> :exhausted
-      :atomics.compare_exchange(batch, 1, remaining, remaining - take) == :ok -> take
-      true -> reserve(batch, allowance)
-    end
-  end
-
   # The guard never sends over distribution. Its linked worker may be blocked in
   # distribution flow control, so either caller timeout or caller death kills both.
   defp start_call(owner, operation, store, deadline) do
@@ -402,97 +336,6 @@ defmodule Guardian.Counters.Cluster do
     end
   catch
     _, _ -> {:error, :unavailable}
-  end
-
-  defp failed?({:error, :conflict}) do
-    false
-  end
-
-  defp failed?({:pipeline, results}) do
-    Enum.any?(results, &failed?/1)
-  end
-
-  defp failed?({:error, _}) do
-    true
-  end
-
-  defp failed?(_) do
-    false
-  end
-
-  defp suspect?({:error, :timeout}, allowance) do
-    allowance >= 25_000
-  end
-
-  defp suspect?({:error, :unavailable}, _) do
-    true
-  end
-
-  defp suspect?({:pipeline, results}, allowance) do
-    Enum.any?(results, &suspect?(&1, allowance))
-  end
-
-  defp suspect?(_, _) do
-    false
-  end
-
-  defp available?(table, owner) do
-    case :ets.lookup(table, owner) do
-      [{^owner, until}] -> until <= now()
-      [] -> true
-    end
-  catch
-    :error, :badarg -> false
-  end
-
-  defp suspect(table, owner) do
-    if owner in [node() | Node.list()], do: :ets.insert(table, {owner, now() + @cooldown_us})
-  catch
-    :error, :badarg -> :ok
-  end
-
-  @impl true
-  def init(opts) do
-    table = Keyword.get(opts, :name, __MODULE__)
-
-    :ets.new(table, [:named_table, :public, :set, read_concurrency: true, write_concurrency: true])
-
-    :net_kernel.monitor_nodes(true)
-    Process.send_after(self(), :cleanup, 1_000)
-    {:ok, table}
-  end
-
-  @impl true
-  def handle_info(:cleanup, table) do
-    cleanup(table)
-    Process.send_after(self(), :cleanup, 1_000)
-    {:noreply, table}
-  end
-
-  def handle_info({kind, _node}, table) when kind in [:nodeup, :nodedown] do
-    cleanup(table)
-    {:noreply, table}
-  end
-
-  def handle_info(_, table) do
-    {:noreply, table}
-  end
-
-  defp cleanup(table) do
-    members = [node() | Node.list()]
-
-    for {member, until} <- :ets.tab2list(table),
-        member not in members or until <= now(),
-        do: :ets.delete_object(table, {member, until})
-  end
-
-  @impl true
-  def format_status(status) do
-    status
-    |> Map.put(:state, :redacted)
-    |> Map.put(:message, :redacted)
-    |> Map.put(:log, [])
-    |> Map.put(:reason, :redacted)
   end
 
   # Explicit encoding is independent of ETF/OTP versions. Float bit patterns keep

@@ -80,7 +80,7 @@ Guardian.Application (one_for_one)
 ├── Guardian.Counters.Restarter               trapping lifecycle owner; backs off subtree recovery
 │   └── Guardian.Counters.Supervisor (one_for_one)
 │       ├── Guardian.Counters.Store           ephemeral node-local ETS counter storage
-│       └── Guardian.Counters.Cluster         bounded owner routing and node-local cooldown
+│       └── Guardian.Counters.Budget          failed-wait reservations and node-local cooldown
 ├── Storage (supervisor, rest_for_one)
 │   ├── Guardian.Storage.Schema               per-table schema of loaded segments
 │   ├── Guardian.Storage.LoadedSegments       mmap'd segment files; loads all at boot, rescans each minute
@@ -109,7 +109,7 @@ Why this order:
    `:persistent_term`, so if it restarts, ingestion keeps the published rules and the
    new process reloads in the background instead of failing again.
 2. Guardian.Counters.Restarter starts after Guardian.Rules.Server and owns a linked counter supervisor
-   that starts Store with an empty public ETS table, then Cluster with empty cooldown
+   that starts Store with an empty public ETS table, then Budget with empty cooldown
    ETS and membership monitoring. It does no loading and is independent of rule
    compilation and event storage. Invalid Store options still refuse startup. Storage
    starts next, and `LoadedSegments.init/1` loads every segment file on the
@@ -370,7 +370,7 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    each times a log factor, rather than columns times statements.
    Engine captures private Unix/monotonic arrival coordinates before each event's
    validation; they are carried outside the row and never automatically stored.
-   Runner shares one Cluster batch budget across worker replacements and starts
+   Runner shares one Client batch budget across worker replacements and starts
    each event's membership snapshot and counter phase on worker entry. Generated
    modules accept this context through `apply/2`; `apply/1` creates a fresh event/batch.
 5. Loading: at boot, then on every write and every minute. The store is listed, and
@@ -407,7 +407,7 @@ whole result on any failed operation, and leaves SET/UNSET failures fail closed.
 Buckets retain the complete oldest intersecting interval (overcount bias).
 TTL durations decrease toward bucket_end+window, anchored to private monotonic
 arrival coordinates; network/queue transit can delay physical expiry. Only
-definite CAS conflicts retry, with three total attempts within Cluster budgets.
+definite CAS conflicts retry, with three total attempts within Budget limits.
 It adds no external service. SET/UNSET-only events capture private arrival/routing
 metadata but make no counter-store calls. Counter identities include table, output
 name and the SHA-256 of canonical TRACK source; LOOKUP plans bind target identities.
@@ -437,7 +437,7 @@ version} rows. Ordinary get/gets, create-if-missing, CAS and native increment ru
 directly in callers and remote handlers. Deterministic ETF binary keys make CAS
 select_replace and conditional expired deletion keyed operations, including for
 maps and match-spec atoms. This encoding is ephemeral and local to Store, separate
-from Cluster's stable routing encoding. A reserved atom row holds the immutable
+from Transport's stable routing encoding. A reserved atom row holds the immutable
 descriptor (clock, budget, table generation and baseline). Named stores use ETS
 name/descriptor lookup; unnamed PID stores retrieve the table reference from the
 owner's process dictionary. A captured table reference cannot address a replacement
@@ -453,11 +453,12 @@ without deleting a concurrent fresh row. Ordinary bucket identities advance and
 do not revisit expired keys. A second expired increment returns a definite :expired
 error, never an unbounded retry or replay of a successful live increment.
 
-Cluster accepts only batched owner pipelines, including at its remote endpoint.
+Client accepts only batched operations; Transport's remote endpoint accepts only
+owner pipelines.
 Store retains the local atomic primitives; Store.batch executes
 up to 4,000 operations in order and checks the original deadline before each.
 Deadlines are checked after clock/key preparation and before mutations/retries.
-The 50 ms default remains; Cluster bounds waits on its helpers. Errors and status
+The 50 ms default remains; Transport bounds waits on its helpers. Errors and status
 disclose no keys/values. Restart clears only counters, not Storage or Rules.Server.
 
 Housekeeping bulk-deletes expired rows about every second, then folds resident
@@ -480,9 +481,13 @@ writes; a completed write can subsequently be evicted without changing its reply
 The budget excludes temporary copies, mailboxes and the rest of the VM. See
 [counter-store.md](../changes/counter-store.md) for design and validation.
 
-`Guardian.Counters.Cluster`, independently supervised after Store inside the counter subtree,
-provides owner routing for TRACK/LOOKUP. It takes
-one connected-member snapshot per event, without Storage readiness RPCs, then
+`Guardian.Counters.Client` is the facade used by Rules and the key-machine runner.
+It delegates batch dispatch to internal `Guardian.Counters.Transport`, which owns
+routing, owner pipelines and bounded guard/worker dispatch. Internal
+`Guardian.Counters.Budget`, independently supervised after Store inside the counter
+subtree, owns event deadlines, failed-wait reservations and cooldown ETS lifecycle;
+its admission and settlement use atomics/ETS directly, never its mailbox. Client takes
+one connected-member snapshot per event, without Storage readiness RPCs. Transport
 chooses the highest SHA-256 rendezvous score for `{identity, group}` and node name.
 Its explicit typed encoding is independent of Erlang external-term format and
 preserves integer/float and signed-zero distinctions. All buckets share one owner.
@@ -504,7 +509,12 @@ owner wait, using its completion timestamp; healthy pipelines refund fully.
 Anchored bucket expiries become decreasing TTLs when each pipeline dispatches.
 Remote operations call Store directly
 on that owner, preserving terms and opaque CAS tokens, never re-routing or failing
-over to another owner. Booting or older peers without the endpoint fail open.
+over to another owner. The RPC entry point is
+`Guardian.Counters.Transport.remote_operation/3`, with the same batch terms and
+remaining-duration arguments. The former Cluster module is removed; multi-node
+rolling deploys across this split are unsupported. Mixed-version calls fail as
+unavailable, mark owner cooldown and use fail-open defaults until every node runs
+the same build. Booting peers without the endpoint also fail open.
 
 Runner calls `new_batch/0` outside workers and `new_event/2` on worker event entry.
 One event has a 100 ms wall-clock counter phase; operations use at most 50 ms and
@@ -527,15 +537,15 @@ can outlive the wait; uncertain increments are never replayed.
 An independent public ETS table holds one-second cooldowns for suspect owners,
 including the local Store. Unavailability marks immediately; timeouts mark only
 with at least 25 ms allowance. Budget skips and definite Store errors never mark.
-Reads/cooldown updates never wait for the routing GenServer. It monitors membership
+Reads/cooldown updates never wait for the Budget GenServer. It monitors membership
 and prunes expired/departed entries, at least once per second; no user key goes in
-this map. Restarting routing clears cooldowns; while absent, operations fail fast.
+this map. Restarting Budget clears cooldowns; while absent, operations fail fast.
 Membership changes, divergent membership views, restarts, eviction and uncertain
 late writes can lose or split counts. Availability takes precedence over precision;
 there is no replication, migration or partition recovery protocol.
 
 `system_stats.counters_available` reports whether the counter supervisor, Store and
-Cluster are registered. This samples presence without waiting for any process; it
+Budget are registered. This samples presence without waiting for any process; it
 is not a responsiveness probe. It becomes false during subtree downtime or a child
 restart and true after recovery. `/health` continues to depend only on Guardian.Storage.
 

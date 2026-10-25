@@ -38,5 +38,6 @@ and batch-only endpoint coverage. The affected focused tests passed (76 tests).
 The sole full pre-commit run then passed formatting, warnings-as-errors compilation
 and the default suite: 1,184 tests, zero failures, three excluded large tests.
 
-The separate Cluster client/facade split remains deferred. No deployment or
-production verification is part of this change.
+The separate Cluster client/facade split was completed afterward in
+[counter-client.md](counter-client.md). No deployment or production verification
+is part of this change.

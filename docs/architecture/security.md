@@ -407,7 +407,9 @@ and no single request that takes the service down or destroys stored data.
    each. Owner calls reserve independently and run concurrently; pending owners
    wait for refunds within the same event deadline. Pipeline errors retain the
    whole-statement default and no-rollback policy; no uncertain write is replayed.
-   `Guardian.Counters.Cluster` routes native terms to one owner through the fully trusted Erlang
+   `Guardian.Counters.Client` delegates routing and bounded dispatch to internal
+   `Guardian.Counters.Transport`; its `remote_operation/3` endpoint sends native terms
+   to one owner through the fully trusted Erlang
    distribution boundary (section 6), without another API or authorization layer.
    It captures connected members without readiness RPCs. Calls are bounded at
    50 ms, within a 100 ms event phase and a shared 250 ms failed-wait batch budget;
@@ -415,11 +417,12 @@ and no single request that takes the service down or destroys stored data.
    RPC worker even under distribution flow control, and caller cleanup revokes
    aliases and flushes replies. Remote endpoints translate remaining duration
    onto their own clocks; already dispatched mutations can still complete late.
-   A separate member-keyed ETS cooldown suppresses unavailable owners for a second,
+   `Guardian.Counters.Budget` owns reservations/deadlines and a separate member-keyed
+   ETS cooldown that suppresses unavailable owners for a second,
    and timed-out owners only with at least 25 ms allowance; definite failures and
    budget skips never mark owners. No group keys or values are retained there.
    RPC exceptions become fixed error atoms.
-   Store and routing have a disposable supervisor whose linked lifecycle owner
+   Store and Budget have a disposable supervisor whose linked lifecycle owner
    traps its exits and retries with backoff; counter crash loops cannot exhaust
    Guardian.Application's restart intensity. The owner's down/recovery messages use only fixed
    reason categories, never arbitrary exit/startup terms; its formatted status
