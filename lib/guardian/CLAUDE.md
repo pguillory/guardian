@@ -90,13 +90,12 @@ that way, and put a helper with a single user next to that user instead.
   `read/1` splits the loose 10-byte date, space, 8-byte time shape used by `date(ts)`.
   `read_fields/1` layers canonical separator checks on it for formatting and strict
   parsing; both readers retain raw field bytes without validating their contents.
-  `Guardian.Timestamp.from_string/1` and `to_seconds/1` accept only that exact UTC
+  `Guardian.Timestamp.from_string/1` and `parse_seconds/1` accept only that exact UTC
   format: no `T`, `Z`, fractional seconds or numeric offsets. They validate calendar
   fields and years 0000 to 9999. `shift/2` shares strict parsing and integer-second
   arithmetic for date addition/subtraction, returning nil on invalid input or a
   result outside those inclusive year bounds.
-  `parse_seconds/1` is the nonraising form of `to_seconds/1` (`{:ok, seconds}` or
-  `:error`); the `to_seconds` query function and `shift/2` use it, while `to_seconds/1`
-  keeps raising `ArgumentError`.
+  `parse_seconds/1` gives epoch seconds as `{:ok, seconds}` or `:error`, never
+  raising; the `to_seconds` query function and `shift/2` use it.
 
 Utility changes should include focused unit tests.

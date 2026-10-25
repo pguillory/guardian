@@ -35,18 +35,6 @@ defmodule Guardian.Timestamp do
   end
 
   @doc """
-  Seconds since 1970-01-01 00:00:00 UTC of a `YYYY-MM-DD HH:MM:SS` timestamp (see
-  `from_string/1`). Raises `ArgumentError` on a value it can't read; query code uses
-  the nonraising `parse_seconds/1` instead.
-  """
-  def to_seconds(timestamp) do
-    case parse_seconds(timestamp) do
-      {:ok, seconds} -> seconds
-      :error -> raise ArgumentError, "not a timestamp"
-    end
-  end
-
-  @doc """
   Seconds since 1970-01-01 00:00:00 UTC of a `YYYY-MM-DD HH:MM:SS` timestamp, as
   `{:ok, seconds}`, or `:error` for any value `from_string/1` rejects.
   """

@@ -2,10 +2,6 @@ defmodule Guardian.TimestampTest do
   import Guardian.Timestamp
   use ExUnit.Case, async: true
 
-  test "to_seconds" do
-    assert to_seconds("2024-03-06 18:26:45") == 1_709_749_605
-  end
-
   test "parse_seconds gives the epoch seconds or :error without raising" do
     assert parse_seconds("2024-03-06 18:26:45") == {:ok, 1_709_749_605}
     assert parse_seconds("1970-01-01 00:00:00") == {:ok, 0}
@@ -50,13 +46,11 @@ defmodule Guardian.TimestampTest do
       assert read_fields(value) == :error
       assert from_string(value) == :error
       assert parse_seconds(value) == :error
-      assert_raise ArgumentError, "not a timestamp", fn -> to_seconds(value) end
     end
 
     for value <- ["2024-02-30 03:04:05", "2024-01-02 03-04:05"] do
       assert from_string(value) == :error
       assert parse_seconds(value) == :error
-      assert_raise ArgumentError, "not a timestamp", fn -> to_seconds(value) end
     end
 
     assert read_fields("2024-01-02 03-04:05") == :error
@@ -69,7 +63,9 @@ defmodule Guardian.TimestampTest do
     assert shift("9999-12-31 23:59:59", 1) == nil
     assert shift("2024-02-28 23:59:59", 1) == "2024-02-29 00:00:00"
     assert shift("2024-03-01 00:00:00", -1) == "2024-02-29 23:59:59"
-    span = to_seconds("9999-12-31 23:59:59") - to_seconds("0000-01-01 00:00:00")
+    {:ok, latest} = parse_seconds("9999-12-31 23:59:59")
+    {:ok, earliest} = parse_seconds("0000-01-01 00:00:00")
+    span = latest - earliest
     assert shift("0000-01-01 00:00:00", span) == "9999-12-31 23:59:59"
     assert shift("9999-12-31 23:59:59", -span) == "0000-01-01 00:00:00"
 
@@ -90,10 +86,9 @@ defmodule Guardian.TimestampTest do
           "9999-12-31 23:59:59",
         ] do
       assert from_string(string) == {:ok, string}
-      assert from_seconds(to_seconds(string)) == string
+      assert {:ok, seconds} = parse_seconds(string)
+      assert from_seconds(seconds) == string
     end
-
-    assert to_seconds("1970-01-01 00:00:00") == 0
   end
 
   test "every numeric offset is rejected, including zero, with either separator" do
@@ -143,6 +138,5 @@ defmodule Guardian.TimestampTest do
   defp assert_invalid(value) do
     assert from_string(value) == :error, inspect(value)
     assert parse_seconds(value) == :error, inspect(value)
-    assert_raise ArgumentError, fn -> to_seconds(value) end
   end
 end

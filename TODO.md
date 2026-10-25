@@ -185,7 +185,12 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       (`docs/changes/timestamp-arithmetic-helper.md`)
 - [x] timestamp-to-seconds-nonraising: `to_seconds` uses the nonraising
       `Guardian.Timestamp.parse_seconds/1` instead of catching exceptions; the raising
-      `Guardian.Timestamp.to_seconds/1` is unchanged (code review follow-up)
+      `Guardian.Timestamp.to_seconds/1` is unchanged, since removed (code review follow-up)
+- [x] rescue-catchall-cleanup: remove the unused raising `Guardian.Timestamp.to_seconds/1`
+      (`parse_seconds/1` is the conversion); `url_port` catches only `system_limit`
+      (a port of over about 1.26 million digits) and `cosine_similarity` returns null
+      for lists of different lengths and catches only `badarith`; query results are
+      unchanged (code review follow-up)
 - [x] format-timestamp-names-nonraising: unknown month/hour names give null through
       fallback lookups instead of a rescued `CaseClauseError`, keeping the terminal
       cap and invalid-name behavior (code review follow-up)
