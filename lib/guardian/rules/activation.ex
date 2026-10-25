@@ -9,7 +9,7 @@ defmodule Guardian.Rules.Activation do
   so an invalid dependent cannot strand an old identity when its target changes.
   Previous plans come from the published modules' recoverable metadata, so selection
   also preserves prior plans after Server restarts.
-  Selection returns tables/retained; the caller must combine preparation.errors
+  Selection returns tables/retained; Publisher combines preparation.errors
   with selected table errors so retained failures and deferral diagnostics survive.
   """
 

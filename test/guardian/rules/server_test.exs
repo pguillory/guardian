@@ -447,7 +447,7 @@ defmodule Guardian.Rules.ServerTest do
 
     assert Guardian.Rules.lookup(table) == module
     assert module.plan() == plan
-    refute module in :sys.get_state(Guardian.Rules.Server).free
+    refute module in :sys.get_state(Guardian.Rules.Server).publisher.free
     assert Guardian.Rules.lookup(deleted) == nil
     assert [{:ok, %{"x" => 2}}] = Guardian.Engine.ingest_events(other, [%{}])
 
@@ -510,14 +510,16 @@ defmodule Guardian.Rules.ServerTest do
 
     # Two changed tables and one free name: the second compile has no name.
     :sys.replace_state(Guardian.Rules.Server, fn state ->
-      %{state | free: Enum.take(state.free, 1)}
+      %{state | publisher: %{state.publisher | free: Enum.take(state.publisher.free, 1)}}
     end)
 
-    [free] = :sys.get_state(Guardian.Rules.Server).free
+    publisher = :sys.get_state(Guardian.Rules.Server).publisher
+    [free] = publisher.free
     Guardian.FakeS3.put_object(s3, "t1/a.gsql", "SET x = 2")
     Guardian.FakeS3.put_object(s3, "t2/a.gsql", "SET x = 2")
     assert {:error, "no free rule module names" <> _} = Guardian.Rules.reload()
     assert Guardian.Rules.published() == before
+    assert :sys.get_state(Guardian.Rules.Server).publisher == publisher
 
     assert Map.new(Guardian.Rules.published(), fn {table, module} -> {table, module.plan()} end) ==
              metadata
@@ -570,7 +572,7 @@ defmodule Guardian.Rules.ServerTest do
 
     wait_until(fn -> Process.whereis(Guardian.Rules.Server) not in [nil, pid] end)
     state = :sys.get_state(Guardian.Rules.Server)
-    refute module in state.free
+    refute module in state.publisher.free
     assert Guardian.Rules.lookup(table) == module
     {:ok, _} = Guardian.Rules.write_rule(table, "b", "SET y = 2")
     assert [{:ok, %{"x" => 1, "y" => 2}}] = Guardian.Engine.ingest_events(table, [%{}])

@@ -38,14 +38,11 @@ defmodule Guardian.Rules.Server do
 
   ## Module pool
 
-  Compiled modules are never reloaded in place: each change compiles into a free name
-  of `Guardian.Rules.Compiler`'s pool. A module the published map stops using is retired,
-  and 30 s later (rows run under a 1 s limit, so no caller can still hold it) deleted
-  and soft-purged; its name returns to the pool only once the purge succeeds. On a
-  restart, names in the published map are in use and any other loaded name is
-  retired. Each generated module exposes its exact immutable plan; activation
-  recovers previous plans from those modules, including after a Server restart,
-  without reading the store or maintaining a separate history/cache of plans.
+  `Guardian.Rules.Publisher` owns activation, publication and the module pool,
+  synchronously inside this server's callbacks. Server holds its pool value and
+  forwards reclamation messages. Publisher recovers prior plans only from the
+  published modules, including after a Server restart; see its module documentation
+  for the compilation and reclamation lifecycle.
 
   ## Status and crash reports
 
@@ -68,12 +65,11 @@ defmodule Guardian.Rules.Server do
 
   alias Guardian.Rules
   alias Guardian.Rules.Lock
+  alias Guardian.Rules.Publisher
   alias Guardian.Rules.RuleSet
   alias Guardian.Rules.Store
 
   @boot_retry_ms 60_000
-  @reclaim_after_ms 30_000
-  @reclaim_retry_ms 5_000
   @reload_timeout_ms 10_000
   @failure_log_table Guardian.Rules.FailureLog
 
@@ -123,7 +119,7 @@ defmodule Guardian.Rules.Server do
         # `files` is the set last activated (also the fetch cache); `stale` means the
         # published rules may not match it, so the next reload activates whatever it
         # reads even if the ETags are unchanged.
-        state = %{store: store, files: %{}, stale: false, free: [], retired: %{}}
+        state = %{store: store, files: %{}, stale: false, publisher: nil}
 
         case Rules.published() do
           nil -> boot(state)
@@ -142,7 +138,7 @@ defmodule Guardian.Rules.Server do
     case read_with_retry(state, deadline, 1_000) do
       {:ok, files} ->
         preparation = prepare(sources(files))
-        state = reserve_pool(state, MapSet.new())
+        state = %{state | publisher: Publisher.new(%{})}
 
         case activate(state, preparation) do
           {:ok, state, _errors} ->
@@ -183,23 +179,8 @@ defmodule Guardian.Rules.Server do
   end
 
   defp restart(state, published) do
-    in_use = published |> Map.values() |> Enum.filter(&is_atom/1) |> MapSet.new()
-
     send(self(), :poll)
-    %{reserve_pool(state, in_use) | stale: true}
-  end
-
-  # Rebuilds the pool from what is loaded: names in use stay in use, any other loaded
-  # name (left by an earlier instance of this process) is retired, never reused while
-  # loaded; the rest are free.
-  defp reserve_pool(state, in_use) do
-    {loaded, free} =
-      Guardian.Rules.Compiler.names()
-      |> Enum.reject(&(&1 in in_use))
-      |> Enum.split_with(&(:code.is_loaded(&1) != false or :erlang.check_old_code(&1)))
-
-    Enum.each(loaded, &schedule_reclaim(&1, @reclaim_after_ms))
-    %{state | free: free, retired: Map.new(loaded, &{&1, :pending})}
+    %{state | publisher: Publisher.new(published), stale: true}
   end
 
   # Every callback runs through scrubbed/1, so a crash report never shows a rule
@@ -238,7 +219,7 @@ defmodule Guardian.Rules.Server do
   end
 
   defp info({:reclaim, module}, state) do
-    {:noreply, reclaim(state, module)}
+    {:noreply, %{state | publisher: Publisher.reclaim(state.publisher, module)}}
   end
 
   ## Reading
@@ -472,140 +453,11 @@ defmodule Guardian.Rules.Server do
     |> Enum.map(fn {_result, node} -> node end)
   end
 
-  ## Activation
-
+  # Adopt Publisher's new pool only on success; failure leaves the pool unchanged.
   defp activate(state, preparation) do
-    published = Rules.published() || %{}
-    previous = published_plans(published)
-    selected = Guardian.Rules.Activation.select(preparation, previous)
-    errors = activation_errors(preparation, selected)
-    log_errors(errors)
-
-    {targets, to_compile} =
-      Enum.reduce(selected.tables, {%{}, []}, fn {table, result}, {targets, to_compile} ->
-        current = Map.get(published, table)
-
-        case result do
-          {:ok, plan} ->
-            if is_atom(current) and current != nil and current.hash() == plan.hash do
-              {Map.put(targets, table, current), to_compile}
-            else
-              {targets, [plan | to_compile]}
-            end
-
-          {:error, errors} ->
-            {Map.put(targets, table, {:invalid, invalid_message(errors)}), to_compile}
-        end
-      end)
-
-    case compile_all(state, Enum.reverse(to_compile), []) do
-      {:ok, compiled, free} ->
-        tables =
-          Enum.reduce(compiled, targets, fn {plan, module}, acc ->
-            Map.put(acc, plan.table, module)
-          end)
-
-        Rules.publish(tables)
-
-        in_use = tables |> Map.values() |> Enum.filter(&is_atom/1) |> MapSet.new()
-
-        retiring =
-          published
-          |> Map.values()
-          |> Enum.filter(&(is_atom(&1) and &1 not in in_use))
-          |> Enum.uniq()
-
-        Enum.each(retiring, &schedule_reclaim(&1, @reclaim_after_ms))
-        retired = Enum.reduce(retiring, state.retired, &Map.put(&2, &1, :pending))
-
-        {:ok, %{state | free: free, retired: retired}, errors}
-
-      {:error, message} ->
-        {:error, message, errors}
-    end
-  end
-
-  # Published modules are the sole source of truth, also after a Server restart.
-  # The fixed pool bounds metadata lifetime; no per-reload registry accumulates.
-  defp published_plans(published) do
-    for {table, module} <- published, is_atom(module), into: %{}, do: {table, module.plan()}
-  end
-
-  defp activation_errors(preparation, selected) do
-    selected_errors =
-      Enum.flat_map(selected.tables, fn
-        {_table, {:error, errors}} -> errors
-        _ -> []
-      end)
-
-    (preparation.errors ++ selected_errors)
-    |> Enum.uniq()
-    |> Enum.sort_by(&{&1.file, &1.line || 0, &1.kind})
-  end
-
-  defp compile_all(state, [], compiled) do
-    {:ok, compiled, state.free}
-  end
-
-  defp compile_all(%{free: []} = state, [_ | _], compiled) do
-    discard(compiled)
-    _ = state
-    {:error, "no free rule module names; retrying on the next poll"}
-  end
-
-  defp compile_all(%{free: [module | free]} = state, [plan | plans], compiled) do
-    case Guardian.Rules.Compiler.compile(module, plan) do
-      :ok ->
-        compile_all(%{state | free: free}, plans, [{plan, module} | compiled])
-
-      {:error, kind} ->
-        discard([{plan, module} | compiled])
-        {:error, "compiling the rules for #{plan.table} failed (#{kind})"}
-    end
-  end
-
-  # Unloads modules that were compiled but never published (nothing has called them),
-  # so their names, still in the caller's free list, can be used again.
-  defp discard(compiled) do
-    Enum.each(compiled, fn {_plan, module} ->
-      :code.delete(module)
-      :code.purge(module)
-    end)
-  end
-
-  defp invalid_message([first | rest]) do
-    case rest do
-      [] -> first.message
-      _ -> "#{first.message} (and #{length(rest)} more)"
-    end
-  end
-
-  ## Reclaiming retired modules
-
-  defp schedule_reclaim(module, @reclaim_after_ms) do
-    after_ms = Application.get_env(:guardian, :rules_reclaim_after_ms, @reclaim_after_ms)
-    Process.send_after(self(), {:reclaim, module}, after_ms)
-  end
-
-  defp schedule_reclaim(module, after_ms) do
-    Process.send_after(self(), {:reclaim, module}, after_ms)
-  end
-
-  defp reclaim(state, module) do
-    case Map.get(state.retired, module) do
-      nil ->
-        state
-
-      status ->
-        # Delete once (making the code old), then soft-purge until no process runs it.
-        if status == :pending, do: :code.delete(module)
-
-        if :code.soft_purge(module) do
-          %{state | retired: Map.delete(state.retired, module), free: state.free ++ [module]}
-        else
-          schedule_reclaim(module, @reclaim_retry_ms)
-          %{state | retired: Map.put(state.retired, module, :deleted)}
-        end
+    case Publisher.activate(state.publisher, preparation) do
+      {:ok, publisher, errors} -> {:ok, %{state | publisher: publisher}, errors}
+      {:error, message, errors} -> {:error, message, errors}
     end
   end
 
@@ -677,27 +529,6 @@ defmodule Guardian.Rules.Server do
 
   defp schedule_poll do
     Process.send_after(self(), :poll, poll_ms())
-  end
-
-  defp log_errors([]) do
-    :ok
-  end
-
-  # By file, line and kind only: a message can quote rule text (the token a parse
-  # error got, say), and rules can hold secrets. The rule tools return the messages.
-  defp log_errors(errors) do
-    Logger.warning(
-      "Rules: #{length(errors)} invalid: " <>
-        Enum.map_join(Enum.take(errors, 5), "; ", &error_location/1)
-    )
-  end
-
-  defp error_location(%{file: file, line: nil, kind: kind}) do
-    "#{file} (#{kind})"
-  end
-
-  defp error_location(%{file: file, line: line, kind: kind}) do
-    "#{file} line #{line} (#{kind})"
   end
 
   defp log_poll_failure(state, message) do

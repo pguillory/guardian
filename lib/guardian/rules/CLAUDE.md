@@ -24,7 +24,11 @@ Modules:
   aggregate configuration and window/bucket sizes. TRACK steps receive their
   definition after semantic validation; LOOKUPs and Runtime reuse it. `hash_term/1`
   owns the legacy struct-shaped hash input, excluding derived configuration.
-- `Guardian.Rules.Activation`: pure coherent reload selection, used by Server.
+- `Guardian.Rules.Activation`: pure coherent reload selection, used by Publisher.
+- `Guardian.Rules.Publisher`: synchronous activation/publication and generated-module
+  pool ownership, called inside Server's scrubbed callbacks. Recovers prior plans
+  only from published modules; its state contains only free names and retired
+  statuses, never plans, sources or diagnostics. Reclamation timers target Server.
 - `Guardian.Rules.Compiler`: a plan into a generated module from a fixed template, with the
   execution levels as one shared escaped literal. Generated `plan/0` reconstructs
   the exact resolved plan's flat order from compile-time positions for activation,
@@ -54,7 +58,8 @@ Modules:
 - `Guardian.Rules.Runner`: runs a batch in a worker under the heap limit, 1 s per event.
 - `Guardian.Rules.Store` (`Local`, `S3`): the files. `Guardian.Rules.Lock`: the write lock in the store.
 - `Guardian.Rules.Config`: chooses the store from the environment.
-- `Guardian.Rules.Server`: startup load, reload, poll, writes, activation, the module pool.
+- `Guardian.Rules.Server`: process, startup load, reload, poll, locked writes and
+  admission. Holds Publisher's pool value and forwards reclamation messages.
 
 Rules to keep:
 
@@ -91,7 +96,7 @@ Rules to keep:
    validates counter plans, orders expression dependencies with the LOOKUP barrier
    and binds definition identities. Compiler refuses unresolved plans and unbound
    LOOKUPs. The activation selector retains prior dependency
-   components on invalid reloads; Server derives prior plans from published
+   components on invalid reloads; Publisher derives prior plans from published
    modules, including after restart, without a separate metadata registry.
    Where TRACK counter state lives is settled in the change document:
    Guardian.Counters.Store provides node-local ETS storage,

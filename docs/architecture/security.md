@@ -800,8 +800,10 @@ Where data goes:
      source and expression constants cannot escape through those structs either.
      Compiled modules retain their exact resolved plan as escaped literal data
      for reload/restart recovery; its lifetime is bounded by the fixed module pool
-     and normal code reclamation. Raw module/process inspection remains privileged
-     full-memory access. `init/1`, `handle_call/3` and
+     and normal code reclamation. The synchronous Rules.Publisher helper runs inside
+     Server's scrubbed callbacks; its state holds only module names and retirement
+     statuses, never sources, plans or diagnostics. Raw module/process inspection
+     remains privileged full-memory access. `init/1`, `handle_call/3` and
      `handle_info/2` re-raise a failure as an error naming only its kind, with a
      stack of arities, because OTP adds the raw stack, arguments included, after
      `format_status/1`. `Guardian.Rules.Server.write/3` turns the call's exit into an error

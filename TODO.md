@@ -104,6 +104,8 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] rules-compiler-metadata: share compiled execution levels and reconstruct
       exact flat plan metadata only for activation, without per-event rebuilding
       (`docs/changes/rules-compiler-metadata.md`)
+- [x] rules-publisher: extract synchronous activation/publication and module-pool
+      ownership from Server without changing behavior (`docs/changes/rules-publisher.md`)
 - [ ] counters-monotonic-clock: share the microsecond clock/deadline helpers used by
       Context, Budget and Transport to make their unit coupling explicit
       (code review follow-up)

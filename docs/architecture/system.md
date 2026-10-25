@@ -334,7 +334,7 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    It is pure. Typed per-kind steps (`Guardian.Rules.Step`), scalar/counter checks
    (`Guardian.Rules.Validation`) and dependency ordering
    (`Guardian.Rules.DependencyGraph`) are separate from rule-set orchestration.
-   `Guardian.Rules.Activation.select/2` selects plans for Server activation:
+   `Guardian.Rules.Activation.select/2` selects plans for Publisher activation:
    invalid components of old/new LOOKUP dependencies retain prior plans together,
    including deleted targets/dependents. Tables without a previous valid plan in
    such components are invalid.
@@ -352,9 +352,13 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    plan's flat metadata order using compile-time positions into those levels,
    including canonical source and AST constants, never executable rule text.
    Ingestion uses the prepared levels directly, without reconstruction.
-3. Publication: one `:persistent_term` map of table to module, or `{:invalid,
-   message}`. A reload compiles every changed table into free names first and
-   publishes one new map only if all compiled, so a change is all or nothing on each
+3. Publication: `Guardian.Rules.Publisher` owns activation, publication and the
+   generated-module pool, synchronously inside Server's scrubbed callbacks. Server
+   keeps store reads, reload/poll, locked writes and admission; it holds Publisher's
+   free/retired names and forwards reclamation messages. Publisher retains no plans,
+   sources or diagnostics in its state. One `:persistent_term` map holds table to
+   module, or `{:invalid, message}`. A reload compiles every changed table into free
+   names first and publishes one new map only if all compiled, so a change is all or nothing on each
    node. A module the map stops using is retired, then after 30 s (rows run under a
    1 s limit) deleted and soft-purged; its name is reused only after the purge
    succeeds. On a restart the pool is rebuilt from what is loaded. Activation reads

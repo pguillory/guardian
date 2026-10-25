@@ -17,7 +17,7 @@ defmodule Guardian.Rules.Compiler do
   never compiled `:re` references.
 
   Module names come from a fixed pool (`name/1`), so atoms stay bounded however often
-  rules change; `Guardian.Rules.Server` owns the pool and never loads a name twice while
+  rules change; `Guardian.Rules.Publisher` owns the pool and never loads a name twice while
   anything can still call it.
   """
 
