@@ -26,10 +26,11 @@ This extends the counter implementation in [ingest-rules.md](ingest-rules.md).
    executes every pending machine together per round, then restores the exact
    nesting and order, including empty lists.
 4. Cluster routing groups each round by owner. Each owner receives one pipeline
-   of get/gets/incr/cas operations; the new path does not use get_many. Store checks
+   of get/gets/incr/cas operations. Store checks
    its original queued deadline before each operation. A pipeline has at most
    4,000 operations: four buckets times the 1,000-statement table limit. Existing
-   scalar APIs remain available.
+   scalar client APIs were later retired in [counter-retirement.md](counter-retirement.md);
+   Store retains its local atomic primitives.
 5. Owner pipelines run concurrently within conservative reservations: each reserves
    up to 50 ms from the shared 250 ms allowance. Undispatched owners wait for any
    completion to refund allowance. The 100 ms event deadline still applies. With

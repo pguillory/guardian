@@ -1,7 +1,7 @@
 defmodule Guardian.Rules.CounterDefinition do
   @moduledoc "Immutable counter metadata bound into TRACK and LOOKUP plans."
-  @enforce_keys [:identity, :operator, :window_ms, :bucket_ms, :group_arity]
-  defstruct [:identity, :operator, :window_ms, :bucket_ms, :group_arity]
+  @enforce_keys [:identity, :operator, :aggregation, :window_ms, :bucket_ms, :group_arity]
+  defstruct [:identity, :operator, :aggregation, :window_ms, :bucket_ms, :group_arity]
 
   @max_window_seconds 365 * 24 * 60 * 60
 
@@ -29,6 +29,7 @@ defmodule Guardian.Rules.CounterDefinition do
     %__MODULE__{
       identity: step.identity,
       operator: step.operator,
+      aggregation: step.aggregation,
       window_ms: step.window_ms,
       bucket_ms: step.bucket_ms,
       group_arity: length(step.by_exprs),

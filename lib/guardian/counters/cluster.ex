@@ -41,26 +41,6 @@ defmodule Guardian.Counters.Cluster do
     }
   end
 
-  def get(key, event) do
-    request({:get, key}, [key], event)
-  end
-
-  def gets(key, event) do
-    request({:gets, key}, [key], event)
-  end
-
-  def get_many(keys, event) do
-    request({:get_many, keys}, keys, event)
-  end
-
-  def cas(key, token, value, ttl_ms, event) do
-    request({:cas, key, token, value, ttl_ms}, [key], event)
-  end
-
-  def incr(key, delta, ttl_ms, event) do
-    request({:incr, key, delta, ttl_ms}, [key], event)
-  end
-
   @doc "Runs indexed operations in concurrent owner pipelines within the shared budgets."
   def batch(operations, event) when is_map(operations) do
     {groups, errors} =
@@ -81,7 +61,7 @@ defmodule Guardian.Counters.Cluster do
   defp operation_owner(operation, members) do
     with true <- is_tuple(operation) and tuple_size(operation) in [2, 4, 5],
          kind when kind in [:get, :gets, :incr, :cas] <- elem(operation, 0),
-         {:ok, routing} <- routing_key([elem(operation, 1)]) do
+         {:ok, routing} <- routing_key(elem(operation, 1)) do
       {:ok, owner(routing, members)}
     else
       _ -> {:error, :invalid_request}
@@ -281,34 +261,12 @@ defmodule Guardian.Counters.Cluster do
     end)
   end
 
-  defp request(operation, keys, event) do
-    with {:ok, routing_key} <- routing_key(keys) do
-      owner = owner(routing_key, event.members)
-      table = event.cooldown_table
-
-      if available?(table, owner),
-        do: call(operation, owner, event),
-        else: {:error, :cooldown}
-    end
-  rescue
-    _ -> {:error, :invalid_request}
-  catch
-    _, _ -> {:error, :unavailable}
-  end
-
-  defp routing_key([{identity, group, bucket} | rest])
+  defp routing_key({identity, group, bucket})
        when is_tuple(identity) and tuple_size(identity) == 3 and is_tuple(group) and
-              is_integer(bucket) and length(rest) < 4 do
+              is_integer(bucket) do
     {table, name, hash} = identity
 
-    if is_binary(table) and is_binary(name) and is_binary(hash) and
-         Enum.all?(rest, fn
-           {other_identity, other_group, n} ->
-             other_identity === identity and other_group === group and is_integer(n)
-
-           _ ->
-             false
-         end) do
+    if is_binary(table) and is_binary(name) and is_binary(hash) do
       {:ok, {identity, group}}
     else
       {:error, :invalid_request}
@@ -317,21 +275,6 @@ defmodule Guardian.Counters.Cluster do
 
   defp routing_key(_) do
     {:error, :invalid_request}
-  end
-
-  defp call(operation, owner, event) do
-    started = now()
-    allowance = min(event.timeout_us, event.deadline - started)
-
-    case reserve(event.batch, allowance) do
-      :exhausted ->
-        {:error, :budget_exhausted}
-
-      reserved ->
-        result = bounded_call(owner, operation, event.store, started + reserved)
-        settle(result, owner, event, started, reserved, now())
-        result
-    end
   end
 
   defp settle(result, owner, event, started, reserved, completed) do
@@ -357,25 +300,6 @@ defmodule Guardian.Counters.Cluster do
 
   # The guard never sends over distribution. Its linked worker may be blocked in
   # distribution flow control, so either caller timeout or caller death kills both.
-  defp bounded_call(owner, operation, store, deadline) do
-    handle = start_call(owner, operation, store, deadline)
-
-    try do
-      receive do
-        {reply, result, _} when reply == handle.reply ->
-          result
-
-        {:DOWN, monitor, :process, guard, _}
-        when monitor == handle.monitor and guard == handle.guard ->
-          {:error, :unavailable}
-      after
-        remaining_ms(deadline) -> {:error, :timeout}
-      end
-    after
-      cleanup_call(handle)
-    end
-  end
-
   defp start_call(owner, operation, store, deadline) do
     caller = self()
     reply = :erlang.alias()
@@ -473,11 +397,6 @@ defmodule Guardian.Counters.Cluster do
     opts = [server: store, timeout: timeout, deadline: Integer.floor_div(deadline, 1_000)]
 
     case operation do
-      {:get, key} -> backend.get(key, opts)
-      {:gets, key} -> backend.gets(key, opts)
-      {:get_many, keys} -> backend.get_many(keys, opts)
-      {:cas, key, token, value, ttl} -> backend.cas(key, token, value, ttl, opts)
-      {:incr, key, delta, ttl} -> backend.incr(key, delta, ttl, opts)
       {:batch, operations} -> backend.batch(operations, opts)
       _ -> {:error, :invalid_request}
     end

@@ -2,6 +2,10 @@ defmodule Guardian.Counters.MachineTest do
   use ExUnit.Case, async: true
   alias Guardian.Counters.{KeyMachines, Machine}
 
+  @sum Guardian.Aggregation.fetch_counter!({"sum", 1})
+  @min Guardian.Aggregation.fetch_counter!({"min", 1})
+  @max Guardian.Aggregation.fetch_counter!({"max", 1})
+
   test "nested rounds batch independent machines and preserve empty groups and result order" do
     parent = self()
     expiry = System.monotonic_time(:millisecond) + 5_000
@@ -27,7 +31,10 @@ defmodule Guardian.Counters.MachineTest do
       [],
       [KeyMachines.read(:a), KeyMachines.read(:b)],
       [],
-      [KeyMachines.incr(:c, 1, expiry), KeyMachines.merge({"sum", 1}, :d, 2, expiry)],
+      [
+        KeyMachines.incr(:c, 1, expiry),
+        KeyMachines.merge(@sum, :d, 2, expiry),
+      ],
       [],
     ]
 
@@ -61,7 +68,15 @@ defmodule Guardian.Counters.MachineTest do
         end)
       end
 
-      assert Machine.run_nested([[KeyMachines.merge({"sum", 1}, :k, 1, expiry)]], nil, execute) ==
+      assert Machine.run_nested(
+               [
+                 [
+                   KeyMachines.merge(@sum, :k, 1, expiry),
+                 ],
+               ],
+               nil,
+               execute
+             ) ==
                [[{:error, failure}]]
 
       for _ <- 1..if(failure == :conflict, do: 3, else: 1) do
@@ -100,8 +115,8 @@ defmodule Guardian.Counters.MachineTest do
     assert Machine.run_nested(
              [
                [
-                 KeyMachines.merge({"min", 1}, :k, 1.0, expiry),
-                 KeyMachines.merge({"max", 1}, :k, 0, expiry),
+                 KeyMachines.merge(@min, :k, 1.0, expiry),
+                 KeyMachines.merge(@max, :k, 0, expiry),
                ],
              ],
              nil,

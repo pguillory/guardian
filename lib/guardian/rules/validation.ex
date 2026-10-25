@@ -9,7 +9,7 @@ defmodule Guardian.Rules.Validation do
 
   defp counter_errors(%Guardian.Rules.Step.Track{} = step) do
     operator_errors =
-      if step.operator in Guardian.Counters.Aggregate.operators() do
+      if step.operator in Guardian.Aggregation.counter_operators() do
         []
       else
         [

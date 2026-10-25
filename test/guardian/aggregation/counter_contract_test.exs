@@ -2,12 +2,9 @@ defmodule Guardian.Aggregation.CounterContractTest do
   use ExUnit.Case, async: true
 
   alias Guardian.Aggregation
-  alias Guardian.Counters.Aggregate
 
   test "counter registration opts into shared implementations and exact arities" do
-    assert Aggregation.counter_operators() == Aggregate.operators()
-
-    for {name, _arity} = operator <- Aggregate.operators() do
+    for {name, _arity} = operator <- Aggregation.counter_operators() do
       assert operator in Aggregation.names_and_arities()
       counter = Aggregation.fetch_counter!(operator)
       query = Aggregation.fetch!(name)
@@ -20,16 +17,14 @@ defmodule Guardian.Aggregation.CounterContractTest do
       assert module.(counter) == module.(query)
     end
 
-    for operator <- Aggregation.names_and_arities() -- Aggregate.operators() do
+    for operator <- Aggregation.names_and_arities() -- Aggregation.counter_operators() do
       assert_raise ArgumentError, fn -> Aggregation.fetch_counter!(operator) end
-    end
-
-    for values <- [nil, 1, {}, %{}, [1 | 2]] do
-      assert_raise ArgumentError, fn -> Aggregate.create({"sum", 1}, values) end
     end
   end
 
   test "query empty results remain distinct from counter empty states" do
+    assert Aggregation.default(Aggregation.fetch!("avg")) === nil
+
     for {name, query_default, counter_empty} <- [
           {"sum", 0.0, nil},
           {"avg", nil, {0, 0}},

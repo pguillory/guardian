@@ -71,7 +71,7 @@ defmodule Guardian.Rules.Runtime do
       {{step, _machines, definition}, results}, index ->
         value =
           counter_guard(step, definition, fn ->
-            Guardian.Rules.CounterRuntime.combine(definition.operator, results)
+            Guardian.Rules.CounterRuntime.combine(definition.aggregation, results)
           end)
 
         RowIndex.put_field(index, step.field, value)
@@ -140,7 +140,7 @@ defmodule Guardian.Rules.Runtime do
         Guardian.Engine.failure_kind(kind, reason, __STACKTRACE__)
       )
 
-      Guardian.Rules.CounterRuntime.missing(definition.operator)
+      Guardian.Rules.CounterRuntime.missing(definition.aggregation)
   end
 
   defp counter_definition(%Guardian.Rules.Step.Track{} = step) do

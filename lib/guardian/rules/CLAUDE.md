@@ -20,7 +20,9 @@ Modules:
 - `Guardian.Rules.DependencyGraph`: deterministic flat ordering and dependency levels with
   the explicit LOOKUP barrier. Resolved plans retain both; levels rebuild after binding.
 - `Guardian.Rules.Resolution`: immutable target definitions and fixed-point invalidity.
-- `Guardian.Rules.CounterDefinition`: immutable target metadata and window/bucket sizes.
+- `Guardian.Rules.CounterDefinition`: immutable target metadata, resolved shared
+  aggregate configuration and window/bucket sizes. TRACK steps receive their
+  configuration after semantic validation; LOOKUPs bind the same configuration.
 - `Guardian.Rules.Activation`: pure coherent reload selection, used by Server.
 - `Guardian.Rules.Compiler`: a plan into a generated module from a fixed template, with the
   statements as escaped literals. Generated `plan/0` exposes the exact resolved
@@ -87,7 +89,7 @@ Rules to keep:
    Where TRACK counter state lives is settled in the change document:
    Guardian.Counters.Store provides node-local ETS storage,
    Guardian.Counters.Cluster provides bounded cluster ownership,
-   and Guardian.Counters.Aggregate provides pure mergeable operators. Counter failures fail
+   and Guardian.Aggregation provides shared mergeable operators. Counter failures fail
    open without changing SET/UNSET's fail-closed behavior or skipping final UNSETs.
    BY/min/max state may retain sensitive values after UNSET; no event retry or
    rollback is allowed. GUARDIAN_COUNTER_MEMORY_MB maps positive MiB to Store's

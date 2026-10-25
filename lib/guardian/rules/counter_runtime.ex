@@ -1,15 +1,16 @@
 defmodule Guardian.Rules.CounterRuntime do
   @moduledoc "Bucket expansion and combination for resolved TRACK/LOOKUP counter plans."
-  alias Guardian.Counters.{Aggregate, KeyMachines, Machine}
+  alias Guardian.Aggregation
+  alias Guardian.Counters.{KeyMachines, Machine}
 
   @counts [{"count", 0}, {"count", 1}]
 
   def lookup(definition, group, event) do
-    definition |> expand_lookup(group, event) |> run(definition.operator, event)
+    definition |> expand_lookup(group, event) |> run(definition.aggregation, event)
   end
 
   def track(definition, group, values, event) do
-    definition |> expand_track(group, values, event) |> run(definition.operator, event)
+    definition |> expand_track(group, values, event) |> run(definition.aggregation, event)
   end
 
   def expand_lookup(definition, group, event) do
@@ -18,7 +19,8 @@ defmodule Guardian.Rules.CounterRuntime do
 
   def expand_track(definition, group, values, event) do
     operator = definition.operator
-    delta = Aggregate.create(operator, values)
+    aggregation = definition.aggregation
+    delta = Aggregation.start(aggregation, values)
     keys = keys(definition, group, event)
 
     if operator in @counts and delta == 0 do
@@ -30,33 +32,33 @@ defmodule Guardian.Rules.CounterRuntime do
       writer =
         if operator in @counts,
           do: KeyMachines.incr(current, delta, expiry),
-          else: KeyMachines.merge(operator, current, delta, expiry)
+          else: KeyMachines.merge(aggregation, current, delta, expiry)
 
       # Keep the current bucket last: min/max ties and floating sums depend on order.
       Enum.map(previous, &KeyMachines.read/1) ++ [writer]
     end
   end
 
-  def combine(operator, results) do
+  def combine(aggregation, results) do
     if Enum.any?(results, &match?({:error, _}, &1)) do
-      missing(operator)
+      missing(aggregation)
     else
       results
-      |> Enum.reduce(Aggregate.default(operator), fn
-        :not_found, acc -> Aggregate.merge(operator, acc, Aggregate.default(operator))
-        {:ok, state}, acc -> Aggregate.merge(operator, acc, state)
+      |> Enum.reduce(Aggregation.empty(aggregation), fn
+        :not_found, acc -> Aggregation.merge(aggregation, acc, Aggregation.empty(aggregation))
+        {:ok, state}, acc -> Aggregation.merge(aggregation, acc, state)
       end)
-      |> then(&Aggregate.resolve(operator, &1))
+      |> then(&Aggregation.finish(aggregation, &1))
     end
   end
 
-  def missing(operator) do
-    Aggregate.resolve(operator, Aggregate.default(operator))
+  def missing(aggregation) do
+    Aggregation.finish(aggregation, Aggregation.empty(aggregation))
   end
 
-  defp run(machines, operator, event) do
+  defp run(machines, aggregation, event) do
     [results] = Machine.run_nested([machines], event.counters)
-    combine(operator, results)
+    combine(aggregation, results)
   end
 
   defp keys(definition, group, event) do

@@ -57,7 +57,7 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
          in one restart (removing some refuses startup); `/data/rules` stays.
 - [x] rules-track-lookup: TRACK (counters) and LOOKUP statements; settled v1 design
       and reviewed four-piece plan in `docs/changes/ingest-rules.md`
-      1. [x] C1: node-local ETS get/get_many/gets/cas/incr, per-key TTLs, memory
+      1. [x] C1: node-local ETS get/gets/cas/incr, per-key TTLs, memory
          budget and oldest-half eviction (superseded by counter-store.md below)
       2. [x] C2: consistent owner hashing, bounded remote operations and fail open
       3. [x] C3: mergeable count, distinct (HyperLogLog), sum, min, max and avg
@@ -88,9 +88,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] shared-aggregates: queries and counters use the same per-aggregate modules,
       with explicit counter opt-in and preserved defaults, precision and numeric
       policies (`docs/changes/shared-aggregates.md`)
-- [ ] resolved-counter-aggregations: retire the thin Guardian.Counters.Aggregate
-      adapter by resolving shared aggregate configurations in rule validation/plans
-      and carrying them through counter execution (code review follow-up)
+- [x] counter-retirement: remove legacy scalar cluster entry points and the
+      counter aggregate adapter; carry resolved shared aggregate configurations
+      through rule plans and batched execution (`docs/changes/counter-retirement.md`)
 - [x] rules-open-questions: the failure and invalid-at-boot defaults are confirmed
       and their switches (`:rules_on_failure`, `:rules_invalid_at_boot`) removed
 - [x] rules-server-redaction: Guardian.Rules.Server's formatted status and crash reports

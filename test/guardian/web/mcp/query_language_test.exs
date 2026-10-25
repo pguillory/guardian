@@ -46,7 +46,7 @@ defmodule Guardian.Web.MCP.QueryLanguageTest do
 
     assert Guardian.Rules.RuleSet.validate(files).errors == []
 
-    for {name, _arity} <- Guardian.Counters.Aggregate.operators(),
+    for {name, _arity} <- Guardian.Aggregation.counter_operators(),
         do: assert(rule_section =~ name)
   end
 end

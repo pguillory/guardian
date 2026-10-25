@@ -24,9 +24,10 @@ from `Guardian.Aggregation.fetch!/1` and run it with `Guardian.Aggregation.defau
 
 Counters use the explicit name/arity opt-in list in `Guardian.Aggregation` through
 `fetch_counter!/1`; `counter_operators/0` derives the fixed v1 allowlist from it.
-The existing per-aggregate modules own all logic. `Guardian.Counters.Aggregate`
-only validates arity and translates its API to empty/start/merge/finish. Do not
-add an operator implementation there or automatically expose query aggregates to
+The existing per-aggregate modules own all logic. Rules validate name/arity before
+resolving configurations once into TRACK steps and immutable LOOKUP definitions.
+Counter execution carries those configurations through empty/start/merge/finish
+without looking them up again. Do not automatically expose query aggregates to
 counters. Assess state growth and transport before adding an opt-in.
 
 Preserve the configured differences: Count uses explicit :query/:counter contexts

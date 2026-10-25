@@ -93,13 +93,15 @@ statement. Cluster batches by owner and dispatches concurrent pipelines. Pending
 owners wait for any completed call's reservation refund; cooldown, truly exhausted
 budgets or deadlines skip them. Charge failed waits once per pipeline using its
 completion timestamp. Recompute anchored mutation TTLs at actual pipeline dispatch,
-including after waiting for a reservation. Keep no get_many in this execution path.
+including after waiting for a reservation. Cluster exposes only batched operations;
+the remote endpoint accepts only owner pipelines. Store retains its local atomic primitives.
 
-`Guardian.Counters.Aggregate` is an adapter to the shared `Guardian.Aggregation`
-registry and per-aggregate modules, independent of store operations and query
-execution. Its fixed `{name, arity}` allowlist is derived from the registry's
-explicit counter configurations and exposes create/merge/resolve/default. Every default
-is an empty mergeable state: resolve it for zero (count and distinct) or nil
+Validated TRACK steps carry shared `Guardian.Aggregation` configurations into
+immutable counter definitions, bound LOOKUPs and key machines. The fixed
+`{name, arity}` allowlist derives from the registry's explicit counter opt-in.
+Resolve configurations once during plan construction after validation, never per
+event or merge. Call empty/start/merge/finish through the shared registry API.
+Every empty is a mergeable state: finish it for zero (count and distinct) or nil
 (sum/min/max/avg). Counter sum's empty result is nil, unlike query sum's 0.0.
 Distinct uses Hypex precision 8 with fixed 256-byte bitstring registers; query
 distinct stays precision 14. Average keeps `{sum, count}` and skips empty states
@@ -110,12 +112,13 @@ preclude universal associativity. Min/max share query ordering, with the right
 state winning ties, including the type of equal integer/float values.
 
 Bucket callers merge states, compare with the prior state using `===` to skip
-unchanged writes, then resolve once. Count values returned by native increments
-must also be resolved to apply int64 output bounds. The adapter has no operator
-arithmetic, Hypex or ordering logic: the existing aggregation modules own it all,
+unchanged writes, then finish once. Count values returned by native increments
+must also be finished to apply int64 output bounds. The existing aggregation
+modules own all operator arithmetic, Hypex and ordering logic,
 with configured counter policies where needed. States are ordinary terms suitable
 for ETS/erpc. HLL registers are fixed size; min/max retain an input-sized value,
 and exact count/avg integer sizes grow logarithmically rather than having an
 absolute byte cap. Preserve Store's payload refusal and asynchronous memory target.
 Counter rule execution lives in Rules, with at most three total CAS attempts for
-definite conflicts only. See `docs/changes/shared-aggregates.md`.
+definite conflicts only. See `docs/changes/shared-aggregates.md` and
+`docs/changes/counter-retirement.md`.

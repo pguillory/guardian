@@ -92,10 +92,11 @@ defmodule Guardian.Rules.CounterPlanTest do
   end
 
   test "counter operators are the aggregate allowlist, with scalar arguments" do
-    for {name, arity} <- Guardian.Counters.Aggregate.operators() do
+    for {name, arity} <- Guardian.Aggregation.counter_operators() do
       args = if arity == 0, do: "", else: "amount"
       [track] = plan(%{"t/a.gsql" => "TRACK c = #{name}(#{args}) LAST '1h'"}).steps
       assert track.operator == {name, arity}
+      assert track.aggregation == Guardian.Aggregation.fetch_counter!({name, arity})
     end
 
     assert kinds("TRACK c = arbitrary(x) LAST '1h'") == [:counter_aggregate]
@@ -105,6 +106,7 @@ defmodule Guardian.Rules.CounterPlanTest do
     assert kinds("LOOKUP x = c BY sum(y)") == [:expression]
     assert kinds("LOOKUP x = c WHERE count() > 0") == [:expression]
     assert kinds("TRACK c = count(1, 2) LAST '1h'") == [:parse]
+    assert kinds("TRACK c = sum() LAST '1h'") == [:parse]
   end
 
   test "every non-scalar node is refused in SET values and all scalar input clauses" do
@@ -120,6 +122,38 @@ defmodule Guardian.Rules.CounterPlanTest do
           "LOOKUP a = c WHERE #{expr}",
         ] do
       assert :expression in kinds(source), source
+    end
+  end
+
+  test "compiled plans recover the resolved configurations in TRACKs, LOOKUPs and levels" do
+    source =
+      Guardian.Aggregation.counter_operators()
+      |> Enum.with_index()
+      |> Enum.map_join("; ", fn {{name, arity}, i} ->
+        args = if arity == 0, do: "", else: "amount"
+        "TRACK c#{i} = #{name}(#{args}) LAST '1h'; LOOKUP prior#{i} = c#{i}"
+      end)
+
+    plan = plan(%{"t/a.gsql" => source})
+    module = __MODULE__.ResolvedConfigurationProbe
+
+    on_exit(fn ->
+      :code.delete(module)
+      :code.soft_purge(module)
+    end)
+
+    assert Guardian.Rules.Compiler.compile(module, plan) == :ok
+    recovered = apply(module, :plan, [])
+    assert recovered == plan
+
+    for %Guardian.Rules.Step.Track{} = track <- recovered.steps do
+      definition = Guardian.Rules.CounterDefinition.from_track(track)
+
+      lookup =
+        Enum.find(plan.steps, &(&1.field == "prior" <> String.trim_leading(track.field, "c")))
+
+      assert definition.aggregation == Guardian.Aggregation.fetch_counter!(track.operator)
+      assert lookup.target == definition
     end
   end
 
@@ -173,6 +207,7 @@ defmodule Guardian.Rules.CounterPlanTest do
     lookup = hd(plan(files).steps)
     assert lookup.target.identity == hd(plan(files, "a").steps).identity
     assert lookup.target.operator == {"sum", 1}
+    assert lookup.target.aggregation == Guardian.Aggregation.Sum
     assert lookup.target.group_arity == 2
     assert lookup.reads == ["address", "country"]
   end
@@ -269,6 +304,27 @@ defmodule Guardian.Rules.CounterPlanTest do
     }
 
     first = plan(files)
+
+    # Reproduce the pre-configuration definition exactly, including its struct
+    # marker. A derived configuration must not reset dependent plan hashes.
+    definition = target(first)
+
+    legacy_target = %{
+      __struct__: Guardian.Rules.CounterDefinition,
+      identity: definition.identity,
+      operator: definition.operator,
+      window_ms: definition.window_ms,
+      bucket_ms: definition.bucket_ms,
+      group_arity: definition.group_arity,
+    }
+
+    {:ok, candidate} = RuleSet.prepare(files).candidates["t"]
+
+    legacy_hash =
+      :crypto.hash(:sha256, :erlang.term_to_binary({candidate.hash, [legacy_target]}))
+      |> Base.encode16(case: :lower)
+
+    assert first.hash == legacy_hash
 
     moved =
       files |> Map.delete("a/r.gsql") |> Map.put("a/moved.gsql", "\nTRACK c = count() LAST '1h'")

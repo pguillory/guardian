@@ -434,16 +434,13 @@ Contract (server defaults to Guardian.Counters.Store, tests may use an unnamed P
 
 ```text
 get(key, opts)                     -> {:ok, value} | :not_found | {:error, reason}
-get_many(keys, opts)               -> {:ok, [get_result]} | {:error, reason}
 gets(key, opts)                    -> {:ok, value, token} | :not_found | {:error, reason}
 cas(key, expected, value, ttl_ms, opts)
                                   -> :ok | {:error, :conflict | reason}
 incr(key, delta, ttl_ms, opts)      -> {:ok, new_integer} | {:error, reason}
 ```
 
-1. get_many accepts at most four keys, returning get results in input order from
-   one store turn (including duplicate keys). `expected = :missing` creates only
-   an absent/expired key. A token is opaque and
+1. `expected = :missing` creates only an absent/expired key. A token is opaque and
    unique for every successful mutation, including increments; never reusable
    after expiry, eviction, recreation or a process restart. Stale CAS conflicts;
    it never recreates an absent key. incr creates an absent key with delta and
@@ -493,6 +490,11 @@ the change status and TODO. Runtime configuration documentation can describe thi
 internal app setting; the user-facing environment setting belongs to C4.
 
 ### C2: counter ownership and bounded cluster operations
+
+The original single-call client described below was superseded by owner pipelines
+in [counter-batching.md](counter-batching.md) and removed in
+[counter-retirement.md](counter-retirement.md). Native values, tokens and budgets
+retain the same contract through the batched endpoint.
 
 Implemented as `Guardian.Counters.Cluster`. Product spec impact: none; no statements are
 enabled until C4. `new_batch/0` provides a shared atomics failure budget kept outside
@@ -563,12 +565,15 @@ the member list once per event from this node and its connected peers. Do not ca
 
 ### C3: mergeable aggregate operators
 
-Implemented: `Guardian.Counters.Aggregate`, a pure operator API with no store or rule
-wiring. Its own product spec impact was none; C4c3 enables TRACK/LOOKUP.
-Operators are `{string_name, arity}` tuples from `operators/0`. `create/2` takes
-one event's list of arguments. Callers compare merged states with the prior state
+Implemented first as a pure counter operator API with no store or rule wiring;
+shared per-aggregate implementations and resolved plan configurations now own it
+([shared-aggregates.md](shared-aggregates.md),
+[counter-retirement.md](counter-retirement.md)). Its own product spec impact was
+none; C4c3 enables TRACK/LOOKUP. Operators are `{string_name, arity}` tuples from
+`Guardian.Aggregation.counter_operators/0`. `start/2` takes a resolved configuration
+and one event's list of arguments. Callers compare merged states with the prior state
 using `===` before deciding whether to write; all count states, including native
-increment results, pass through `resolve/2` for int64 output bounds.
+increment results, pass through `finish/2` for int64 output bounds.
 
 Empty sum is nil (unlike query sum's 0.0), empty average is `{0, 0}`, and empty
 distinct is a Hypex precision-8 sketch using fixed 256-byte bitstring registers in
@@ -581,10 +586,10 @@ can change a numeric result. Query aggregates and their precision-14 distinct
 sketches are unchanged. Historical aggregate sharing was subsequently completed
 in [shared-aggregates.md](shared-aggregates.md), preserving these contracts.
 
-Build a counter aggregate interface independent of query execution:
-`create(operator, values)`, `merge(operator, left, right)`,
-`resolve(operator, state)`, and `default(operator)` (always an empty state).
-`resolve(default)` supplies the documented missing result. Operators are a fixed
+Counter aggregation is independent of query execution, using the shared API:
+`start(configuration, values)`, `merge(configuration, left, right)`,
+`finish(configuration, state)`, and `empty(configuration)` (a mergeable state).
+Finishing the empty state supplies the documented missing result. Operators are a fixed
 allowlist: count/0, count/1, count_distinct/1, sum/1, min/1, max/1, avg/1.
 
 1. Count uses an integer; avg keeps {sum, count}; distinct keeps a bounded Hypex
@@ -618,7 +623,7 @@ and field dependency ordering from RuleSet orchestration. It preserves validatio
 errors, execution order and counter refusal. Product spec impact: none.
 
 C4b implemented: internal `Guardian.Rules.RuleSet.prepare/1` returns locally valid unbound
-candidates plus whole-set resolved plans. It validates the `Guardian.Counters.Aggregate`
+candidates plus whole-set resolved plans. It validates the `Guardian.Aggregation` counter
 allowlist, scalar clauses (including nested aggregate refusal), positive integral
 LAST totals through the existing s/m/h/d/w interval parser, the 365-day bound,
 FROM tables, TRACK targets and grouping arity. Signed/compound interval terms

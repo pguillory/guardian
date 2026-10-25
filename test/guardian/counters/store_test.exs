@@ -17,7 +17,7 @@ defmodule Guardian.Counters.StoreTest do
     )
   end
 
-  test "misses, stored nil, ordered multi-key reads and opaque mutation tokens", %{opts: opts} do
+  test "misses, stored nil and opaque mutation tokens", %{opts: opts} do
     assert {:ok, %{keys: 0, memory_bytes: 0}} = Store.stats(opts)
     assert Store.get(:missing, opts) == :not_found
     assert Store.gets(:missing, opts) == :not_found
@@ -26,13 +26,6 @@ defmodule Guardian.Counters.StoreTest do
     assert {:ok, nil, token} = Store.gets(nil, opts)
     assert {table, version} = token
     assert is_reference(table) and is_integer(version)
-
-    assert Store.get_many([nil, :missing, nil], opts) ==
-             {:ok, [{:ok, nil}, :not_found, {:ok, nil}]}
-
-    assert Store.get_many([], opts) == {:ok, []}
-    assert Store.get_many([1, 2, 3, 4, 5], opts) == {:error, :invalid_request}
-    assert Store.get_many(:not_a_list, opts) == {:error, :invalid_request}
   end
 
   test "CAS creates only missing keys and rejects stale or foreign tokens", %{opts: opts} do

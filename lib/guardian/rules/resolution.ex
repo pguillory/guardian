@@ -101,7 +101,11 @@ defmodule Guardian.Rules.Resolution do
   # Preserve the existing SET/UNSET hash exactly. A LOOKUP's binding adds only its
   # target definition, so moving a target between files does not reset dependents.
   defp hash(base_hash, steps) do
-    targets = for %Guardian.Rules.Step.Lookup{target: target} <- steps, do: target
+    # Aggregation configurations are derived from the operator. Keep the original
+    # definition's struct marker and fields so resolved plan hashes stay stable.
+    targets =
+      for %Guardian.Rules.Step.Lookup{target: target} <- steps,
+          do: Map.delete(target, :aggregation)
 
     case targets do
       [] ->

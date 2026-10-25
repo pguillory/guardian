@@ -1,6 +1,7 @@
 defmodule Guardian.Counters.KeyMachines do
   @moduledoc "Read, atomic increment and bounded gets/merge/CAS machines for one bucket."
-  alias Guardian.Counters.{Aggregate, Machine}
+  alias Guardian.Aggregation
+  alias Guardian.Counters.Machine
 
   def read(key) do
     Machine.new({:get, key}, nil, &read_response/3)
@@ -10,8 +11,8 @@ defmodule Guardian.Counters.KeyMachines do
     Machine.new({:incr, key, delta, {:expires, expiry}}, nil, &read_response/3)
   end
 
-  def merge(operator, key, delta, expiry) do
-    state = %{operator: operator, delta: delta, expiry: expiry, attempts: 3, merged: nil}
+  def merge(aggregation, key, delta, expiry) do
+    state = %{aggregation: aggregation, delta: delta, expiry: expiry, attempts: 3, merged: nil}
     Machine.new({:gets, key}, state, &merge_response/3)
   end
 
@@ -20,11 +21,11 @@ defmodule Guardian.Counters.KeyMachines do
   end
 
   defp merge_response({:gets, key}, :not_found, state) do
-    merge_response({:gets, key}, {:ok, Aggregate.default(state.operator), :missing}, state)
+    merge_response({:gets, key}, {:ok, Aggregation.empty(state.aggregation), :missing}, state)
   end
 
   defp merge_response({:gets, key}, {:ok, prior, token}, state) do
-    merged = Aggregate.merge(state.operator, prior, state.delta)
+    merged = Aggregation.merge(state.aggregation, prior, state.delta)
 
     cond do
       # Preserve the old read/expiry/unchanged order; dispatch checks expiry again

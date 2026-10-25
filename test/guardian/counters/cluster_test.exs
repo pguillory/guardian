@@ -318,6 +318,26 @@ defmodule Guardian.Counters.ClusterTest do
     assert Store.get(key(), server: store) == :not_found
   end
 
+  test "malformed operations and routing keys are refused before dispatch", %{store: store} do
+    context = event(store)
+
+    for operation <- [nil, {:unsupported, key()}, {:get, :bad_key}, {:get, {nil, {}, 1}}] do
+      assert CountersCluster.batch(%{one: operation}, context) ==
+               %{one: {:error, :invalid_request}}
+    end
+
+    assert :atomics.get(context.batch, 1) == 250_000
+    assert :ets.lookup(:counter_cluster_test, node()) == []
+  end
+
+  test "the remote endpoint refuses scalar operations", %{store: store} do
+    for operation <- [{:get, key()}, {:incr, key(), 1, 5_000}] do
+      assert CountersCluster.remote_operation(operation, store, 50) == {:error, :invalid_request}
+    end
+
+    assert Store.get(key(), server: store) == :not_found
+  end
+
   test "malformed pipeline replies are charged consistently and never escape as exceptions" do
     responses = [
       {:ok, []},
@@ -397,23 +417,19 @@ defmodule Guardian.Counters.ClusterTest do
     store: store,
   } do
     context = event(store)
-    assert CountersCluster.cas(key(), :missing, nil, 5_000, context) == :ok
-    assert {:ok, nil, token} = CountersCluster.gets(key(), context)
-    assert CountersCluster.cas(key(), token, 7, 5_000, context) == :ok
-    assert CountersCluster.cas(key(), token, 8, 5_000, context) == {:error, :conflict}
-    assert CountersCluster.incr(key(), 2, 5_000, context) == {:ok, 9}
+    assert batch_one({:cas, key(), :missing, nil, 5_000}, context) == :ok
+    assert {:ok, nil, token} = batch_one({:gets, key()}, context)
+    assert batch_one({:cas, key(), token, 7, 5_000}, context) == :ok
+    assert batch_one({:cas, key(), token, 8, 5_000}, context) == {:error, :conflict}
+    assert batch_one({:incr, key(), 2, 5_000}, context) == {:ok, 9}
 
-    assert CountersCluster.get_many([key({}, 2), key(), key()], context) ==
-             {:ok, [:not_found, {:ok, 9}, {:ok, 9}]}
+    assert CountersCluster.batch(
+             %{missing: {:get, key({}, 2)}, present: {:get, key()}},
+             context
+           ) == %{missing: :not_found, present: {:ok, 9}}
 
-    assert CountersCluster.get_many([key({1}), key({2})], context) == {:error, :invalid_request}
-
-    assert CountersCluster.get_many(List.duplicate(key(), 5), context) ==
-             {:error, :invalid_request}
-
-    assert CountersCluster.get_many([], context) == {:error, :invalid_request}
-    assert CountersCluster.cas(key({}, 3), :missing, "text", 5_000, context) == :ok
-    assert CountersCluster.incr(key({}, 3), 1, 5_000, context) == {:error, :not_integer}
+    assert batch_one({:cas, key({}, 3), :missing, "text", 5_000}, context) == :ok
+    assert batch_one({:incr, key({}, 3), 1, 5_000}, context) == {:error, :not_integer}
     assert :ets.lookup(:counter_cluster_test, node()) == []
   end
 
@@ -421,13 +437,16 @@ defmodule Guardian.Counters.ClusterTest do
     context = event(Store, members: [peer])
     key = key({System.unique_integer([:positive])})
     value = %{nested: [nil, 1, 1.0, {"native", true}]}
-    assert CountersCluster.cas(key, :missing, value, 5_000, context) == :ok
-    assert {:ok, ^value, token} = CountersCluster.gets(key, context)
+    assert batch_one({:cas, key, :missing, value, 5_000}, context) == :ok
+    assert {:ok, ^value, token} = batch_one({:gets, key}, context)
     assert {table, version} = token
     assert is_reference(table) and is_integer(version)
-    assert CountersCluster.cas(key, token, 3, 5_000, context) == :ok
-    assert CountersCluster.incr(key, 2, 5_000, context) == {:ok, 5}
-    assert CountersCluster.get_many([key, key], context) == {:ok, [{:ok, 5}, {:ok, 5}]}
+    assert batch_one({:cas, key, token, 3, 5_000}, context) == :ok
+    assert batch_one({:incr, key, 2, 5_000}, context) == {:ok, 5}
+
+    assert CountersCluster.batch(%{one: {:get, key}, two: {:get, key}}, context) ==
+             %{one: {:ok, 5}, two: {:ok, 5}}
+
     assert :erpc.call(peer, Store, :get, [key]) == {:ok, 5}
   end
 
@@ -435,16 +454,21 @@ defmodule Guardian.Counters.ClusterTest do
     peer_node: peer,
     store: store,
   } do
-    alias Guardian.Counters.Aggregate
+    alias Guardian.Aggregation
 
-    for operator <- Aggregate.operators() do
+    for operator <- Aggregation.counter_operators() do
+      aggregation = Aggregation.fetch_counter!(operator)
       {_name, arity} = operator
-      empty = Aggregate.default(operator)
-      delta = Aggregate.create(operator, List.duplicate(-0.0, arity))
+      empty = Aggregation.empty(aggregation)
+      delta = Aggregation.start(aggregation, List.duplicate(-0.0, arity))
 
       populated =
         Enum.reduce([nil, 2, 3.5, "x", [1, nil]], empty, fn value, acc ->
-          Aggregate.merge(operator, acc, Aggregate.create(operator, List.duplicate(value, arity)))
+          Aggregation.merge(
+            aggregation,
+            acc,
+            Aggregation.start(aggregation, List.duplicate(value, arity))
+          )
         end)
 
       extra =
@@ -464,17 +488,17 @@ defmodule Guardian.Counters.ClusterTest do
         assert :erpc.call(owner, Store, :cas, [key, :missing, state, 5_000, opts]) == :ok
         assert {:ok, restored, token} = :erpc.call(owner, Store, :gets, [key, opts])
         assert :erlang.term_to_binary(restored) == encoded
-        unchanged = :erpc.call(owner, Aggregate, :merge, [operator, restored, empty])
+        unchanged = :erpc.call(owner, Aggregation, :merge, [aggregation, restored, empty])
         assert :erlang.term_to_binary(unchanged) == encoded
-        merged = :erpc.call(owner, Aggregate, :merge, [operator, restored, delta])
-        expected = Aggregate.merge(operator, state, delta)
+        merged = :erpc.call(owner, Aggregation, :merge, [aggregation, restored, delta])
+        expected = Aggregation.merge(aggregation, state, delta)
         assert :erlang.term_to_binary(merged) == :erlang.term_to_binary(expected)
         assert :erpc.call(owner, Store, :cas, [key, token, merged, 5_000, opts]) == :ok
         assert {:ok, reread} = :erpc.call(owner, Store, :get, [key, opts])
         assert :erlang.term_to_binary(reread) == :erlang.term_to_binary(expected)
 
-        assert :erpc.call(owner, Aggregate, :resolve, [operator, reread]) ===
-                 Aggregate.resolve(operator, expected)
+        assert :erpc.call(owner, Aggregation, :finish, [aggregation, reread]) ===
+                 Aggregation.finish(aggregation, expected)
       end
     end
   end
@@ -487,11 +511,11 @@ defmodule Guardian.Counters.ClusterTest do
         do: :erpc.call(booting, Code, :ensure_loaded!, [module])
 
     context = event(Store, members: [booting])
-    assert CountersCluster.incr(key(), 1, 5_000, context) == {:error, :unavailable}
-    assert CountersCluster.get(key(), context) == {:error, :cooldown}
+    assert batch_one({:incr, key(), 1, 5_000}, context) == {:error, :unavailable}
+    assert batch_one({:get, key()}, context) == {:error, :cooldown}
     :ok = :peer.stop(peer)
     lost = event(store, members: [booting])
-    assert CountersCluster.get(key(), lost) in [{:error, :unavailable}, {:error, :cooldown}]
+    assert batch_one({:get, key()}, lost) in [{:error, :unavailable}, {:error, :cooldown}]
     assert Store.get(key(), server: store) == :not_found
   end
 
@@ -500,8 +524,8 @@ defmodule Guardian.Counters.ClusterTest do
     started = System.monotonic_time(:millisecond)
 
     try do
-      assert CountersCluster.incr(key(), 1, 5_000, event(store)) == {:error, :timeout}
-      assert CountersCluster.incr(key(), 1, 5_000, event(store)) == {:error, :cooldown}
+      assert batch_one({:incr, key(), 1, 5_000}, event(store)) == {:error, :timeout}
+      assert batch_one({:incr, key(), 1, 5_000}, event(store)) == {:error, :cooldown}
       assert System.monotonic_time(:millisecond) - started < 200
     after
       Guardian.CounterStoreProbe.resume(pause)
@@ -509,14 +533,14 @@ defmodule Guardian.Counters.ClusterTest do
 
     assert Store.get(key(), server: store) == :not_found
     Process.sleep(1_010)
-    assert CountersCluster.incr(key(), 1, 5_000, event(store)) == {:ok, 1}
+    assert batch_one({:incr, key(), 1, 5_000}, event(store)) == {:ok, 1}
   end
 
   test "short call and exhausted event budget do not mark an owner", %{store: store} do
     pause = Guardian.CounterStoreProbe.pause(store)
 
     try do
-      assert CountersCluster.get(key(), event(store, timeout_ms: 15)) == {:error, :timeout}
+      assert batch_one({:get, key()}, event(store, timeout_ms: 15)) == {:error, :timeout}
       assert :ets.lookup(:counter_cluster_test, node()) == []
       batch = CountersCluster.new_batch()
 
@@ -528,7 +552,7 @@ defmodule Guardian.Counters.ClusterTest do
           cooldown_table: :counter_cluster_test
         )
 
-      assert CountersCluster.get(key(), context) == {:error, :budget_exhausted}
+      assert batch_one({:get, key()}, context) == {:error, :budget_exhausted}
       assert :atomics.get(batch, 1) == 250_000
       assert :ets.lookup(:counter_cluster_test, node()) == []
     after
@@ -552,7 +576,7 @@ defmodule Guardian.Counters.ClusterTest do
             cooldown_table: :counter_cluster_test
           )
 
-        assert CountersCluster.incr(key, 1, 30_000, context) == {:ok, n}
+        assert batch_one({:incr, key, 1, 30_000}, context) == {:ok, n}
       end
 
       assert :atomics.get(batch, 1) == 250_000
@@ -581,7 +605,7 @@ defmodule Guardian.Counters.ClusterTest do
                   cooldown_table: :counter_cluster_test
                 )
 
-              CountersCluster.get(key(), context)
+              batch_one({:get, key()}, context)
             end)
 
           assert Task.await(task) in [{:error, :timeout}, {:error, :budget_exhausted}]
@@ -608,7 +632,7 @@ defmodule Guardian.Counters.ClusterTest do
         cooldown_table: :counter_cluster_test
       )
 
-    caller = spawn(fn -> CountersCluster.incr(key(), 1, 5_000, context) end)
+    caller = spawn(fn -> batch_one({:incr, key(), 1, 5_000}, context) end)
 
     try do
       Guardian.TestHelpers.await_queued_call(elem(pause, 0))
@@ -630,7 +654,7 @@ defmodule Guardian.Counters.ClusterTest do
       # Replies straddle the 10ms boundary, including already-delivered replies
       # racing the caller's timer. Neither outcome may leave messages behind.
       context = event({Guardian.CounterStoreProbe, store}, timeout_ms: 10)
-      assert CountersCluster.get(key(), context) in [:not_found, {:error, :timeout}]
+      assert batch_one({:get, key()}, context) in [:not_found, {:error, :timeout}]
     end
 
     Guardian.TestHelpers.eventually(fn -> counter_helpers() == [] end)
@@ -655,7 +679,7 @@ defmodule Guardian.Counters.ClusterTest do
                 cooldown_table: :counter_cluster_test
               )
 
-            CountersCluster.incr(key(), 1, 5_000, context)
+            batch_one({:incr, key(), 1, 5_000}, context)
           end,
           max_concurrency: 30
         )
@@ -706,7 +730,7 @@ defmodule Guardian.Counters.ClusterTest do
               cooldown_table: :counter_cluster_test
             )
 
-          CountersCluster.cas(key, :missing, payload, 5_000, context)
+          batch_one({:cas, key, :missing, payload, 5_000}, context)
         end
 
       assert Enum.all?(outcomes, &(&1 in [{:error, :timeout}, {:error, :budget_exhausted}]))
@@ -736,8 +760,12 @@ defmodule Guardian.Counters.ClusterTest do
 
     stop_supervised(CountersCluster)
     started = System.monotonic_time(:millisecond)
-    assert CountersCluster.get(key(), event(store)) == {:error, :cooldown}
+    assert batch_one({:get, key()}, event(store)) == {:error, :cooldown}
     assert System.monotonic_time(:millisecond) - started < 50
+  end
+
+  defp batch_one(operation, event) do
+    CountersCluster.batch(%{one: operation}, event).one
   end
 
   defp counter_helpers do
@@ -750,9 +778,9 @@ defmodule Guardian.Counters.ClusterTest do
 
   defp delayed_store do
     receive do
-      {:"$gen_call", from, _operation} ->
+      {:"$gen_call", from, {:operation, _deadline, {:batch, operations}}} ->
         Process.sleep(Enum.random([7, 9, 11]))
-        GenServer.reply(from, :not_found)
+        GenServer.reply(from, {:ok, Enum.map(operations, fn _ -> :not_found end)})
         delayed_store()
     end
   end

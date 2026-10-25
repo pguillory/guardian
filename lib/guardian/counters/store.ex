@@ -18,7 +18,6 @@ defmodule Guardian.Counters.Store do
   @default_timeout 50
   @descriptor :counter_store_descriptor
   @sample_size 256
-  @max_read_keys 4
   @max_batch_operations 4_000
   @sweep_interval_ms 1_000
   @eviction_passes 4
@@ -37,11 +36,6 @@ defmodule Guardian.Counters.Store do
 
   def gets(key, opts \\ []) do
     request({:gets, key}, opts)
-  end
-
-  @doc "Reads up to four keys in order, without a snapshot; individual reads may time out."
-  def get_many(keys, opts \\ []) do
-    request({:get_many, keys}, opts)
   end
 
   @doc "Executes up to 4,000 operations in order, checking deadlines before each."
@@ -224,11 +218,6 @@ defmodule Guardian.Counters.Store do
           :not_found
       end
     end
-  end
-
-  defp execute({:get_many, keys}, state, now, deadline)
-       when is_list(keys) and length(keys) <= @max_read_keys do
-    {:ok, Enum.map(keys, &execute({:get, &1}, state, now, deadline))}
   end
 
   defp execute({:incr, key, delta, ttl}, state, now, deadline)

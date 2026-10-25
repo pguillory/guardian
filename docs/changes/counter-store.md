@@ -33,7 +33,7 @@ to bucket_end+window, translating durations onto the remote owner's clock.
 
 A physically present expired row can outlive the one-second sweep or a suspended
 housekeeper. Ordinary bucket identities advance rather than being reused after
-expiry; scalar callers or replayed internal coordinates may reuse one. Reads see
+expiry; direct store callers or replayed internal coordinates may reuse one. Reads see
 missing; missing CAS/incr conditionally delete only an expired row and retry once.
 Concurrent fresh rows survive cleanup. A stale token never recreates a row.
 After update_counter badarg, lookup classifies live nonintegers as :not_integer,

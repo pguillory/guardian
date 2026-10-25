@@ -3,26 +3,6 @@ defmodule Guardian.CounterStoreProbe do
   use GenServer
 
   # Mailbox transport doubles stay outside the production ETS Store.
-  def get(key, opts) do
-    request({:get, key}, opts)
-  end
-
-  def gets(key, opts) do
-    request({:gets, key}, opts)
-  end
-
-  def get_many(keys, opts) do
-    request({:get_many, keys}, opts)
-  end
-
-  def incr(key, delta, ttl, opts) do
-    request({:incr, key, delta, ttl}, opts)
-  end
-
-  def cas(key, token, value, ttl, opts) do
-    request({:cas, key, token, value, ttl}, opts)
-  end
-
   def batch(operations, opts) do
     request({:batch, operations}, opts)
   end

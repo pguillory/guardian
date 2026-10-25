@@ -20,7 +20,10 @@ defmodule Guardian.Rules.Step.Unset do
 end
 
 defmodule Guardian.Rules.Step.Track do
-  @moduledoc "A parsed TRACK with definition identity and window coordinates."
+  @moduledoc """
+  A parsed TRACK with definition identity and window coordinates.
+  Aggregation is nil until validated plan construction resolves its configuration.
+  """
   defstruct [
     :table,
     :file,
@@ -31,6 +34,7 @@ defmodule Guardian.Rules.Step.Track do
     :aggregate_expr,
     :where_expr,
     :operator,
+    :aggregation,
     :window_ms,
     :bucket_ms,
     :identity,

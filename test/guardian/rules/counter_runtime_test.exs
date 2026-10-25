@@ -1,7 +1,8 @@
 defmodule Guardian.Rules.CounterRuntimeTest do
   use ExUnit.Case, async: false
   import Guardian.RulesTestHelper
-  alias Guardian.Counters.{Aggregate, Store}
+  alias Guardian.Aggregation
+  alias Guardian.Counters.Store
   alias Guardian.Rules.{CounterRuntime, Event, Runtime}
 
   setup do
@@ -162,14 +163,16 @@ defmodule Guardian.Rules.CounterRuntimeTest do
                "prior_total" => 6,
              }
 
-    for operator <- Aggregate.operators() do
+    for operator <- Aggregation.counter_operators() do
       defn = %{
         definition(plan)
         | operator: operator,
+          aggregation: Aggregation.fetch_counter!(operator),
           identity: {plan.table, "missing", inspect(operator)},
       }
 
-      assert CounterRuntime.lookup(defn, {}, event(store)) == CounterRuntime.missing(operator)
+      assert CounterRuntime.lookup(defn, {}, event(store)) ==
+               CounterRuntime.missing(defn.aggregation)
     end
   end
 
@@ -278,7 +281,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
       definition = definition(plan(source))
 
       assert CounterRuntime.track(definition, {}, [nil], event(store)) ==
-               CounterRuntime.missing(definition.operator)
+               CounterRuntime.missing(definition.aggregation)
     end
 
     assert {:ok, %{keys: 0}} = Store.stats(server: store)
@@ -325,10 +328,6 @@ defmodule Guardian.Rules.CounterRuntimeTest do
 
     def handle_call({:operation, _deadline, {:batch, operations}}, _from, handler) do
       {:reply, {:ok, Enum.map(operations, handler)}, handler}
-    end
-
-    def handle_call({:operation, _deadline, operation}, _from, handler) do
-      {:reply, handler.(operation), handler}
     end
   end
 

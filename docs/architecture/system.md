@@ -416,8 +416,11 @@ stored historical output fields. No later rule/storage failure rolls back update
 
 Counter aggregates share the existing `Guardian.Aggregation.*` implementations
 with queries. `Guardian.Aggregation` explicitly registers counter name/arity
-configurations; the `Guardian.Counters.Aggregate` adapter only validates argument
-arity and translates default/create/merge/resolve to empty/start/merge/finish.
+configurations. After semantic validation, rule plans resolve these configurations
+once into TRACK steps and immutable LOOKUP target definitions. Compiled plans and
+key machines carry them through empty/start/merge/finish without further lookups.
+The name/arity remains available for diagnostics and native-count dispatch.
+Derived configurations do not change counter identities or dependent plan hashes.
 Empty mergeable states are distinct from query default results (notably sum's
 nil versus 0.0). Configurations preserve query HLL precision 14/Array versus counter
 precision 8/Bitstring (256 bytes), counter-only int64 count finishing, and average's
@@ -450,7 +453,8 @@ without deleting a concurrent fresh row. Ordinary bucket identities advance and
 do not revisit expired keys. A second expired increment returns a definite :expired
 error, never an unbounded retry or replay of a successful live increment.
 
-get_many reads up to four keys in order, without a snapshot. Store.batch executes
+Cluster accepts only batched owner pipelines, including at its remote endpoint.
+Store retains the local atomic primitives; Store.batch executes
 up to 4,000 operations in order and checks the original deadline before each.
 Deadlines are checked after clock/key preparation and before mutations/retries.
 The 50 ms default remains; Cluster bounds waits on its helpers. Errors and status

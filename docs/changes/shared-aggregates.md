@@ -13,8 +13,9 @@ state representations are preserved. This completes the sharing deferred by
 `Guardian.Aggregation` explicitly opts the existing v1 counter name/arity pairs
 into shared per-aggregate implementations. Its query registration alone does not
 make an aggregate suitable for counters. The fixed allowlist derives from these
-counter configurations. `Guardian.Counters.Aggregate` remains only as an API and
-arity-validation adapter; all operator logic lives under `Guardian.Aggregation.*`.
+counter configurations. All operator logic lives under `Guardian.Aggregation.*`.
+The initial counter API adapter was later retired by carrying resolved shared
+configurations through rule plans; see [counter-retirement.md](counter-retirement.md).
 
 The shared registry distinguishes a final empty query result (`default`) from an
 empty mergeable counter state (`empty`). Counters run the usual start, merge and
@@ -70,8 +71,8 @@ helpers completed for each provider. Nonblocking cleanups removed unused callbac
 wrappers and a tautological assertion, clarified numeric regrouping documentation,
 used the count/1 configuration in its test and explicitly checked unchanged states
 after transport. Claude's separate follow-up to retire the now-thin counter adapter
-by carrying resolved aggregation configurations through rule plans is in TODO.md;
-it is outside this change. Codex found no separate refactor need.
+by carrying resolved aggregation configurations through rule plans was completed
+in [counter-retirement.md](counter-retirement.md). Codex found no separate refactor need.
 Final checkpoint: the sole full pre-commit run passed formatting,
 warnings-as-errors compilation and the default suite: 1,183 tests, zero failures,
 three excluded large tests. Focused checks passed before review and after the
