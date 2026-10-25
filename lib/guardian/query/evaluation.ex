@@ -1,11 +1,4 @@
 defmodule Guardian.Query.Evaluation do
-  alias Guardian.AST
-  alias Guardian.AST.Parser
-  alias Guardian.Query.ColumnOrConstant
-  alias Guardian.Query.Error
-  alias Guardian.Query.Eval
-  alias Guardian.Storage
-
   @moduledoc """
   Columnar expression evaluation for Guardian queries.
 
@@ -80,8 +73,14 @@ defmodule Guardian.Query.Evaluation do
   See `ARCHITECTURE.md` for query evaluation details.
   """
 
-  alias Guardian.Query.Constant
+  alias Guardian.AST
   alias Guardian.AST.Node.Operators.ListLiteral
+  alias Guardian.AST.Parser
+  alias Guardian.Query.ColumnOrConstant
+  alias Guardian.Query.Constant
+  alias Guardian.Query.Error
+  alias Guardian.Query.Eval
+  alias Guardian.Storage
   import ColumnOrConstant
 
   defmodule SegmentSnapshot do

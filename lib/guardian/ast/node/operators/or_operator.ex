@@ -2,7 +2,6 @@ defmodule Guardian.AST.Node.Operators.OrOperator do
   use Guardian.AST.Node.BinaryOperator, symbol: "OR"
 
   alias Guardian.Query.ColumnOrConstant
-  alias Guardian.Storage.Column
   alias Guardian.Storage.Column.Metadata
   require Metadata
 
@@ -28,7 +27,7 @@ defmodule Guardian.AST.Node.Operators.OrOperator do
 
         [Metadata.tuple() | _] ->
           column2 = Guardian.Query.Eval.eval(right, context)
-          ColumnOrConstant.map_or_nif(column1, column2, &@for.eval/2, &Column.or_oper/2)
+          ColumnOrConstant.evaluate(:or, column1, column2, &@for.eval/2)
       end
     end
   end

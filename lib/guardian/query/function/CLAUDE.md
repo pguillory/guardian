@@ -52,7 +52,7 @@ When a query is evaluated:
 2. `eval2(context, %Guardian.AST.Node.FunctionCall{})` - Columnar evaluation (optional)
    - Define it only when the default per-row evaluation is not enough: short
      circuits (`if`, `coalesce`), compiling a literal argument once (`replace`), a
-     NIF fast path (`to_boolean`, `to_string` with `ColumnOrConstant.map_or_nif`),
+     NIF fast path (`to_boolean`, `to_string` with `ColumnOrConstant.evaluate`),
      rewrites (`concat`), or a constant (`pi`)
    - Takes: evaluation context (SegmentSnapshot or event map) and function call AST
    - Returns: `%Column{}` or `%Constant{}` (from `Guardian.Query.ColumnOrConstant`)
@@ -235,6 +235,9 @@ Handles dual representation of columnar data:
 - `map(col1, col2, fun)` - Map binary function over two columns
 - `map(col1, col2, col3, fun)` - Map ternary function
 - `map(col1, col2, col3, col4, fun)` - Map 4-ary function
+- `evaluate(operation, col, fun)` / `evaluate(operation, col1, col2, fun)` - Use the
+  shared scalar/native policy for supported native-backed operations; supply the
+  scalar callback and leave native eligibility/selection to ColumnOrConstant
 - `generate(fun, count)` - Generate `count` values by calling `fun` repeatedly
 - `metadata(column)` - Get column metadata for optimizations
 

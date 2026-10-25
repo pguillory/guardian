@@ -2,23 +2,12 @@ defmodule Guardian.AST.Node.Operators.AddOperator do
   use Guardian.AST.Node.BinaryOperator, symbol: "+"
 
   alias Guardian.Query.ColumnOrConstant
-  alias Guardian.Storage.Column
 
   defimpl Guardian.Query.Eval do
     def eval(%@for{left: left, right: right}, context) do
       column1 = Guardian.Query.Eval.eval(left, context)
       column2 = Guardian.Query.Eval.eval(right, context)
-      # A timestamp string plus seconds is evaluated per value: the NIF adds only
-      # numbers, giving null for a string and an integer.
-      if timestamp_and_seconds?(column1, column2) or timestamp_and_seconds?(column2, column1) do
-        ColumnOrConstant.map(column1, column2, &@for.eval/2)
-      else
-        ColumnOrConstant.map_or_nif(column1, column2, &@for.eval/2, &Column.add/2)
-      end
-    end
-
-    defp timestamp_and_seconds?(strings, ints) do
-      ColumnOrConstant.holds?(strings, :string) and ColumnOrConstant.holds?(ints, :integer)
+      ColumnOrConstant.evaluate(:add, column1, column2, &@for.eval/2)
     end
   end
 

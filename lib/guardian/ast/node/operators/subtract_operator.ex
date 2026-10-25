@@ -2,19 +2,12 @@ defmodule Guardian.AST.Node.Operators.SubtractOperator do
   use Guardian.AST.Node.BinaryOperator, symbol: "-"
 
   alias Guardian.Query.ColumnOrConstant
-  alias Guardian.Storage.Column
 
   defimpl Guardian.Query.Eval do
     def eval(%@for{left: left, right: right}, context) do
       column1 = Guardian.Query.Eval.eval(left, context)
       column2 = Guardian.Query.Eval.eval(right, context)
-      # A timestamp string minus seconds is evaluated per value: the NIF subtracts
-      # only numbers, giving null for a string and an integer.
-      if ColumnOrConstant.holds?(column1, :string) and ColumnOrConstant.holds?(column2, :integer) do
-        ColumnOrConstant.map(column1, column2, &@for.eval/2)
-      else
-        ColumnOrConstant.map_or_nif(column1, column2, &@for.eval/2, &Column.subtract/2)
-      end
+      ColumnOrConstant.evaluate(:subtract, column1, column2, &@for.eval/2)
     end
   end
 

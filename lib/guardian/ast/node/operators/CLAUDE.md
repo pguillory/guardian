@@ -3,6 +3,9 @@
 Operator modules represent arithmetic, comparison, boolean, string, list, and regex
 expressions. Each node owns its scalar evaluation behavior and AST traversal/source
 formatting. `Guardian.Query.Evaluation` applies that behavior to constants or whole columns.
+Native-backed operators call `Guardian.Query.ColumnOrConstant.evaluate/3,4` with
+their operation and scalar callback; that boundary owns native selection and
+eligibility. AND/OR keep their lazy right-operand evaluation in the node.
 
 A two-operand infix node (`left SYM right`) does
 `use Guardian.AST.Node.BinaryOperator, symbol: "SYM"`, which generates its struct, `symbol/0`,

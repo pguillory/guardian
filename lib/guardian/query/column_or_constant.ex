@@ -299,6 +299,72 @@ defmodule Guardian.Query.ColumnOrConstant do
     match?([Metadata.tuple(int_count: n) | _] when n > 0, metadata(column_or_constant))
   end
 
+  @doc """
+  Evaluates a unary operation using its scalar callback or eligible native path.
+  Constants always use the scalar callback. Native selection belongs here, while
+  scalar semantics stay with the caller. Unknown operations fail loudly.
+  """
+  def evaluate(:to_string, column, map_func) do
+    # Only strings and nulls can bypass the capped scalar renderer. A constant is
+    # evaluated once by map_or_nif, even if its value needs rendering.
+    if match?(%Constant{}, column) or
+         Column.null_count(column) + Column.string_count(column) == Column.count(column) do
+      map_or_nif(column, map_func, &Column.to_string/1)
+    else
+      map(column, map_func)
+    end
+  end
+
+  def evaluate(:to_boolean, column, map_func) do
+    map_or_nif(column, map_func, &Column.to_boolean/1)
+  end
+
+  def evaluate(:not, column, map_func) do
+    map_or_nif(column, map_func, &Column.not_oper/1)
+  end
+
+  @doc """
+  Evaluates a binary operation on already evaluated operands. Any constant keeps
+  the scalar path. Timestamp arithmetic also needs scalar evaluation: the native
+  arithmetic functions accept numbers only. Addition permits either direction;
+  subtraction permits a timestamp only on the left.
+  """
+  def evaluate(:add, column1, column2, map_func) do
+    if timestamp_and_seconds?(column1, column2) or timestamp_and_seconds?(column2, column1) do
+      map(column1, column2, map_func)
+    else
+      map_or_nif(column1, column2, map_func, &Column.add/2)
+    end
+  end
+
+  def evaluate(:subtract, column1, column2, map_func) do
+    if timestamp_and_seconds?(column1, column2) do
+      map(column1, column2, map_func)
+    else
+      map_or_nif(column1, column2, map_func, &Column.subtract/2)
+    end
+  end
+
+  def evaluate(:multiply, column1, column2, map_func) do
+    map_or_nif(column1, column2, map_func, &Column.multiply/2)
+  end
+
+  def evaluate(:divide, column1, column2, map_func) do
+    map_or_nif(column1, column2, map_func, &Column.divide/2)
+  end
+
+  def evaluate(:and, column1, column2, map_func) do
+    map_or_nif(column1, column2, map_func, &Column.and_oper/2)
+  end
+
+  def evaluate(:or, column1, column2, map_func) do
+    map_or_nif(column1, column2, map_func, &Column.or_oper/2)
+  end
+
+  defp timestamp_and_seconds?(strings, ints) do
+    holds?(strings, :string) and holds?(ints, :integer)
+  end
+
   def map_or_nif(%Constant{} = constant1, map_func, nif_func)
       when is_function(map_func, 1) and is_function(nif_func, 1) do
     map(constant1, map_func)
