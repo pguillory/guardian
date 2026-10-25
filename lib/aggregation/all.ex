@@ -1,4 +1,4 @@
-defmodule Aggregation.All do
+defmodule Guardian.Aggregation.All do
   def default do
     true
   end

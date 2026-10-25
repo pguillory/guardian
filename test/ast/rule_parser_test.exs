@@ -1,15 +1,18 @@
-defmodule AST.RuleParserTest do
+defmodule Guardian.AST.RuleParserTest do
   use ExUnit.Case, async: true
 
-  alias AST.Node.Identifier
-  alias AST.Node.Statements.LookupStatement
-  alias AST.Node.Statements.SetStatement
-  alias AST.Node.Statements.TrackStatement
-  alias AST.Node.Statements.UnsetStatement
-  alias AST.Parser
+  alias Guardian.AST.Node.Identifier
+  alias Guardian.AST.Node.Statements.LookupStatement
+  alias Guardian.AST.Node.Statements.SetStatement
+  alias Guardian.AST.Node.Statements.TrackStatement
+  alias Guardian.AST.Node.Statements.UnsetStatement
+  alias Guardian.AST.Parser
 
   defp sources(source),
-    do: source |> Parser.parse_rules() |> Enum.map(fn {s, line} -> {AST.unparse(s), line} end)
+    do:
+      source
+      |> Parser.parse_rules()
+      |> Enum.map(fn {s, line} -> {Guardian.AST.unparse(s), line} end)
 
   test "parses SET and UNSET, with and without WHERE, and their lines" do
     source = """
@@ -40,8 +43,8 @@ defmodule AST.RuleParserTest do
           "SET n = n + 1",
         ] do
       [{statement, 1}] = Parser.parse_rules(source)
-      assert AST.unparse(statement) == source
-      [{again, 1}] = Parser.parse_rules(AST.unparse(statement))
+      assert Guardian.AST.unparse(statement) == source
+      [{again, 1}] = Parser.parse_rules(Guardian.AST.unparse(statement))
       assert again == statement
     end
   end
@@ -54,10 +57,10 @@ defmodule AST.RuleParserTest do
            ]
 
     # And still plain identifiers in queries and as table names.
-    assert [%AST.Node.Statements.SelectStatement{}] =
-             AST.parse_statements("SELECT set, last FROM set")
+    assert [%Guardian.AST.Node.Statements.SelectStatement{}] =
+             Guardian.AST.parse_statements("SELECT set, last FROM set")
 
-    assert Engine.valid_table_name?("set") and Engine.valid_table_name?("last")
+    assert Guardian.Engine.valid_table_name?("set") and Guardian.Engine.valid_table_name?("last")
   end
 
   test "parses counter statements with all optional clauses and source lines" do
@@ -109,8 +112,8 @@ defmodule AST.RuleParserTest do
           "LOOKUP lookup = track FROM last BY set WHERE unset",
         ] do
       [{statement, 1}] = Parser.parse_rules(source)
-      assert AST.unparse(statement) == source
-      assert Parser.parse_rules(AST.unparse(statement)) == [{statement, 1}]
+      assert Guardian.AST.unparse(statement) == source
+      assert Parser.parse_rules(Guardian.AST.unparse(statement)) == [{statement, 1}]
     end
   end
 
@@ -119,7 +122,7 @@ defmodule AST.RuleParserTest do
       Parser.parse_rules("-- same definition\ntrack C=COUNT(*) by IP,last where keep last '1h';")
 
     canonical = "TRACK c = count() BY ip, last WHERE keep LAST '1h'"
-    assert AST.unparse(statement) == canonical
+    assert Guardian.AST.unparse(statement) == canonical
     assert Parser.parse_rules(canonical) == [{statement, 1}]
 
     for changed <- [
@@ -130,7 +133,7 @@ defmodule AST.RuleParserTest do
           "TRACK c = count() BY ip, last WHERE keep LAST '2h'",
         ] do
       [{different, 1}] = Parser.parse_rules(changed)
-      refute AST.unparse(different) == canonical
+      refute Guardian.AST.unparse(different) == canonical
     end
 
     assert sources("lookup X=C from T by IP -- group\n where KEEP") == [
@@ -152,22 +155,26 @@ defmodule AST.RuleParserTest do
       [{statement, 1}] = Parser.parse_rules(source)
 
       {_, pre} =
-        AST.prewalk(statement, [], fn node, acc -> {node, acc ++ [AST.unparse(node)]} end)
+        Guardian.AST.prewalk(statement, [], fn node, acc ->
+          {node, acc ++ [Guardian.AST.unparse(node)]}
+        end)
 
       {_, post} =
-        AST.postwalk(statement, [], fn node, acc -> {node, acc ++ [AST.unparse(node)]} end)
+        Guardian.AST.postwalk(statement, [], fn node, acc ->
+          {node, acc ++ [Guardian.AST.unparse(node)]}
+        end)
 
       assert pre == [source | pre_children]
       assert post == post_children ++ [source]
 
       modified =
-        AST.prewalk(statement, fn
+        Guardian.AST.prewalk(statement, fn
           %Identifier{name: name} -> %Identifier{name: "new_" <> name}
-          %AST.Node.Literal{value: "1h"} -> %AST.Node.Literal{value: "2h"}
+          %Guardian.AST.Node.Literal{value: "1h"} -> %Guardian.AST.Node.Literal{value: "2h"}
           node -> node
         end)
 
-      rewritten = AST.unparse(modified)
+      rewritten = Guardian.AST.unparse(modified)
       refute rewritten == source
       assert Parser.parse_rules(rewritten) == [{modified, 1}]
     end
@@ -184,13 +191,13 @@ defmodule AST.RuleParserTest do
   end
 
   test "counter syntax stays out of query parsing and statement words stay identifiers" do
-    assert [%AST.Node.Statements.SelectStatement{}] =
-             AST.parse_statements("SELECT track, lookup, last FROM last")
+    assert [%Guardian.AST.Node.Statements.SelectStatement{}] =
+             Guardian.AST.parse_statements("SELECT track, lookup, last FROM last")
 
-    for name <- ~w[track lookup last], do: assert(Engine.valid_table_name?(name))
+    for name <- ~w[track lookup last], do: assert(Guardian.Engine.valid_table_name?(name))
 
     for source <- ["TRACK c = count() LAST '1h'", "LOOKUP x = c"] do
-      assert_raise AST.ParseError, fn -> AST.parse_statements(source) end
+      assert_raise Guardian.AST.ParseError, fn -> Guardian.AST.parse_statements(source) end
     end
   end
 
@@ -223,13 +230,13 @@ defmodule AST.RuleParserTest do
           {"LOOKUP x = c BY ip FROM t", "Expected end of statement, got FROM"},
           {"LOOKUP x = c FROM t FROM u", "Expected end of statement, got FROM"},
         ] do
-      error = assert_raise AST.ParseError, fn -> Parser.parse_rules(source) end
+      error = assert_raise Guardian.AST.ParseError, fn -> Parser.parse_rules(source) end
       assert Exception.message(error) =~ message
     end
   end
 
   test "an expression stops before a trailing word it cannot continue with" do
-    assert_raise AST.ParseError, ~r/Expected end of statement, got last/, fn ->
+    assert_raise Guardian.AST.ParseError, ~r/Expected end of statement, got last/, fn ->
       Parser.parse_rules("SET x = a WHERE b > 1 last '1h'")
     end
   end
@@ -249,7 +256,7 @@ defmodule AST.RuleParserTest do
           {"\nSET x = nosuch(1)", "line 2 column 9: Invalid function nosuch"},
           {"SET x = 1 SET y = 2", "Expected end of statement, got SET"},
         ] do
-      error = assert_raise AST.ParseError, fn -> Parser.parse_rules(source) end
+      error = assert_raise Guardian.AST.ParseError, fn -> Parser.parse_rules(source) end
       assert Exception.message(error) =~ message
     end
   end

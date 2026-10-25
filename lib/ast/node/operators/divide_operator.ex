@@ -1,13 +1,13 @@
-defmodule AST.Node.Operators.DivideOperator do
-  use AST.Node.BinaryOperator, symbol: "/"
+defmodule Guardian.AST.Node.Operators.DivideOperator do
+  use Guardian.AST.Node.BinaryOperator, symbol: "/"
 
-  alias Query.ColumnOrConstant
-  alias Storage.Column
+  alias Guardian.Query.ColumnOrConstant
+  alias Guardian.Storage.Column
 
-  defimpl Query.Eval do
+  defimpl Guardian.Query.Eval do
     def eval(%@for{left: left, right: right}, context) do
-      column1 = Query.Eval.eval(left, context)
-      column2 = Query.Eval.eval(right, context)
+      column1 = Guardian.Query.Eval.eval(left, context)
+      column2 = Guardian.Query.Eval.eval(right, context)
       ColumnOrConstant.map_or_nif(column1, column2, &@for.eval/2, &Column.divide/2)
     end
   end

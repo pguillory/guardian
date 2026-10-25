@@ -67,7 +67,7 @@ Guardian is also a producer of its own tables:
    reference resource.
 2. Scripts use the JSON query endpoint.
 3. An operator can run queries from the Erlang remote console with
-   `Query.execute("SELECT ...")`, which returns labels and rows.
+   `Guardian.Query.execute("SELECT ...")`, which returns labels and rows.
 
 ## 3. Access and trust
 
@@ -271,9 +271,26 @@ same way.
 
 An operator with a shell on a node can run `/app/bin/guardian remote` (on Fly, through
 `fly ssh console --pty -C "/app/bin/guardian remote"`) and call
-`Query.execute("SELECT ...")` from IEx. It returns `{:ok, columns, rows}` or
+`Guardian.Query.execute("SELECT ...")` from IEx. It returns `{:ok, columns, rows}` or
 `{:error, message}`; parse and resolution errors can raise. Direct IEx queries are
 not recorded in `queries`. The shell has full VM access and bypasses the API key.
+
+### 4.5 Elixir callers
+
+Guardian-owned Elixir modules use the `Guardian.*` namespace, including
+`Guardian.Web.*`. With Guardian running, callers can use
+`Guardian.Engine.ingest_events/2` and `Guardian.Query.execute/1` directly. Guardian
+still has one event store per VM and uses the `:guardian` application configuration.
+Direct queries bypass API query logging. An embedding app must set the `:guardian`
+application keys itself: Mix does not evaluate a dependency's `config/runtime.exs`
+to translate Guardian's environment variables.
+
+Upgrading from the earlier unprefixed module names requires a full release restart
+on every node; mixed builds cannot exchange module-bearing terms or RPCs reliably.
+Stored segments and rule files retain their existing formats and need no migration.
+New diagnostics that name Guardian exception modules use `Guardian.*`, including
+per-event ingest errors and API error messages that name an exception. Existing
+built-in table rows keep their old strings, so filters on those names may need both.
 
 ## 5. Ingestion
 

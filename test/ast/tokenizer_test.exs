@@ -1,6 +1,6 @@
-defmodule TokenizerTest do
-  import AST.Tokenizer
-  alias AST.ParseError
+defmodule Guardian.TokenizerTest do
+  import Guardian.AST.Tokenizer
+  alias Guardian.AST.ParseError
   use ExUnit.Case, async: true
 
   test "tokenize" do

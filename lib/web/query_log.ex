@@ -1,9 +1,9 @@
-defmodule Web.QueryLog do
+defmodule Guardian.Web.QueryLog do
   @moduledoc """
   Records every query the query APIs run in the built-in `queries` table: the JSON
-  `/query` endpoint and the MCP `query` tool, each through `Web.Query.execute/3`.
+  `/query` endpoint and the MCP `query` tool, each through `Guardian.Web.Query.execute/3`.
 
-  `Web.Query.execute/3` runs on the machine that received the request, which
+  `Guardian.Web.Query.execute/3` runs on the machine that received the request, which
   coordinates the query, so each query is recorded once there; peers running parts of
   it record nothing. It hands one row per query to `record/4`, which casts it to this
   GenServer: the request never waits on the recorder or Storage, so an MCP call (run
@@ -20,7 +20,7 @@ defmodule Web.QueryLog do
 
   require Logger
 
-  alias Web.QueryParseErrors
+  alias Guardian.Web.QueryParseErrors
 
   @table "queries"
   @max_sql_bytes 16 * 1024
@@ -55,7 +55,7 @@ defmodule Web.QueryLog do
 
   `info` holds `:timestamp` (when the query started), `:duration_native` (its run
   time in native time units) and `:caller_fun` (returns the caller fields, see
-  `Web.QueryParseErrors.http_caller/1` and `mcp_caller/1`; only `interface`,
+  `Guardian.Web.QueryParseErrors.http_caller/1` and `mcp_caller/1`; only `interface`,
   `remote_ip` and the MCP client name and version are kept). Never raises, throws, or
   exits; always returns `:ok`. Options: `:server` names the recorder.
   """
@@ -84,7 +84,7 @@ defmodule Web.QueryLog do
     :ok
   catch
     kind, reason ->
-      log_failure(Engine.failure_kind(kind, reason, __STACKTRACE__))
+      log_failure(Guardian.Engine.failure_kind(kind, reason, __STACKTRACE__))
       :ok
   end
 
@@ -95,7 +95,7 @@ defmodule Web.QueryLog do
 
   @doc false
   def row(sql, outcome, info) do
-    {stored_sql, truncated?} = Query.Text.truncate(sql, @max_sql_bytes)
+    {stored_sql, truncated?} = Guardian.Query.Text.truncate(sql, @max_sql_bytes)
 
     {status, row_count, error_kind, error} =
       case outcome do
@@ -103,7 +103,7 @@ defmodule Web.QueryLog do
           {"ok", row_count, nil, nil}
 
         {:error, kind, message} ->
-          {message, _} = Query.Text.truncate(message, @max_error_bytes)
+          {message, _} = Guardian.Query.Text.truncate(message, @max_error_bytes)
           {"error", nil, kind, message}
       end
 
@@ -114,7 +114,7 @@ defmodule Web.QueryLog do
     |> QueryParseErrors.bound_caller_fields()
     |> Map.merge(%{
       "timestamp" => info.timestamp,
-      "hostname" => Utils.hostname(),
+      "hostname" => Guardian.Utils.hostname(),
       "sql" => stored_sql,
       "sql_bytes" => byte_size(sql),
       "sql_truncated" => truncated?,
@@ -148,8 +148,8 @@ defmodule Web.QueryLog do
 
   @impl true
   def init(opts) do
-    # A writer returns like `Engine.try_log_event/2` and never raises.
-    writer = Keyword.get(opts, :writer, &Engine.try_log_event/2)
+    # A writer returns like `Guardian.Engine.try_log_event/2` and never raises.
+    writer = Keyword.get(opts, :writer, &Guardian.Engine.try_log_event/2)
     name = Keyword.fetch!(opts, :name)
     counters = :atomics.new(2, signed: false)
     :persistent_term.put({__MODULE__, name}, counters)

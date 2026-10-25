@@ -1,5 +1,5 @@
-defmodule UtilsTest do
-  import Utils
+defmodule Guardian.UtilsTest do
+  import Guardian.Utils
   use ExUnit.Case, async: true
 
   test "simultaneously" do

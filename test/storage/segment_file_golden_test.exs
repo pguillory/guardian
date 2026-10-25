@@ -1,8 +1,8 @@
-defmodule Storage.SegmentFileGoldenTest do
+defmodule Guardian.Storage.SegmentFileGoldenTest do
   use ExUnit.Case, async: true
 
-  alias Storage.Column
-  alias Storage.Segment
+  alias Guardian.Storage.Column
+  alias Guardian.Storage.Segment
 
   # test/fixtures/segment_file.seg is the segment file that `rows/0` produced on
   # 2026-10-18. Persisted segments must keep
@@ -35,9 +35,9 @@ defmodule Storage.SegmentFileGoldenTest do
   # `get_row` omits a nil value as it does an absent key.
   defp expected_row(row) do
     row
-    |> Storage.Flattening.flatten_event()
+    |> Guardian.Storage.Flattening.flatten_event()
     |> Map.reject(fn {_key, value} -> is_nil(value) end)
-    |> Storage.Flattening.unflatten_event()
+    |> Guardian.Storage.Flattening.unflatten_event()
   end
 
   setup do
@@ -51,7 +51,7 @@ defmodule Storage.SegmentFileGoldenTest do
 
   test "a stored segment matches the checked-in file", %{dir: dir} do
     {:ok, segment} = Segment.start_link()
-    Enum.each(rows(), &(:ok = TestHelpers.segment_append(segment, &1)))
+    Enum.each(rows(), &(:ok = Guardian.TestHelpers.segment_append(segment, &1)))
     :ok = Segment.pack(segment)
     filename = Path.join(dir, "golden.seg")
     :ok = Segment.store(segment, filename)
@@ -83,7 +83,7 @@ defmodule Storage.SegmentFileGoldenTest do
 
     # The same column metadata (types and counts) as the segment it was written from.
     {:ok, original} = Segment.start_link()
-    Enum.each(rows(), &(:ok = TestHelpers.segment_append(original, &1)))
+    Enum.each(rows(), &(:ok = Guardian.TestHelpers.segment_append(original, &1)))
     :ok = Segment.pack(original)
     assert Segment.schema(segment) === Segment.schema(original)
     GenServer.stop(original)

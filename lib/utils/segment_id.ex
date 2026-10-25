@@ -1,4 +1,4 @@
-defmodule SegmentID do
+defmodule Guardian.SegmentID do
   defmacro match(opts \\ []) do
     underscore =
       quote do
@@ -27,6 +27,6 @@ defmodule SegmentID do
   def timestamp(segment_id) do
     get_timestamp_nanoseconds(segment_id)
     |> System.convert_time_unit(:nanosecond, :second)
-    |> Timestamp.from_seconds()
+    |> Guardian.Timestamp.from_seconds()
   end
 end

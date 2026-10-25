@@ -1,14 +1,14 @@
-defmodule Storage.UnreadableSegmentsTest do
+defmodule Guardian.Storage.UnreadableSegmentsTest do
   # Not async: capture_log sees every process's log events, and the skipped-file
   # state and the segment directory are shared with every other test's rescans.
   use ExUnit.Case, async: false
-  import TestHelpers
+  import Guardian.TestHelpers
 
   import ExUnit.CaptureLog
 
-  alias Storage.BlobStore
-  alias Storage.LoadedSegments
-  alias Storage.Segment
+  alias Guardian.Storage.BlobStore
+  alias Guardian.Storage.LoadedSegments
+  alias Guardian.Storage.Segment
 
   @marker "PRIVATE_SEGMENT_MARKER_8273"
 
@@ -16,7 +16,7 @@ defmodule Storage.UnreadableSegmentsTest do
     table = "unreadable_#{System.unique_integer([:positive])}"
 
     on_exit(fn ->
-      for filename <- Path.wildcard(Path.join(Storage.segment_dir(), "#{table}.*.seg")) do
+      for filename <- Path.wildcard(Path.join(Guardian.Storage.segment_dir(), "#{table}.*.seg")) do
         BlobStore.delete(filename)
       end
 
@@ -27,7 +27,7 @@ defmodule Storage.UnreadableSegmentsTest do
   end
 
   defp store_segment(table, segment_id, rows) do
-    write_segment_file(Storage.SegmentFile.filename(table, segment_id), rows)
+    write_segment_file(Guardian.Storage.SegmentFile.filename(table, segment_id), rows)
   end
 
   # A segment file with its last byte cut off. The marker stays in the file, so a
@@ -41,22 +41,22 @@ defmodule Storage.UnreadableSegmentsTest do
   end
 
   defp empty_segment(table, segment_id) do
-    filename = Storage.SegmentFile.filename(table, segment_id)
+    filename = Guardian.Storage.SegmentFile.filename(table, segment_id)
     File.mkdir_p!(Path.dirname(filename))
     File.write!(filename, "")
     filename
   end
 
   test "Segment.load/1 reports an unreadable file without its bytes", %{table: table} do
-    truncated = truncated_segment(table, SegmentID.generate())
-    empty = empty_segment(table, SegmentID.generate())
+    truncated = truncated_segment(table, Guardian.SegmentID.generate())
+    empty = empty_segment(table, Guardian.SegmentID.generate())
 
     log =
       capture_log(fn ->
         assert {:error, {:unreadable_segment, ArgumentError}} = Segment.load(truncated)
         assert {:error, {:unreadable_segment, ArgumentError}} = Segment.load(empty)
 
-        missing = Storage.SegmentFile.filename(table, SegmentID.generate())
+        missing = Guardian.Storage.SegmentFile.filename(table, Guardian.SegmentID.generate())
         assert {:error, {:unreadable_segment, {:mmap, :enoent}}} = Segment.load(missing)
       end)
 
@@ -65,7 +65,7 @@ defmodule Storage.UnreadableSegmentsTest do
 
   test "a loaded segment is linked to its loader, and dies if the loader is gone",
        %{table: table} do
-    filename = store_segment(table, SegmentID.generate(), [%{"a" => 1}])
+    filename = store_segment(table, Guardian.SegmentID.generate(), [%{"a" => 1}])
 
     assert {:ok, segment} = Segment.load(filename)
     assert segment in elem(Process.info(self(), :links), 1)
@@ -84,8 +84,8 @@ defmodule Storage.UnreadableSegmentsTest do
   test "deleting a loaded segment whose file is gone or cannot be removed unloads it",
        %{table: table} do
     loaded_segments = Process.whereis(LoadedSegments)
-    missing_id = SegmentID.generate()
-    stuck_id = SegmentID.generate()
+    missing_id = Guardian.SegmentID.generate()
+    stuck_id = Guardian.SegmentID.generate()
     missing = store_segment(table, missing_id, [%{"a" => 1}])
     stuck = store_segment(table, stuck_id, [%{"a" => 2}])
     :ok = LoadedSegments.rescan()
@@ -112,9 +112,9 @@ defmodule Storage.UnreadableSegmentsTest do
   test "a rescan skips unreadable files, keeps serving the rest, and logs each once",
        %{table: table} do
     loaded_segments = Process.whereis(LoadedSegments)
-    good_id = SegmentID.generate()
-    truncated_id = SegmentID.generate()
-    empty_id = SegmentID.generate()
+    good_id = Guardian.SegmentID.generate()
+    truncated_id = Guardian.SegmentID.generate()
+    empty_id = Guardian.SegmentID.generate()
     store_segment(table, good_id, [%{"a" => 1}])
     truncated = truncated_segment(table, truncated_id)
     empty = empty_segment(table, empty_id)
@@ -127,7 +127,7 @@ defmodule Storage.UnreadableSegmentsTest do
     assert {:error, :not_found} = LoadedSegments.get_segment(empty_id)
     assert Enum.sort([truncated_id, empty_id]) -- LoadedSegments.skipped_segment_ids() == []
     assert BlobStore.exists(truncated) and BlobStore.exists(empty)
-    assert Storage.table_row_count(table) == 1
+    assert Guardian.Storage.table_row_count(table) == 1
     assert log =~ "Skipping unreadable segment file #{truncated}"
     assert log =~ "Skipping unreadable segment file #{empty} (0 bytes"
     refute log =~ @marker
@@ -138,7 +138,7 @@ defmodule Storage.UnreadableSegmentsTest do
   end
 
   test "a skipped file is retried once it is replaced", %{table: table} do
-    segment_id = SegmentID.generate()
+    segment_id = Guardian.SegmentID.generate()
     filename = empty_segment(table, segment_id)
     capture_log(fn -> :ok = LoadedSegments.rescan() end)
     assert segment_id in LoadedSegments.skipped_segment_ids()
@@ -149,11 +149,11 @@ defmodule Storage.UnreadableSegmentsTest do
 
     assert {:ok, _segment} = LoadedSegments.get_segment(segment_id)
     refute segment_id in LoadedSegments.skipped_segment_ids()
-    assert Storage.table_row_count(table) == 2
+    assert Guardian.Storage.table_row_count(table) == 2
   end
 
   test "a file that cannot be opened is retried every time and logged once", %{table: table} do
-    segment_id = SegmentID.generate()
+    segment_id = Guardian.SegmentID.generate()
     filename = store_segment(table, segment_id, [%{"a" => 1}])
     File.chmod!(filename, 0o000)
     on_exit(fn -> File.chmod(filename, 0o644) end)
@@ -172,7 +172,7 @@ defmodule Storage.UnreadableSegmentsTest do
   end
 
   test "a skipped file whose file disappears is forgotten", %{table: table} do
-    segment_id = SegmentID.generate()
+    segment_id = Guardian.SegmentID.generate()
     filename = empty_segment(table, segment_id)
     capture_log(fn -> :ok = LoadedSegments.rescan() end)
     assert segment_id in LoadedSegments.skipped_segment_ids()
@@ -185,12 +185,12 @@ defmodule Storage.UnreadableSegmentsTest do
   test "expiration deletes an old skipped file", %{table: table} do
     timestamp = System.os_time(:nanosecond) - 20 * 24 * 3600 * 1_000_000_000
     old_id = Base.encode16(<<timestamp::size(64), :crypto.strong_rand_bytes(8)::binary>>)
-    new_id = SegmentID.generate()
+    new_id = Guardian.SegmentID.generate()
     old_file = empty_segment(table, old_id)
     new_file = empty_segment(table, new_id)
     capture_log(fn -> :ok = LoadedSegments.rescan() end)
 
-    Storage.SegmentExpiration.tick()
+    Guardian.Storage.SegmentExpiration.tick()
 
     refute BlobStore.exists(old_file)
     refute old_id in LoadedSegments.skipped_segment_ids()
@@ -199,21 +199,21 @@ defmodule Storage.UnreadableSegmentsTest do
   end
 
   test "startup skips unreadable files and loads the rest", %{table: table} do
-    good_id = SegmentID.generate()
-    bad_id = SegmentID.generate()
+    good_id = Guardian.SegmentID.generate()
+    bad_id = Guardian.SegmentID.generate()
     store_segment(table, good_id, [%{"a" => 1}])
     truncated_segment(table, bad_id)
 
     log =
       capture_log(fn ->
-        :ok = Supervisor.terminate_child(Storage, LoadedSegments)
-        {:ok, _pid} = Supervisor.restart_child(Storage, LoadedSegments)
+        :ok = Supervisor.terminate_child(Guardian.Storage, LoadedSegments)
+        {:ok, _pid} = Supervisor.restart_child(Guardian.Storage, LoadedSegments)
       end)
 
     assert {:ok, _segment} = LoadedSegments.get_segment(good_id)
     assert bad_id in LoadedSegments.skipped_segment_ids()
     assert log =~ "Skipping unreadable segment file"
     refute log =~ @marker
-    eventually(fn -> Storage.table_row_count(table) == 1 end)
+    eventually(fn -> Guardian.Storage.table_row_count(table) == 1 end)
   end
 end

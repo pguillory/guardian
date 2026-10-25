@@ -1,11 +1,11 @@
-defmodule Rules.RowIndexTest do
+defmodule Guardian.Rules.RowIndexTest do
   use ExUnit.Case, async: true
 
-  alias Rules.RowIndex
-  alias Storage.Flattening
+  alias Guardian.Rules.RowIndex
+  alias Guardian.Storage.Flattening
 
   describe "against the scan-every-key implementation it replaced" do
-    # The reference: what Rules.Runtime did before the index, one pass over the row
+    # The reference: what Guardian.Rules.Runtime did before the index, one pass over the row
     # per statement and per read.
     defp ref_fetch(row, name) do
       case Map.fetch(row, name) do
@@ -102,14 +102,14 @@ defmodule Rules.RowIndexTest do
     # scan this replaced took about 205 s for them in the first test and 1.8 s after
     # the UNSET in the second; the index takes a few milliseconds.
     defp run(source, row) do
-      %{tables: %{"t" => {:ok, plan}}} = Rules.RuleSet.validate(%{"t/r.gsql" => source})
+      %{tables: %{"t" => {:ok, plan}}} = Guardian.Rules.RuleSet.validate(%{"t/r.gsql" => source})
       [first | rest] = plan.steps
-      state = step(Rules.Runtime.start(row), first)
+      state = step(Guardian.Rules.Runtime.start(row), first)
       {micros, state} = :timer.tc(fn -> Enum.reduce(rest, state, &step(&2, &1)) end)
-      {micros / 1_000_000, Rules.Runtime.finish(state)}
+      {micros / 1_000_000, Guardian.Rules.Runtime.finish(state)}
     end
 
-    defp step(state, step), do: apply(Rules.Runtime, step.kind, [state, step])
+    defp step(state, step), do: apply(Guardian.Rules.Runtime, step.kind, [state, step])
 
     test "1,000 statements on an event with 100,000 columns" do
       row = Map.new(1..100_000, &{"c#{&1}", &1})

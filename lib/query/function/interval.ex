@@ -1,5 +1,5 @@
-defmodule Query.Function.Interval do
-  import Query.Numeric, only: [int64?: 1]
+defmodule Guardian.Query.Function.Interval do
+  import Guardian.Query.Numeric, only: [int64?: 1]
 
   @second 1
   @minute 60
@@ -21,7 +21,7 @@ defmodule Query.Function.Interval do
   @doc """
   Parses a duration such as `"2h 30m"` (units `s`, `m`, `h`, `d`, `w`) into seconds:
   `{:ok, seconds}` or `:error`. Not the SQL `to_seconds` function
-  (`Query.Function.ToSeconds`).
+  (`Guardian.Query.Function.ToSeconds`).
   """
   def to_seconds(interval) do
     to_seconds(interval, 0)
@@ -36,7 +36,7 @@ defmodule Query.Function.Interval do
   end
 
   # A number of more than 19 digits, or a term or running total outside int64, is
-  # `:error` (null), so no bignum ever forms (Query.Numeric).
+  # `:error` (null), so no bignum ever forms (Guardian.Query.Numeric).
   defp to_seconds(interval, seconds) do
     with true <- digits_within_limit?(interval),
          {n, <<unit, interval::binary>>} <- Integer.parse(interval),

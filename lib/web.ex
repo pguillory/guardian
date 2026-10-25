@@ -1,4 +1,4 @@
-defmodule Web do
+defmodule Guardian.Web do
   use Supervisor
 
   def start_link(opts) do
@@ -7,13 +7,13 @@ defmodule Web do
 
   def init(_opts) do
     http_opts = [
-      plug: Web.MainRouter,
+      plug: Guardian.Web.MainRouter,
       port: http_port(),
     ]
 
     children = [
       Anubis.Server.Registry,
-      {Web.MCP.Server, transport: :streamable_http},
+      {Guardian.Web.MCP.Server, transport: :streamable_http},
       %{
         id: Bandit.HTTP,
         start: {Bandit, :start_link, [http_opts]},

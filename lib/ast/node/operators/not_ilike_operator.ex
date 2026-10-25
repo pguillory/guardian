@@ -1,8 +1,8 @@
-defmodule AST.Node.Operators.NotIlikeOperator do
-  use AST.Node.BinaryOperator, symbol: "NOT ILIKE"
+defmodule Guardian.AST.Node.Operators.NotIlikeOperator do
+  use Guardian.AST.Node.BinaryOperator, symbol: "NOT ILIKE"
 
-  alias AST.Node.Operators.IlikeOperator
-  alias AST.Node.Operators.NotOperator
+  alias Guardian.AST.Node.Operators.IlikeOperator
+  alias Guardian.AST.Node.Operators.NotOperator
 
   def rewrite(%__MODULE__{left: left, right: right}) do
     %NotOperator{right: %IlikeOperator{left: left, right: right}}

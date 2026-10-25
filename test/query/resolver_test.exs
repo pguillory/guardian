@@ -1,5 +1,5 @@
-defmodule Query.ResolverTest do
-  import Query.Resolver
+defmodule Guardian.Query.ResolverTest do
+  import Guardian.Query.Resolver
   use ExUnit.Case, async: true
 
   test "resolve_aliases" do

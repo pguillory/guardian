@@ -1,5 +1,5 @@
-defmodule Query.Function.UrlHostTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Query.Function.UrlHostTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "url_host function" do
     assert eval("url_host('http://domain.com/path#fragment')") === "domain.com"

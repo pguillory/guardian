@@ -1,4 +1,4 @@
-defmodule Query.Function.UrlFragment do
+defmodule Guardian.Query.Function.UrlFragment do
   def eval(value) when is_binary(value) do
     URI.parse(value).fragment
   end

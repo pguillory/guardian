@@ -1,9 +1,9 @@
-defmodule Storage.FullSegments do
+defmodule Guardian.Storage.FullSegments do
   # Internal to Storage; see lib/storage/CLAUDE.md, "Public boundary".
   @moduledoc false
 
-  alias Storage.Segment
-  alias Storage.Segment.Registration
+  alias Guardian.Storage.Segment
+  alias Guardian.Storage.Segment.Registration
   require Logger
   require Registration
   use GenServer

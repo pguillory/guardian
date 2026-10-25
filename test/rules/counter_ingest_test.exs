@@ -1,19 +1,21 @@
-defmodule Rules.CounterIngestTest do
+defmodule Guardian.Rules.CounterIngestTest do
   use ExUnit.Case, async: false
-  import RulesTestHelper
-  alias Counters.Store
+  import Guardian.RulesTestHelper
+  alias Guardian.Counters.Store
 
   @api_key Application.compile_env!(:guardian, :api_key)
 
   setup do
     # Named counter processes and cooldowns are shared; these tests are serial.
-    assert Counters.Supervisor.available?()
-    :ets.delete_all_objects(Counters.Cluster)
+    assert Guardian.Counters.Supervisor.available?()
+    :ets.delete_all_objects(Guardian.Counters.Cluster)
 
     on_exit(fn ->
-      if Process.whereis(Store) == nil, do: Supervisor.restart_child(Counters.Supervisor, Store)
-      assert Counters.Supervisor.available?()
-      :ets.delete_all_objects(Counters.Cluster)
+      if Process.whereis(Store) == nil,
+        do: Supervisor.restart_child(Guardian.Counters.Supervisor, Store)
+
+      assert Guardian.Counters.Supervisor.available?()
+      :ets.delete_all_objects(Guardian.Counters.Cluster)
     end)
 
     :ok
@@ -24,26 +26,27 @@ defmodule Rules.CounterIngestTest do
       Plug.Test.conn(:post, "/api/json/send_events", arguments)
       |> Plug.Conn.put_req_header("content-type", "application/json")
       |> Plug.Conn.put_req_header("x-api-key", @api_key)
-      |> Web.MainRouter.call(nil)
+      |> Guardian.Web.MainRouter.call(nil)
 
     assert conn.status == 200
     Jason.decode!(conn.resp_body)
   end
 
   defp mcp(tool, arguments) do
-    assert {:ok, response} = MCPTestClient.call_tool(tool, arguments)
+    assert {:ok, response} = Guardian.MCPTestClient.call_tool(tool, arguments)
     refute response.result["isError"] == true
     [%{"type" => "text", "text" => text}] = response.result["content"]
     Jason.decode!(text)
   end
 
-  defp ingest(table, events), do: Engine.ingest_events(table, events)
+  defp ingest(table, events), do: Guardian.Engine.ingest_events(table, events)
 
-  defp track(table), do: Enum.find(Rules.lookup(table).plan().steps, &(&1.kind == :track))
+  defp track(table),
+    do: Enum.find(Guardian.Rules.lookup(table).plan().steps, &(&1.kind == :track))
 
   defp await_cooldown(owner) do
-    TestHelpers.eventually(fn ->
-      case :ets.lookup(Counters.Cluster, owner) do
+    Guardian.TestHelpers.eventually(fn ->
+      case :ets.lookup(Guardian.Counters.Cluster, owner) do
         [] -> true
         [{_, until}] -> until <= System.monotonic_time(:microsecond)
       end
@@ -51,7 +54,7 @@ defmodule Rules.CounterIngestTest do
   end
 
   test "HTTP and MCP return LOOKUP=49/TRACK=50, SET decisions and historical stored fields" do
-    MCPTestClient.start()
+    Guardian.MCPTestClient.start()
 
     for interface <- [:http, :mcp] do
       table = unique_table("counter_#{interface}")
@@ -65,7 +68,7 @@ defmodule Rules.CounterIngestTest do
       """
 
       assert mcp("write_rule", %{"table" => table, "name" => "r", "source" => source})["saved"]
-      on_exit(fn -> Rules.delete_rule(table, "r") end)
+      on_exit(fn -> Guardian.Rules.delete_rule(table, "r") end)
       # Identical TRACK copies execute just once even through public compilation.
       with_rules(%{"#{table}/copy.gsql" => "TRACK hits = count() BY group_key LAST '1h'"})
       send_events = if interface == :http, do: &http/1, else: &mcp("send_events", &1)
@@ -129,23 +132,26 @@ defmodule Rules.CounterIngestTest do
              })["results"] == [%{"success" => true, "event" => %{}}]
 
       # The forged timestamps are ordinary fields; no private coordinate was added.
-      first = Enum.find(Storage.dump_table(table), &(&1["n"] == 1))
+      first = Enum.find(Guardian.Storage.dump_table(table), &(&1["n"] == 1))
       assert first["timestamp"] == "1900-01-01 00:00:00"
       assert first["arrival_ms"] == 0
       refute Map.has_key?(first, "secret")
 
       assert {:ok, _, [[49, 50, true]]} =
-               Query.execute("SELECT prior, hits, blocked FROM #{table} WHERE n = 50")
+               Guardian.Query.execute("SELECT prior, hits, blocked FROM #{table} WHERE n = 50")
 
-      assert {:ok, _} = Rules.delete_rule(table, "copy")
-      assert {:ok, _} = Rules.write_rule(table, "r", String.replace(source, "'1h'", "'2h'"))
+      assert {:ok, _} = Guardian.Rules.delete_rule(table, "copy")
+
+      assert {:ok, _} =
+               Guardian.Rules.write_rule(table, "r", String.replace(source, "'1h'", "'2h'"))
+
       assert [{:ok, %{"hits" => 1}}] = ingest(table, [%{"ip" => "A"}])
-      assert :ok = Supervisor.terminate_child(Counters.Supervisor, Store)
-      assert {:ok, _} = Supervisor.restart_child(Counters.Supervisor, Store)
+      assert :ok = Supervisor.terminate_child(Guardian.Counters.Supervisor, Store)
+      assert {:ok, _} = Supervisor.restart_child(Guardian.Counters.Supervisor, Store)
       assert [{:ok, %{"hits" => 1}}] = ingest(table, [%{"ip" => "A"}])
 
       assert {:ok, _, [[49, 50, true]]} =
-               Query.execute("SELECT prior, hits, blocked FROM #{table} WHERE n = 50")
+               Guardian.Query.execute("SELECT prior, hits, blocked FROM #{table} WHERE n = 50")
     end
   end
 
@@ -161,8 +167,11 @@ defmodule Rules.CounterIngestTest do
     """
 
     with_rules(%{"#{table}/r.gsql" => source})
-    assert {:ok, _} = Rules.write_rule(reader, "r", "LOOKUP prior = hits FROM #{table} BY g")
-    on_exit(fn -> Rules.delete_rule(reader, "r") end)
+
+    assert {:ok, _} =
+             Guardian.Rules.write_rule(reader, "r", "LOOKUP prior = hits FROM #{table} BY g")
+
+    on_exit(fn -> Guardian.Rules.delete_rule(reader, "r") end)
 
     for group <- [1, 1.0, "1", nil] do
       assert [_, _, {:ok, row}] =
@@ -187,7 +196,7 @@ defmodule Rules.CounterIngestTest do
   end
 
   test "unkeyed resubmissions count twice; completed HTTP/MCP keyed retries return only a receipt" do
-    MCPTestClient.start()
+    Guardian.MCPTestClient.start()
     table = unique_table("live_counter_retry")
     with_rules(%{"#{table}/r.gsql" => "TRACK hits = count() LAST '1h'"})
     args = %{"table" => table, "events" => [%{}], "return_keys" => ["hits"]}
@@ -207,7 +216,7 @@ defmodule Rules.CounterIngestTest do
            }
 
     assert [{:ok, %{"hits" => 4}}] = ingest(table, [%{}])
-    assert length(Storage.dump_table(table)) == 4
+    assert length(Guardian.Storage.dump_table(table)) == 4
   end
 
   test "a later rule or storage failure leaves earlier counter side effects without replay" do
@@ -222,7 +231,7 @@ defmodule Rules.CounterIngestTest do
       assert [{:error, _}, {:ok, %{"hits" => 2}}] = ingest(table, [%{"bad" => 1}, %{}])
     end)
 
-    assert length(Storage.dump_table(table)) == 1
+    assert length(Guardian.Storage.dump_table(table)) == 1
 
     for {reply, error} <- [
           {fn from, _row -> GenServer.reply(from, {:error, :invalid_value}) end,
@@ -233,14 +242,14 @@ defmodule Rules.CounterIngestTest do
       # A fresh table guarantees the one-call fake is its only mutable segment.
       storage_table = unique_table("live_counter_storage_partial")
       with_rules(%{"#{storage_table}/r.gsql" => "TRACK hits = count() LAST '1h'"})
-      TestHelpers.intercept_append(storage_table, reply)
+      Guardian.TestHelpers.intercept_append(storage_table, reply)
 
       ExUnit.CaptureLog.capture_log(fn ->
         assert [{:error, ^error}] = ingest(storage_table, [%{}])
       end)
 
       assert [{:ok, %{"hits" => 2}}] = ingest(storage_table, [%{}])
-      assert Storage.dump_table(storage_table) == [%{"hits" => 2}]
+      assert Guardian.Storage.dump_table(storage_table) == [%{"hits" => 2}]
     end
   end
 
@@ -257,7 +266,7 @@ defmodule Rules.CounterIngestTest do
     })
 
     assert [{:ok, %{"hits" => 1}}] = ingest(table, [%{"enabled" => true}])
-    assert :ok = Supervisor.terminate_child(Counters.Supervisor, Store)
+    assert :ok = Supervisor.terminate_child(Guardian.Counters.Supervisor, Store)
 
     assert [{:ok, row}] =
              ingest(table, [
@@ -281,7 +290,7 @@ defmodule Rules.CounterIngestTest do
     assert [{:ok, %{"hits" => 99, "prior" => 98}}] =
              ingest(table, [%{"enabled" => false, "hits" => 99, "prior" => 98}])
 
-    assert {:ok, _} = Supervisor.restart_child(Counters.Supervisor, Store)
+    assert {:ok, _} = Supervisor.restart_child(Guardian.Counters.Supervisor, Store)
     await_cooldown(node())
     assert [{:ok, %{"hits" => 1, "prior" => 0}}] = ingest(table, [%{"enabled" => true}])
   end
@@ -299,7 +308,7 @@ defmodule Rules.CounterIngestTest do
       results = ingest(table, List.duplicate(%{"secret" => "private", "c1" => 99}, 100))
       assert Enum.all?(results, fn {:ok, row} -> row == Map.new(1..16, &{"c#{&1}", 0}) end)
       assert System.monotonic_time(:millisecond) - started < 1_500
-      assert [{_, _}] = :ets.lookup(Counters.Cluster, node())
+      assert [{_, _}] = :ets.lookup(Guardian.Counters.Cluster, node())
     after
       :ok = :sys.resume(store)
     end
@@ -310,7 +319,7 @@ defmodule Rules.CounterIngestTest do
   end
 
   test "HTTP and MCP counter failure stays fail-open and redacts secret groups from status and logs" do
-    MCPTestClient.start()
+    Guardian.MCPTestClient.start()
     table = unique_table("live_counter_redaction")
     marker = "PRIVATE-#{System.unique_integer([:positive])}"
 
@@ -333,7 +342,7 @@ defmodule Rules.CounterIngestTest do
       ExUnit.CaptureLog.capture_log(fn ->
         for send_events <- [&http/1, &mcp("send_events", &1)] do
           # Exercise a real timeout for each interface, not the other's cooldown.
-          :ets.delete(Counters.Cluster, node())
+          :ets.delete(Guardian.Counters.Cluster, node())
 
           assert send_events.(args)["results"] == [
                    %{"success" => true, "event" => %{"hits" => 0, "secret" => nil}},
@@ -344,7 +353,7 @@ defmodule Rules.CounterIngestTest do
     :ok = :sys.resume(store)
     refute log =~ marker
 
-    for process <- [Store, Counters.Cluster, Rules.Server] do
+    for process <- [Store, Guardian.Counters.Cluster, Guardian.Rules.Server] do
       refute inspect(:sys.get_status(process), limit: :infinity, printable_limit: :infinity) =~
                marker
     end
@@ -358,21 +367,21 @@ defmodule Rules.CounterIngestTest do
         "TRACK hits = count() BY g LAST '1h'; LOOKUP prior = hits BY g; UNSET secret",
     })
 
-    distributed = TestCluster.ensure_distributed()
-    {peer, peer_node} = TestCluster.start_peer(nil)
+    distributed = Guardian.TestCluster.ensure_distributed()
+    {peer, peer_node} = Guardian.TestCluster.start_peer(nil)
 
     on_exit(fn ->
       if Process.alive?(peer), do: :peer.stop(peer)
       if distributed, do: Node.stop()
     end)
 
-    assert {:ok, _} = :erpc.call(peer_node, CounterClusterHelper, :start_store, [])
+    assert {:ok, _} = :erpc.call(peer_node, Guardian.CounterClusterHelper, :start_store, [])
     identity = track(table).identity
 
     group =
       Enum.find(
         1..1_000,
-        &(Counters.Cluster.owner({identity, {&1}}, [node(), peer_node]) == peer_node)
+        &(Guardian.Counters.Cluster.owner({identity, {&1}}, [node(), peer_node]) == peer_node)
       )
 
     assert group
@@ -407,7 +416,7 @@ defmodule Rules.CounterIngestTest do
       assert Enum.all?(results, &match?({:ok, %{"hits" => 0, "prior" => 0}}, &1))
       assert Enum.all?(results, fn {:ok, row} -> not Map.has_key?(row, "secret") end)
       assert System.monotonic_time(:millisecond) - started < 1_500
-      assert [{_, _}] = :ets.lookup(Counters.Cluster, peer_node)
+      assert [{_, _}] = :ets.lookup(Guardian.Counters.Cluster, peer_node)
     after
       :ok = :erpc.call(peer_node, :sys, :resume, [Store])
     end
@@ -416,7 +425,7 @@ defmodule Rules.CounterIngestTest do
     assert [{:ok, %{"hits" => 62, "prior" => 61}}] = ingest(table, [%{"g" => group}])
     assert :ok = :erpc.call(peer_node, GenServer, :stop, [Store])
     assert [{:ok, %{"hits" => 0}}] = ingest(table, [%{"g" => group}])
-    assert {:ok, _} = :erpc.call(peer_node, CounterClusterHelper, :start_store, [])
+    assert {:ok, _} = :erpc.call(peer_node, Guardian.CounterClusterHelper, :start_store, [])
     await_cooldown(peer_node)
     assert [{:ok, %{"hits" => 1, "prior" => 0}}] = ingest(table, [%{"g" => group}])
   end

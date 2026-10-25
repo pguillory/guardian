@@ -1,7 +1,7 @@
-defmodule Query.ColumnOrConstant do
-  alias Query.Constant
-  alias Storage.Column
-  alias Storage.Column.Metadata
+defmodule Guardian.Query.ColumnOrConstant do
+  alias Guardian.Query.Constant
+  alias Guardian.Storage.Column
+  alias Guardian.Storage.Column.Metadata
   require Metadata
 
   def column_or_constant_to_column(%Constant{value: value, count: count}) do
@@ -14,11 +14,11 @@ defmodule Query.ColumnOrConstant do
 
   # Where evaluated values become a column or constant: a value storage can't hold
   # (a list of lists of lists, an integer outside int64) becomes null, so no
-  # expression yields one (Query.Numeric). Functions avoid producing them; this is the
+  # expression yields one (Guardian.Query.Numeric). Functions avoid producing them; this is the
   # backstop. Checking costs nothing on the usual path: Column.from_list validates
   # anyway, and only a failed list is scanned.
   def list_or_constant_to_column_or_constant(%Constant{value: value} = constant) do
-    if Storage.Value.valid?(value), do: constant, else: %{constant | value: nil}
+    if Guardian.Storage.Value.valid?(value), do: constant, else: %{constant | value: nil}
   end
 
   def list_or_constant_to_column_or_constant(list) when is_list(list) do
@@ -27,7 +27,9 @@ defmodule Query.ColumnOrConstant do
         Column.from_list(list)
       rescue
         ArgumentError ->
-          list |> Enum.map(&if(Storage.Value.valid?(&1), do: &1, else: nil)) |> Column.from_list()
+          list
+          |> Enum.map(&if(Guardian.Storage.Value.valid?(&1), do: &1, else: nil))
+          |> Column.from_list()
       end
 
     column_to_column_or_constant(column)

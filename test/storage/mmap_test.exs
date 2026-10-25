@@ -1,9 +1,9 @@
-defmodule Storage.MmapTest do
+defmodule Guardian.Storage.MmapTest do
   # Not async: the live-mapping counter and the open-descriptor count are global.
   use ExUnit.Case, async: false
-  import TestHelpers, only: [eventually_after_gc: 1]
+  import Guardian.TestHelpers, only: [eventually_after_gc: 1]
 
-  alias Storage.Mmap
+  alias Guardian.Storage.Mmap
 
   @moduletag :tmp_dir
 

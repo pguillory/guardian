@@ -1,7 +1,7 @@
-defmodule Query.RegexMemoryTest do
+defmodule Guardian.Query.RegexMemoryTest do
   # Changes the global query heap limit, so it must not run beside other tests.
   use ExUnit.Case, async: false
-  import TestHelpers, only: [run_sql: 1]
+  import Guardian.TestHelpers, only: [run_sql: 1]
 
   setup do
     previous = Application.fetch_env(:guardian, :query_max_heap_mb)
@@ -17,17 +17,17 @@ defmodule Query.RegexMemoryTest do
   defp set_limit(mb), do: Application.put_env(:guardian, :query_max_heap_mb, mb)
 
   defp replace(subject, pattern, replacement) do
-    {:ok, regex} = Query.Regex.compile(pattern)
-    Query.Regex.replace(regex, subject, replacement)
+    {:ok, regex} = Guardian.Query.Regex.compile(pattern)
+    Guardian.Query.Regex.replace(regex, subject, replacement)
   end
 
   test "the helper's heap cap is the query heap limit, or 256 MiB when that is off" do
     set_limit(0)
-    assert Query.Regex.helper_heap_mb() == 256
+    assert Guardian.Query.Regex.helper_heap_mb() == 256
     set_limit(32)
-    assert Query.Regex.helper_heap_mb() == 32
+    assert Guardian.Query.Regex.helper_heap_mb() == 32
     Application.delete_env(:guardian, :query_max_heap_mb)
-    assert Query.Regex.helper_heap_mb() == 256
+    assert Guardian.Query.Regex.helper_heap_mb() == 256
   end
 
   test "millions of empty matches on one value are null, with the heap limit off" do
@@ -51,7 +51,11 @@ defmodule Query.RegexMemoryTest do
   test "a query whose replace has too many matches on a value gives null for it" do
     set_limit(32)
     table = "regex_memory_#{System.unique_integer([:positive])}"
-    Engine.ingest_events(table, [%{"s" => String.duplicate("a", 1_000_000)}, %{"s" => "b"}])
+
+    Guardian.Engine.ingest_events(table, [
+      %{"s" => String.duplicate("a", 1_000_000)},
+      %{"s" => "b"},
+    ])
 
     assert Enum.sort(run_sql("SELECT replace(s, 'x*', '-') FROM #{table}")) ==
              [[nil], ["-b-"]]

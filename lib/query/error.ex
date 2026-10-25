@@ -1,4 +1,4 @@
-defmodule Query.Error do
+defmodule Guardian.Query.Error do
   @moduledoc """
   A query failure meant for the caller, such as a resource limit or a regular
   expression over its backtracking limit. The message says what went wrong and, where

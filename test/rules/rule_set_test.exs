@@ -1,7 +1,7 @@
-defmodule Rules.RuleSetTest do
+defmodule Guardian.Rules.RuleSetTest do
   use ExUnit.Case, async: true
 
-  alias Rules.RuleSet
+  alias Guardian.Rules.RuleSet
 
   defp messages(files),
     do: files |> RuleSet.validate() |> Map.fetch!(:errors) |> Enum.map(& &1.message)
@@ -85,9 +85,9 @@ defmodule Rules.RuleSetTest do
       })
 
     assert validation.errors == []
-    assert {:ok, %Rules.Plan{resolved?: true, steps: steps}} = validation.tables["t"]
+    assert {:ok, %Guardian.Rules.Plan{resolved?: true, steps: steps}} = validation.tables["t"]
     assert Enum.map(steps, & &1.kind) == [:lookup, :set, :track, :unset]
-    assert {:ok, %Rules.Plan{}} = validation.tables["u"]
+    assert {:ok, %Guardian.Rules.Plan{}} = validation.tables["u"]
 
     invalid =
       RuleSet.validate(%{
@@ -119,7 +119,8 @@ defmodule Rules.RuleSetTest do
              "README.md" => "ignored",
              "_write.lock" => "ignored",
            }) == [
-             "Bad/a.gsql: " <> Exception.message(%Engine.InvalidTableNameError{table: "Bad"}),
+             "Bad/a.gsql: " <>
+               Exception.message(%Guardian.Engine.InvalidTableNameError{table: "Bad"}),
              "queries/a.gsql: queries is a built-in table; rules run only on ingested events",
              "t/UPPER.gsql: rule file names must match [a-z0-9_][a-z0-9_-]* and be at most 64 bytes",
              "t/a.gsql line 1: Expected field name, got =",
@@ -151,7 +152,7 @@ defmodule Rules.RuleSetTest do
   test "an error in one table leaves the others valid" do
     validation = RuleSet.validate(%{"t/a.gsql" => "SET", "u/a.gsql" => "SET x = 1"})
     assert {:error, [_]} = validation.tables["t"]
-    assert {:ok, %Rules.Plan{}} = validation.tables["u"]
+    assert {:ok, %Guardian.Rules.Plan{}} = validation.tables["u"]
   end
 
   test "new_errors ignores lines, so moving a broken statement is not a new error" do

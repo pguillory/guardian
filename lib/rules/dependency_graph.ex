@@ -1,4 +1,4 @@
-defmodule Rules.DependencyGraph do
+defmodule Guardian.Rules.DependencyGraph do
   @moduledoc """
   Field dependency ordering using Kahn's algorithm. LOOKUPs and their prerequisites
   take priority; within each phase the earliest ready statement runs by file then

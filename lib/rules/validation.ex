@@ -1,4 +1,4 @@
-defmodule Rules.Validation do
+defmodule Guardian.Rules.Validation do
   @moduledoc "Pure per-step expression/counter checks and diagnostic construction."
 
   def errors(step) do
@@ -7,9 +7,9 @@ defmodule Rules.Validation do
     end) ++ counter_errors(step)
   end
 
-  defp counter_errors(%Rules.Step.Track{} = step) do
+  defp counter_errors(%Guardian.Rules.Step.Track{} = step) do
     operator_errors =
-      if step.operator in Counters.Aggregate.operators() do
+      if step.operator in Guardian.Counters.Aggregate.operators() do
         []
       else
         [
@@ -39,8 +39,8 @@ defmodule Rules.Validation do
     operator_errors ++ window_errors
   end
 
-  defp counter_errors(%Rules.Step.Lookup{} = step) do
-    case Rules.RuleSet.check_table(step.target_table) do
+  defp counter_errors(%Guardian.Rules.Step.Lookup{} = step) do
+    case Guardian.Rules.RuleSet.check_table(step.target_table) do
       :ok ->
         []
 
@@ -68,20 +68,20 @@ defmodule Rules.Validation do
   end
 
   @not_scalar [
-    {AST.Node.AggregateFunctionCall, "aggregate functions"},
-    {AST.Node.Splat, "*"},
-    {AST.Node.As, "AS"},
-    {AST.Node.Ascending, "ASC"},
-    {AST.Node.Descending, "DESC"},
+    {Guardian.AST.Node.AggregateFunctionCall, "aggregate functions"},
+    {Guardian.AST.Node.Splat, "*"},
+    {Guardian.AST.Node.As, "AS"},
+    {Guardian.AST.Node.Ascending, "ASC"},
+    {Guardian.AST.Node.Descending, "DESC"},
   ]
 
   def scalar_errors(step) do
     step
-    |> Rules.Step.inputs()
+    |> Guardian.Rules.Step.inputs()
     |> Enum.reject(&is_nil/1)
     |> Enum.flat_map(fn expr ->
       {_expr, found} =
-        AST.prewalk(expr, [], fn %mod{} = node, found ->
+        Guardian.AST.prewalk(expr, [], fn %mod{} = node, found ->
           case List.keyfind(@not_scalar, mod, 0) do
             {_mod, what} -> {node, [what | found]}
             nil -> {node, found}

@@ -1,5 +1,5 @@
-defmodule Query.Function.NormalizeTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Query.Function.NormalizeTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "normalize function" do
     assert eval("normalize('ﬁ')") === "ﬁ"

@@ -1,5 +1,5 @@
-defmodule NegativeOperatorTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.NegativeOperatorTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "negative operator" do
     assert eval("-null") == nil

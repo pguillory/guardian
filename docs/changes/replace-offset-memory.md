@@ -56,7 +56,7 @@ value too many times fails the query with a message saying so. Item 8 gains one:
   `x*` on a 4 MB value with the heap limit off fails with the new error at 256 MiB;
   `.` on a 1 MB value fails at a 32 MiB setting while a modest large value succeeds;
   the cap follows the setting (0, unset, 32); an ingested 1 MB value queried with
-  `x*` through `run_sql` fails with `Query.Error` and the next query works; a helper
+  `x*` through `run_sql` fails with `Guardian.Query.Error` and the next query works; a helper
   dies when its caller is killed, both mid-replace and as the helper starts (a trace of
   the caller's spawns gives the helper's pid).
 - `test/query/function/replace_test.exs`: values over 16 KiB give the same results as

@@ -1,5 +1,5 @@
-defmodule Query.Function.CosineSimilarityTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Query.Function.CosineSimilarityTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "cosine_similarity function" do
     a = [1, 1, 1, 1, 1, 0, 0]

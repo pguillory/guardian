@@ -1,6 +1,6 @@
-defmodule Counters.KeyMachines do
+defmodule Guardian.Counters.KeyMachines do
   @moduledoc "Read, atomic increment and bounded gets/merge/CAS machines for one bucket."
-  alias Counters.{Aggregate, Machine}
+  alias Guardian.Counters.{Aggregate, Machine}
 
   def read(key), do: Machine.new({:get, key}, nil, &read_response/3)
 

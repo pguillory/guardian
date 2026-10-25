@@ -1,9 +1,9 @@
-defmodule Web.MCP.Router do
+defmodule Guardian.Web.MCP.Router do
   @moduledoc """
   Router for MCP (Model Context Protocol) server.
 
   Handles authentication and forwards requests to the Anubis MCP server.
-  Uses the same authentication as the JSON API (`Web.Auth.check_conn/1`): the
+  Uses the same authentication as the JSON API (`Guardian.Web.Auth.check_conn/1`): the
   `x-api-key` header, or the `api_key` query parameter only when
   `GUARDIAN_ALLOW_QUERY_API_KEY=true`.
   """
@@ -34,7 +34,7 @@ defmodule Web.MCP.Router do
   plug(:dispatch)
 
   defp auth(conn, _opts) do
-    case Web.Auth.check_conn(conn) do
+    case Guardian.Web.Auth.check_conn(conn) do
       {:ok, :header} ->
         conn
 
@@ -42,7 +42,7 @@ defmodule Web.MCP.Router do
       # logged here instead (never the key itself), at most once a minute, as evidence
       # for whether GUARDIAN_ALLOW_QUERY_API_KEY is still needed.
       {:ok, :query} ->
-        Web.Auth.note_query_key_use("/mcp")
+        Guardian.Web.Auth.note_query_key_use("/mcp")
         conn
 
       {:error, :unauthorized} ->
@@ -87,7 +87,7 @@ defmodule Web.MCP.Router do
   # stuck on "Server not initialized". Anubis.Server.Registry and Session are internal
   # to Anubis 0.16; recheck on upgrade.
   defp known_session?(session_id) do
-    case Anubis.Server.Registry.whereis_server_session(Web.MCP.Server, session_id) do
+    case Anubis.Server.Registry.whereis_server_session(Guardian.Web.MCP.Server, session_id) do
       nil -> false
       pid -> Anubis.Server.Session.get(pid).protocol_version != nil
     end
@@ -217,6 +217,6 @@ defmodule Web.MCP.Router do
 
   forward("/",
     to: Anubis.Server.Transport.StreamableHTTP.Plug,
-    init_opts: [server: Web.MCP.Server]
+    init_opts: [server: Guardian.Web.MCP.Server]
   )
 end

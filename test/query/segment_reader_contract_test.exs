@@ -1,11 +1,11 @@
-defmodule Query.SegmentReaderContractTest do
+defmodule Guardian.Query.SegmentReaderContractTest do
   # Segment reads wait for slow segments and name the segment when one disappears; the
   # query time limit stops whatever is left. Suspends segments and changes the time
   # limit, so it runs alone.
   use ExUnit.Case, async: false
-  import TestHelpers
+  import Guardian.TestHelpers
 
-  alias Storage.Segment
+  alias Guardian.Storage.Segment
 
   defp table, do: "reader_contract_#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
 
@@ -14,21 +14,26 @@ defmodule Query.SegmentReaderContractTest do
     1..rows
     |> Enum.map(&%{"v" => &1})
     |> Enum.chunk_every(5_000)
-    |> Enum.each(&Engine.ingest_events(table, &1))
+    |> Enum.each(&Guardian.Engine.ingest_events(table, &1))
 
     rows
   end
 
-  # Full segments only (index 0 to 2), loaded; see TestHelpers.loaded_segment/2.
+  # Full segments only (index 0 to 2), loaded; see Guardian.TestHelpers.loaded_segment/2.
   defp segment(table, index), do: loaded_segment(table, index)
 
   defp assert_no_query_processes_left do
-    await_no_processes_running([Query.DistributedStream, Query, Query.Executor], except: [self()])
+    await_no_processes_running(
+      [Guardian.Query.DistributedStream, Guardian.Query, Guardian.Query.Executor],
+      except: [self()]
+    )
   end
 
   # Waits until some query worker is blocked reading a segment.
   defp await_blocked_reader do
-    eventually(fn -> processes_running_all([Storage.Segment, Query.Executor]) != [] end)
+    eventually(fn ->
+      processes_running_all([Guardian.Storage.Segment, Guardian.Query.Executor]) != []
+    end)
   end
 
   describe "segment reads" do
@@ -105,11 +110,11 @@ defmodule Query.SegmentReaderContractTest do
       {id, segment} = segment(table, 1)
       statement = resolve_sql("SELECT count() FROM #{table}")
       :sys.suspend(segment)
-      task = Task.async(fn -> catch_error(Query.run(statement)) end)
+      task = Task.async(fn -> catch_error(Guardian.Query.run(statement)) end)
       await_blocked_reader()
       Process.exit(segment, :kill)
 
-      assert %Query.Error{message: message} = Task.await(task)
+      assert %Guardian.Query.Error{message: message} = Task.await(task)
       assert message == "segment #{id} became unavailable during the query (:killed)"
       assert_no_query_processes_left()
     end
@@ -120,11 +125,11 @@ defmodule Query.SegmentReaderContractTest do
       {id, segment} = segment(table, 2)
       statement = resolve_sql("SELECT v FROM #{table} WHERE v > 0 ORDER BY v LIMIT 3")
       :sys.suspend(segment)
-      task = Task.async(fn -> catch_error(Query.run(statement)) end)
+      task = Task.async(fn -> catch_error(Guardian.Query.run(statement)) end)
       await_blocked_reader()
-      :ok = Storage.delete_segment(id)
+      :ok = Guardian.Storage.delete_segment(id)
 
-      assert %Query.Error{message: message} = Task.await(task)
+      assert %Guardian.Query.Error{message: message} = Task.await(task)
       assert message =~ "segment #{id} became unavailable during the query"
       assert_no_query_processes_left()
     end
@@ -132,34 +137,37 @@ defmodule Query.SegmentReaderContractTest do
     test "a segment that dies while its column is read fails evaluation, naming it" do
       table = table()
       fill(table, 100)
-      [id] = table |> Storage.segment_ids() |> Enum.to_list()
-      {:ok, segment} = Storage.get_segment(id)
-      snapshot = %Query.Evaluation.SegmentSnapshot{segment: id, count: 100}
+      [id] = table |> Guardian.Storage.segment_ids() |> Enum.to_list()
+      {:ok, segment} = Guardian.Storage.get_segment(id)
+      snapshot = %Guardian.Query.Evaluation.SegmentSnapshot{segment: id, count: 100}
       :sys.suspend(segment)
 
       task =
         Task.async(fn ->
-          catch_error(Query.Evaluation.eval(snapshot, %AST.Node.Identifier{name: "v"}))
+          catch_error(
+            Guardian.Query.Evaluation.eval(snapshot, %Guardian.AST.Node.Identifier{name: "v"})
+          )
         end)
 
       await_queued_call(segment)
       Process.exit(segment, :kill)
 
-      assert %Query.Error{message: message} = Task.await(task)
+      assert %Guardian.Query.Error{message: message} = Task.await(task)
       assert message == "segment #{id} became unavailable during the query (:killed)"
     end
 
     test "Storage's own reads give up on a hung segment after 5 seconds" do
       table = table()
-      Engine.ingest_events(table, [%{"v" => 1}])
-      [id] = table |> Storage.segment_ids() |> Enum.to_list()
-      {:ok, segment} = Storage.get_segment(id)
+      Guardian.Engine.ingest_events(table, [%{"v" => 1}])
+      [id] = table |> Guardian.Storage.segment_ids() |> Enum.to_list()
+      {:ok, segment} = Guardian.Storage.get_segment(id)
       :sys.suspend(segment)
 
       try do
         {micros, result} =
           :timer.tc(fn ->
-            Task.async(fn -> catch_exit(Storage.table_row_count(table)) end) |> Task.await(10_000)
+            Task.async(fn -> catch_exit(Guardian.Storage.table_row_count(table)) end)
+            |> Task.await(10_000)
           end)
 
         # Only the reason's kind: a crash report must not carry the segment's rows.
@@ -173,14 +181,18 @@ defmodule Query.SegmentReaderContractTest do
     test "a segment that is gone before its columns are read fails the query, naming it" do
       table = table()
       fill(table, 100)
-      [id] = table |> Storage.segment_ids() |> Enum.to_list()
-      :ok = Storage.delete_segment(id)
+      [id] = table |> Guardian.Storage.segment_ids() |> Enum.to_list()
+      :ok = Guardian.Storage.delete_segment(id)
 
-      snapshot = %Query.Evaluation.SegmentSnapshot{segment: id, count: 100}
+      snapshot = %Guardian.Query.Evaluation.SegmentSnapshot{segment: id, count: 100}
 
-      assert_raise Query.Error,
+      assert_raise Guardian.Query.Error,
                    "segment #{id} became unavailable during the query (it was deleted, expired, or moved to its file)",
-                   fn -> Query.Evaluation.eval(snapshot, %AST.Node.Identifier{name: "v"}) end
+                   fn ->
+                     Guardian.Query.Evaluation.eval(snapshot, %Guardian.AST.Node.Identifier{
+                       name: "v",
+                     })
+                   end
     end
   end
 
@@ -194,9 +206,9 @@ defmodule Query.SegmentReaderContractTest do
 
       with_time_limit(300, fn ->
         for _ <- 1..3 do
-          assert_raise Query.Error,
+          assert_raise Guardian.Query.Error,
                        "query exceeded its time limit of 300 ms; narrow it with WHERE or LIMIT",
-                       fn -> Query.run(statement) end
+                       fn -> Guardian.Query.run(statement) end
         end
       end)
 
@@ -213,17 +225,17 @@ defmodule Query.SegmentReaderContractTest do
 
       # Limits around the query's own duration, so some runs finish just before the
       # limit and some just after.
-      {micros, [[20_000]]} = :timer.tc(fn -> Query.run(statement) end)
+      {micros, [[20_000]]} = :timer.tc(fn -> Guardian.Query.run(statement) end)
       duration_ms = max(div(micros, 1000), 2)
 
       outcomes =
         for limit_ms <- Enum.flat_map(1..(2 * duration_ms), &[&1, &1]) do
           with_time_limit(limit_ms, fn ->
             try do
-              [[20_000]] = Query.run(statement)
+              [[20_000]] = Guardian.Query.run(statement)
               :ok
             rescue
-              Query.Error -> :timeout
+              Guardian.Query.Error -> :timeout
             end
           end)
         end
@@ -235,9 +247,9 @@ defmodule Query.SegmentReaderContractTest do
     end
 
     test "the message names the configured limit" do
-      assert Query.Limits.time_limit_message(30_000) =~ "time limit of 30 seconds"
-      assert Query.Limits.time_limit_message(1_000) =~ "time limit of 1 second"
-      assert Query.Limits.time_limit_message(1_500) =~ "time limit of 1500 ms"
+      assert Guardian.Query.Limits.time_limit_message(30_000) =~ "time limit of 30 seconds"
+      assert Guardian.Query.Limits.time_limit_message(1_000) =~ "time limit of 1 second"
+      assert Guardian.Query.Limits.time_limit_message(1_500) =~ "time limit of 1500 ms"
     end
   end
 end

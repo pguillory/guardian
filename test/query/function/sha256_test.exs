@@ -1,5 +1,5 @@
-defmodule Query.Function.Sha256Test do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Query.Function.Sha256Test do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "sha256 function" do
     assert eval("sha256('abc')") ===

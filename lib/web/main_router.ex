@@ -1,4 +1,4 @@
-defmodule Web.MainRouter do
+defmodule Guardian.Web.MainRouter do
   use Plug.Router
 
   plug(:match)
@@ -9,15 +9,15 @@ defmodule Web.MainRouter do
   # leaves this listener running) answers 503 until Storage has started again. Reveals
   # only that, and reads no data.
   get "/health" do
-    if Storage.ready?() do
+    if Guardian.Storage.ready?() do
       send_resp(conn, 200, "ok")
     else
       send_resp(conn, 503, "storage unavailable")
     end
   end
 
-  forward("/api/json", to: Web.JsonApi)
-  forward("/mcp", to: Web.MCP.Router)
+  forward("/api/json", to: Guardian.Web.JsonApi)
+  forward("/mcp", to: Guardian.Web.MCP.Router)
 
   match _ do
     send_resp(conn, 404, "Not found")

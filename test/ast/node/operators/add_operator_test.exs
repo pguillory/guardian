@@ -1,5 +1,5 @@
-defmodule AddOperatorTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.AddOperatorTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "add operator" do
     assert eval("123 + 123") === 246

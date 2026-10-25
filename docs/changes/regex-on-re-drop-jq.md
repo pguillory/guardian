@@ -21,7 +21,7 @@ No known caller used `RLIKE`, `replace()` or `jq()`.
 ## Behavior after the change
 
 1. `RLIKE` and `replace()` use Perl-compatible regular expressions through Erlang's
-   `:re` (`Query.Regex`), which also validates patterns at parse time.
+   `:re` (`Guardian.Query.Regex`), which also validates patterns at parse time.
    - Values that are valid UTF-8 match by character. `\w`, `\d`, `\s`, `\b` and
      POSIX classes stay ASCII by default (inline `(*UCP)` changes that). `(?i)` folds non-ASCII letters too. A value that is not
      valid UTF-8 gives null, as a non-string does.

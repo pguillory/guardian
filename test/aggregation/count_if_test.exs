@@ -1,5 +1,5 @@
-defmodule Aggregation.CountIfTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Aggregation.CountIfTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "count_if" do
     assert eval_aggregate("count_if(x)", []) == 0

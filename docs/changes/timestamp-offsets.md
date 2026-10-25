@@ -29,8 +29,8 @@ This change replaces conversion with strict format validation.
 
 Keep the accepted set to the single canonical format, rejecting `T`, `Z` and
 fractions even though the old parser accepted them before the offset fix. All
-timestamp producers in this repository use `Timestamp.now/0` or
-`Timestamp.from_seconds/1`: built-in event tables, `now()`/`current_timestamp`, build
+timestamp producers in this repository use `Guardian.Timestamp.now/0` or
+`Guardian.Timestamp.from_seconds/1`: built-in event tables, `now()`/`current_timestamp`, build
 stamps and segment timestamps. Both helpers produce `YYYY-MM-DD HH:MM:SS`. The only
 other timestamp-string parser callers are time arithmetic and epoch conversion;
 ISO variants appeared in utility tests, not in repository producers. No timestamp

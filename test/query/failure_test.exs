@@ -1,7 +1,7 @@
-defmodule Query.FailureTest do
+defmodule Guardian.Query.FailureTest do
   use ExUnit.Case, async: true
 
-  alias Query.Failure
+  alias Guardian.Query.Failure
 
   describe "truncate/1" do
     test "keeps short valid messages as they are" do
@@ -26,7 +26,7 @@ defmodule Query.FailureTest do
   test "from_exit/1 turns pipeline exit reasons into bounded messages" do
     message = &Failure.from_exit(&1).message
 
-    assert message.({%Query.Error{message: String.duplicate("e", 5_000)}, []}) ==
+    assert message.({%Guardian.Query.Error{message: String.duplicate("e", 5_000)}, []}) ==
              String.duplicate("e", 1_024) <> "..."
 
     assert message.({%RuntimeError{message: "boom"}, []}) == "query evaluation failed: boom"
@@ -60,7 +60,7 @@ defmodule Query.FailureTest do
              "query failed: a query worker received rows from an unknown sender"
 
     # An Erlang-level crash keeps its message and drops its stack and arguments.
-    stack = [{Storage, :get_segment, [String.duplicate("a", 10_000)], []}]
+    stack = [{Guardian.Storage, :get_segment, [String.duplicate("a", 10_000)], []}]
     badmatch = message.({{:badmatch, {:error, :not_found}}, stack})
 
     assert badmatch =~

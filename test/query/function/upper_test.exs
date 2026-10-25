@@ -1,5 +1,5 @@
-defmodule Query.Function.UpperTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Query.Function.UpperTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "upper function" do
     assert eval("upper('Abc')") === "ABC"

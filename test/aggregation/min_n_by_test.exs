@@ -1,5 +1,5 @@
-defmodule Aggregation.MinNByTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Aggregation.MinNByTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "min_n_by" do
     rows = [

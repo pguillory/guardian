@@ -1,4 +1,4 @@
-defmodule Storage do
+defmodule Guardian.Storage do
   @moduledoc """
   Main storage layer interface for Guardian's custom columnar event storage.
 
@@ -15,10 +15,10 @@ defmodule Storage do
   ## Public API
 
   This module is Storage's boundary. Code outside `lib/storage` calls only the
-  functions documented here (and the data modules `Storage.Column`,
-  `Storage.Column.Metadata`, `Storage.Value` and `Storage.Flattening`), names segments
+  functions documented here (and the data modules `Guardian.Storage.Column`,
+  `Guardian.Storage.Column.Metadata`, `Guardian.Storage.Value` and `Guardian.Storage.Flattening`), names segments
   by ID, and never holds a segment's PID. The segment processes, their managers and
-  `Storage.Schema` are internal (see `lib/storage/CLAUDE.md`).
+  `Guardian.Storage.Schema` are internal (see `lib/storage/CLAUDE.md`).
 
   - `append/2`, `append_flattened/2`, `append_flattened_result/2` - Store a row
   - `segment_ids/1` - The IDs of a table's segments on this node
@@ -41,15 +41,15 @@ defmodule Storage do
   See `ARCHITECTURE.md` for detailed storage architecture documentation.
   """
 
-  alias Storage.Column
-  alias Storage.Flattening
-  alias Storage.FullSegments
-  alias Storage.LoadedSegments
-  alias Storage.MutableSegments
-  alias Storage.PersistedSegments
-  alias Storage.Schema
-  alias Storage.Segment
-  require SegmentID
+  alias Guardian.Storage.Column
+  alias Guardian.Storage.Flattening
+  alias Guardian.Storage.FullSegments
+  alias Guardian.Storage.LoadedSegments
+  alias Guardian.Storage.MutableSegments
+  alias Guardian.Storage.PersistedSegments
+  alias Guardian.Storage.Schema
+  alias Guardian.Storage.Segment
+  require Guardian.SegmentID
   use Supervisor
 
   def start_link(opts) do
@@ -80,7 +80,7 @@ defmodule Storage do
     FullSegments,
     PersistedSegments,
     MutableSegments,
-    Storage.SegmentExpiration,
+    Guardian.Storage.SegmentExpiration,
   ]
 
   def init(_opts) do
@@ -116,7 +116,7 @@ defmodule Storage do
 
   @doc """
   Appends a row already flattened into dot-notation keys, as produced by
-  `Storage.Flattening.flatten_event/1`, without flattening it again. Raises
+  `Guardian.Storage.Flattening.flatten_event/1`, without flattening it again. Raises
   `ArgumentError` if a segment refuses a value.
   """
   def append_flattened(table, row) when is_binary(table) and is_map(row) do
@@ -163,7 +163,7 @@ defmodule Storage do
   # Internal to Storage: code outside `lib/storage` names segments by ID and reads them
   # with `segment_row_count/1` and `get_column/2`, never holding a segment's PID.
   @doc false
-  def get_segment(SegmentID.match(segment_id: segment_id)) do
+  def get_segment(Guardian.SegmentID.match(segment_id: segment_id)) do
     with {:error, :not_found} <- LoadedSegments.get_segment(segment_id),
          {:error, :not_found} <- MutableSegments.get_segment(segment_id),
          {:error, :not_found} <- FullSegments.get_segment(segment_id),
@@ -188,7 +188,7 @@ defmodule Storage do
   end
 
   @doc """
-  A segment's column, by segment ID, as a packed binary (`Storage.Column`): for a
+  A segment's column, by segment ID, as a packed binary (`Guardian.Storage.Column`): for a
   segment still receiving rows, a snapshot padded to its row count at the time of the
   read. `{:ok, :missing}` if the segment has no such column. Resolves the ID and fails
   like `segment_row_count/1`.
@@ -242,7 +242,7 @@ defmodule Storage do
     end)
   end
 
-  def delete_segment(SegmentID.match(segment_id: segment_id)) do
+  def delete_segment(Guardian.SegmentID.match(segment_id: segment_id)) do
     :ok = MutableSegments.delete_segment(segment_id)
     :ok = FullSegments.delete_segment(segment_id)
     :ok = PersistedSegments.delete_segment(segment_id)
@@ -272,7 +272,7 @@ defmodule Storage do
   end
 
   @doc """
-  The schema of `table` on this node: the loaded segments' (from `Storage.Schema`)
+  The schema of `table` on this node: the loaded segments' (from `Guardian.Storage.Schema`)
   merged with each mutable segment's. A mutable segment that is deleted or stops
   between listing and reading (and has no newer copy under its ID to read instead) is
   skipped, since its rows are gone. One that does not
@@ -325,8 +325,8 @@ defmodule Storage do
   end
 
   @doc """
-  Merges two schemas (`%{key => Storage.Column.Metadata}`), adding their per-type
-  counts. Cluster.Metadata merges the schemas of several machines with it.
+  Merges two schemas (`%{key => Guardian.Storage.Column.Metadata}`), adding their per-type
+  counts. Guardian.Cluster.Metadata merges the schemas of several machines with it.
   """
   defdelegate merge_schemas(schema1, schema2), to: Schema
 

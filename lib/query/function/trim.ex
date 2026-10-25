@@ -1,4 +1,4 @@
-defmodule Query.Function.Trim do
+defmodule Guardian.Query.Function.Trim do
   def eval(value) when is_binary(value) do
     String.trim(value)
   end

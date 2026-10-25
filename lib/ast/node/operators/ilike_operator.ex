@@ -1,17 +1,17 @@
-defmodule AST.Node.Operators.IlikeOperator do
-  use AST.Node.BinaryOperator, symbol: "ILIKE"
+defmodule Guardian.AST.Node.Operators.IlikeOperator do
+  use Guardian.AST.Node.BinaryOperator, symbol: "ILIKE"
 
-  alias AST.Node.Operators.LikeOperator
-  alias Query.ColumnOrConstant
-  alias Query.Constant
+  alias Guardian.AST.Node.Operators.LikeOperator
+  alias Guardian.Query.ColumnOrConstant
+  alias Guardian.Query.Constant
 
   # LIKE on lowercased text. The lowercasing is internal and not cut to the string
   # cap (unlike lower()), so a long value matches ILIKE exactly as it matches LIKE.
-  defimpl Query.Eval do
+  defimpl Guardian.Query.Eval do
     def eval(%@for{left: left, right: right}, context) do
-      column1 = Query.Eval.eval(left, context)
+      column1 = Guardian.Query.Eval.eval(left, context)
 
-      case Query.Eval.eval(right, context) do
+      case Guardian.Query.Eval.eval(right, context) do
         # A constant pattern, the usual case, is lowercased and compiled once.
         %Constant{value: pattern} ->
           compiled = LikeOperator.compile_constant(@for.downcase(pattern))

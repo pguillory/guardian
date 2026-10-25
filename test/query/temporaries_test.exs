@@ -1,19 +1,19 @@
-defmodule Query.TemporariesTest do
+defmodule Guardian.Query.TemporariesTest do
   # Query temporaries (SELECT without FROM, the schema table, reassembled GROUP BY
   # output) are plain data, not Segment processes.
   use ExUnit.Case, async: false
-  import TestHelpers, only: [run_sql: 1]
+  import Guardian.TestHelpers, only: [run_sql: 1]
 
-  alias Query.Constant
-  alias Query.Evaluation
-  alias Query.Evaluation.SegmentSnapshot
-  alias Storage.Column
+  alias Guardian.Query.Constant
+  alias Guardian.Query.Evaluation
+  alias Guardian.Query.Evaluation.SegmentSnapshot
+  alias Guardian.Storage.Column
 
   @managers [
-    Storage.MutableSegments,
-    Storage.FullSegments,
-    Storage.PersistedSegments,
-    Storage.LoadedSegments,
+    Guardian.Storage.MutableSegments,
+    Guardian.Storage.FullSegments,
+    Guardian.Storage.PersistedSegments,
+    Guardian.Storage.LoadedSegments,
   ]
 
   # Segment processes no Storage manager owns. Every manager links the segments it
@@ -27,7 +27,7 @@ defmodule Query.TemporariesTest do
   defp unowned_segment?(pid, managers) do
     case Process.info(pid, [:dictionary, :links]) do
       [dictionary: dictionary, links: links] ->
-        dictionary[:"$initial_call"] == {Storage.Segment, :init, 1} and
+        dictionary[:"$initial_call"] == {Guardian.Storage.Segment, :init, 1} and
           not Enum.any?(links, &(&1 in managers))
 
       nil ->
@@ -59,7 +59,7 @@ defmodule Query.TemporariesTest do
   describe "no Segment processes are left behind" do
     setup do
       table = table()
-      for v <- 1..100, do: :ok = Storage.append(table, k: rem(v, 5), v: v)
+      for v <- 1..100, do: :ok = Guardian.Storage.append(table, k: rem(v, 5), v: v)
       %{table: table}
     end
 
@@ -97,8 +97,8 @@ defmodule Query.TemporariesTest do
 
     test "the schema table" do
       table = table()
-      :ok = Storage.append(table, a: 1, b: "x")
-      :ok = Storage.append(table, a: 2)
+      :ok = Guardian.Storage.append(table, a: 1, b: "x")
+      :ok = Guardian.Storage.append(table, a: 2)
 
       assert run_sql(
                "select key, count, int_count, string_count from schema where table = '#{table}' order by key"
@@ -111,7 +111,7 @@ defmodule Query.TemporariesTest do
 
     test "reassembled GROUP BY output" do
       table = table()
-      for v <- 1..10, do: :ok = Storage.append(table, k: rem(v, 3), v: v)
+      for v <- 1..10, do: :ok = Guardian.Storage.append(table, k: rem(v, 3), v: v)
 
       assert run_sql("select k, count(*) from #{table} group by k having count(*) > 3") ==
                [[1, 4]]
@@ -128,7 +128,7 @@ defmodule Query.TemporariesTest do
     test "reassembly across temporaries loses and duplicates no rows" do
       table = table()
       n = 40_000
-      for k <- 1..n, do: :ok = Storage.append(table, k: k)
+      for k <- 1..n, do: :ok = Guardian.Storage.append(table, k: k)
 
       rows = run_sql("select k, count(*) from #{table} group by k having count(*) = 1")
       assert length(rows) == n
@@ -147,7 +147,7 @@ defmodule Query.TemporariesTest do
       spawn_link(fn ->
         Enum.each(1..20_000, fn v ->
           :counters.add(progress, 1, 1)
-          :ok = Storage.append(table, k: rem(v, 7), v: 1)
+          :ok = Guardian.Storage.append(table, k: rem(v, 7), v: 1)
           :counters.add(progress, 2, 1)
         end)
 
@@ -205,9 +205,9 @@ defmodule Query.TemporariesTest do
   describe "stored segment snapshots" do
     test "read a stored column, and a missing one as nulls" do
       table = "snapshot_read_#{System.unique_integer([:positive])}"
-      on_exit(fn -> :ok = Storage.delete_table(table) end)
-      for v <- 1..3, do: :ok = Storage.append(table, v: v)
-      [id] = table |> Storage.segment_ids() |> Enum.to_list()
+      on_exit(fn -> :ok = Guardian.Storage.delete_table(table) end)
+      for v <- 1..3, do: :ok = Guardian.Storage.append(table, v: v)
+      [id] = table |> Guardian.Storage.segment_ids() |> Enum.to_list()
       snapshot = Evaluation.snapshot!(id)
 
       assert snapshot |> Evaluation.eval("v") |> Column.to_list() == [1, 2, 3]

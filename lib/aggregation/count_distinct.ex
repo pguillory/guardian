@@ -1,4 +1,4 @@
-defmodule Aggregation.CountDistinct do
+defmodule Guardian.Aggregation.CountDistinct do
   def default do
     0
   end

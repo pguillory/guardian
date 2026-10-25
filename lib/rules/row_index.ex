@@ -1,4 +1,4 @@
-defmodule Rules.RowIndex do
+defmodule Guardian.Rules.RowIndex do
   @moduledoc """
   One event's flattened row while its rules run, indexed so each statement costs what
   it touches rather than a pass over every column.
@@ -18,7 +18,7 @@ defmodule Rules.RowIndex do
   statements × (path length + reads)) × log columns.
   """
 
-  alias Storage.Flattening
+  alias Guardian.Storage.Flattening
 
   defstruct [:row, :trie, :reads]
 

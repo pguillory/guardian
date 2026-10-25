@@ -1,4 +1,4 @@
-defmodule Query.Function.UrlPort do
+defmodule Guardian.Query.Function.UrlPort do
   # A port outside 0..65535 is no port: null.
   def eval(value) when is_binary(value) do
     case URI.parse(value).port do

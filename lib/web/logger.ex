@@ -1,4 +1,4 @@
-defmodule Web.Logger do
+defmodule Guardian.Web.Logger do
   alias Plug.Conn
   require Logger
 
@@ -7,7 +7,7 @@ defmodule Web.Logger do
   end
 
   def call(conn, _opts) do
-    hostname = Utils.hostname()
+    hostname = Guardian.Utils.hostname()
     plug_route = conn.private.plug_route |> elem(0)
     scheme = conn.scheme |> Atom.to_string()
     remote_ip = conn.remote_ip |> :inet.ntoa() |> List.to_string()
@@ -21,7 +21,7 @@ defmodule Web.Logger do
     # are read from the conn at hand: the request's, then the one being sent.
     request_fields = fn conn ->
       [
-        timestamp: Timestamp.now(),
+        timestamp: Guardian.Timestamp.now(),
         hostname: hostname,
         host: conn.host,
         port: conn.port,
@@ -66,7 +66,7 @@ defmodule Web.Logger do
   # restarting, a header value that cannot be stored), so a failure is logged by kind
   # and the request goes on.
   defp log_event(table, event) do
-    case Engine.try_log_event(table, event) do
+    case Guardian.Engine.try_log_event(table, event) do
       {:ok, _event} ->
         :ok
 

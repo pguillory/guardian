@@ -1,4 +1,4 @@
-defmodule Storage.Value do
+defmodule Guardian.Storage.Value do
   @moduledoc """
   Rules for values that Storage can hold.
 
@@ -7,7 +7,7 @@ defmodule Storage.Value do
   separate columns before storing; the flattened values are validated again.
   """
 
-  alias Storage.Column
+  alias Guardian.Storage.Column
 
   # The limits below come from the NIF at compile time, so recompile when it changes.
   @external_resource "src/column.c"

@@ -1,21 +1,21 @@
-defmodule AST.Node.Operators.NotOperator do
-  use AST.Node
+defmodule Guardian.AST.Node.Operators.NotOperator do
+  use Guardian.AST.Node
 
-  alias Query.ColumnOrConstant
-  alias Storage.Column
+  alias Guardian.Query.ColumnOrConstant
+  alias Guardian.Storage.Column
 
   @enforce_keys [:right]
   defstruct [:right]
 
-  defimpl Query.Eval do
+  defimpl Guardian.Query.Eval do
     def eval(%@for{right: right}, context) do
-      column1 = Query.Eval.eval(right, context)
+      column1 = Guardian.Query.Eval.eval(right, context)
       ColumnOrConstant.map_or_nif(column1, &@for.eval/1, &Column.not_oper/1)
     end
   end
 
   def to_source(%__MODULE__{right: right}) do
-    "NOT " <> AST.unparse(right)
+    "NOT " <> Guardian.AST.unparse(right)
   end
 
   def traverse(%__MODULE__{} = expr, acc, pre, post) do

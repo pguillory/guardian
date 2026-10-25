@@ -1,7 +1,7 @@
-defmodule Counters.StoreTest do
+defmodule Guardian.Counters.StoreTest do
   use ExUnit.Case, async: false
 
-  alias Counters.Store
+  alias Guardian.Counters.Store
   import ExUnit.CaptureLog
 
   setup do

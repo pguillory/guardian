@@ -1,14 +1,14 @@
-defmodule AST.Node.Identifier do
-  use AST.Node
+defmodule Guardian.AST.Node.Identifier do
+  use Guardian.AST.Node
 
-  alias Query.Constant
-  alias Query.Evaluation
-  alias Query.Evaluation.SegmentSnapshot
+  alias Guardian.Query.Constant
+  alias Guardian.Query.Evaluation
+  alias Guardian.Query.Evaluation.SegmentSnapshot
 
   @enforce_keys [:name]
   defstruct [:name]
 
-  defimpl Query.Eval do
+  defimpl Guardian.Query.Eval do
     def eval(%@for{name: name}, %SegmentSnapshot{} = snapshot) do
       Evaluation.read_column(snapshot, name)
     end

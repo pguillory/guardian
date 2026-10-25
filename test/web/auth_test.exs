@@ -1,8 +1,8 @@
-defmodule Web.AuthTest do
+defmodule Guardian.Web.AuthTest do
   # async: false: some tests switch query-parameter keys on.
   use ExUnit.Case, async: false
 
-  alias Web.Auth
+  alias Guardian.Web.Auth
 
   @api_key Application.compile_env!(:guardian, :api_key)
 
@@ -74,12 +74,12 @@ defmodule Web.AuthTest do
 
   test "note_query_key_use/1 logs the path at most once a minute, never a key" do
     log =
-      QueryApiKeys.capture_query_key_log(fn ->
+      Guardian.QueryApiKeys.capture_query_key_log(fn ->
         Auth.note_query_key_use("/mcp")
         Auth.note_query_key_use("/mcp")
       end)
 
-    assert QueryApiKeys.query_key_log_lines(log) == [
+    assert Guardian.QueryApiKeys.query_key_log_lines(log) == [
              "A request on /mcp authenticated with the api_key query parameter",
            ]
 

@@ -1,7 +1,7 @@
-defmodule Aggregation.TopNTest do
+defmodule Guardian.Aggregation.TopNTest do
   # n handling and null skipping shared by min_n, max_n, min_n_by and max_n_by, and
   # null ordering keys in min_by and max_by.
-  use Query.EvaluationTestCase, async: true
+  use Guardian.Query.EvaluationTestCase, async: true
 
   defp values(xs), do: Enum.map(xs, &[x: &1])
 
@@ -27,7 +27,7 @@ defmodule Aggregation.TopNTest do
         n <- [-1, 2.5, "a", nil, true] do
       name = source |> String.split("(") |> hd()
 
-      assert_raise Query.Error, "#{name}: n must be a non-negative integer", fn ->
+      assert_raise Guardian.Query.Error, "#{name}: n must be a non-negative integer", fn ->
         eval_aggregate(source, [[x: 1, n: n], [x: 2, n: n]])
       end
     end
@@ -37,9 +37,11 @@ defmodule Aggregation.TopNTest do
     for source <- ["min_n(x, n)", "max_n(x, n)", "min_n_by(x, x, n)", "max_n_by(x, x, n)"] do
       name = source |> String.split("(") |> hd()
 
-      assert_raise Query.Error, "#{name}: n must be the same for every row of a group", fn ->
-        eval_aggregate(source, [[x: 1, n: 1], [x: 2, n: 2]])
-      end
+      assert_raise Guardian.Query.Error,
+                   "#{name}: n must be the same for every row of a group",
+                   fn ->
+                     eval_aggregate(source, [[x: 1, n: 1], [x: 2, n: 2]])
+                   end
     end
   end
 

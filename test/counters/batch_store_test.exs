@@ -1,6 +1,6 @@
-defmodule Counters.BatchStoreTest do
+defmodule Guardian.Counters.BatchStoreTest do
   use ExUnit.Case, async: true
-  alias Counters.Store
+  alias Guardian.Counters.Store
 
   test "a pipeline preserves operation order, missing versus nil, conflicts and malformed replies" do
     store = start_supervised!({Store, name: nil})

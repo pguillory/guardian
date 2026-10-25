@@ -1,12 +1,12 @@
-defmodule Query.VirtualTable.Schema do
-  alias Query.Evaluation.SegmentSnapshot
-  alias Storage.Column
-  alias Storage.Column.Metadata
+defmodule Guardian.Query.VirtualTable.Schema do
+  alias Guardian.Query.Evaluation.SegmentSnapshot
+  alias Guardian.Storage.Column
+  alias Guardian.Storage.Column.Metadata
   require Metadata
 
   def snapshots do
     rows =
-      Cluster.Metadata.schemas()
+      Guardian.Cluster.Metadata.schemas()
       |> Enum.sort()
       |> Enum.flat_map(fn {table, schema} ->
         Enum.map(schema, fn {key, column_metadata} ->

@@ -1,19 +1,19 @@
-defmodule AST.Node.Operators.RlikeOperator do
-  use AST.Node.BinaryOperator, symbol: "RLIKE"
+defmodule Guardian.AST.Node.Operators.RlikeOperator do
+  use Guardian.AST.Node.BinaryOperator, symbol: "RLIKE"
 
-  alias Query.ColumnOrConstant
-  alias Query.Constant
-  alias Query.Evaluation
+  alias Guardian.Query.ColumnOrConstant
+  alias Guardian.Query.Constant
+  alias Guardian.Query.Evaluation
 
-  defimpl Query.Eval do
+  defimpl Guardian.Query.Eval do
     def eval(%@for{left: left, right: right}, context) do
-      with %AST.Node.Literal{value: value} when is_binary(value) <- right,
-           {:ok, regex} <- Query.Regex.compile(value) do
-        column1 = Query.Eval.eval(left, context)
+      with %Guardian.AST.Node.Literal{value: value} when is_binary(value) <- right,
+           {:ok, regex} <- Guardian.Query.Regex.compile(value) do
+        column1 = Guardian.Query.Eval.eval(left, context)
 
         ColumnOrConstant.map(column1, fn
           string when is_binary(string) ->
-            Query.Regex.matches(regex, string)
+            Guardian.Query.Regex.matches(regex, string)
 
           _ ->
             nil

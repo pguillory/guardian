@@ -1,4 +1,4 @@
-defmodule Query.Function.UrlPath do
+defmodule Guardian.Query.Function.UrlPath do
   def eval(value) when is_binary(value) do
     URI.parse(value).path
   end

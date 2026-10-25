@@ -1,5 +1,5 @@
-defmodule NullSafeEqualOperatorTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.NullSafeEqualOperatorTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "null safe equal operator" do
     assert eval("1 <=> 2") == false

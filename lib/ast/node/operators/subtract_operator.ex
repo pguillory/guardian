@@ -1,13 +1,13 @@
-defmodule AST.Node.Operators.SubtractOperator do
-  use AST.Node.BinaryOperator, symbol: "-"
+defmodule Guardian.AST.Node.Operators.SubtractOperator do
+  use Guardian.AST.Node.BinaryOperator, symbol: "-"
 
-  alias Query.ColumnOrConstant
-  alias Storage.Column
+  alias Guardian.Query.ColumnOrConstant
+  alias Guardian.Storage.Column
 
-  defimpl Query.Eval do
+  defimpl Guardian.Query.Eval do
     def eval(%@for{left: left, right: right}, context) do
-      column1 = Query.Eval.eval(left, context)
-      column2 = Query.Eval.eval(right, context)
+      column1 = Guardian.Query.Eval.eval(left, context)
+      column2 = Guardian.Query.Eval.eval(right, context)
       # A timestamp string minus seconds is evaluated per value: the NIF subtracts
       # only numbers, giving null for a string and an integer.
       if ColumnOrConstant.holds?(column1, :string) and ColumnOrConstant.holds?(column2, :integer) do
@@ -19,9 +19,9 @@ defmodule AST.Node.Operators.SubtractOperator do
   end
 
   # Integers wrap to int64, as the column NIF does; a float overflow is null
-  # (Query.Numeric).
+  # (Guardian.Query.Numeric).
   def eval(left, right) when is_integer(left) and is_integer(right) do
-    Query.Numeric.wrap(left - right)
+    Guardian.Query.Numeric.wrap(left - right)
   end
 
   def eval(left, right) when is_number(left) and is_number(right) do
@@ -31,7 +31,7 @@ defmodule AST.Node.Operators.SubtractOperator do
   end
 
   def eval(left, right) when is_binary(left) and is_integer(right) do
-    Query.Function.DateSub.eval(left, right)
+    Guardian.Query.Function.DateSub.eval(left, right)
   end
 
   def eval(_left, _right) do

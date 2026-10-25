@@ -1,5 +1,5 @@
-defmodule Query.SortingTest do
-  import Query.Sorting
+defmodule Guardian.Query.SortingTest do
+  import Guardian.Query.Sorting
   use ExUnit.Case, async: true
 
   # The reference order: each key ascending or descending, ties in input order.

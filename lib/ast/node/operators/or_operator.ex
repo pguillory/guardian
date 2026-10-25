@@ -1,12 +1,12 @@
-defmodule AST.Node.Operators.OrOperator do
-  use AST.Node.BinaryOperator, symbol: "OR"
+defmodule Guardian.AST.Node.Operators.OrOperator do
+  use Guardian.AST.Node.BinaryOperator, symbol: "OR"
 
-  alias Query.ColumnOrConstant
-  alias Storage.Column
-  alias Storage.Column.Metadata
+  alias Guardian.Query.ColumnOrConstant
+  alias Guardian.Storage.Column
+  alias Guardian.Storage.Column.Metadata
   require Metadata
 
-  defimpl Query.Eval do
+  defimpl Guardian.Query.Eval do
     # col1   col2   result
     # -----  -----  ------
     # nil    nil    nil
@@ -19,7 +19,7 @@ defmodule AST.Node.Operators.OrOperator do
     # true   false  true
     # true   true   true
     def eval(%@for{left: left, right: right}, context) do
-      column1 = Query.Eval.eval(left, context)
+      column1 = Guardian.Query.Eval.eval(left, context)
 
       case ColumnOrConstant.metadata(column1) do
         # Left side is always true.
@@ -27,7 +27,7 @@ defmodule AST.Node.Operators.OrOperator do
           column1
 
         [Metadata.tuple() | _] ->
-          column2 = Query.Eval.eval(right, context)
+          column2 = Guardian.Query.Eval.eval(right, context)
           ColumnOrConstant.map_or_nif(column1, column2, &@for.eval/2, &Column.or_oper/2)
       end
     end

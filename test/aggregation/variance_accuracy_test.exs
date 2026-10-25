@@ -1,7 +1,7 @@
-defmodule Aggregation.VarianceAccuracyTest do
+defmodule Guardian.Aggregation.VarianceAccuracyTest do
   # Shared cases for var_pop, var_samp, stddev_pop and stddev_samp, which keep the
   # same {count, mean, m2} accumulator.
-  use Query.EvaluationTestCase, async: true
+  use Guardian.Query.EvaluationTestCase, async: true
 
   @names ["var_pop", "var_samp", "stddev_pop", "stddev_samp"]
 
@@ -43,11 +43,11 @@ defmodule Aggregation.VarianceAccuracyTest do
   # Partial accumulators merge in any grouping (segments, partitions, machines).
   test "merge is associative, with empty accumulators on either side" do
     for name <- @names do
-      agg = Aggregation.fetch!(name)
-      merge = &Aggregation.merge(agg, &1, &2)
+      agg = Guardian.Aggregation.fetch!(name)
+      merge = &Guardian.Aggregation.merge(agg, &1, &2)
       [a, b, c] = Enum.map([[4, 7], [13], [16, 21, 2]], &accumulate(agg, &1))
-      empty = Aggregation.start(agg, [nil])
-      expected = Aggregation.finish(agg, merge.(merge.(a, b), c))
+      empty = Guardian.Aggregation.start(agg, [nil])
+      expected = Guardian.Aggregation.finish(agg, merge.(merge.(a, b), c))
 
       for acc <- [
             merge.(a, merge.(b, c)),
@@ -55,10 +55,10 @@ defmodule Aggregation.VarianceAccuracyTest do
             merge.(empty, merge.(merge.(a, b), c)),
             merge.(merge.(merge.(a, empty), b), merge.(c, empty)),
           ] do
-        assert_close(Aggregation.finish(agg, acc), expected)
+        assert_close(Guardian.Aggregation.finish(agg, acc), expected)
       end
 
-      assert Aggregation.finish(agg, merge.(empty, empty)) == nil
+      assert Guardian.Aggregation.finish(agg, merge.(empty, empty)) == nil
     end
   end
 
@@ -66,9 +66,9 @@ defmodule Aggregation.VarianceAccuracyTest do
   # uneven partials sharing a large offset.
   test "merged partials give the known result" do
     merged = fn name, values1, values2 ->
-      agg = Aggregation.fetch!(name)
-      acc = Aggregation.merge(agg, accumulate(agg, values1), accumulate(agg, values2))
-      Aggregation.finish(agg, acc)
+      agg = Guardian.Aggregation.fetch!(name)
+      acc = Guardian.Aggregation.merge(agg, accumulate(agg, values1), accumulate(agg, values2))
+      Guardian.Aggregation.finish(agg, acc)
     end
 
     assert_close(merged.("var_pop", [4, 7, 13], [16, 21, 2]), 45.583333333333336)
@@ -90,7 +90,7 @@ defmodule Aggregation.VarianceAccuracyTest do
 
   defp accumulate(agg, values) do
     values
-    |> Enum.map(&Aggregation.start(agg, [&1]))
-    |> Enum.reduce(&Aggregation.merge(agg, &1, &2))
+    |> Enum.map(&Guardian.Aggregation.start(agg, [&1]))
+    |> Enum.reduce(&Guardian.Aggregation.merge(agg, &1, &2))
   end
 end

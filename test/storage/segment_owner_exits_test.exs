@@ -1,18 +1,18 @@
-defmodule Storage.SegmentOwnerExitsTest do
+defmodule Guardian.Storage.SegmentOwnerExitsTest do
   # Each lifecycle manager owns its segments' exits: a segment that dies is
   # unregistered without taking its manager down, and a manager that stops or deletes
   # a segment stops its process.
   use ExUnit.Case, async: false
-  import TestHelpers
+  import Guardian.TestHelpers
   import ExUnit.CaptureLog
 
-  alias Storage.FullSegments
-  alias Storage.LoadedSegments
-  alias Storage.MutableSegments
-  alias Storage.PersistedSegments
-  alias Storage.Schema
-  alias Storage.Segment
-  alias Storage.Segment.Registration
+  alias Guardian.Storage.FullSegments
+  alias Guardian.Storage.LoadedSegments
+  alias Guardian.Storage.MutableSegments
+  alias Guardian.Storage.PersistedSegments
+  alias Guardian.Storage.Schema
+  alias Guardian.Storage.Segment
+  alias Guardian.Storage.Segment.Registration
   require Registration
 
   @managers [Schema, LoadedSegments, FullSegments, PersistedSegments, MutableSegments]
@@ -27,7 +27,7 @@ defmodule Storage.SegmentOwnerExitsTest do
   # Every stored value of `v` in the table, sorted, so a lost or duplicated row shows.
   defp values(table), do: run_sql("select v from #{table}") |> Enum.map(&hd/1) |> Enum.sort()
 
-  defp managers, do: Map.new([Storage | @managers], &{&1, Process.whereis(&1)})
+  defp managers, do: Map.new([Guardian.Storage | @managers], &{&1, Process.whereis(&1)})
 
   # Lets each manager handle every message already in its mailbox.
   defp sync, do: Enum.each(@managers, &:sys.get_state/1)
@@ -67,7 +67,11 @@ defmodule Storage.SegmentOwnerExitsTest do
   defp await_storage_ready do
     # A manager stop persists every writable segment on the way down and the restart
     # loads the files.
-    eventually(fn -> Storage.ready?() and Enum.all?(@managers, &Process.whereis/1) end, 15_000)
+    eventually(
+      fn -> Guardian.Storage.ready?() and Enum.all?(@managers, &Process.whereis/1) end,
+      15_000
+    )
+
     sync()
   end
 
@@ -80,16 +84,16 @@ defmodule Storage.SegmentOwnerExitsTest do
 
   defp full_fixture(table, rows) do
     segment = segment(rows)
-    id = SegmentID.generate()
+    id = Guardian.SegmentID.generate()
     :ok = FullSegments.insert({id, segment, table})
     {id, segment}
   end
 
   defp loaded_fixture(table, rows) do
     segment = segment(rows)
-    id = SegmentID.generate()
+    id = Guardian.SegmentID.generate()
     :ok = Segment.pack(segment)
-    filename = Storage.SegmentFile.filename(table, id)
+    filename = Guardian.Storage.SegmentFile.filename(table, id)
     :ok = Segment.store(segment, filename)
     :ok = Segment.retire(segment)
     on_exit(fn -> File.rm(filename) end)
@@ -100,7 +104,7 @@ defmodule Storage.SegmentOwnerExitsTest do
 
   defp persisted_fixture(table, rows) do
     {id, segment} = full_fixture(table, rows)
-    on_exit(fn -> File.rm(Storage.SegmentFile.filename(table, id)) end)
+    on_exit(fn -> File.rm(Guardian.Storage.SegmentFile.filename(table, id)) end)
     :ok = PersistedSegments.ping()
     eventually(fn -> PersistedSegments.get_segment(id) == {:ok, segment} end)
     {id, segment}
@@ -109,8 +113,8 @@ defmodule Storage.SegmentOwnerExitsTest do
   # Unpersisted rows in another table, which a cascade through the managers would lose.
   defp bystander do
     table = table()
-    for v <- 1..200, do: :ok = Storage.append(table, %{"v" => v})
-    on_exit(fn -> Storage.delete_table(table) end)
+    for v <- 1..200, do: :ok = Guardian.Storage.append(table, %{"v" => v})
+    on_exit(fn -> Guardian.Storage.delete_table(table) end)
     table
   end
 
@@ -167,7 +171,7 @@ defmodule Storage.SegmentOwnerExitsTest do
     test "a mutable segment: only its own rows are lost, and its rows are not logged" do
       bystander = bystander()
       table = table()
-      :ok = Storage.append(table, %{"v" => 1})
+      :ok = Guardian.Storage.append(table, %{"v" => 1})
       [{id, segment, ^table}] = :ets.match_object(MutableSegments, {:_, :_, table})
       before = managers()
       marker = "marker_#{System.unique_integer([:positive])}"
@@ -185,7 +189,7 @@ defmodule Storage.SegmentOwnerExitsTest do
       assert managers() == before
       assert values(table) == []
       assert values(bystander) == Enum.to_list(1..200)
-      Storage.delete_table(table)
+      Guardian.Storage.delete_table(table)
     end
 
     test "a full segment: only its own rows are lost" do
@@ -247,7 +251,7 @@ defmodule Storage.SegmentOwnerExitsTest do
         assert {:ok, reloaded} = LoadedSegments.get_segment(id)
         assert reloaded != loaded
         assert values(table) == Enum.to_list(1..10)
-        assert Storage.table_row_count(table) == 10
+        assert Guardian.Storage.table_row_count(table) == 10
         assert values(bystander) == Enum.to_list(1..200)
         # Never a duplicate or a partial set: the segment is either seen whole or not.
         assert Enum.all?(reads, &(&1 in [Enum.to_list(1..10), []] or match?({:error, _}, &1)))
@@ -280,14 +284,14 @@ defmodule Storage.SegmentOwnerExitsTest do
       assert {:ok, new} = LoadedSegments.get_segment(id)
       assert new != old and Process.alive?(new)
       assert values(table) == Enum.to_list(1..10)
-      assert Storage.table_row_count(table) == 10
+      assert Guardian.Storage.table_row_count(table) == 10
     end
 
     test "a handoff of a segment that already died leaves no registration" do
       dead = spawn(fn -> :ok end)
       eventually(fn -> not Process.alive?(dead) end)
       before = managers()
-      id = SegmentID.generate()
+      id = Guardian.SegmentID.generate()
 
       assert :ok = FullSegments.insert({id, dead, table()})
       eventually(fn -> FullSegments.get_segment(id) == {:error, :not_found} end)
@@ -307,7 +311,7 @@ defmodule Storage.SegmentOwnerExitsTest do
     crash = {%ArgumentError{message: "row data"}, [{Mod, :fun, ["row data"], []}]}
     assert Segment.exit_kind({crash, {GenServer, :call, ["row data"]}}) == "ArgumentError"
     assert Segment.exit_kind({{:shutdown, "row data"}, {GenServer, :call, []}}) == ":shutdown"
-    assert Storage.exit_kind({crash, {GenServer, :call, []}}) == "ArgumentError"
+    assert Guardian.Storage.exit_kind({crash, {GenServer, :call, []}}) == "ArgumentError"
     assert Segment.normal_exit?(:normal)
     assert Segment.normal_exit?(:shutdown)
     assert Segment.normal_exit?({:shutdown, :x})
@@ -346,7 +350,7 @@ defmodule Storage.SegmentOwnerExitsTest do
     test "does not crash the manager deleting a mutable, full or persisted segment" do
       before = managers()
       table = table()
-      :ok = Storage.append(table, %{"v" => 1})
+      :ok = Guardian.Storage.append(table, %{"v" => 1})
       [{mutable_id, mutable, ^table}] = :ets.match_object(MutableSegments, {:_, :_, table})
       {persisted_id, persisted} = persisted_fixture(table, 1..2)
       full_table = unstorable_table()
@@ -369,14 +373,14 @@ defmodule Storage.SegmentOwnerExitsTest do
 
       sync()
       assert managers() == before
-      :ok = Storage.delete_table(table)
+      :ok = Guardian.Storage.delete_table(table)
     end
   end
 
   test "deleting a table stops its mutable, full and persisted segments" do
     table = table()
     :ok = MutableSegments.ensure_at_least_n_mutable_segments(table, 3)
-    for v <- 1..30, do: :ok = Storage.append(table, %{"v" => v})
+    for v <- 1..30, do: :ok = Guardian.Storage.append(table, %{"v" => v})
     mutable = MutableSegments.get_mutable_segments(table)
     assert length(mutable) == 3
     {_id, persisted} = persisted_fixture(table, 31..40)
@@ -391,22 +395,22 @@ defmodule Storage.SegmentOwnerExitsTest do
     segments = [persisted, full | mutable]
     refs = Map.new(segments, &{Process.monitor(&1), &1})
 
-    :ok = Storage.delete_table(table)
-    :ok = Storage.delete_table(full_table)
+    :ok = Guardian.Storage.delete_table(table)
+    :ok = Guardian.Storage.delete_table(full_table)
 
     for _ <- segments do
       assert_receive {:DOWN, ref, :process, _, _} when is_map_key(refs, ref)
     end
 
-    assert Enum.to_list(Storage.segment_ids(table)) == []
-    assert Enum.to_list(Storage.segment_ids(full_table)) == []
+    assert Enum.to_list(Guardian.Storage.segment_ids(table)) == []
+    assert Enum.to_list(Guardian.Storage.segment_ids(full_table)) == []
     assert values(table) == []
   end
 
-  describe "Storage.schema/1 and a mutable segment" do
+  describe "Guardian.Storage.schema/1 and a mutable segment" do
     test "skips one that died after being listed" do
       table = table()
-      :ok = Storage.append(table, %{"v" => 1})
+      :ok = Guardian.Storage.append(table, %{"v" => 1})
       [{_id, segment, ^table}] = :ets.match_object(MutableSegments, {:_, :_, table})
       manager = Process.whereis(MutableSegments)
 
@@ -416,7 +420,7 @@ defmodule Storage.SegmentOwnerExitsTest do
 
       try do
         kill(segment, :kill)
-        assert Storage.schema(table) == %{}
+        assert Guardian.Storage.schema(table) == %{}
       after
         :ok = :sys.resume(manager)
       end
@@ -426,18 +430,18 @@ defmodule Storage.SegmentOwnerExitsTest do
 
     test "fails the lookup, by kind only, on one that does not answer" do
       table = table()
-      :ok = Storage.append(table, %{"v" => 1})
+      :ok = Guardian.Storage.append(table, %{"v" => 1})
       [{_id, segment, ^table}] = :ets.match_object(MutableSegments, {:_, :_, table})
       :ok = :sys.suspend(segment)
 
       try do
-        assert catch_exit(Storage.schema(table)) == {:segment_unavailable, ":timeout"}
+        assert catch_exit(Guardian.Storage.schema(table)) == {:segment_unavailable, ":timeout"}
       after
         :ok = :sys.resume(segment)
       end
 
-      assert Map.keys(Storage.schema(table)) == ["v"]
-      :ok = Storage.delete_table(table)
+      assert Map.keys(Guardian.Storage.schema(table)) == ["v"]
+      :ok = Guardian.Storage.delete_table(table)
     end
   end
 
@@ -460,7 +464,7 @@ defmodule Storage.SegmentOwnerExitsTest do
     end
 
     defp segment_files do
-      Path.wildcard(Path.join(Storage.segment_dir(), "*.seg")) |> MapSet.new()
+      Path.wildcard(Path.join(Guardian.Storage.segment_dir(), "*.seg")) |> MapSet.new()
     end
 
     # Hands off and writes every writable segment the run has so far, so a manager
@@ -493,7 +497,7 @@ defmodule Storage.SegmentOwnerExitsTest do
     # Fixtures in every lifecycle state, so each manager has something to own.
     defp fixtures do
       mutable_table = table()
-      for v <- 1..20, do: :ok = Storage.append(mutable_table, %{"v" => v})
+      for v <- 1..20, do: :ok = Guardian.Storage.append(mutable_table, %{"v" => v})
       persisted_table = table()
       {_id, persisted} = persisted_fixture(persisted_table, 1..20)
       full_table = unstorable_table()
@@ -501,7 +505,7 @@ defmodule Storage.SegmentOwnerExitsTest do
       loaded_table = table()
       {_id, loaded, _} = loaded_fixture(loaded_table, 1..20)
       tables = [mutable_table, persisted_table, full_table, loaded_table]
-      on_exit(fn -> Enum.each(tables, &Storage.delete_table/1) end)
+      on_exit(fn -> Enum.each(tables, &Guardian.Storage.delete_table/1) end)
 
       %{
         tables: %{
@@ -526,11 +530,11 @@ defmodule Storage.SegmentOwnerExitsTest do
         ] do
       test "normally, #{inspect(manager)} leaves no orphaned or duplicate segment" do
         %{tables: tables, segments: segments} = fixtures()
-        storage = Process.whereis(Storage)
+        storage = Process.whereis(Guardian.Storage)
         space_restarts()
         :ok = GenServer.stop(unquote(manager), :normal)
         await_storage_ready()
-        assert Process.whereis(Storage) == storage
+        assert Process.whereis(Guardian.Storage) == storage
         :ok = PersistedSegments.ping()
         sync()
         :ok = LoadedSegments.rescan()
@@ -546,21 +550,21 @@ defmodule Storage.SegmentOwnerExitsTest do
     end
 
     test "a deletion racing each later manager's stop or crash leaves LoadedSegments up" do
-      storage = Process.whereis(Storage)
+      storage = Process.whereis(Guardian.Storage)
 
       for manager <- [FullSegments, PersistedSegments, MutableSegments], how <- [:stop, :kill] do
         await_storage_ready()
         loaded = Process.whereis(LoadedSegments)
         table = table()
         {_id, loaded_segment, filename} = loaded_fixture(table, 1..5)
-        for v <- 6..10, do: :ok = Storage.append(table, %{"v" => v})
+        for v <- 6..10, do: :ok = Guardian.Storage.append(table, %{"v" => v})
         segments = [loaded_segment | MutableSegments.get_mutable_segments(table)]
         space_restarts()
 
         deletion =
           Task.async(fn ->
             try do
-              Storage.delete_table(table)
+              Guardian.Storage.delete_table(table)
             catch
               # A manager it calls may be restarting.
               _kind, _ -> :failed
@@ -579,7 +583,7 @@ defmodule Storage.SegmentOwnerExitsTest do
         Task.await(deletion, 30_000)
         await_storage_ready()
         label = "#{inspect(manager)} #{how}"
-        assert {label, Process.whereis(Storage)} == {label, storage}
+        assert {label, Process.whereis(Guardian.Storage)} == {label, storage}
         assert {label, Process.whereis(LoadedSegments)} == {label, loaded}
 
         # The stopped or killed manager's segments died with it or moved on.
@@ -587,7 +591,7 @@ defmodule Storage.SegmentOwnerExitsTest do
             Process.alive?(segment),
             do: assert({label, registered?(segment)} == {label, true})
 
-        :ok = Storage.delete_table(table)
+        :ok = Guardian.Storage.delete_table(table)
         refute File.exists?(filename)
         assert values(table) == []
       end
@@ -601,8 +605,8 @@ defmodule Storage.SegmentOwnerExitsTest do
       persister = Process.whereis(PersistedSegments)
       slow = segment(1..3)
       :ok = :sys.suspend(slow)
-      slow_id = SegmentID.generate()
-      on_exit(fn -> File.rm(Storage.SegmentFile.filename(table, slow_id)) end)
+      slow_id = Guardian.SegmentID.generate()
+      on_exit(fn -> File.rm(Guardian.Storage.SegmentFile.filename(table, slow_id)) end)
       :ok = FullSegments.insert({slow_id, slow, table})
       :ok = PersistedSegments.ping()
 
@@ -622,7 +626,7 @@ defmodule Storage.SegmentOwnerExitsTest do
       sync()
       assert managers() == before
       assert values(table) == [1, 2, 3]
-      :ok = Storage.delete_table(table)
+      :ok = Guardian.Storage.delete_table(table)
     end
 
     test "survives a segment that dies during pack, and persists the next one" do
@@ -634,8 +638,8 @@ defmodule Storage.SegmentOwnerExitsTest do
       # call exits and the persister must move on.
       stuck = segment(1..3)
       :ok = :sys.suspend(stuck)
-      stuck_id = SegmentID.generate()
-      on_exit(fn -> File.rm(Storage.SegmentFile.filename(table, stuck_id)) end)
+      stuck_id = Guardian.SegmentID.generate()
+      on_exit(fn -> File.rm(Guardian.Storage.SegmentFile.filename(table, stuck_id)) end)
       :ok = FullSegments.insert({stuck_id, stuck, table})
       :ok = PersistedSegments.ping()
 
@@ -648,7 +652,7 @@ defmodule Storage.SegmentOwnerExitsTest do
 
       # Registered after the failure, so only a persister that survived it stores it.
       {next_id, next} = full_fixture(table, 4..6)
-      on_exit(fn -> File.rm(Storage.SegmentFile.filename(table, next_id)) end)
+      on_exit(fn -> File.rm(Guardian.Storage.SegmentFile.filename(table, next_id)) end)
 
       # The next pass, after the failed call on the stuck segment.
       eventually(fn -> PersistedSegments.get_segment(next_id) == {:ok, next} end, 15_000)
@@ -656,7 +660,7 @@ defmodule Storage.SegmentOwnerExitsTest do
       assert managers() == before
       assert FullSegments.get_segment(stuck_id) == {:error, :not_found}
       assert values(table) == [4, 5, 6]
-      :ok = Storage.delete_table(table)
+      :ok = Guardian.Storage.delete_table(table)
     end
   end
 end

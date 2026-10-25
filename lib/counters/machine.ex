@@ -1,10 +1,10 @@
-defmodule Counters.Machine do
+defmodule Guardian.Counters.Machine do
   @moduledoc "One key operation per round, advanced by a response callback."
   defstruct [:op, :state, :callback]
 
   def new(op, state, callback), do: %__MODULE__{op: op, state: state, callback: callback}
 
-  def run_nested(lists, event, execute \\ &Counters.Cluster.batch/2) do
+  def run_nested(lists, event, execute \\ &Guardian.Counters.Cluster.batch/2) do
     running = lists |> Enum.concat() |> Enum.with_index() |> Map.new(fn {m, id} -> {id, m} end)
     results = loop(running, %{}, event, execute)
 

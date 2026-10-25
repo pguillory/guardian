@@ -1,8 +1,8 @@
-defmodule Storage.SegmentExpiration do
+defmodule Guardian.Storage.SegmentExpiration do
   # Internal to Storage; see lib/storage/CLAUDE.md, "Public boundary".
   @moduledoc false
 
-  alias Storage.LoadedSegments
+  alias Guardian.Storage.LoadedSegments
   use GenServer
 
   def start_link(opts \\ []) do
@@ -36,7 +36,7 @@ defmodule Storage.SegmentExpiration do
 
     Enum.concat(LoadedSegments.all_segment_ids(), skipped_ids)
     |> Enum.each(fn segment_id ->
-      timestamp_nanoseconds = SegmentID.get_timestamp_nanoseconds(segment_id)
+      timestamp_nanoseconds = Guardian.SegmentID.get_timestamp_nanoseconds(segment_id)
       age_nanoseconds = System.os_time(:nanosecond) - timestamp_nanoseconds
       age_seconds = System.convert_time_unit(age_nanoseconds, :nanosecond, :second)
       age_days = age_seconds / @days

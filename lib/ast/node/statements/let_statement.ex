@@ -1,13 +1,13 @@
-defmodule AST.Node.Statements.LetStatement do
-  use AST.Node
+defmodule Guardian.AST.Node.Statements.LetStatement do
+  use Guardian.AST.Node
 
   @enforce_keys [:key_expr, :value_expr]
   defstruct [:key_expr, :value_expr]
 
   def to_source(%__MODULE__{} = expr) do
     [
-      "LET " <> AST.unparse(expr.key_expr),
-      " = " <> AST.unparse(expr.value_expr),
+      "LET " <> Guardian.AST.unparse(expr.key_expr),
+      " = " <> Guardian.AST.unparse(expr.value_expr),
     ]
     |> Enum.reject(&is_nil/1)
     |> Enum.join()

@@ -1,5 +1,5 @@
-defmodule DivideOperatorTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.DivideOperatorTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "divide operator" do
     assert eval("123 / 123") === 1.0

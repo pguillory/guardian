@@ -1,5 +1,5 @@
-defmodule Query.Function.TypeTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Query.Function.TypeTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "type function" do
     assert eval("type(null)") === "null"

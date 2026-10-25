@@ -1,4 +1,4 @@
-defmodule Storage.Column.NIF do
+defmodule Guardian.Storage.Column.NIF do
   @on_load :init
 
   def init do

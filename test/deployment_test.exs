@@ -1,4 +1,4 @@
-defmodule DeploymentTest do
+defmodule Guardian.DeploymentTest do
   use ExUnit.Case, async: true
 
   @release_env Path.expand("../rel/env.sh.eex", __DIR__)

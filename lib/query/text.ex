@@ -1,4 +1,4 @@
-defmodule Query.Text do
+defmodule Guardian.Query.Text do
   @moduledoc """
   Strings that query functions build: the string cap, UTF-8-safe truncation, and the
   string form of any value.

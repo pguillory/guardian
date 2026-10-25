@@ -1,10 +1,10 @@
-defmodule Storage.Schema do
+defmodule Guardian.Storage.Schema do
   # Internal to Storage; see lib/storage/CLAUDE.md, "Public boundary".
   @moduledoc false
 
-  alias Storage.Column.Metadata
-  alias Storage.Segment
-  alias Storage.Segment.Registration
+  alias Guardian.Storage.Column.Metadata
+  alias Guardian.Storage.Segment
+  alias Guardian.Storage.Segment.Registration
   require Metadata
   require Registration
   use GenServer

@@ -1,6 +1,6 @@
-defmodule Build do
+defmodule Guardian.Build do
   def timestamp do
-    unquote(Timestamp.now())
+    unquote(Guardian.Timestamp.now())
   end
 
   @commit_file :code.priv_dir(:guardian) |> Path.join("commit")

@@ -1,5 +1,5 @@
-defmodule Query.Function.DateAddTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Query.Function.DateAddTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "date_add function" do
     assert eval("date_add('2024-01-02 03:04:05', 5)") == "2024-01-02 03:04:10"

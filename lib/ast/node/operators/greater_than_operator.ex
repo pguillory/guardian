@@ -1,7 +1,7 @@
-defmodule AST.Node.Operators.GreaterThanOperator do
-  use AST.Node.BinaryOperator, symbol: ">"
+defmodule Guardian.AST.Node.Operators.GreaterThanOperator do
+  use Guardian.AST.Node.BinaryOperator, symbol: ">"
 
-  alias AST.Node.Operators.LessThanOperator
+  alias Guardian.AST.Node.Operators.LessThanOperator
 
   def eval(left, right) do
     LessThanOperator.eval(right, left)

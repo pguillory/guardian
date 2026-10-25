@@ -1,6 +1,6 @@
-defmodule Query.Constant do
-  alias Storage.Column.Metadata
-  alias Storage.Value
+defmodule Guardian.Query.Constant do
+  alias Guardian.Storage.Column.Metadata
+  alias Guardian.Storage.Value
   require Metadata
 
   @enforce_keys [:value, :count]

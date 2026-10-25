@@ -44,7 +44,7 @@ Columns in Guardian are NIF-backed (Native Implemented Functions in C) for perfo
 
 **Important constraints** (enforced by NIF):
 - No cap on the values or string bytes in a column layer; memory is the bound, and
-  `Storage.Segment`'s byte budget keeps a mutable segment's columns near 64 MiB
+  `Guardian.Storage.Segment`'s byte budget keeps a mutable segment's columns near 64 MiB
 - Maximum string size and list length: `max_string_size()` and `max_list_length()`,
   both 2^31 - 1 because the packed format stores them as `int32_t`
 - Maximum row count or capacity an argument may ask for (`new`, `pad`): 2^40. The
@@ -131,8 +131,8 @@ metadata = Column.metadata(column)
 # Returns: {count, null_count, false_count, true_count, int_count, float_count, string_count, list_count}
 
 # Pattern match specific fields
-require Storage.Column.Metadata
-alias Storage.Column.Metadata
+require Guardian.Storage.Column.Metadata
+alias Guardian.Storage.Column.Metadata
 
 case metadata do
   Metadata.tuple(count: c, null_count: nc) when nc > 0 ->
@@ -183,9 +183,9 @@ The parent `lib/storage/column.ex` module:
 - Adds higher-level utilities like `resize`, `duplicate`, `generate`
 
 **When to use parent vs. NIF directly**:
-- Use `Storage.Column.*` for all normal operations
-- Only use `Storage.Column.NIF.*` if you need to bypass parent module logic
-- Use `Storage.Column.Metadata.*` for schema aggregation without column data
+- Use `Guardian.Storage.Column.*` for all normal operations
+- Only use `Guardian.Storage.Column.NIF.*` if you need to bypass parent module logic
+- Use `Guardian.Storage.Column.Metadata.*` for schema aggregation without column data
 
 ## Performance Notes
 
@@ -319,6 +319,6 @@ If NIF causes crashes:
 From parent module TODOs and code comments:
 
 1. Resize optimization: `resize/2` for truncation, and for padding a packed column, should be NIF-implemented
-2. Nested objects: Columns hold no maps; `Storage.Flattening` flattens nested objects into dot-notation columns before they reach a column
+2. Nested objects: Columns hold no maps; `Guardian.Storage.Flattening` flattens nested objects into dot-notation columns before they reach a column
 3. **Streaming operations**: Large column operations could be streamed to reduce memory pressure
 4. **SIMD optimizations**: C code could use SIMD for arithmetic operations on numeric columns

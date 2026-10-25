@@ -1,8 +1,8 @@
-defmodule Query.PipelineFailuresTest do
+defmodule Guardian.Query.PipelineFailuresTest do
   # A query either returns every row or fails with an error; its workers never
   # outlive it. Counts live processes and suspends segments, so it runs alone.
   use ExUnit.Case, async: false
-  import TestHelpers
+  import Guardian.TestHelpers
 
   defp table, do: "pipeline_failures_#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
 
@@ -11,20 +11,24 @@ defmodule Query.PipelineFailuresTest do
     1..rows
     |> Enum.map(&%{"g" => rem(&1, 7), "v" => &1})
     |> Enum.chunk_every(5_000)
-    |> Enum.each(&Engine.ingest_events(table, &1))
+    |> Enum.each(&Guardian.Engine.ingest_events(table, &1))
 
     rows
   end
 
-  # A full segment, loaded; see TestHelpers.loaded_segment/2.
+  # A full segment, loaded; see Guardian.TestHelpers.loaded_segment/2.
   defp segment(table, index \\ 1), do: loaded_segment(table, index)
 
   defp assert_no_query_processes_left do
-    await_no_processes_running([Query.DistributedStream, Query, Query.Executor], except: [self()])
+    await_no_processes_running(
+      [Guardian.Query.DistributedStream, Guardian.Query, Guardian.Query.Executor],
+      except: [self()]
+    )
   end
 
   # Query workers blocked reading a segment (only one query runs at a time here).
-  defp blocked_readers, do: processes_running_all([Query.Executor, Storage.Segment])
+  defp blocked_readers,
+    do: processes_running_all([Guardian.Query.Executor, Guardian.Storage.Segment])
 
   # Polls until `fun` returns a nonempty list, and returns it.
   defp await_nonempty(fun, deadline \\ System.monotonic_time(:millisecond) + 5_000) do
@@ -53,8 +57,8 @@ defmodule Query.PipelineFailuresTest do
     Process.exit(worker, :kill)
     :sys.resume(segment)
 
-    assert %Query.Error{message: message} = Task.await(task)
-    assert message == Query.Limits.heap_kill_message()
+    assert %Guardian.Query.Error{message: message} = Task.await(task)
+    assert message == Guardian.Query.Limits.heap_kill_message()
     assert_no_query_processes_left()
   end
 
@@ -100,7 +104,7 @@ defmodule Query.PipelineFailuresTest do
 
     for _ <- 1..10, query <- queries, do: run_sql(query)
 
-    assert_raise Query.Error, ~r/test_raise/, fn ->
+    assert_raise Guardian.Query.Error, ~r/test_raise/, fn ->
       run_sql("SELECT test_raise(v) FROM #{table}")
     end
 
@@ -119,7 +123,7 @@ defmodule Query.PipelineFailuresTest do
         1..writer_rows
         |> Enum.chunk_every(500)
         |> Enum.each(fn chunk ->
-          Engine.ingest_events(table, Enum.map(chunk, &%{"v" => &1}))
+          Guardian.Engine.ingest_events(table, Enum.map(chunk, &%{"v" => &1}))
         end)
       end)
 

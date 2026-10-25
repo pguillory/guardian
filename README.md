@@ -293,6 +293,26 @@ curl -s http://127.0.0.1:8080/api/json/query \
 Guardian speaks plain HTTP. Put TLS in front of it before you expose it beyond the
 machine; the API key travels in every request.
 
+## Elixir callers
+
+Guardian's modules live under `Guardian.*`, including `Guardian.Web.*`, so they
+can coexist with an application's own `Query`, `Storage` or `Web` modules. With
+Guardian running, Elixir code can ingest and query directly:
+
+```elixir
+Guardian.Engine.ingest_events("requests", [%{"path" => "/", "status" => 200}])
+Guardian.Query.execute("SELECT status, count() FROM requests GROUP BY status")
+# => {:ok, ["status", "count()"], [[200, 1]]}
+```
+
+Direct queries return tuples and bypass API query logging. Guardian still runs one
+event store per VM with its normal supervision tree and `:guardian` application
+configuration. When embedding Guardian as a Mix dependency, configure the
+`:guardian` application keys in the host app: Mix does not evaluate a dependency's
+`config/runtime.exs`, which translates Guardian's environment variables. See the
+[configuration reference](docs/reference/configuration.md) for the release settings
+and [application keys](docs/architecture/system.md#9-configuration).
+
 ## Documentation
 
 Running it:

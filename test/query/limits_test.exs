@@ -1,7 +1,7 @@
-defmodule Query.LimitsTest do
+defmodule Guardian.Query.LimitsTest do
   # Changes limits in the application environment, so not async.
   use ExUnit.Case, async: false
-  import TestHelpers, only: [run_sql: 1]
+  import Guardian.TestHelpers, only: [run_sql: 1]
 
   @keys [:query_max_result_rows, :query_max_result_bytes]
 
@@ -19,7 +19,7 @@ defmodule Query.LimitsTest do
 
     table = "limits_#{System.unique_integer([:positive])}"
 
-    Engine.ingest_events(
+    Guardian.Engine.ingest_events(
       table,
       Enum.map(1..30, &%{"v" => &1, "k" => rem(&1, 3), "s" => "row #{&1}"})
     )
@@ -28,7 +28,7 @@ defmodule Query.LimitsTest do
   end
 
   defp error(source) do
-    assert_raise(Query.Error, fn -> run_sql(source) end).message
+    assert_raise(Guardian.Query.Error, fn -> run_sql(source) end).message
   end
 
   describe "result cap" do
@@ -61,8 +61,8 @@ defmodule Query.LimitsTest do
   end
 
   describe "string functions" do
-    # Strings that functions build are cut to the cap (Query.Text), never refused.
-    @max Query.Text.max_bytes()
+    # Strings that functions build are cut to the cap (Guardian.Query.Text), never refused.
+    @max Guardian.Query.Text.max_bytes()
 
     test "lpad and rpad of a huge size give a string at the cap" do
       assert [[left, right]] = run_sql("SELECT lpad('x', 2000000000), rpad('x', 2000000000)")

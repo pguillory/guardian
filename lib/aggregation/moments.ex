@@ -1,4 +1,4 @@
-defmodule Aggregation.Moments do
+defmodule Guardian.Aggregation.Moments do
   # var_pop, var_samp, stddev_pop and stddev_samp; the option names which.
   #
   # The accumulator is {count, mean, m2}, where m2 is the sum of squared deviations
@@ -19,7 +19,7 @@ defmodule Aggregation.Moments do
   end
 
   # A float overflow while merging makes the state :overflow, which absorbs every
-  # later merge and finishes as null (Query.Numeric).
+  # later merge and finishes as null (Guardian.Query.Numeric).
   def merge(_kind, :overflow, _acc2), do: :overflow
   def merge(_kind, _acc1, :overflow), do: :overflow
 

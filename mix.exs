@@ -1,4 +1,4 @@
-defmodule MixProject do
+defmodule Guardian.MixProject do
   use Mix.Project
 
   def project do
@@ -49,7 +49,7 @@ defmodule MixProject do
 
   def application do
     [
-      mod: {Main, []},
+      mod: {Guardian.Main, []},
       extra_applications: [:logger, :runtime_tools, :xmerl],
     ]
   end

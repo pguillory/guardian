@@ -1,6 +1,6 @@
-defmodule Storage.FlatteningTest do
+defmodule Guardian.Storage.FlatteningTest do
   use ExUnit.Case
-  import Storage.Flattening
+  import Guardian.Storage.Flattening
 
   defp assert_columns(events, expected_columns) do
     virtual_segment = from_events(events)

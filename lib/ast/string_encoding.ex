@@ -1,4 +1,4 @@
-defmodule AST.StringEncoding do
+defmodule Guardian.AST.StringEncoding do
   @moduledoc """
   SQL string literals: single-quoted, with the backslash escapes `\\'`, `\\\\`, `\\/`,
   `\\b`, `\\f`, `\\n`, `\\r`, `\\t` and `\\uXXXX` (UTF-16, surrogate pairs as in JSON).
@@ -90,7 +90,7 @@ defmodule AST.StringEncoding do
 
   defp hex_unit(_hex), do: :error
 
-  @printable AST.Unicode.codepoint("U+0020")..AST.Unicode.codepoint("U+10FFFF")
+  @printable Guardian.AST.Unicode.codepoint("U+0020")..Guardian.AST.Unicode.codepoint("U+10FFFF")
 
   @doc """
   Writes `value`, a valid UTF-8 string, as a string literal that `decode_string/1`

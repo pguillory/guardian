@@ -97,7 +97,7 @@ On reload, valid definitions and LOOKUP bindings switch atomically on each node.
 If a table is invalid, the entire component linked by old or new LOOKUP dependencies
 keeps its previous good plans, even for deleted members. New joins wait as invalid;
 unrelated components activate. At clean boot only directed dependents of invalid
-targets fail. A Rules.Server-only restart preserves published bindings and counts;
+targets fail. A Guardian.Rules.Server-only restart preserves published bindings and counts;
 a Store/node restart loses counts. Very rapid edits with many dependents can fill
 the compiled-module pool: a saved file then waits for module reclamation and polling.
 

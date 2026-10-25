@@ -3,7 +3,7 @@
 Guardian's MCP endpoint exposes these tools:
 
 - `query`: execute one resolved query and return rows as JSON objects keyed by labels.
-- `send_events`: ingest a table and list of events through `Web.Ingest` and Engine,
+- `send_events`: ingest a table and list of events through `Guardian.Web.Ingest` and Engine,
   returning `{status: 200, results: [...]}` with one ordered outcome per input.
   Optional return_keys filters successful events only; omitted/null returns all,
   an empty list returns no fields, and a selected key the event lacks is null.
@@ -13,9 +13,9 @@ Guardian's MCP endpoint exposes these tools:
   retries return `{status: 200, duplicate: true, failed_events: N}` without results;
   changed requests, pending claims and unknown outcomes are tool errors. MCP calls
   can queue/time out before this check because Anubis serializes them. Keep schema,
-  tool description and `Web.Ingest` validation consistent.
+  tool description and `Guardian.Web.Ingest` validation consistent.
 - `list_rules`, `read_rule`, `write_rule`, `delete_rule`: manage rule files through
-  `Rules`. A rejected or failed write is a tool error carrying the messages; a saved
+  `Guardian.Rules`. A rejected or failed write is a tool error carrying the messages; a saved
   one returns `saved`, `remaining_errors` and `nodes_not_yet_reloaded`. The
   `write_rule` description summarizes the rule language; keep it in step with
   `docs/product/spec.md` section 5.1 and the served reference's Ingest rules section.
@@ -24,11 +24,11 @@ Guardian's MCP endpoint exposes these tools:
 The `query` description summarizes the language, its unsupported syntax, the untyped
 data model, and the timestamp convention. The resource `guardian://query-language`
 serves `query_language.md`, the full reference. When syntax, functions, or aggregates
-change, update both. `Web.MCP.QueryLanguageTest` fails when a registered function or
+change, update both. `Guardian.Web.MCP.QueryLanguageTest` fails when a registered function or
 aggregate is missing from the reference or a `sql`/`gsql` example no longer parses. Server
 `instructions` need Anubis 1.x or later.
 
-Authentication is handled by `Web.MCP.Router` before requests reach the Anubis server.
+Authentication is handled by `Guardian.Web.MCP.Router` before requests reach the Anubis server.
 After authentication, the router answers 404 for an `mcp-session-id` that names no
 live, initialize-handled session, as the Streamable HTTP spec requires, so clients
 re-initialize after a restart or Anubis's 30-minute idle expiry. Anubis 0.16 would
@@ -51,7 +51,7 @@ it cannot decode at error level. Log rejected bodies by size, reason, and a know
 method name only; never log the body, its exception, or a caller-chosen method string.
 Recheck on an Anubis upgrade.
 
-`Web.MCP.Server` registers its tools and resource on Anubis's frame before every
+`Guardian.Web.MCP.Server` registers its tools and resource on Anubis's frame before every
 request, not in `init/2`. Anubis 0.16 keeps runtime-registered components in its one
 shared frame's private map and empties that map when a DELETEd session it served last
 ends, which left every other session with "Tool not found: query". The catch-all

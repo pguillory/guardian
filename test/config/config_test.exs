@@ -1,4 +1,4 @@
-defmodule ConfigTest do
+defmodule Guardian.ConfigTest do
   use ExUnit.Case, async: true
 
   @config Path.expand("../../config/config.exs", __DIR__)

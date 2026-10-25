@@ -1,5 +1,5 @@
-defmodule AST.Node.Parentheses do
-  use AST.Node
+defmodule Guardian.AST.Node.Parentheses do
+  use Guardian.AST.Node
 
   @enforce_keys [:expr]
   defstruct [:expr]
@@ -9,7 +9,7 @@ defmodule AST.Node.Parentheses do
   end
 
   def to_source(%__MODULE__{expr: expr}) do
-    "(" <> AST.unparse(expr) <> ")"
+    "(" <> Guardian.AST.unparse(expr) <> ")"
   end
 
   def traverse(%__MODULE__{} = expr, acc, pre, post) do

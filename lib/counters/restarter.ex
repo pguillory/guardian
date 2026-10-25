@@ -1,6 +1,6 @@
-defmodule Counters.Restarter do
+defmodule Guardian.Counters.Restarter do
   @moduledoc """
-  Owns the disposable counter subtree without propagating its failures to Main.
+  Owns the disposable counter subtree without propagating its failures to Guardian.Main.
   Recovery starts after 15 seconds, doubles up to four minutes, and resets after
   one healthy minute. This process handles no counter requests or event data.
   """
@@ -111,7 +111,7 @@ defmodule Counters.Restarter do
   end
 
   defp start_counters(state) do
-    Counters.Supervisor.start_link(state.counters)
+    Guardian.Counters.Supervisor.start_link(state.counters)
   catch
     _, _ -> {:error, :start_failed}
   end

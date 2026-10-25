@@ -1,5 +1,5 @@
-defmodule Aggregation.ArbitraryTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Aggregation.ArbitraryTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "arbitrary" do
     assert eval_aggregate("arbitrary(x)", []) == nil

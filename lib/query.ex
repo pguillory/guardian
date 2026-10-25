@@ -1,4 +1,4 @@
-defmodule Query do
+defmodule Guardian.Query do
   @moduledoc """
   SQL-like query engine for Guardian's event storage.
 
@@ -7,17 +7,17 @@ defmodule Query do
 
   ## Query Execution Flow
 
-  1. Resolve SQL text to SELECT statements (`Query.Resolver.resolve/1`, called by
+  1. Resolve SQL text to SELECT statements (`Guardian.Query.Resolver.resolve/1`, called by
      `execute/2`)
-  2. Generate query plan (`Planner.query_plan/1`, called by `Query.Executor`)
-  3. Execute plan steps using `Query.DistributedStream` (`Query.Executor`, in a query
+  2. Generate query plan (`Planner.query_plan/1`, called by `Guardian.Query.Executor`)
+  3. Execute plan steps using `Guardian.Query.DistributedStream` (`Guardian.Query.Executor`, in a query
      process `run/1` starts)
   4. Evaluate expressions columnwise per segment
   5. Return lazy stream of results
 
   ## Example Usage
 
-      iex> Query.execute("SELECT ip, count() FROM requests WHERE status = 404 GROUP BY ip")
+      iex> Guardian.Query.execute("SELECT ip, count() FROM requests WHERE status = 404 GROUP BY ip")
       {:ok, ["ip", "count()"], [["1.2.3.4", 5], ["5.6.7.8", 3]]}
 
   `execute/2` is the entry point for SQL text: it is what the JSON and MCP query
@@ -43,27 +43,27 @@ defmodule Query do
   See `test/query_test.exs` for query examples and `ARCHITECTURE.md` for details.
   """
 
-  alias Query.Executor
-  alias Query.Failure
-  alias Query.Limits
-  alias Query.WorkerErrors
+  alias Guardian.Query.Executor
+  alias Guardian.Query.Failure
+  alias Guardian.Query.Limits
+  alias Guardian.Query.WorkerErrors
 
-  alias AST.Node.Statements.SelectStatement
+  alias Guardian.AST.Node.Statements.SelectStatement
 
   @doc """
   Runs SQL text the way the query interfaces do: resolves it with
-  `Query.Resolver.resolve/1` (so SELECT *, SHOW TABLES, DESC and LET work), requires
+  `Guardian.Query.Resolver.resolve/1` (so SELECT *, SHOW TABLES, DESC and LET work), requires
   exactly one statement after LET statements, and runs it.
 
   Returns `{:ok, labels, rows}`, with the column labels taken from the statement
   before LET substitution (column names in their stored spelling). Returns
   `{:error, message}` for a failure of the query itself: zero or several statements,
-  or a `Query.Error` from `run/1` (a resource limit, a regular expression over its
+  or a `Guardian.Query.Error` from `run/1` (a resource limit, a regular expression over its
   backtracking limit). Only running is covered by that rescue; anything raised while resolving (an
-  `AST.ParseError`, an ambiguous column, a failed schema lookup) propagates.
+  `Guardian.AST.ParseError`, an ambiguous column, a failed schema lookup) propagates.
 
   Options:
-  - `:on_parse_error`, a one-argument function called with the `AST.ParseError` before
+  - `:on_parse_error`, a one-argument function called with the `Guardian.AST.ParseError` before
     it is reraised unchanged with its stacktrace. It must not raise: its exception
     would replace the parse error.
   """
@@ -75,7 +75,7 @@ defmodule Query do
         try do
           run(statement)
         rescue
-          error in Query.Error -> {:error, Exception.message(error)}
+          error in Guardian.Query.Error -> {:error, Exception.message(error)}
         else
           rows -> {:ok, labels, rows}
         end
@@ -89,9 +89,9 @@ defmodule Query do
   end
 
   defp resolve(sql, on_parse_error) when is_function(on_parse_error, 1) do
-    Query.Resolver.resolve(sql)
+    Guardian.Query.Resolver.resolve(sql)
   rescue
-    error in AST.ParseError ->
+    error in Guardian.AST.ParseError ->
       stacktrace = __STACKTRACE__
       on_parse_error.(error)
       reraise error, stacktrace
@@ -99,28 +99,28 @@ defmodule Query do
 
   @doc """
   The column labels of one statement of SQL text, parsed without resolution; see
-  `Query.Resolver.labels/1`.
+  `Guardian.Query.Resolver.labels/1`.
   """
   @spec labels(String.t()) :: [String.t()]
   def labels(source) when is_binary(source) do
-    [statement] = AST.parse_statements(source)
-    Query.Resolver.labels(statement)
+    [statement] = Guardian.AST.parse_statements(source)
+    Guardian.Query.Resolver.labels(statement)
   end
 
   @doc """
   Runs a SELECT and returns its rows.
 
   The query runs in its own process, the consumer of its DistributedStream pipeline.
-  It may run for at most `Query.Limits.time_limit_ms/0`; then it is stopped on every
-  machine and this raises `Query.Error`.
+  It may run for at most `Guardian.Query.Limits.time_limit_ms/0`; then it is stopped on every
+  machine and this raises `Guardian.Query.Error`.
   Any failure inside distributed execution (a worker that raises or dies, a lost
-  machine) stops the whole pipeline and fails this query with a `Query.Error`; it
+  machine) stops the whole pipeline and fails this query with a `Guardian.Query.Error`; it
   never returns partial rows and never takes the caller down. Callers include the MCP
   server's shared process. The query process stops if the caller dies.
 
   Exceptions raised while workers evaluate expressions are collected by
-  `Query.WorkerErrors` and raised here as `Query.Error`. `Query.Executor` runs the
-  plan's steps; `Query.Failure` builds the bounded `Query.Error`s for worker exceptions,
+  `Guardian.Query.WorkerErrors` and raised here as `Guardian.Query.Error`. `Guardian.Query.Executor` runs the
+  plan's steps; `Guardian.Query.Failure` builds the bounded `Guardian.Query.Error`s for worker exceptions,
   pipeline exits and a query process that goes down.
   """
   def run(%SelectStatement{} = statement) do
@@ -162,7 +162,7 @@ defmodule Query do
       0 -> :ok
     end
 
-    raise Query.Error, message: Limits.time_limit_message(limit_ms)
+    raise Guardian.Query.Error, message: Limits.time_limit_message(limit_ms)
   end
 
   defp run_in_query_process(statement, caller, tag) do

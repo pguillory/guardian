@@ -1,4 +1,4 @@
-defmodule Query.Function.Random do
+defmodule Guardian.Query.Function.Random do
   def eval do
     :rand.uniform()
   end

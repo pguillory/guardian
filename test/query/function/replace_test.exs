@@ -1,7 +1,7 @@
-defmodule Query.Function.ReplaceTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Query.Function.ReplaceTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
-  @max Query.Text.max_bytes()
+  @max Guardian.Query.Text.max_bytes()
 
   test "replace function" do
     assert eval("replace('abcde', '[bd]', '_')") === "a_c_e"
@@ -77,15 +77,17 @@ defmodule Query.Function.ReplaceTest do
   end
 
   test "a pattern with too many capturing groups is a parse error" do
-    groups = String.duplicate("(a)", Query.Regex.max_groups())
+    groups = String.duplicate("(a)", Guardian.Query.Regex.max_groups())
     assert eval("replace('a', '#{groups}', 'x')") === "a"
 
-    error = assert_raise AST.ParseError, fn -> eval("replace('a', '#{groups}(a)', 'x')") end
+    error =
+      assert_raise Guardian.AST.ParseError, fn -> eval("replace('a', '#{groups}(a)', 'x')") end
+
     assert error.reason =~ "more than 32 capturing groups"
   end
 
   test "backtracking too deep is null" do
-    groups = String.duplicate("()", Query.Regex.max_groups())
+    groups = String.duplicate("()", Guardian.Query.Regex.max_groups())
     s = String.duplicate("a", 200_000) <> "x"
     assert eval("replace(s, '(*NO_START_OPT)^(?:#{groups}a)*$', 'x')", s: s) === nil
   end
@@ -111,7 +113,7 @@ defmodule Query.Function.ReplaceTest do
     # The same `:re` scan, as the oracle: `:re.replace` with a replacement free of
     # `&` and `\`.
     defp oracle(subject, pattern, replacement) do
-      {:ok, regex} = Query.Regex.compile(pattern)
+      {:ok, regex} = Guardian.Query.Regex.compile(pattern)
       :re.replace(subject, regex, replacement, [:global, {:return, :binary}])
     end
 

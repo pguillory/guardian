@@ -1,5 +1,5 @@
-defmodule LessThanOperatorTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.LessThanOperatorTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "less than operator" do
     assert eval("1 < 2") == true

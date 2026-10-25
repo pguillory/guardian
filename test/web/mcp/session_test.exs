@@ -1,4 +1,4 @@
-defmodule Web.MCP.SessionTest do
+defmodule Guardian.Web.MCP.SessionTest do
   # The MCP Streamable HTTP spec requires 404 for an unknown session ID, so clients
   # re-initialize after a server restart or session expiry.
   use ExUnit.Case, async: false
@@ -15,7 +15,7 @@ defmodule Web.MCP.SessionTest do
 
     headers
     |> Enum.reduce(conn, fn {k, v}, conn -> Plug.Conn.put_req_header(conn, k, v) end)
-    |> Web.MainRouter.call(nil)
+    |> Guardian.Web.MainRouter.call(nil)
   end
 
   defp authed(headers), do: [{"x-api-key", @api_key} | headers]
@@ -56,7 +56,7 @@ defmodule Web.MCP.SessionTest do
   end
 
   defp wait_until_initialized(session_id, retries \\ 100) do
-    pid = Anubis.Server.Registry.whereis_server_session(Web.MCP.Server, session_id)
+    pid = Anubis.Server.Registry.whereis_server_session(Guardian.Web.MCP.Server, session_id)
 
     cond do
       pid == nil ->
@@ -103,7 +103,7 @@ defmodule Web.MCP.SessionTest do
   test "a rejected session ID does not create a session" do
     headers = authed([{"mcp-session-id", "never-created"}])
     assert_session_not_found(mcp(:post, %{jsonrpc: "2.0", id: 1, method: "tools/list"}, headers))
-    refute Anubis.Server.Registry.whereis_server_session(Web.MCP.Server, "never-created")
+    refute Anubis.Server.Registry.whereis_server_session(Guardian.Web.MCP.Server, "never-created")
   end
 
   test "initialize with a stale session ID gets 404" do
@@ -134,7 +134,7 @@ defmodule Web.MCP.SessionTest do
     {:ok, pid} =
       Anubis.Server.Session.Supervisor.create_session(
         Anubis.Server.Registry,
-        Web.MCP.Server,
+        Guardian.Web.MCP.Server,
         session_id
       )
 
@@ -142,7 +142,7 @@ defmodule Web.MCP.SessionTest do
 
     Anubis.Server.Session.Supervisor.close_session(
       Anubis.Server.Registry,
-      Web.MCP.Server,
+      Guardian.Web.MCP.Server,
       session_id
     )
 
@@ -175,10 +175,15 @@ defmodule Web.MCP.SessionTest do
     assert %{"result" => %{"tools" => [_ | _]}} = body
 
     # Drop the session through Anubis's idle-expiry path, as a restart or expiry would.
-    pid = Anubis.Server.Registry.whereis_server_session(Web.MCP.Server, session_id)
+    pid = Anubis.Server.Registry.whereis_server_session(Guardian.Web.MCP.Server, session_id)
     assert is_pid(pid)
     ref = Process.monitor(pid)
-    send(Anubis.Server.Registry.whereis_server(Web.MCP.Server), {:session_expired, session_id})
+
+    send(
+      Anubis.Server.Registry.whereis_server(Guardian.Web.MCP.Server),
+      {:session_expired, session_id}
+    )
+
     assert_receive {:DOWN, ^ref, :process, ^pid, _}
 
     assert_session_not_found(tools_list(session_id))
@@ -214,7 +219,7 @@ defmodule Web.MCP.SessionTest do
   end
 
   defp close_session(session_id, how) do
-    pid = Anubis.Server.Registry.whereis_server_session(Web.MCP.Server, session_id)
+    pid = Anubis.Server.Registry.whereis_server_session(Guardian.Web.MCP.Server, session_id)
     ref = Process.monitor(pid)
 
     case how do
@@ -223,7 +228,7 @@ defmodule Web.MCP.SessionTest do
 
       :expire ->
         send(
-          Anubis.Server.Registry.whereis_server(Web.MCP.Server),
+          Anubis.Server.Registry.whereis_server(Guardian.Web.MCP.Server),
           {:session_expired, session_id}
         )
     end
@@ -236,7 +241,7 @@ defmodule Web.MCP.SessionTest do
   # it from its sessions map and clearing the frame in the same step. Idle expiry
   # removes it before the session stops.
   defp wait_until_server_forgot(session_id, retries \\ 100) do
-    state = :sys.get_state(Anubis.Server.Registry.whereis_server(Web.MCP.Server))
+    state = :sys.get_state(Anubis.Server.Registry.whereis_server(Guardian.Web.MCP.Server))
 
     cond do
       not Map.has_key?(state.sessions, session_id) ->
@@ -294,7 +299,7 @@ defmodule Web.MCP.SessionTest do
   end
 
   defp server_frame_private do
-    :sys.get_state(Anubis.Server.Registry.whereis_server(Web.MCP.Server)).frame.private
+    :sys.get_state(Anubis.Server.Registry.whereis_server(Guardian.Web.MCP.Server)).frame.private
   end
 
   for {how, first} <- [
@@ -330,7 +335,7 @@ defmodule Web.MCP.SessionTest do
   end
 
   defp sse_handler(session_id) do
-    transport = Anubis.Server.Registry.transport(Web.MCP.Server, :streamable_http)
+    transport = Anubis.Server.Registry.transport(Guardian.Web.MCP.Server, :streamable_http)
     Anubis.Server.Transport.StreamableHTTP.get_sse_handler(transport, session_id)
   end
 
@@ -351,7 +356,7 @@ defmodule Web.MCP.SessionTest do
       assert sse_handler(session_id) == nil
 
       table = "mcp_get_405_#{System.unique_integer([:positive])}"
-      Engine.ingest_event(table, %{"value" => 1})
+      Guardian.Engine.ingest_event(table, %{"value" => 1})
 
       # The result comes back inline in the POST response, not as 202 {}.
       conn =

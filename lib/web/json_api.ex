@@ -1,4 +1,4 @@
-defmodule Web.JsonApi do
+defmodule Guardian.Web.JsonApi do
   @moduledoc """
   JSON HTTP API for Guardian event ingestion and queries.
 
@@ -8,7 +8,7 @@ defmodule Web.JsonApi do
   without a valid key gets 401 (or 400 for an undecodable query string) without its
   body being read; with a key, malformed JSON gets 400, a body over 8 MB 413, and a
   declared non-JSON content type 415. The unauthenticated liveness check is
-  `GET /health` in `Web.MainRouter`, outside this API.
+  `GET /health` in `Guardian.Web.MainRouter`, outside this API.
 
   ## Authentication
 
@@ -18,7 +18,7 @@ defmodule Web.JsonApi do
 
   Only when query keys are allowed (`GUARDIAN_ALLOW_QUERY_API_KEY=true`, off by
   default) may it come as a query parameter instead, `?api_key=your_api_key_here`;
-  the header takes precedence if both are present. `Web.Auth.check_conn/1` decides. A
+  the header takes precedence if both are present. `Guardian.Web.Auth.check_conn/1` decides. A
   valid key grants access to the whole event store.
 
   ## Endpoints
@@ -118,7 +118,7 @@ defmodule Web.JsonApi do
   {"status": 400, "info": "Only single-statement queries are supported"}
   ```
 
-  **400 Bad Request** (`query` fails with a `Query.Error`, such as a resource limit or
+  **400 Bad Request** (`query` fails with a `Guardian.Query.Error`, such as a resource limit or
   a regular expression over its backtracking limit; `info` says what to change):
   ```json
   {"status": 400, "info": "..."}
@@ -169,7 +169,7 @@ defmodule Web.JsonApi do
   )
 
   plug(:match)
-  plug(Web.Logger)
+  plug(Guardian.Web.Logger)
   plug(:dispatch)
 
   defp send_json_resp(conn, status, json) do
@@ -181,7 +181,7 @@ defmodule Web.JsonApi do
   end
 
   defp auth(conn, _opts) do
-    case Web.Auth.check_conn(conn) do
+    case Guardian.Web.Auth.check_conn(conn) do
       {:ok, method} ->
         put_private(conn, :guardian_auth_method, method)
 
@@ -200,7 +200,7 @@ defmodule Web.JsonApi do
   end
 
   post "/send_events" do
-    case Web.Ingest.send_events(conn.body_params) do
+    case Guardian.Web.Ingest.send_events(conn.body_params) do
       {:ok, result} ->
         send_json_resp(conn, 200, result)
 
@@ -225,14 +225,14 @@ defmodule Web.JsonApi do
     end
   end
 
-  # Runs like MCP (`Query.execute/2`). Every query is recorded in
+  # Runs like MCP (`Guardian.Query.execute/2`). Every query is recorded in
   # queries; parse failures also in query_parse_errors, and reraised unchanged. A
-  # failure of the query itself (statement count, or a `Query.Error` while running) is
+  # failure of the query itself (statement count, or a `Guardian.Query.Error` while running) is
   # a 400; other exceptions are 500s.
   defp run_query(conn, query_string) do
-    caller_fun = fn -> Web.QueryParseErrors.http_caller(conn) end
+    caller_fun = fn -> Guardian.Web.QueryParseErrors.http_caller(conn) end
 
-    case Web.Query.execute(query_string, caller_fun) do
+    case Guardian.Web.Query.execute(query_string, caller_fun) do
       {:ok, columns, rows} ->
         send_json_resp(conn, 200, %{status: 200, columns: columns, rows: rows})
 

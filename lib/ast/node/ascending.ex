@@ -1,5 +1,5 @@
-defmodule AST.Node.Ascending do
-  use AST.Node
+defmodule Guardian.AST.Node.Ascending do
+  use Guardian.AST.Node
 
   @enforce_keys [:left]
   defstruct [:left]
@@ -7,7 +7,7 @@ defmodule AST.Node.Ascending do
   def symbol, do: "ASC"
 
   def to_source(%__MODULE__{left: left}) do
-    AST.unparse(left) <> " " <> symbol()
+    Guardian.AST.unparse(left) <> " " <> symbol()
   end
 
   def traverse(%__MODULE__{} = expr, acc, pre, post) do

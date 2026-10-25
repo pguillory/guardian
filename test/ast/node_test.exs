@@ -1,7 +1,7 @@
-defmodule AST.NodeTest do
+defmodule Guardian.AST.NodeTest do
   use ExUnit.Case, async: true
 
-  alias AST.Node.Literal
+  alias Guardian.AST.Node.Literal
 
   # Walks every literal, doubling integers and recording each original value, so the
   # result shows both the rebuilt node and the accumulator threaded through in order.
@@ -15,11 +15,11 @@ defmodule AST.NodeTest do
     end
 
     post = fn expr, acc -> {expr, acc} end
-    AST.Node.traverse_fields(expr, fields, [], pre, post)
+    Guardian.AST.Node.traverse_fields(expr, fields, [], pre, post)
   end
 
   test "traverse_fields walks single nodes and lists in field order and skips nil" do
-    expr = %AST.Node.Case{
+    expr = %Guardian.AST.Node.Case{
       case_exprs: nil,
       when_exprs: [%Literal{value: 1}, %Literal{value: 2}],
       then_exprs: [%Literal{value: 3}, %Literal{value: 4}],

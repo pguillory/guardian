@@ -1,5 +1,5 @@
-defmodule Query.Function.LogTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Query.Function.LogTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "log function" do
     assert eval("log(2.0)") === 0.6931471805599453

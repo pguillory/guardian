@@ -1,6 +1,6 @@
-defmodule ASTTest do
-  import AST
-  alias AST.Parser
+defmodule Guardian.ASTTest do
+  import Guardian.AST
+  alias Guardian.AST.Parser
   use ExUnit.Case, async: true
 
   test "prewalk modifies AST" do
@@ -8,8 +8,8 @@ defmodule ASTTest do
 
     modified_expr =
       prewalk(expr, fn
-        %AST.Node.Literal{value: value} when is_integer(value) ->
-          %AST.Node.Literal{value: value * 10}
+        %Guardian.AST.Node.Literal{value: value} when is_integer(value) ->
+          %Guardian.AST.Node.Literal{value: value * 10}
 
         expr ->
           expr

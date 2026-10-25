@@ -1,5 +1,5 @@
-defmodule Query.Function.Exp do
-  # An overflowing result is null (Query.Numeric).
+defmodule Guardian.Query.Function.Exp do
+  # An overflowing result is null (Guardian.Query.Numeric).
   def eval(value) when is_number(value) do
     :math.exp(value)
   catch

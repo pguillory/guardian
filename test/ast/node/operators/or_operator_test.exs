@@ -1,5 +1,5 @@
-defmodule OrOperatorTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.OrOperatorTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "or operator" do
     assert eval("true or true") == true

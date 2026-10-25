@@ -1,5 +1,5 @@
-defmodule ConcatOperatorTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.ConcatOperatorTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "concat operator" do
     assert eval("'a' || 'b'") === "ab"

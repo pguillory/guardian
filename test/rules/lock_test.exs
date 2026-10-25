@@ -1,17 +1,17 @@
-defmodule Rules.LockTest do
+defmodule Guardian.Rules.LockTest do
   use ExUnit.Case, async: false
-  import RulesTestHelper
+  import Guardian.RulesTestHelper
 
-  alias Rules.Lock
+  alias Guardian.Rules.Lock
 
   setup do
-    s3 = FakeS3.start()
-    on_exit(fn -> FakeS3.stop(s3) end)
-    %{s3: s3, store: FakeS3.store(s3)}
+    s3 = Guardian.FakeS3.start()
+    on_exit(fn -> Guardian.FakeS3.stop(s3) end)
+    %{s3: s3, store: Guardian.FakeS3.store(s3)}
   end
 
   defp lock_state(store) do
-    {:ok, body, _meta} = Rules.Store.get(store, Lock.key())
+    {:ok, body, _meta} = Guardian.Rules.Store.get(store, Lock.key())
     Jason.decode!(body)["state"]
   end
 
@@ -27,7 +27,7 @@ defmodule Rules.LockTest do
   test "an expired lease is taken over, and the old holder cannot release its successor",
        %{s3: s3, store: store} do
     assert {:ok, old} = Lock.acquire(store, "old")
-    FakeS3.age(s3, Lock.key(), 121)
+    Guardian.FakeS3.age(s3, Lock.key(), 121)
     assert {:ok, new} = Lock.acquire(store, "new", 600)
     assert Lock.release(old) == {:error, :precondition_failed}
     assert lock_state(store) == "held"
@@ -39,14 +39,14 @@ defmodule Rules.LockTest do
     put_env(:rules_lock_lease_ms, 120_000)
     assert {:ok, _lock} = Lock.acquire(store, "a")
     # Not aged on the store: still live, however long this node thinks it has waited.
-    FakeS3.age(s3, Lock.key(), 60)
+    Guardian.FakeS3.age(s3, Lock.key(), 60)
     assert Lock.acquire(store, "b", 600) == {:error, :busy}
   end
 
   test "works on a local folder too" do
     dir = Path.join(System.tmp_dir!(), "rules_lock_#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(dir) end)
-    {:ok, store} = Rules.Store.Local.new(dir)
+    {:ok, store} = Guardian.Rules.Store.Local.new(dir)
     assert {:ok, lock} = Lock.acquire(store, "a")
     assert Lock.acquire(store, "b", 600) == {:error, :busy}
     assert Lock.release(lock) == :ok

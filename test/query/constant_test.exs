@@ -1,7 +1,7 @@
-defmodule Query.ConstantTest do
-  alias Query.Constant
-  alias Storage.Column.Metadata
-  import Query.Constant
+defmodule Guardian.Query.ConstantTest do
+  alias Guardian.Query.Constant
+  alias Guardian.Storage.Column.Metadata
+  import Guardian.Query.Constant
   require Metadata
   use ExUnit.Case, async: true
 

@@ -1,5 +1,5 @@
-defmodule NotLikeOperatorTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.NotLikeOperatorTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "not like operator" do
     assert eval("'' not like ''") == false

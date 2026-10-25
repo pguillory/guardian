@@ -31,19 +31,19 @@ cluster in which every query and schema lookup runs on all of them.
             producers, agents, scripts
                        |  HTTPS at the deployment's edge, then HTTP to GUARDIAN_PORT
                        v
-  Bandit -> Web.MainRouter -+- GET /health
-                            +- /api/json -> Web.JsonApi (auth, JSON, request log)
-                            +- /mcp      -> Web.MCP.Router (auth) -> Anubis -> Web.MCP.Server
+  Bandit -> Guardian.Web.MainRouter -+- GET /health
+                            +- /api/json -> Guardian.Web.JsonApi (auth, JSON, request log)
+                            +- /mcp      -> Guardian.Web.MCP.Router (auth) -> Anubis -> Guardian.Web.MCP.Server
                                     |                     |
                            send_events                  query
                                     v                     v
-                          Web.Ingest -> Engine     Query.Resolver -> Query.Planner
-                                    |                     |       \-> Cluster.Metadata
+                          Guardian.Web.Ingest -> Engine     Guardian.Query.Resolver -> Guardian.Query.Planner
+                                    |                     |       \-> Guardian.Cluster.Metadata
                                     v                     v
-                          Storage.MutableSegments   Query.run -> Query.DistributedStream
+                          Guardian.Storage.MutableSegments   Guardian.Query.run -> Guardian.Query.DistributedStream
                                     |                     |   workers on every node
                                     v                     v
-                 Segment processes (NIF columns)       Query.Evaluation
+                 Segment processes (NIF columns)       Guardian.Query.Evaluation
                                     ^                     | segment IDs only
                                     +---- Storage reads <-+ (segment_row_count,
                                     |                        get_column)
@@ -71,44 +71,44 @@ The design follows from the product commitments (spec section 1):
 
 ### 2.1 The supervision tree
 
-`Main` (the application module) starts these children in order, under a
+`Guardian.Main` (the application module) starts these children in order, under a
 `:one_for_one` supervisor:
 
 ```text
 Main (one_for_one)
-├── Rules.Server                     loads the rule store, publishes compiled rules, polls each minute
-├── Counters.Restarter               trapping lifecycle owner; backs off subtree recovery
-│   └── Counters.Supervisor (one_for_one)
-│       ├── Counters.Store           ephemeral node-local ETS counter storage
-│       └── Counters.Cluster         bounded owner routing and node-local cooldown
+├── Guardian.Rules.Server                     loads the rule store, publishes compiled rules, polls each minute
+├── Guardian.Counters.Restarter               trapping lifecycle owner; backs off subtree recovery
+│   └── Guardian.Counters.Supervisor (one_for_one)
+│       ├── Guardian.Counters.Store           ephemeral node-local ETS counter storage
+│       └── Guardian.Counters.Cluster         bounded owner routing and node-local cooldown
 ├── Storage (supervisor, rest_for_one)
-│   ├── Storage.Schema               per-table schema of loaded segments
-│   ├── Storage.LoadedSegments       mmap'd segment files; loads all at boot, rescans each minute
-│   ├── Storage.FullSegments         full in-memory segments waiting to persist
-│   ├── Storage.PersistedSegments    writes full segments to disk (shutdown budget 90 s)
-│   ├── Storage.MutableSegments      writable in-memory segments (shutdown budget 10 s)
-│   └── Storage.SegmentExpiration    deletes segments older than 15 days, every 10 minutes
+│   ├── Guardian.Storage.Schema               per-table schema of loaded segments
+│   ├── Guardian.Storage.LoadedSegments       mmap'd segment files; loads all at boot, rescans each minute
+│   ├── Guardian.Storage.FullSegments         full in-memory segments waiting to persist
+│   ├── Guardian.Storage.PersistedSegments    writes full segments to disk (shutdown budget 90 s)
+│   ├── Guardian.Storage.MutableSegments      writable in-memory segments (shutdown budget 10 s)
+│   └── Guardian.Storage.SegmentExpiration    deletes segments older than 15 days, every 10 minutes
 ├── SystemStats                      one system_stats row per second
-├── Web.QueryParseErrors             records query parse failures, asynchronously
-├── Web.QueryLog                     records every API query in `queries`, asynchronously
-├── Web.IngestIdempotency            bounded, node-local client-keyed ingest receipts
+├── Guardian.Web.QueryParseErrors             records query parse failures, asynchronously
+├── Guardian.Web.QueryLog                     records every API query in `queries`, asynchronously
+├── Guardian.Web.IngestIdempotency            bounded, node-local client-keyed ingest receipts
 ├── Web (supervisor, rest_for_one)
 │   ├── Anubis.Server.Registry       MCP session registry
-│   ├── Web.MCP.Server               the Anubis MCP server process
+│   ├── Guardian.Web.MCP.Server               the Anubis MCP server process
 │   └── Bandit.HTTP                  HTTP listener on GUARDIAN_PORT, default 8080 (shutdown 500 ms)
 └── DNSCluster                       peer discovery; does nothing unless DNS_CLUSTER_QUERY is set
 ```
 
 Why this order:
 
-1. Rules.Server starts first: its `init` loads and validates the whole rule set from
+1. Guardian.Rules.Server starts first: its `init` loads and validates the whole rule set from
    the store (section 3.4), and a store that is unreachable or rate-limiting (after a
    minute of retries), or misconfigured, refuses startup. Starting before Storage
    makes a bad store fail in seconds instead of after every segment has loaded. It
    holds nothing the ingest path needs between calls: the compiled rules are in
    `:persistent_term`, so if it restarts, ingestion keeps the published rules and the
    new process reloads in the background instead of failing again.
-2. Counters.Restarter starts after Rules.Server and owns a linked counter supervisor
+2. Guardian.Counters.Restarter starts after Guardian.Rules.Server and owns a linked counter supervisor
    that starts Store with empty private ETS tables, then Cluster with empty cooldown
    ETS and membership monitoring. It does no loading and is independent of rule
    compilation and event storage. Invalid Store options still refuse startup. Storage
@@ -117,11 +117,11 @@ Why this order:
    listener does not exist until all stored data is loaded. That is what lets
    `GET /health` double as a readiness check at boot (spec section 4.3), and it is why
    boot time grows with stored data. After boot, `GET /health` answers 503 unless
-   `Storage.ready?/0`: every Storage child is registered. It only looks up names, so it
+   `Guardian.Storage.ready?/0`: every Storage child is registered. It only looks up names, so it
    never blocks on a supervisor that is restarting children; because a GenServer
    registers its name before its `init`, it relies on SegmentExpiration starting last,
    after LoadedSegments has finished loading.
-3. The writers of built-in tables (SystemStats, Web.QueryParseErrors, Web.QueryLog)
+3. The writers of built-in tables (SystemStats, Guardian.Web.QueryParseErrors, Guardian.Web.QueryLog)
    start after Storage because they write to it.
 4. Web starts after everything it calls.
 5. Shutdown runs in reverse: discovery stops, then the HTTP listener (in-flight requests
@@ -149,14 +149,14 @@ development Mac), 110 s in all. A deployment must give the VM longer than that b
 SIGTERM and a kill: on Fly, `fly.toml`'s 150-second `kill_timeout` covers it after
 `bin/fly-start` has drained the tunnel connector (up to 10 s, and 20 s at worst before
 it is killed; section 10.1), leaving at least 20 s for the processes that stop before
-Storage.
+Guardian.Storage.
 
-`Main` uses the default restart intensity (3 restarts in 5 seconds). The release starts
+`Guardian.Main` uses the default restart intensity (3 restarts in 5 seconds). The release starts
 the application as permanent, so if Storage or Web keeps crashing the VM exits, and the
 deployment's supervisor restarts it (on Fly, `[[restart]] policy = "always"`).
 
-Counter failures use a separate restart boundary. Counters.Supervisor restarts each
-child independently, with its own 3-in-5-second intensity. Counters.Restarter traps
+Counter failures use a separate restart boundary. Guardian.Counters.Supervisor restarts each
+child independently, with its own 3-in-5-second intensity. Guardian.Counters.Restarter traps
 the linked subtree's exits, so even exhaustion (which exits with `:shutdown`) never
 spends Main's restart allowance. It logs an error with a fixed reason category and
 retries after 15 seconds, doubling after each failed start or short-lived recovery
@@ -193,27 +193,27 @@ Elixir), and `count_distinct` uses `hypex`, a HyperLogLog written in Elixir.
 
 ```text
 POST /api/json/send_events or MCP send_events
-  -> Web.Ingest.send_events/1           request validation, result shaping
-       -> Web.IngestIdempotency.run/4   optional keyed claim/receipt around Engine
-  -> Engine.ingest_events/2             table name check, then each event on its own
-       -> Storage.Flattening.flatten_event/1
+  -> Guardian.Web.Ingest.send_events/1           request validation, result shaping
+       -> Guardian.Web.IngestIdempotency.run/4   optional keyed claim/receipt around Engine
+  -> Guardian.Engine.ingest_events/2             table name check, then each event on its own
+       -> Guardian.Storage.Flattening.flatten_event/1
        -> drop invalid values and over-long keys
-       -> Rules.run_with_metadata/2, if rules exist (3.4): a worker, one outcome per event
+       -> Guardian.Rules.run_with_metadata/2, if rules exist (3.4): a worker, one outcome per event
        -> drop invalid values the rules produced
-       -> Storage.append_flattened_result/2
+       -> Guardian.Storage.append_flattened_result/2
             -> MutableSegments: pick the table's writable segment
             -> Segment.append (GenServer call into the segment process)
 ```
 
-Internal writers go through `Engine.log_event/2`, which stringifies keys and calls
-`Engine.ingest_event/2`, the raising single-event variant of the same path.
-`SystemStats`, `Web.Logger` and `Web.QueryParseErrors` call `Engine.try_log_event/2`,
+Internal writers go through `Guardian.Engine.log_event/2`, which stringifies keys and calls
+`Guardian.Engine.ingest_event/2`, the raising single-event variant of the same path.
+`Guardian.SystemStats`, `Guardian.Web.Logger` and `Guardian.Web.QueryParseErrors` call `Guardian.Engine.try_log_event/2`,
 which returns a failure as `{:error, kind}`, so a write that fails (Storage restarting,
 say) is skipped and logged by kind instead of crashing SystemStats, failing the
 request, or crashing the recorder.
 
-Client idempotency keys are checked only at `Web.Ingest`, shared by HTTP and MCP.
-The supervised `Web.IngestIdempotency` coordinator starts before Web and never runs
+Client idempotency keys are checked only at `Guardian.Web.Ingest`, shared by HTTP and MCP.
+The supervised `Guardian.Web.IngestIdempotency` coordinator starts before Web and never runs
 ingestion itself. Its GenServer atomically claims `{table, key}` and monitors the
 caller; that caller runs Engine and synchronously records a compact completion
 before returning. Token and owner checks prevent stale completion/cancellation.
@@ -241,16 +241,16 @@ MCP's existing tool serialization can delay the check until the first call finis
    (`[a-z_][a-z0-9_]*`, at most 64 bytes, not a tokenizer keyword or reserved name) is
    exactly what SQL can address as a bare identifier, so every stored table can be
    queried, and it keeps names safe inside filenames. The keyword list comes from
-   `AST.Tokenizer.keywords/0`, so the rule follows the tokenizer.
+   `Guardian.AST.Tokenizer.keywords/0`, so the rule follows the tokenizer.
 2. Each event is flattened (section 4.1) and every flattened value is checked with the
-   column NIF's own validity test (`Storage.Column.valid_value?/1`) and every key
+   column NIF's own validity test (`Guardian.Storage.Column.valid_value?/1`) and every key
    against the 250-byte limit. Invalid entries are dropped one by one; the rest of the
    event is stored. Using the NIF's own test means the rules cannot drift from what a
    column accepts.
 3. The validated flat row is what gets stored. Engine never unflattens and
    reflattens it, because unflattening cannot represent every shape flattening accepts
    (lists mixing scalars and objects).
-4. The event reported back to the caller is chosen carefully (`Engine.reported_event`):
+4. The event reported back to the caller is chosen carefully (`Guardian.Engine.reported_event`):
    the original when nothing was dropped, otherwise a rebuilt event, checked to hold
    every stored column, with a fallback that drops affected top-level fields. Spec
    section 5 item 4 describes what callers see.
@@ -262,7 +262,7 @@ MCP's existing tool serialization can delay the check until the first call finis
 
 Why validation lives in Engine and not Storage: Engine is the boundary where caller
 input becomes a row, and the reporting rules need the original event. Storage
-re-validates values as an assertion (`Storage.Value.validate/1`), so a caller that
+re-validates values as an assertion (`Guardian.Storage.Value.validate/1`), so a caller that
 bypasses Engine fails loudly instead of corrupting a column.
 
 ### 3.2 Appending
@@ -307,7 +307,7 @@ packs a snapshot of it; `lib/storage/CLAUDE.md` covers the costs).
    receipts around Engine (section 3 above).
 3. No bound on flattening cost beyond the 8 MB request body. Engine also flattens
    each event twice.
-4. Request logging is synchronous: `Web.Logger` writes the `web_requests` row through
+4. Request logging is synchronous: `Guardian.Web.Logger` writes the `web_requests` row through
    Engine before the request runs, so a stalled Storage delays every JSON API request.
 
 ### 3.4 Rules
@@ -316,29 +316,29 @@ Rules (spec section 5.1) are files of SET, UNSET, TRACK and LOOKUP statements, `
 in a rule store: a local folder or an S3-compatible bucket (`lib/rules/CLAUDE.md`;
 the design and its reviews are `docs/changes/ingest-rules.md`).
 
-1. Parsing and validation: `AST.Parser.parse_rules/1` parses a file (statement words
-   are matched by position, not reserved). `Rules.RuleSet.validate/1` takes the whole
-   set and returns each table's resolved `Rules.Plan` (dependencies ordered, UNSETs last,
+1. Parsing and validation: `Guardian.AST.Parser.parse_rules/1` parses a file (statement words
+   are matched by position, not reserved). `Guardian.Rules.RuleSet.validate/1` takes the whole
+   set and returns each table's resolved `Guardian.Rules.Plan` (dependencies ordered, UNSETs last,
    identical duplicates merged) or its errors: parse errors, paths and limits,
    invalid scalar/aggregate use, a field defined two ways and cycles.
    `prepare/1` validates counter operators/scalar clauses/windows/targets,
    orders SET/TRACK/LOOKUP expression dependencies with a LOOKUP-before-TRACK
-   barrier, and binds immutable definition identities through `Rules.Resolution`.
+   barrier, and binds immutable definition identities through `Guardian.Rules.Resolution`.
    Invalid target tables propagate to dependent plans to a fixed point.
-   It is pure. Typed per-kind steps (`Rules.Step`), scalar/counter checks
-   (`Rules.Validation`) and dependency ordering
-   (`Rules.DependencyGraph`) are separate from rule-set orchestration.
-   `Rules.Activation.select/2` selects plans for Server activation:
+   It is pure. Typed per-kind steps (`Guardian.Rules.Step`), scalar/counter checks
+   (`Guardian.Rules.Validation`) and dependency ordering
+   (`Guardian.Rules.DependencyGraph`) are separate from rule-set orchestration.
+   `Guardian.Rules.Activation.select/2` selects plans for Server activation:
    invalid components of old/new LOOKUP dependencies retain prior plans together,
    including deleted targets/dependents. Tables without a previous valid plan in
    such components are invalid.
    Valid unrelated components still activate. Server uses the same `prepare/1` on
    boot, reload and both sides of write admission. Local candidates have `resolved?: false`; only successful
    whole-set resolution marks them ready for compilation.
-2. Compilation: `Rules.Compiler` turns a plan into a module from a fixed template,
-   calling `Rules.Runtime.run/3` with dependency levels of typed steps as escaped literals
-   (expressions run through the scalar evaluator, `Query.Eval` on an event map). Names
-   come from a pool of 1,024 (`Rules.Compiled.M0`...), so atoms are bounded.
+2. Compilation: `Guardian.Rules.Compiler` turns a plan into a module from a fixed template,
+   calling `Guardian.Rules.Runtime.run/3` with dependency levels of typed steps as escaped literals
+   (expressions run through the scalar evaluator, `Guardian.Query.Eval` on an event map). Names
+   come from a pool of 1,024 (`Guardian.Rules.Compiled.M0`...), so atoms are bounded.
    Compiler independently refuses unresolved candidates and LOOKUPs without bound
    targets.
    Each generated module exposes its exact resolved `plan/0` as escaped literal
@@ -355,15 +355,15 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    pool, reclaimed with the code; no separate per-reload history/cache is kept.
    Preparation errors and selected-table errors are combined for diagnostics,
    while write admission compares only the stored sets' preparation errors.
-4. Running: `Rules.Runner` runs a batch in a worker with the query heap limit (without
+4. Running: `Guardian.Rules.Runner` runs a batch in a worker with the query heap limit (without
    the error_logger report), sending each row's result back; a row over 1 s, or a
    worker that dies, fails that row and a new worker continues. The worker reads the
-   map per row. `Rules.Runtime` resolves reads (exact key, else the first
+   map per row. `Guardian.Rules.Runtime` resolves reads (exact key, else the first
    case-insensitive match in byte order), applies WHERE (true only), SET (remove the
    whole field in any case, then put) and UNSET (remove the path in any case and
    everything beneath). SET/UNSET exceptions fail the event; counter exceptions
    supply aggregate defaults and continue, including final UNSETs. At the first
-   statement it indexes the row (`Rules.RowIndex`): each lowercase spelling's present
+   statement it indexes the row (`Guardian.Rules.RowIndex`): each lowercase spelling's present
    keys in order, and, at the first SET or UNSET that applies, a trie of keys by
    lowercase object path. A SET or UNSET then touches only the keys it removes and a
    read is a lookup, so an event's rules cost about its columns plus its statements,
@@ -378,7 +378,7 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    in between restarts the read). A table invalid at boot is published as invalid; a
    running node keeps a table's previous good module if its stored copy turns
    invalid.
-6. Writes (`Rules.Server`): take the lock, an object in the store (`Rules.Lock`:
+6. Writes (`Guardian.Rules.Server`): take the lock, an object in the store (`Guardian.Rules.Lock`:
    `If-None-Match: *` create, 120 s lease judged by the store's own clock, takeover of
    an expired or released lock with `If-Match`, ownership-safe release), read the set
    from the store, refuse the change if it adds an error, check 80 s of lease remain,
@@ -398,9 +398,9 @@ invalid set, which loading then handles per table (spec section 12).
 
 ### 3.5 Counters
 
-`Counters.Store` is the node-local foundation for TRACK/LOOKUP
+`Guardian.Counters.Store` is the node-local foundation for TRACK/LOOKUP
 (`docs/changes/ingest-rules.md`). Public whole-set validation and Compiler admit
-resolved counter plans; generated modules call `Rules.CounterRuntime` through
+resolved counter plans; generated modules call `Guardian.Rules.CounterRuntime` through
 the typed-step dispatcher. It keeps LOOKUP-before-TRACK ordering,
 uses the mutation's returned state for current-event inclusion, defaults the
 whole result on any failed operation, and leaves SET/UNSET failures fail closed.
@@ -428,7 +428,7 @@ A turn with more expired entries schedules its next page immediately, interleavi
 queued requests; otherwise the next sweep waits one second. Tagged messages keep
 one periodic timer chain, and stale sweep tags do nothing.
 TTL uses local monotonic time. A restart clears this store without restarting
-Storage or Rules.Server.
+Storage or Guardian.Rules.Server.
 
 GUARDIAN_COUNTER_MEMORY_MB sets the positive MiB budget (default 64), converted to
 `:counter_memory_budget_bytes`; explicit empty/invalid values refuse startup.
@@ -448,15 +448,15 @@ deadline passed returns a timeout without mutating. Execution that has already
 begun can still finish after its caller times out, so uncertain increments must not
 be retried. Errors and formatted status disclose no keys or values.
 
-`Counters.Cluster`, independently supervised after Store inside the counter subtree,
+`Guardian.Counters.Cluster`, independently supervised after Store inside the counter subtree,
 provides owner routing for TRACK/LOOKUP. It takes
 one connected-member snapshot per event, without Storage readiness RPCs, then
 chooses the highest SHA-256 rendezvous score for `{identity, group}` and node name.
 Its explicit typed encoding is independent of Erlang external-term format and
 preserves integer/float and signed-zero distinctions. All buckets share one owner.
 Each dependency level expands its counter statements into bucket key machines;
-`Counters.Machine.run_nested/3` runs them together in batched rounds and restores
-the per-counter result lists. `Counters.KeyMachines` supplies read, native incr,
+`Guardian.Counters.Machine.run_nested/3` runs them together in batched rounds and restores
+the per-counter result lists. `Guardian.Counters.KeyMachines` supplies read, native incr,
 and gets/merge/CAS callbacks. Buckets combine oldest to newest, resolving once;
 any failed bucket defaults its whole statement. LOOKUP ancestors and LOOKUP levels
 drain before any TRACK level. Scalar work finishes before a level dispatches, and
@@ -505,14 +505,14 @@ there is no replication, migration or partition recovery protocol.
 `system_stats.counters_available` reports whether the counter supervisor, Store and
 Cluster are registered. This samples presence without waiting for any process; it
 is not a responsiveness probe. It becomes false during subtree downtime or a child
-restart and true after recovery. `/health` continues to depend only on Storage.
+restart and true after recovery. `/health` continues to depend only on Guardian.Storage.
 
 ## 4. Storage engine
 
 `lib/storage/CLAUDE.md` is the authoritative description of the segment lifecycle
 rules. This section explains the structure and the reasons.
 
-`Storage` is the subsystem's only public module (besides the data modules `Column`,
+`Guardian.Storage` is the subsystem's only public module (besides the data modules `Column`,
 `Column.Metadata`, `Value` and `Flattening`). Code outside `lib/storage` names segments
 by ID and never holds a segment's PID, so Storage can change how segments are held
 without touching query code.
@@ -522,9 +522,9 @@ without touching query code.
 1. A table is a set of segments with the same table name. It has no other existence:
    it appears with its first segment and disappears with its last.
 2. A segment is a batch of up to 16,384 rows held as one column per flattened key.
-   Each segment is an Erlang process (`Storage.Segment`), identified by a segment ID:
+   Each segment is an Erlang process (`Guardian.Storage.Segment`), identified by a segment ID:
    32 hex characters encoding the creation time in nanoseconds plus 8 random bytes
-   (`SegmentID`). IDs sort by creation time and are unique across machines, which is
+   (`Guardian.SegmentID`). IDs sort by creation time and are unique across machines, which is
    why the same ID can be listed by two lifecycle stages and simply deduplicated.
 3. A column holds any mix of null, boolean, 64-bit integer, float, string, and list
    values (lists of scalars, or of lists of scalars). While a segment is writable a
@@ -569,9 +569,9 @@ A segment moves through four managers, each an ETS registry owned by a GenServer
    the check is retried.
 
 Ordering is the correctness argument for visibility. Every handoff registers the
-destination before removing the source, and `Storage.segment_ids/1` reads the registries
+destination before removing the source, and `Guardian.Storage.segment_ids/1` reads the registries
 in lifecycle order (Mutable, Full, Persisted, Loaded), so a segment moving during a scan
-is seen at least once; duplicates are removed by ID. `Storage.get_segment/1` checks
+is seen at least once; duplicates are removed by ID. `Guardian.Storage.get_segment/1` checks
 Loaded again at the end, because a segment can leave the persisted cache after the first
 Loaded lookup.
 
@@ -580,7 +580,7 @@ Known limits of the lifecycle:
 1. Deletion is not serialized with persistence. A segment deleted while the persister
    writes it, or after its file was written but before LoadedSegments registered it,
    leaves a file that the next rescan loads again.
-2. A segment that dies between LoadedSegments starting it and Storage.Schema
+2. A segment that dies between LoadedSegments starting it and Guardian.Storage.Schema
    registering it (both call the segment) still crashes those processes: their reads
    return `segment_unavailable` at once, and they match only success. Their reads
    carry a 5 s timeout, so a hung segment crashes them rather than blocking them.
@@ -597,10 +597,10 @@ secondary header 8 packed columns, one entry per stored column:
 column data      each stored column's packed binary, in key order
 ```
 
-`Storage.SegmentFile` encodes and decodes this layout and owns the filename rules;
+`Guardian.Storage.SegmentFile` encodes and decodes this layout and owns the filename rules;
 `test/storage/segment_file_golden_test.exs` pins it byte for byte.
 
-`Storage.BlobStore.write/2` writes the file under a unique temporary name
+`Guardian.Storage.BlobStore.write/2` writes the file under a unique temporary name
 (`{final}.{n}.tmp`), fsyncs it, and renames it into place, so a reader never sees a
 partly written file under the final name, after a VM crash or a host crash.
 
@@ -638,7 +638,7 @@ format are ignored with one startup warning and never deleted.
 ### 4.4 Loading, mmap, and rescans
 
 At boot, LoadedSegments lists the segment directory and starts one segment process per
-file, each holding the file mapped with `Storage.Mmap`. Columns are sub-binaries of
+file, each holding the file mapped with `Guardian.Storage.Mmap`. Columns are sub-binaries of
 the mapping, so they occupy page cache, not VM heap, and the kernel pages them in as
 queries touch them. Every 60 seconds it rescans the directory: new files are loaded,
 and segments whose files disappeared are stopped. That rescan is what makes restoring
@@ -657,7 +657,7 @@ changes, so an operator who
 restores a good copy (written under another name, then renamed into place, never
 copied over the file) sees it loaded on the next rescan. A skipped file that disappears
 is forgotten, and SegmentExpiration deletes skipped files on the same 15-day schedule
-as loaded ones. `Storage.delete_table/1` (no interface calls it) does not see skipped
+as loaded ones. `Guardian.Storage.delete_table/1` (no interface calls it) does not see skipped
 files. If PersistedSegments finds the file it just wrote unreadable when its cache
 expires, it rewrites the file once from the in-memory segment and, if that fails too,
 keeps serving the segment from memory and retries every 10 minutes.
@@ -671,28 +671,28 @@ grows with the number of segments; the Fly health check allows 10 minutes for it
 
 ### 4.5 Schema inference
 
-`Storage.Schema` keeps, per table, the summed column counts, row count, and segment
+`Guardian.Storage.Schema` keeps, per table, the summed column counts, row count, and segment
 count of all loaded segments. It monitors each loaded segment and subtracts its counts
 when the process stops, which is why unloading a segment must stop its process, and a
-table is forgotten with its last loaded segment. `Storage.schema/1` adds the counts of
+table is forgotten with its last loaded segment. `Guardian.Storage.schema/1` adds the counts of
 the table's writable segments on top (skipping one deleted or stopped while it reads;
 one that does not answer within 5 s fails the lookup rather than dropping its
-columns), and `Storage.table_names/0` likewise lists tables
+columns), and `Guardian.Storage.table_names/0` likewise lists tables
 with loaded or writable segments. There is no persistent catalog. The model has a gap: a
 segment that is full or recently persisted but not yet loaded (normally under a minute,
 longer if its write fails) is read by SELECT but left out of the schema, so `SHOW
 TABLES`, `DESC`, the `schema` table, and `SELECT *` can briefly miss its columns or, for
-a table with no other segments, the table itself. Across machines, `Cluster.Metadata`
+a table with no other segments, the table itself. Across machines, `Guardian.Cluster.Metadata`
 adds every node's schemas together (section 7).
 
 ### 4.6 Retention
 
-`Storage.SegmentExpiration` runs at boot and every 10 minutes. It deletes every loaded
+`Guardian.Storage.SegmentExpiration` runs at boot and every 10 minutes. It deletes every loaded
 segment whose ID timestamp is more than 15 days old: the file is removed and the
 segment process stopped. Age comes from the segment ID, that is from when the segment
 was created, not from event timestamps. Retention is global and the 15 days is a
 constant in code. There is no other deletion path through the product; operators can
-call `Storage.delete_table/1` and `Storage.delete_segment/1` from the remote console.
+call `Guardian.Storage.delete_table/1` and `Guardian.Storage.delete_segment/1` from the remote console.
 
 ### 4.7 Memory
 
@@ -717,19 +717,19 @@ the machine.
 
 ```text
 SQL text
-  -> AST.Parser (tokenizer, recursive descent)          lib/ast
-  -> Query.Resolver (SHOW/DESC, LET, columns, SELECT *)  uses Cluster.Metadata
-  -> Query.Planner (list of plan steps)
-  -> Query.run: Query.DistributedStream over every node, Query.Evaluation per segment
-  -> rows (lists of values), labeled by Query.Resolver.labels/1
+  -> Guardian.AST.Parser (tokenizer, recursive descent)          lib/ast
+  -> Guardian.Query.Resolver (SHOW/DESC, LET, columns, SELECT *)  uses Guardian.Cluster.Metadata
+  -> Guardian.Query.Planner (list of plan steps)
+  -> Guardian.Query.run: Guardian.Query.DistributedStream over every node, Guardian.Query.Evaluation per segment
+  -> rows (lists of values), labeled by Guardian.Query.Resolver.labels/1
 ```
 
 ### 5.1 Parsing
 
-`AST.Tokenizer` and `AST.Parser` are hand-written: a tokenizer and a recursive-descent
+`Guardian.AST.Tokenizer` and `Guardian.AST.Parser` are hand-written: a tokenizer and a recursive-descent
 parser producing structs, one module per node type under `lib/ast/node/`. Each node
-module implements the `AST.Node` behaviour: it can print itself back as source
-(`to_source/1`) and be traversed (`traverse/4`, through `AST.Node.traverse_fields/5`
+module implements the `Guardian.AST.Node` behaviour: it can print itself back as source
+(`to_source/1`) and be traversed (`traverse/4`, through `Guardian.AST.Node.traverse_fields/5`
 for nodes with children); column
 labels are the source text of each select expression, which is why round-trip printing
 matters (a label from `INTERVAL n WEEK` that cannot be re-parsed is one gap). Function and aggregate names are
@@ -741,24 +741,24 @@ them, and the same structs serve parsing, printing, and evaluation.
 
 ### 5.2 Resolution
 
-`Query.Resolver.resolve/1` turns source text into executable SELECT statements:
+`Guardian.Query.Resolver.resolve/1` turns source text into executable SELECT statements:
 
 1. `SHOW TABLES` and `DESC t` become SELECTs on the virtual `schema` table.
 2. `LET name = expr;` substitutions are applied to the statements after them.
 3. Column names are matched to stored names ignoring case, using the merged schema of
    each table the statement reads; two stored names that differ only by case raise
-   `Query.AmbiguousColumnError`. Evaluation itself is case-sensitive, so anything
+   `Guardian.Query.AmbiguousColumnError`. Evaluation itself is case-sensitive, so anything
    that skips the Resolver is too.
 4. `SELECT *` expands to the table's columns across all machines.
 
 It returns each statement paired with its column labels, taken from the statement
-before LET substitution (`Query.Resolver.labels/1`). Resolution needs schemas, so it
+before LET substitution (`Guardian.Query.Resolver.labels/1`). Resolution needs schemas, so it
 is the one step before execution that talks to other machines (section 7).
 
 ### 5.3 Planning
 
-`Query.Planner.query_plan/1` rewrites a SELECT into an ordered list of steps by peeling
-clauses off from the outside in (`Query.Executor` runs them):
+`Guardian.Query.Planner.query_plan/1` rewrites a SELECT into an ordered list of steps by peeling
+clauses off from the outside in (`Guardian.Query.Executor` runs them):
 
 1. `{:from, table}`: list segments on every node (or a one-row column snapshot for
    SELECT without FROM, or the virtual schema table as one column snapshot).
@@ -775,12 +775,12 @@ clauses off from the outside in (`Query.Executor` runs them):
    `:desc`) and the integer limit.
 
 There is no cost model and no index: every plan scans every segment of the table.
-`Query.Evaluation.pre_eval/1` can fold constant subexpressions, but the query path does
+`Guardian.Query.Evaluation.pre_eval/1` can fold constant subexpressions, but the query path does
 not call it; constants are evaluated per segment as constant columns, which is cheap.
 
 ### 5.4 Distributed execution
 
-`Query.run/1` executes the plan (through `Query.Executor`) with `Query.DistributedStream`
+`Guardian.Query.run/1` executes the plan (through `Guardian.Query.Executor`) with `Guardian.Query.DistributedStream`
 (`lib/query/distributed_stream.ex`, vendored from the `distributed_stream` 0.1.4 Hex
 package). Its moduledoc is the contract (API, failure
 model, exit reasons) and `lib/query/distributed_stream/CLAUDE.md` holds the protocol's
@@ -800,7 +800,7 @@ How Guardian's plan maps onto stages:
    on; only result rows travel. Each node scans with a single worker per query.
 2. GROUP BY repartitions: each row is sent to one of the cluster's aggregation
    partitions (up to two per node), chosen by rendezvous hashing on the group key
-   (`Query.Rendezvous`), so all rows of one group meet in one process. Each partition
+   (`Guardian.Query.Rendezvous`), so all rows of one group meet in one process. Each partition
    aggregates into an ETS table with the aggregation's `start`, `merge`, and `finish`
    functions (`lib/aggregation/CLAUDE.md`; merge must be associative because partial
    results combine across segments and nodes).
@@ -812,7 +812,7 @@ How Guardian's plan maps onto stages:
 
 Process structure and failure handling:
 
-1. `Query.run/1` runs the query in its own process, which traps exits and is the
+1. `Guardian.Query.run/1` runs the query in its own process, which traps exits and is the
    pipeline's consumer. It links one router per stage and a final router (which
    names the consumer as the last stage's receiver). Routers trap exits and start
    their workers with `Node.spawn_link/2`, so every worker's exit reason reaches its
@@ -822,7 +822,7 @@ Process structure and failure handling:
    process.
 2. Any abnormal exit (a worker that crashes, a lost node's `:noconnection`) makes its
    router exit with that reason; the consumer then stops the rest of the pipeline and
-   the query raises a `Query.Error`. Exit signals interrupt even a worker blocked in a
+   the query raises a `Guardian.Query.Error`. Exit signals interrupt even a worker blocked in a
    call, so nothing is left running. A worker reports to its router that it finished
    before exiting, so one that ends normally without finishing fails the query too.
 3. Edges carry their own checks, because a connection between two worker nodes can
@@ -841,7 +841,7 @@ Process structure and failure handling:
    pipeline with `{:shutdown, :halted}` exit signals before the rows are returned.
    Stages must read all their input: a worker whose input stream did not reach its
    end fails the query with `worker_finished_early`.
-5. Expression evaluation in workers runs under `Query.WorkerErrors.guard/2`, which
+5. Expression evaluation in workers runs under `Guardian.Query.WorkerErrors.guard/2`, which
    reports the first exception to a collector, skips the worker's remaining work, and
    raises it once the stream ends. Workers then never crash on expression errors, so
    no crash report carries row values into the log. GROUP BY's aggregate steps (start,
@@ -851,7 +851,7 @@ Process structure and failure handling:
    (`partitions/1`, a 5-second multicall) gets no GROUP BY partitions; its rows hash
    to the others' partitions, so nothing is lost.
 7. The query process and every worker, including the initial worker, put this node's
-   heap limit on themselves as they start (`Query.Limits.limit_heap/0`, section 5.7);
+   heap limit on themselves as they start (`Guardian.Query.Limits.limit_heap/0`, section 5.7);
    routers do not. A process the limit kills exits `:killed`, which fails the query
    like any other abnormal exit, with a message that hedges about the cause.
 
@@ -862,9 +862,9 @@ truncated results; Guardian's vendored copy replaces it and has diverged from it
 
 ### 5.5 Evaluation
 
-`Query.Evaluation` evaluates an AST expression against a context: a segment snapshot,
+`Guardian.Query.Evaluation` evaluates an AST expression against a context: a segment snapshot,
 an event map, or nothing (constants). For a segment it produces a whole column (or a
-constant with a row count, `Query.ColumnOrConstant`), so `a + b` is one NIF call over
+constant with a row count, `Guardian.Query.ColumnOrConstant`), so `a + b` is one NIF call over
 two columns. A snapshot names a segment by ID with a row count fixed when the query
 listed it; the worker looks the segment up locally, so rows appended after that are not
 seen. Query temporaries (the one row of a SELECT without FROM, the `schema` table, and
@@ -873,12 +873,12 @@ key to packed binary, with no process behind it, freed when the last stage drops
 
 1. Operators are AST node modules that carry their own evaluation
    (`lib/ast/node/operators/`).
-2. Scalar functions are modules registered by name and arity in `Query.Function`; each
-   has a scalar `eval/N`, which `AST.Node.FunctionCall` maps over the argument columns,
+2. Scalar functions are modules registered by name and arity in `Guardian.Query.Function`; each
+   has a scalar `eval/N`, which `Guardian.AST.Node.FunctionCall` maps over the argument columns,
    and only the few that need more (short circuits, literal compilation, NIF paths)
    define their own columnar `eval2/2`. Most return null on wrong-type input instead
    of failing (`lib/query/function/CLAUDE.md`).
-3. Aggregates are registered in `Aggregation` and planned, not evaluated as functions.
+3. Aggregates are registered in `Guardian.Aggregation` and planned, not evaluated as functions.
 4. Regular expressions compile once per evaluation (per segment), not per row, when
    the pattern is a literal (section 5.6).
 5. Column metadata enables short cuts: an all-true or all-false WHERE column skips
@@ -886,7 +886,7 @@ key to packed binary, with no process behind it, freed when the last stage drops
 
 ### 5.6 Regular expressions
 
-`Query.Regex` is the one place patterns are compiled and run, on Erlang's `:re`
+`Guardian.Query.Regex` is the one place patterns are compiled and run, on Erlang's `:re`
 (PCRE2): the parser validates `RLIKE` and `replace` patterns with it, and evaluation
 compiles them again, once per evaluation. Compiled patterns are never put in the AST,
 which travels between nodes. Patterns compile in UTF-8 mode without `ucp`, so values
@@ -904,7 +904,7 @@ with the group count, so the cap and the depth limit together bound a run's memo
 empty-match rules), gives null for a match that starts or ends inside a UTF-8
 character (only `\C` can do that), and then appends the untouched slices and the
 literal replacement to one binary, stopping once it reaches the 64 KiB string cap
-(`Query.Text`).
+(`Guardian.Query.Text`).
 `:re` builds the whole offset list on the calling process's heap, about two matches
 per character at worst. A value up to 16 KiB is replaced in the calling process (at
 most about 33,000 matches, measured at 10 to 20 MB of process memory). A larger value
@@ -929,31 +929,31 @@ for `RLIKE`: roughly 2.5 to 10 µs a row for an 89-byte string, against under 1.
 
 ### 5.7 Query limits
 
-`Query.Limits` caps what collects on the coordinator: 100,000 rows and about 64 MiB of
+`Guardian.Query.Limits` caps what collects on the coordinator: 100,000 rows and about 64 MiB of
 result, the input of an in-memory ORDER BY, and the merge of ORDER BY ... LIMIT; ORDER
 BY with a LIMIT above the row cap is refused. Strings that functions build are cut to
-64 KiB (`Query.Text`), never refused. A query may run for 30 seconds:
-`Query.run/1` then kills its process, whose links stop every router and worker on
-every machine, and raises. Exceeding a cap or the time limit raises `Query.Error`,
+64 KiB (`Guardian.Query.Text`), never refused. A query may run for 30 seconds:
+`Guardian.Query.run/1` then kills its process, whose links stop every router and worker on
+every machine, and raises. Exceeding a cap or the time limit raises `Guardian.Query.Error`,
 which both interfaces report with its message. The caps are application environment
 values (section 9).
 
-Each process a query runs in also carries a heap limit: `Query.Limits.limit_heap/0`
+Each process a query runs in also carries a heap limit: `Guardian.Query.Limits.limit_heap/0`
 sets `max_heap_size` (`kill: true`, `error_logger: true`,
 `include_shared_binaries: false`) to `GUARDIAN_QUERY_MAX_HEAP_MB` (default 256 MiB,
 `0` turns it off) on the query process and on every DistributedStream worker, on
 whichever node it runs, reading that node's own setting; routers are not limited. A
-`:killed` exit from a pipeline or the query process becomes the `Query.Error` "a query
+`:killed` exit from a pipeline or the query process becomes the `Guardian.Query.Error` "a query
 process was killed; it may have exceeded its heap limit (GUARDIAN_QUERY_MAX_HEAP_MB);
-narrow the query with WHERE, LIMIT or fewer groups" (`Query.Failure`). The reason
+narrow the query with WHERE, LIMIT or fewer groups" (`Guardian.Query.Failure`). The reason
 cannot prove a heap kill, so the message hedges. Shared binaries are left out because
 a worker holds references to whole mapped segment files, which would otherwise count
 again in every process. In a rolling deploy from a release without the limit, queries
 can fail until every node runs the new one, since workers call
-`Query.Limits.limit_heap/0` on whichever node they start (section 7).
+`Guardian.Query.Limits.limit_heap/0` on whichever node they start (section 7).
 
-Queries read segments by ID through `Storage.segment_row_count/1` and
-`Storage.get_column/2`, which resolve the ID on every call and use Segment's monitored
+Queries read segments by ID through `Guardian.Storage.segment_row_count/1` and
+`Guardian.Storage.get_column/2`, which resolve the ID on every call and use Segment's monitored
 readers with no timeout: a slow segment is waited for, and one that is deleted,
 expires, crashes, or sits on a node that disconnects fails the query at once with
 "segment `id` became unavailable during the query". The exception is a segment whose
@@ -979,28 +979,28 @@ Authentication, CORS, and what each surface reveals without a key are in
 ### 6.1 HTTP server and routing
 
 Bandit serves HTTP on `GUARDIAN_PORT` (default 8080, in development too; an OS-chosen
-port in tests). `Web.MainRouter` answers `GET /health`, forwards `/api/json` and `/mcp`,
+port in tests). `Guardian.Web.MainRouter` answers `GET /health`, forwards `/api/json` and `/mcp`,
 and answers 404 otherwise. Guardian speaks plain HTTP; TLS is the job of whatever sits
 in front of it (on Fly, Fly's edge).
 
 ### 6.2 JSON API
 
-`Web.JsonApi` is a Plug router. Plug order is the important part: CORS (which answers
+`Guardian.Web.JsonApi` is a Plug router. Plug order is the important part: CORS (which answers
 preflights), then the key check (which notes whether the key came from the header or
 the query parameter), then body parsing (JSON only, 8 MB limit), then
-routing, then `Web.Logger`, then the handler. Checking the key before reading the body
+routing, then `Guardian.Web.Logger`, then the handler. Checking the key before reading the body
 means an anonymous client cannot make the server parse anything.
 
-1. `/send_events` calls `Web.Ingest.send_events/1`, shared with MCP, so both
+1. `/send_events` calls `Guardian.Web.Ingest.send_events/1`, shared with MCP, so both
    interfaces validate requests and shape results identically.
-2. `/query` calls `Web.Query.execute/3` (which has `Web.QueryLog` record every query
-   and `Web.QueryParseErrors` parse failures, section 6.5) around `Query.execute/2`, the SQL entry point the MCP tool also uses.
+2. `/query` calls `Guardian.Web.Query.execute/3` (which has `Guardian.Web.QueryLog` record every query
+   and `Guardian.Web.QueryParseErrors` parse failures, section 6.5) around `Guardian.Query.execute/2`, the SQL entry point the MCP tool also uses.
    It resolves the SQL, requires exactly one statement, calls
-   `Query.run/1` from the request process (which runs the query in its own process),
+   `Guardian.Query.run/1` from the request process (which runs the query in its own process),
    and returns labels and rows, which `/query` sends as `{columns, rows}`. A wrong
-   statement count or a `Query.Error` from running comes back as an error message and
+   statement count or a `Guardian.Query.Error` from running comes back as an error message and
    becomes 400; other exceptions become a bare 500 and are printed to stdout.
-3. `Web.Logger` writes a `web_requests` row before the handler and a `web_responses`
+3. `Guardian.Web.Logger` writes a `web_requests` row before the handler and a `web_responses`
    row before the response is sent, for authenticated requests only. Both carry
    `auth_method`, `header` or `query`, from the key check.
 
@@ -1012,12 +1012,12 @@ is not covered.
 
 The MCP endpoint uses the Anubis library, pinned at 0.16.0 (reasons in
 [dependency pins](#104-dependency-pins)), over Streamable HTTP.
-`Web.MCP.Router` runs four plugs before handing the request to Anubis's transport:
+`Guardian.Web.MCP.Router` runs four plugs before handing the request to Anubis's transport:
 
 1. The key check, on every request, so an MCP session carries no authority of its own.
    MCP requests are not recorded in `web_requests`, so when one authenticates with
    the query parameter, the router logs one info line naming the path (never the
-   key), at most once a minute per node (`Web.Auth.note_query_key_use/1`).
+   key), at most once a minute per node (`Guardian.Web.Auth.note_query_key_use/1`).
 2. A 404 for an unknown or expired `mcp-session-id`, which Anubis 0.16 would
    otherwise accept as a new uninitialized session.
 3. A 405 for `GET`, so Guardian never opens a server-push stream and every result
@@ -1034,7 +1034,7 @@ The MCP endpoint uses the Anubis library, pinned at 0.16.0 (reasons in
 Steps 2 to 4 work around Anubis 0.16 behavior and depend on its internals
 (`lib/web/mcp/CLAUDE.md`); recheck them on any upgrade.
 
-`Web.MCP.Server` defines the `query` and `send_events` tools and the
+`Guardian.Web.MCP.Server` defines the `query` and `send_events` tools and the
 `guardian://query-language` resource, which serves `lib/web/mcp/query_language.md`. A
 test fails if a registered function or aggregate is missing from that file.
 It registers them on Anubis's frame before every request: Anubis 0.16 keeps
@@ -1056,38 +1056,38 @@ Storage write would stall all MCP tool calls.
 ### 6.4 Remote console
 
 The release's remote IEx shell attaches to a running node with full VM access (spec
-section 4.4). Operators can call `Query.execute/1` directly for labels and rows;
+section 4.4). Operators can call `Guardian.Query.execute/1` directly for labels and rows;
 these queries are not recorded in `queries` or `query_parse_errors`.
 
 ### 6.5 Built-in tables
 
-Guardian observes itself by writing ordinary tables through `Engine.log_event/2`
+Guardian observes itself by writing ordinary tables through `Guardian.Engine.log_event/2`
 (section 3), so the same query language, retention, and fan-out apply to them (spec section
 8 lists their fields):
 
-1. `system_stats`: `SystemStats` ticks once a second on a monotonic schedule and
+1. `system_stats`: `Guardian.SystemStats` ticks once a second on a monotonic schedule and
    writes Erlang VM counters. A failed write is skipped (warned once, until a write
    succeeds) rather than crashing it every second. Each row's `host` is the
    machine's hostname (on Fly.io, its machine ID), which tells a cluster's machines
    apart when their hostnames differ; rows carry no Erlang node name.
-2. `web_requests` and `web_responses`: `Web.Logger`, synchronously in the request. A
+2. `web_requests` and `web_responses`: `Guardian.Web.Logger`, synchronously in the request. A
    failed write is logged by kind and does not fail the request.
-3. `query_parse_errors`: `Web.Query.execute/3` catches `AST.ParseError`
-   from resolution (through `Query.execute/2`'s `:on_parse_error` callback),
+3. `query_parse_errors`: `Guardian.Web.Query.execute/3` catches `Guardian.AST.ParseError`
+   from resolution (through `Guardian.Query.execute/2`'s `:on_parse_error` callback),
    builds a bounded row in the request process, and casts it to the
-   `Web.QueryParseErrors` GenServer unless that GenServer's mailbox already holds about
+   `Guardian.Web.QueryParseErrors` GenServer unless that GenServer's mailbox already holds about
    100 rows (a best-effort check by the sender); the GenServer applies the hourly
    per-machine cap (60) and writes the row; it reraises the original error so the
    response is unchanged. A failed write or row build is logged by kind and does not
    affect the response. The bounds (spec section 8) keep a flood of bad queries from
    growing the table or delaying responses.
-4. `queries`: `Web.Query.execute/3` times every query and catches every outcome (a
+4. `queries`: `Guardian.Web.Query.execute/3` times every query and catches every outcome (a
    result, an error result, or a raise, exit or throw, which it reraises unchanged
    with `:erlang.raise/3`), builds a bounded row in the request process and casts it
-   to the `Web.QueryLog` GenServer, which writes it through `Engine.try_log_event/2`.
+   to the `Guardian.Web.QueryLog` GenServer, which writes it through `Guardian.Engine.try_log_event/2`.
    It runs only on the machine that received the request, which coordinates the
-   query; peers run plan steps and schema lookups through `Query` internals, never
-   through `Web.Query`, so each query is one row. Writing is an ingest, never a query,
+   query; peers run plan steps and schema lookups through `Guardian.Query` internals, never
+   through `Guardian.Web.Query`, so each query is one row. Writing is an ingest, never a query,
    so there is no recursion. No rate cap; when the GenServer's mailbox already holds
    1,000 rows (a best-effort check by the sender) the row is dropped and counted in an
    atomic the GenServer owns (`:persistent_term`, keyed by its name), which the next
@@ -1101,8 +1101,8 @@ Guardian observes itself by writing ordinary tables through `Engine.log_event/2`
 ## 7. Clustering
 
 Every node is a distributed Erlang node. `rel/env.sh.eex` names it in one of three
-modes, and `DNSCluster` (the `dns_cluster` library, started by `Main` through
-`Cluster.discovery_child_spec/1`) finds peers when a discovery name is set:
+modes, and `DNSCluster` (the `dns_cluster` library, started by `Guardian.Main` through
+`Guardian.Cluster.discovery_child_spec/1`) finds peers when a discovery name is set:
 
 1. Single node (neither `GUARDIAN_NODE_HOST` nor `FLY_PRIVATE_IP` set): the short name
    `guardian@localhost`, with `ERL_EPMD_ADDRESS=127.0.0.1` and
@@ -1117,7 +1117,7 @@ modes, and `DNSCluster` (the `dns_cluster` library, started by `Main` through
    network alias), DNSCluster polls it every 5 seconds and connects to
    `guardian@<each IP>`, asking for AAAA records for an IPv6 node and A records for an
    IPv4 one. Because a peer answers only to its exact name, at boot
-   `Cluster.discovery_child_spec/1` refuses to start a node whose host is not an IP
+   `Guardian.Cluster.discovery_child_spec/1` refuses to start a node whose host is not an IP
    literal, is loopback, or is not written exactly as `:inet.ntoa/1` writes it (for
    example `2001:db8::1`, not the expanded form). Without `DNS_CLUSTER_QUERY` the node
    is a standalone long-named node: it discovers nothing but listens for distribution
@@ -1137,15 +1137,15 @@ on the same port.
 
 What clustering is used for:
 
-1. Queries: FROM fans out to `Cluster.connected_nodes/0` and GROUP BY partitions span
+1. Queries: FROM fans out to `Guardian.Cluster.connected_nodes/0` and GROUP BY partitions span
    every node (section 5.4). `connected_nodes/0` is this node plus each peer in
-   `Node.list/0` whose `Storage.ready?/0` answers `true` within 5 seconds: distribution
+   `Node.list/0` whose `Guardian.Storage.ready?/0` answers `true` within 5 seconds: distribution
    starts before Guardian's applications, so a booting peer is connected while it is
    still loading segments, and asking it would fail every query. Partition workers never
    read Storage, so they also run on a starting node.
-2. Metadata: `Cluster.Metadata` calls every connected node with `:erpc.multicall`
+2. Metadata: `Guardian.Cluster.Metadata` calls every connected node with `:erpc.multicall`
    (60-second timeout) for its local schemas and adds them. If any node fails or times
-   out, the lookup raises `Cluster.NodeError` rather than return partial metadata.
+   out, the lookup raises `Guardian.Cluster.NodeError` rather than return partial metadata.
 
 What clustering is not:
 
@@ -1193,7 +1193,7 @@ requests.
    Restoring is an operator procedure, and the rescan picks up restored files. Restore a file by writing it under a temporary name
    and renaming it into place: overwriting a mapped file in place can crash the VM.
 6. Availability: at startup a machine serves nothing until all its segments are
-   loaded. After startup, `Main` is `:one_for_one`, so if the Storage subtree crashes
+   loaded. After startup, `Guardian.Main` is `:one_for_one`, so if the Storage subtree crashes
    and restarts, the HTTP listener keeps running and requests that need Storage fail;
    `GET /health` answers 503 until Storage has restarted and reloaded, so a health
    check (Fly's, or a load balancer's) reports the machine unhealthy meanwhile. With
@@ -1201,6 +1201,23 @@ requests.
    producers are expected to retry. With several machines, a proxy that follows the
    health check (Fly's does) routes writes to the others meanwhile, and queries leave
    out the machine until its Storage is ready (section 7).
+
+### Module namespace and restart compatibility
+
+All Guardian-owned modules and protocols live under `Guardian.*`, including
+`Guardian.Web.*` and the generated `Guardian.Rules.Compiled.*` pool. External
+protocol implementations retain their protocol prefix (for example,
+`Enumerable.Guardian.Query.DistributedStream`). Native NIF entry points use the
+same Guardian module names. The Mix application and configuration namespace remain
+`:guardian`; environment variables, release/node names and disk paths are unchanged.
+
+The transition from unprefixed names requires full release restarts, not a hot-code
+upgrade. Segment files contain packed values without module names, and rule files
+contain source text plus a JSON write lock. All structs, compiled rule plans, counters,
+named ETS tables and persistent terms are VM-local and rebuilt at startup. Existing
+files need no migration. Every cluster node must run the same build before
+distributed operations can work reliably. See
+[the compatibility audit](../changes/guardian-namespace.md).
 
 ## 9. Configuration
 
@@ -1224,8 +1241,8 @@ Environment variables:
 | `RELEASE_COOKIE` | `rel/env.sh.eex`, the release | Erlang cookie. Required with `GUARDIAN_NODE_HOST` or on Fly; must match on every node. |
 | `GUARDIAN_DIST_PORT` | `rel/env.sh.eex` | Pins the server's distribution listen port, 1 to 65535. Unset means a random port. |
 | `FLY_PRIVATE_IP`, `FLY_APP_NAME` | `rel/env.sh.eex`, `config/runtime.exs` | Set by Fly. Their presence selects the Fly preset (section 7) and the volume check. |
-| `GUARDIAN_RULES_DIR` | `Rules.Config` | The local rule folder. Default `<data dir>/rules`. |
-| `GUARDIAN_RULES_S3_BUCKET`, `_ENDPOINT`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY`, `_REGION`, `_PREFIX` | `Rules.Config` | An S3-compatible rule store instead of the folder (3.4). The first four together or none; region defaults to `auto`. Read at boot by Rules.Server, not `config/runtime.exs`, so the secret never enters application config. |
+| `GUARDIAN_RULES_DIR` | `Guardian.Rules.Config` | The local rule folder. Default `<data dir>/rules`. |
+| `GUARDIAN_RULES_S3_BUCKET`, `_ENDPOINT`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY`, `_REGION`, `_PREFIX` | `Guardian.Rules.Config` | An S3-compatible rule store instead of the folder (3.4). The first four together or none; region defaults to `auto`. Read at boot by Guardian.Rules.Server, not `config/runtime.exs`, so the secret never enters application config. |
 | `TUNNEL_TOKEN` | `bin/fly-start` | Optional. Starts the cloudflared connector (10.1); Guardian's own process never sees it. |
 | `GUARDIAN_TUNNEL` | `bin/fly-start` | `off` keeps the connector from starting even with `TUNNEL_TOKEN` set (the token is still kept from Guardian), for a machine that should take no tunnel traffic. Any other value, or unset, leaves it on. |
 
@@ -1235,22 +1252,22 @@ these except through the variables above:
 | Key | Default | Used by |
 | --- | --- | --- |
 | `api_key`, `allow_query_api_key`, `http_port`, `query_max_heap_mb`, `data_dir`, `dns_cluster_query`, `mutable_segment_max_age_ms` | from the variables above | as above |
-| `query_max_result_rows` | 100,000 | `Query.Limits` |
-| `query_max_result_bytes` | 64 MiB | `Query.Limits` |
-| `query_time_limit_ms` | 30,000 | `Query.run/1` (`Query.Limits`) |
-| `counter_memory_budget_bytes` | 64 MiB, overridden by `GUARDIAN_COUNTER_MEMORY_MB` | `Counters.Store`: resident ephemeral entries/indexes (3.5); a non-positive or non-integer value refuses startup |
-| `query_parse_errors_per_hour` | 60 | `Web.QueryParseErrors` (tests raise it) |
-| `rules_store` | from the variables above | `Rules.Config` (tests set a store directly) |
+| `query_max_result_rows` | 100,000 | `Guardian.Query.Limits` |
+| `query_max_result_bytes` | 64 MiB | `Guardian.Query.Limits` |
+| `query_time_limit_ms` | 30,000 | `Guardian.Query.run/1` (`Guardian.Query.Limits`) |
+| `counter_memory_budget_bytes` | 64 MiB, overridden by `GUARDIAN_COUNTER_MEMORY_MB` | `Guardian.Counters.Store`: resident ephemeral entries/indexes (3.5); a non-positive or non-integer value refuses startup |
+| `query_parse_errors_per_hour` | 60 | `Guardian.Web.QueryParseErrors` (tests raise it) |
+| `rules_store` | from the variables above | `Guardian.Rules.Config` (tests set a store directly) |
 | `rules_poll_ms`, `rules_time_limit_ms`, `rules_boot_retry_ms`, `rules_reclaim_after_ms`, `rules_lock_lease_ms`, `rules_save_margin_ms`, `rules_s3_receive_timeout_ms`, `rules_s3_write_deadline_ms` | 60,000; 1,000; 60,000; 30,000; 120,000; 80,000; 15,000; 20,000 | `lib/rules` (tests shorten them) |
-| `persisted_segment_cache_ms` | 600,000 | `Storage.PersistedSegments`: how long a written segment's in-memory copy serves before it is stopped (tests shorten it); a value that is not a positive integer stops Storage from starting |
+| `persisted_segment_cache_ms` | 600,000 | `Guardian.Storage.PersistedSegments`: how long a written segment's in-memory copy serves before it is stopped (tests shorten it); a value that is not a positive integer stops Storage from starting |
 
 Constants in code that act like configuration: segment capacity 16,384 rows and 64 MiB
-budget (`Storage.Segment`), 15-day retention (`Storage.SegmentExpiration`), 60-second
+budget (`Guardian.Storage.Segment`), 15-day retention (`Guardian.Storage.SegmentExpiration`), 60-second
 rescan (`LoadedSegments`), shutdown
-budgets (`Storage`), the 64-byte table name and 250-byte key limits (`Engine`,
-`Storage.Value`), the 32-byte key minimum (`config/runtime.exs`), the once-a-minute
-query-key log line (`Web.Auth`), the regular expression match and depth limits
-(`Query.Regex`), and DistributedStream's 1,000-byte chunks.
+budgets (`Guardian.Storage`), the 64-byte table name and 250-byte key limits (`Guardian.Engine`,
+`Guardian.Storage.Value`), the 32-byte key minimum (`config/runtime.exs`), the once-a-minute
+query-key log line (`Guardian.Web.Auth`), the regular expression match and depth limits
+(`Guardian.Query.Regex`), and DistributedStream's 1,000-byte chunks.
 
 Logging: production logs at `info`, set in `config/config.exs` because that file is
 compiled into the release (security.md section 8 explains why the level matters).
@@ -1269,7 +1286,7 @@ cookie.
 The `Dockerfile` is a two-stage build. The builder (hexpm Elixir 1.19.6 on OTP 28.5.0.8,
 Debian trixie) installs a C toolchain, fetches and
 compiles production dependencies (cached separately from source), writes the git
-commit into `priv/commit` for `Build.commit/0`, and builds the release. The runner
+commit into `priv/commit` for `Guardian.Build.commit/0`, and builds the release. The runner
 image is plain Debian with only the runtime libraries, the release, and a pinned and
 checksummed cloudflared binary for the target architecture (one `FROM scratch` stage
 per architecture, selected by `TARGETARCH`). Its
@@ -1356,7 +1373,7 @@ operational decisions:
 1. `anubis_mcp` is held at exactly 0.16.0. Guardian's MCP router and server work
    around 0.16 behavior through its internals: the unknown-session 404 uses Anubis's
    private session registry, the `GET /mcp` 405 avoids 0.16 sending results down a
-   push stream, and `Web.MCP.Server` registers its tools before every request because
+   push stream, and `Guardian.Web.MCP.Server` registers its tools before every request because
    0.16 clears runtime-registered components when a session ends (section 6.3). The
    2.x releases change the protocol, transport, and session APIs, so upgrading is its
    own migration, with session compatibility tests. 0.16 also cannot send MCP server
@@ -1365,8 +1382,8 @@ operational decisions:
 3. `hypex` is held at 1.x (`~> 1.1`). Version 2 changes the sketch representation and
    register modules, and `count_distinct` merges sketches across nodes, so an upgrade
    needs numerical regression checks and a plan for clusters running mixed versions.
-4. The mmap NIF (`src/mmap.c`, `Storage.Mmap`) and DistributedStream
-   (`Query.DistributedStream`) are vendored, with Guardian's own fixes, and are outside
+4. The mmap NIF (`src/mmap.c`, `Guardian.Storage.Mmap`) and DistributedStream
+   (`Guardian.Query.DistributedStream`) are vendored, with Guardian's own fixes, and are outside
    Hex updates. Do not reintroduce the `mmap` or `distributed_stream` Hex packages.
 5. `req` (`~> 0.7`) is the rule store's S3 client, for its SigV4 signing; its HTTP
    stack (Finch, Mint) was already in the graph through Anubis.
@@ -1395,12 +1412,12 @@ About 150 test files cover:
    column release, and a segment column race run in a child VM
    (`test/fixtures/segment_column_race.exs`).
 3. Interfaces: the JSON API through `Plug.Test` connections against the real router
-   stack, and the MCP endpoint end to end through a real MCP client (`MCPTestClient`
-   in `libtest/`, an Anubis client started by `MCPTestClient.start/0`) against the
+   stack, and the MCP endpoint end to end through a real MCP client (`Guardian.MCPTestClient`
+   in `libtest/`, an Anubis client started by `Guardian.MCPTestClient.start/0`) against the
    test listener on an OS-chosen port, including sessions, the 404 and 405 rules, and
-   authentication with query keys allowed and refused (`QueryApiKeys` in `libtest/`
+   authentication with query keys allowed and refused (`Guardian.QueryApiKeys` in `libtest/`
    switches the setting for `async: false` tests).
-4. Clustering: `TestCluster` (in `libtest/`) starts peer BEAM nodes on the same host,
+4. Clustering: `Guardian.TestCluster` (in `libtest/`) starts peer BEAM nodes on the same host,
    each running only Storage in its own data directory, and connects them, so schema
    merging, node failures, a peer whose Storage has not started, and errors on a peer
    are tested with real distribution.
@@ -1413,20 +1430,20 @@ About 150 test files cover:
    there.
 5. Rules: the parser, whole-set validation, semantics through real ingestion, the
    worker's limits, the server (boot refusals, repair, activation, the module pool,
-   restarts), the lock, both stores, and a peer cluster sharing a store. `FakeS3` (in
+   restarts), the lock, both stores, and a peer cluster sharing a store. `Guardian.FakeS3` (in
    `libtest/`) is a small S3 server that checks every request's SigV4 signature with
-   its own implementation of the canonical request; `RulesTestHelper` restarts the
-   shared Rules.Server on a test store.
+   its own implementation of the canonical request; `Guardian.RulesTestHelper` restarts the
+   shared Guardian.Rules.Server on a test store.
 6. Configuration and deployment: `config/runtime.exs` and the production config are
    evaluated in tests, as are the release environment script's three naming modes and
-   `GUARDIAN_DIST_PORT`, and `Cluster.discovery_child_spec/1`'s record types and
+   `GUARDIAN_DIST_PORT`, and `Guardian.Cluster.discovery_child_spec/1`'s record types and
    boot-time name check.
 
 Rules: tests use no external services; each `mix test` run stores segments in a fresh
 directory under the system temp directory (set in `config/config.exs`, removed when
 the run's VM exits, once Guardian has stopped), so no run sees tables an earlier run
-left; `:large` tests (gigabytes of memory) are excluded by default. `Query.EvaluationTestCase` is the helper for function
-tests; `TestHelpers` (in `libtest/`) resolves and runs SQL (`resolve_sql/1`,
+left; `:large` tests (gigabytes of memory) are excluded by default. `Guardian.Query.EvaluationTestCase` is the helper for function
+tests; `Guardian.TestHelpers` (in `libtest/`) resolves and runs SQL (`resolve_sql/1`,
 `run_sql/1`), holds shared polling (`eventually/2`, and `eventually_after_gc/1` for
 released NIF resources), waits for a call queued at a suspended process
 (`await_queued_call/2`, on any node), sets the query time limit for a test
@@ -1435,8 +1452,8 @@ released NIF resources), waits for a call queued at a suspended process
 appends a nested row straight to a segment (`segment_append/2`), writes a segment file
 from rows (`write_segment_file/2`), and registers a
 one-call fake segment to inject an append's reply (`intercept_append/2`), and
-`TestCluster.data_root/0` gives a peer a fresh data directory. Tests do not use
-`:global` names: `Query.DistributedStream.ClusterTest` suspends `:global` and checks on
+`Guardian.TestCluster.data_root/0` gives a peer a fresh data directory. Tests do not use
+`:global` names: `Guardian.Query.DistributedStream.ClusterTest` suspends `:global` and checks on
 teardown that it still registers names. A bare `assert_receive` waits up to 5 s
 (`assert_receive_timeout` in `test/test_helper.exs`), not ExUnit's 100 ms, so tests
 need no explicit timeout to wait on another process under load.
@@ -1445,7 +1462,7 @@ Gaps: there is no load or soak test, no automated test of a multi-machine query
 against a real deployment (Fly's has been checked by hand, section 7), no test that
 runs a cluster from the release with DNS discovery outside Fly, no crash-recovery test
 (VM killed with unpersisted data), and peers in multi-node tests run no Web or
-SystemStats. There are no benchmarks in the tree.
+Guardian.SystemStats. There are no benchmarks in the tree.
 
 ## 12. Known limits
 

@@ -1,5 +1,5 @@
-defmodule Aggregation.SumTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Aggregation.SumTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "sum" do
     assert eval_aggregate("sum(x)", []) == 0.0
@@ -12,8 +12,8 @@ defmodule Aggregation.SumTest do
   end
 
   test "an integer sum wraps to 64 bits like +" do
-    max = Query.Numeric.max_int()
-    assert eval_aggregate("sum(x)", [[x: max], [x: 1]]) == Query.Numeric.min_int()
+    max = Guardian.Query.Numeric.max_int()
+    assert eval_aggregate("sum(x)", [[x: max], [x: 1]]) == Guardian.Query.Numeric.min_int()
     assert eval_aggregate("sum(x)", [[x: max], [x: 1], [x: -1]]) == max
   end
 
@@ -22,9 +22,9 @@ defmodule Aggregation.SumTest do
     assert eval_aggregate("sum(x)", [[x: 1.0e308], [x: 1.0e308], [x: -1.0e308]]) == nil
     assert eval_aggregate("sum(x)", [[x: 1.0e308], [x: 1.0e308], [x: nil], [x: 1]]) == nil
 
-    sum = Aggregation.fetch!("sum")
-    assert Aggregation.Sum.merge(:overflow, 1.0) == :overflow
-    assert Aggregation.Sum.merge(nil, :overflow) == :overflow
-    assert Aggregation.finish(sum, :overflow) == nil
+    sum = Guardian.Aggregation.fetch!("sum")
+    assert Guardian.Aggregation.Sum.merge(:overflow, 1.0) == :overflow
+    assert Guardian.Aggregation.Sum.merge(nil, :overflow) == :overflow
+    assert Guardian.Aggregation.finish(sum, :overflow) == nil
   end
 end

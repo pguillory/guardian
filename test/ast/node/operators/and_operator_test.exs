@@ -1,5 +1,5 @@
-defmodule AndOperatorTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.AndOperatorTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "and operator" do
     assert eval("true and true") == true

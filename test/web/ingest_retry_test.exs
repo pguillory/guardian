@@ -1,4 +1,4 @@
-defmodule Web.IngestRetryTest do
+defmodule Guardian.Web.IngestRetryTest do
   use ExUnit.Case, async: false
 
   @api_key Application.compile_env!(:guardian, :api_key)
@@ -10,7 +10,7 @@ defmodule Web.IngestRetryTest do
       Plug.Test.conn(:post, "/api/json/send_events", params)
       |> Plug.Conn.put_req_header("content-type", "application/json")
       |> Plug.Conn.put_req_header("x-api-key", @api_key)
-      |> Web.MainRouter.call(nil)
+      |> Guardian.Web.MainRouter.call(nil)
 
     {conn.status, Jason.decode!(conn.resp_body)}
   end
@@ -30,7 +30,7 @@ defmodule Web.IngestRetryTest do
               %{"status" => 200, "results" => [%{"success" => true, "event" => %{"value" => 1}}]}}
 
     assert post(params) == {200, %{"status" => 200, "duplicate" => true, "failed_events" => 0}}
-    assert Storage.dump_table(table) == params["events"]
+    assert Guardian.Storage.dump_table(table) == params["events"]
 
     for changed <- [
           Map.put(params, "events", [%{"value" => 2}]),
@@ -40,7 +40,7 @@ defmodule Web.IngestRetryTest do
       assert info =~ "different events or return_keys"
     end
 
-    assert Storage.dump_table(table) == params["events"]
+    assert Guardian.Storage.dump_table(table) == params["events"]
   end
 
   test "per-table scope and absent/null keys retain ordinary ingest behavior" do
@@ -50,15 +50,15 @@ defmodule Web.IngestRetryTest do
     params = %{"table" => first, "events" => [event], "idempotency_key" => "same-key"}
     assert {200, %{"results" => [_]}} = post(params)
     assert {200, %{"results" => [_]}} = post(Map.put(params, "table", second))
-    assert Storage.dump_table(first) == [event]
-    assert Storage.dump_table(second) == [event]
+    assert Guardian.Storage.dump_table(first) == [event]
+    assert Guardian.Storage.dump_table(second) == [event]
 
     for params <- [Map.delete(params, "idempotency_key"), Map.put(params, "idempotency_key", nil)] do
       assert {200, %{"results" => [_]}} = post(params)
       assert {200, %{"results" => [_]}} = post(params)
     end
 
-    assert length(Storage.dump_table(first)) == 5
+    assert length(Guardian.Storage.dump_table(first)) == 5
   end
 
   test "keys are validated before claims and corrected invalid requests can reuse the key" do
@@ -68,10 +68,12 @@ defmodule Web.IngestRetryTest do
     for key <- ["", true, 1, [], %{}, String.duplicate("x", 129), String.duplicate("雪", 43)] do
       assert {400, %{"info" => info}} = post(Map.put(valid, "idempotency_key", key))
       assert info =~ "idempotency_key"
-      assert Storage.dump_table(table) == []
+      assert Guardian.Storage.dump_table(table) == []
     end
 
-    assert {:error, message} = Web.Ingest.send_events(Map.put(valid, "idempotency_key", <<255>>))
+    assert {:error, message} =
+             Guardian.Web.Ingest.send_events(Map.put(valid, "idempotency_key", <<255>>))
+
     assert message =~ "UTF-8"
 
     for invalid <- [Map.delete(valid, "events"), Map.put(valid, "return_keys", false)] do
@@ -93,7 +95,7 @@ defmodule Web.IngestRetryTest do
       assert post(params) ==
                {200, %{"status" => 200, "duplicate" => true, "failed_events" => failed}}
 
-      assert length(Storage.dump_table(table)) == length(events) - failed
+      assert length(Guardian.Storage.dump_table(table)) == length(events) - failed
     end
   end
 
@@ -126,7 +128,7 @@ defmodule Web.IngestRetryTest do
     key = "pending"
     token = make_ref()
     digest = :crypto.hash(:sha256, :erlang.term_to_binary({events, nil}, [:deterministic]))
-    server = Web.IngestIdempotency
+    server = Guardian.Web.IngestIdempotency
     assert GenServer.call(server, {:claim, {table, key}, digest, token}) == :claimed
     params = %{"table" => table, "events" => events, "idempotency_key" => key}
     assert {409, %{"info" => message}} = post(params)
@@ -134,12 +136,12 @@ defmodule Web.IngestRetryTest do
     assert GenServer.call(server, {:finish, token, :uncertain}) == :ok
     assert {409, %{"info" => message}} = post(params)
     assert message =~ "may have been stored"
-    assert Storage.dump_table(table) == []
+    assert Guardian.Storage.dump_table(table) == []
   end
 
   test "a stopped coordinator preserves valid HTTP ingestion" do
-    server = Web.IngestIdempotency
-    :ok = Supervisor.terminate_child(Main, server)
+    server = Guardian.Web.IngestIdempotency
+    :ok = Supervisor.terminate_child(Guardian.Main, server)
 
     try do
       table = table()
@@ -147,9 +149,9 @@ defmodule Web.IngestRetryTest do
       params = %{"table" => table, "events" => [event], "idempotency_key" => "unavailable"}
       assert {200, %{"results" => [_]}} = post(params)
       assert {200, %{"results" => [_]}} = post(params)
-      assert Storage.dump_table(table) == [event, event]
+      assert Guardian.Storage.dump_table(table) == [event, event]
     after
-      {:ok, _pid} = Supervisor.restart_child(Main, server)
+      {:ok, _pid} = Supervisor.restart_child(Guardian.Main, server)
     end
   end
 end

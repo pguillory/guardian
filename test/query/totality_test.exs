@@ -1,18 +1,18 @@
-defmodule Query.TotalityTest do
+defmodule Guardian.Query.TotalityTest do
   # Every function and operator is total: on any input it returns a storable value or
-  # null, never raising, a bignum, or a non-finite float (Query.Numeric). Each case is
+  # null, never raising, a bignum, or a non-finite float (Guardian.Query.Numeric). Each case is
   # evaluated three ways: per event (all constants), a column against constants, and
   # over multi-row columns (so the column NIFs run). The three must agree.
   use ExUnit.Case, async: true
 
-  alias AST.Node.Identifier
-  alias AST.Node.Literal
-  alias Storage.Column
+  alias Guardian.AST.Node.Identifier
+  alias Guardian.AST.Node.Literal
+  alias Guardian.Storage.Column
 
-  import Query.Numeric, only: [int64?: 1]
+  import Guardian.Query.Numeric, only: [int64?: 1]
 
-  @max Query.Numeric.max_int()
-  @min Query.Numeric.min_int()
+  @max Guardian.Query.Numeric.max_int()
+  @min Guardian.Query.Numeric.min_int()
 
   @values [
     nil,
@@ -40,7 +40,7 @@ defmodule Query.TotalityTest do
     "a",
     <<0xFF, 0xFE>>,
     # Past the string cap, ending in a character the cap can split.
-    String.duplicate("a", Query.Text.max_bytes() - 1) <> "é",
+    String.duplicate("a", Guardian.Query.Text.max_bytes() - 1) <> "é",
     [1, nil, "a"],
     [[1]],
   ]
@@ -89,18 +89,18 @@ defmodule Query.TotalityTest do
 
   test "every operator is total on every pair of edge values" do
     for source <- @operators do
-      expr = AST.parse_expression(source)
+      expr = Guardian.AST.parse_expression(source)
       check(source, expr, ["a", "b"], deterministic: true)
     end
     |> report()
   end
 
   test "every function is total on every pair of edge values" do
-    for {name, arity} <- Query.Function.names_and_arities(), name != "test_raise" do
+    for {name, arity} <- Guardian.Query.Function.names_and_arities(), name != "test_raise" do
       # Higher arities take the pair's two values in turn rather than every combination.
       names = Enum.map(0..(arity - 1)//1, &if(rem(&1, 2) == 0, do: "a", else: "b"))
       args = Enum.map(names, &%Identifier{name: &1})
-      expr = %AST.Node.FunctionCall{name: name, args: args}
+      expr = %Guardian.AST.Node.FunctionCall{name: name, args: args}
 
       check("#{name}/#{arity}", expr, names,
         deterministic: "#{name}/#{arity}" not in @nondeterministic
@@ -125,7 +125,7 @@ defmodule Query.TotalityTest do
       context = "#{label} with #{brief(row)}"
 
       per_event =
-        eval_or_flunk(context, :raised, fn -> Query.Evaluation.eval(row, expr) end)
+        eval_or_flunk(context, :raised, fn -> Guardian.Query.Evaluation.eval(row, expr) end)
 
       # A column of every value against `b` as a constant.
       against_constant =
@@ -147,7 +147,7 @@ defmodule Query.TotalityTest do
           do: row |> Map.values() |> Enum.filter(&is_binary/1) |> Enum.map(&byte_size/1),
           else: []
 
-      max_string = Enum.max([Query.Text.max_bytes() | max_string])
+      max_string = Enum.max([Guardian.Query.Text.max_bytes() | max_string])
 
       unstorable =
         for result <- results,
@@ -182,10 +182,10 @@ defmodule Query.TotalityTest do
   end
 
   defp eval_snapshot(context, expr, rows) do
-    snapshot = Query.EvaluationTestCase.snapshot(rows)
+    snapshot = Guardian.Query.EvaluationTestCase.snapshot(rows)
 
     eval_or_flunk(context, List.duplicate(:raised, length(rows)), fn ->
-      snapshot |> Query.Evaluation.eval(expr) |> Column.to_list()
+      snapshot |> Guardian.Query.Evaluation.eval(expr) |> Column.to_list()
     end)
   end
 
@@ -224,7 +224,7 @@ defmodule Query.TotalityTest do
   defp substitute(other, _name, _value), do: other
 
   defp storable?(value) when is_integer(value), do: int64?(value)
-  defp storable?(value), do: Storage.Value.valid?(value)
+  defp storable?(value), do: Guardian.Storage.Value.valid?(value)
 
   defp brief(term), do: inspect(term, limit: 5, printable_limit: 40)
 

@@ -120,7 +120,7 @@ void assert_buffer_consumed(struct buffer * buffer, void * data, size_t size) {
   assert(buffer->free.data == data + size);
 }
 
-// Storage.Column.nil_column_size/1 depends on this being 72 bytes.
+// Guardian.Storage.Column.nil_column_size/1 depends on this being 72 bytes.
 struct header {
   uint64_t count;
   uint64_t null_count;
@@ -647,7 +647,7 @@ void append_float(struct column * column, double value) {
   column->header->float_count += 1;
 }
 
-// Integer arithmetic wraps to int64, two's complement, as Query.Numeric does on the
+// Integer arithmetic wraps to int64, two's complement, as Guardian.Query.Numeric does on the
 // Elixir path. The builtins compute the wrapped result with defined behavior (plain
 // signed overflow is undefined in C); the overflow flag is ignored.
 static int64_t wrapping_add(int64_t a, int64_t b) {
@@ -2202,4 +2202,4 @@ int upgrade(ErlNifEnv * env, void ** priv_data, void ** old_priv_data, ERL_NIF_T
   return 0;
 }
 
-ERL_NIF_INIT(Elixir.Storage.Column.NIF, nif_funcs, load, NULL, upgrade, NULL)
+ERL_NIF_INIT(Elixir.Guardian.Storage.Column.NIF, nif_funcs, load, NULL, upgrade, NULL)

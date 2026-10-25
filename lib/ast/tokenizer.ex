@@ -1,5 +1,5 @@
-defmodule AST.Tokenizer do
-  alias AST.ParseError
+defmodule Guardian.AST.Tokenizer do
+  alias Guardian.AST.ParseError
 
   @whitespace [?\s, ?\n, ?\r, ?\t]
   @digits ?0..?9
@@ -178,7 +178,7 @@ defmodule AST.Tokenizer do
   @doc """
   The tokens of `source`: `{type, value}` pairs with whitespace and comments dropped,
   keywords upcased, identifiers downcased, and literals evaluated. Raises
-  `AST.ParseError` at the first error, scanning errors before evaluation errors.
+  `Guardian.AST.ParseError` at the first error, scanning errors before evaluation errors.
   """
   def tokenize(source) do
     case evaluate(tokenize_raw(source), 0, []) do
@@ -189,7 +189,7 @@ defmodule AST.Tokenizer do
 
   @doc """
   The raw tokens of `source`: `{type, text}` pairs whose texts concatenate back to
-  `source`, whitespace and comments included. Raises `AST.ParseError` where `source`
+  `source`, whitespace and comments included. Raises `Guardian.AST.ParseError` where `source`
   cannot be scanned.
   """
   def tokenize_raw(source) do
@@ -236,7 +236,7 @@ defmodule AST.Tokenizer do
   end
 
   defp evaluate_token(:string, raw_token) do
-    with {:ok, string} <- AST.StringEncoding.decode_string(raw_token) do
+    with {:ok, string} <- Guardian.AST.StringEncoding.decode_string(raw_token) do
       {:ok, {:string, string}}
     end
   end
@@ -439,7 +439,7 @@ defmodule AST.Tokenizer do
   defp skip_dots(source), do: source
 
   # A backslash escapes the next byte, so `\'` and `\\` never end the literal.
-  # AST.StringEncoding decides whether the escape is valid.
+  # Guardian.AST.StringEncoding decides whether the escape is valid.
   defp string(source, start) do
     case source do
       <<?\\, _, rest::binary>> ->

@@ -1,5 +1,5 @@
-defmodule Aggregation.StddevPopTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Aggregation.StddevPopTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   def stddev_pop(values) do
     eval_aggregate("stddev_pop(x)", Enum.map(values, &[x: &1]))

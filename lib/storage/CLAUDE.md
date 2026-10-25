@@ -8,14 +8,14 @@ never deleted.
 
 ## Public boundary
 
-`Storage` is the public API (see its moduledoc); so are the data modules
-`Storage.Column`, `Storage.Column.Metadata`, `Storage.Value` and `Storage.Flattening`,
+`Guardian.Storage` is the public API (see its moduledoc); so are the data modules
+`Guardian.Storage.Column`, `Guardian.Storage.Column.Metadata`, `Guardian.Storage.Value` and `Guardian.Storage.Flattening`,
 which hold no processes. Everything else here is internal and marked
-`@moduledoc false`: `Storage.Segment`, the four managers, `SegmentExpiration`,
-`Segment.Registration`, `SegmentFile`, `Storage.Schema`, `BlobStore`, `Mmap`, and the
-`@doc false` functions `Storage.get_segment/1` and `unloaded_segment_ids/1`. Code outside
-`lib/storage` names a segment by its ID and reads it with `Storage.segment_row_count/1`
-or `Storage.get_column/2`; it never holds a segment PID or calls an internal module.
+`@moduledoc false`: `Guardian.Storage.Segment`, the four managers, `SegmentExpiration`,
+`Segment.Registration`, `SegmentFile`, `Guardian.Storage.Schema`, `BlobStore`, `Mmap`, and the
+`@doc false` functions `Guardian.Storage.get_segment/1` and `unloaded_segment_ids/1`. Code outside
+`lib/storage` names a segment by its ID and reads it with `Guardian.Storage.segment_row_count/1`
+or `Guardian.Storage.get_column/2`; it never holds a segment PID or calls an internal module.
 There is no xref check: keep to this by convention and in review. Tests under
 `test/storage` may use the internals. Other tests and the shared helpers in `libtest`
 may use them only to set up a segment's state or inject faults into its process
@@ -47,7 +47,7 @@ Each manager owns its segments' exits. All four link their segments and trap exi
 removes only the registration holding that PID, never one found by ID alone, because a
 late EXIT can follow a handoff, a retirement, or a reload of the same ID; one that
 matches nothing is ignored. Log an exit reason only through `Segment.exit_kind/1`
-(`Storage.exit_kind/1` outside Storage), which names its kind: a crash reason can
+(`Guardian.Storage.exit_kind/1` outside Storage), which names its kind: a crash reason can
 carry rows. Managers stop a segment only with
 `Segment.retire/1` (or `Registration.retire/2`, which also unregisters it), which
 returns once the process is gone even if it already died or dies concurrently; a bare
@@ -79,13 +79,13 @@ reason}}` when the segment is gone or dies, instead of exiting the caller. Their
 timeout defaults to `:infinity` for queries. Storage's own processes use the bang
 readers (`count!`, `full!`, `keys!`, `schema!`, `get_column!`), which wait at most 5 s
 so a hung segment can't block them and exit with only the reason's kind.
-`Storage.schema/1` shares that budget and exit through
+`Guardian.Storage.schema/1` shares that budget and exit through
 `Segment.storage_read_timeout/0` and `Segment.exit_unavailable/1`. The writers
 (`freeze`, `pack`, `store`, `put_column`, `update_count`) are plain 5 s
 `GenServer.call`s that exit on failure; `GenServer.call` drops a reply that arrives
 after its timeout. Log the reason only through `Segment.exit_kind/1`.
 
-`Storage.segment_row_count/1` and `Storage.get_column/2` resolve the ID on every call.
+`Guardian.Storage.segment_row_count/1` and `Guardian.Storage.get_column/2` resolve the ID on every call.
 If the process they resolved stopped normally (`:normal`, `:shutdown`,
 `{:shutdown, _}`) or was already gone (`:noproc`) and the ID now resolves to a
 different process, they read once more from that process and return its result,
@@ -99,11 +99,11 @@ way: never let an ID resolve to a process holding different rows. A side effect:
 Persisted copy during a delete can retry onto the Loaded copy and return its rows
 instead of the error; the read finishes before the delete does.
 
-Storage.Schema tracks metadata for loaded full segments. `Storage.schema/1` combines
+Guardian.Storage.Schema tracks metadata for loaded full segments. `Guardian.Storage.schema/1` combines
 that metadata with mutable segments, skipping one that is deleted or stops while it
 reads and failing on one that does not answer in 5 s. A loaded segment's metadata is subtracted when
 its process stops, so unloading a segment (expiration or rescan) must stop the
-process; a table leaves Storage.Schema with its last loaded segment. Schemas are
+process; a table leaves Guardian.Storage.Schema with its last loaded segment. Schemas are
 inferred; there is no metadata DB.
 
 A mutable segment is full when it holds `capacity` rows or when the packed size of its
@@ -128,10 +128,10 @@ that die, and `Segment.append/2` reports a segment that is gone as `{:error, :de
 the row is retried elsewhere. A segment that crashes while handling a row is not
 retried. Below Storage there is one append path, for flat rows that return explicit
 refusals: `MutableSegments.append/2` (the retry loop) and `Segment.append/2`. The
-wrappers live only in `Storage`: `Storage.append/2` flattens first,
-`Storage.append_flattened/2` stores a row that is already flattened (as Engine does
+wrappers live only in `Guardian.Storage`: `Guardian.Storage.append/2` flattens first,
+`Guardian.Storage.append_flattened/2` stores a row that is already flattened (as Engine does
 after validating it), and both raise `ArgumentError` on a segment's refusal, which
-`Storage.append_flattened_result/2` returns as `{:error, :invalid_value}`. Exceptions
+`Guardian.Storage.append_flattened_result/2` returns as `{:error, :invalid_value}`. Exceptions
 and exits still propagate from every path and may occur after a row was stored, so
 Engine must not label those failures as definitely unwritten.
 
@@ -147,15 +147,15 @@ could still approach `append`'s 5 s call timeout. Under sustained reads, each ap
 invalidates the cache, so hot-segment ingest slows with read load. An idle mutable
 segment keeps one packed copy per key read since its last append.
 
-Stored rows accept scalar/list/map values supported by `Storage.Value`, whose rules
-come from the column NIF (`Storage.Column.valid_value?/1`). `Storage.append/2`
+Stored rows accept scalar/list/map values supported by `Guardian.Storage.Value`, whose rules
+come from the column NIF (`Guardian.Storage.Column.valid_value?/1`). `Guardian.Storage.append/2`
 flattens nested maps into dot-notation columns (`Segment.append/2` takes flat rows),
 and they are unflattened when rows are read. Column packing
 uses the native implementation under `src/column.c`. Loaded segments map their file
-with `Storage.Mmap` (`src/mmap.c`), which closes the descriptor once the file is mapped
+with `Guardian.Storage.Mmap` (`src/mmap.c`), which closes the descriptor once the file is mapped
 and unmaps it when the last binary referring to it is collected.
 
-`Storage.SegmentFile` is the one home of the on-disk format: segment filenames
+`Guardian.Storage.SegmentFile` is the one home of the on-disk format: segment filenames
 (`filename/2`, `parse_filename/1`, `unparseable/1`) and the file's contents
 (`write/4`, `read/1`). It holds no process logic; Segment calls it to store and to
 load. `test/storage/segment_file_golden_test.exs` pins the format byte for byte

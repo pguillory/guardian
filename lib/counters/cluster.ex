@@ -1,4 +1,4 @@
-defmodule Counters.Cluster do
+defmodule Guardian.Counters.Cluster do
   @moduledoc """
   Availability-first routing for ephemeral counters. Store keys are
   `{identity, group_tuple, bucket}`; all buckets of a group share one owner.
@@ -35,7 +35,7 @@ defmodule Counters.Cluster do
       deadline: now() + min(100_000, Keyword.get(opts, :event_timeout_ms, 100) * 1_000),
       members: Keyword.get_lazy(opts, :members, fn -> [node() | Node.list()] end),
       timeout_us: min(@operation_us, Keyword.get(opts, :timeout_ms, 50) * 1_000),
-      store: Keyword.get(opts, :store, Counters.Store),
+      store: Keyword.get(opts, :store, Guardian.Counters.Store),
       cooldown_table: Keyword.get(opts, :cooldown_table, __MODULE__),
     }
   end
@@ -421,12 +421,12 @@ defmodule Counters.Cluster do
     opts = [server: store, timeout: timeout, deadline: Integer.floor_div(deadline, 1_000)]
 
     case operation do
-      {:get, key} -> Counters.Store.get(key, opts)
-      {:gets, key} -> Counters.Store.gets(key, opts)
-      {:get_many, keys} -> Counters.Store.get_many(keys, opts)
-      {:cas, key, token, value, ttl} -> Counters.Store.cas(key, token, value, ttl, opts)
-      {:incr, key, delta, ttl} -> Counters.Store.incr(key, delta, ttl, opts)
-      {:batch, operations} -> Counters.Store.batch(operations, opts)
+      {:get, key} -> Guardian.Counters.Store.get(key, opts)
+      {:gets, key} -> Guardian.Counters.Store.gets(key, opts)
+      {:get_many, keys} -> Guardian.Counters.Store.get_many(keys, opts)
+      {:cas, key, token, value, ttl} -> Guardian.Counters.Store.cas(key, token, value, ttl, opts)
+      {:incr, key, delta, ttl} -> Guardian.Counters.Store.incr(key, delta, ttl, opts)
+      {:batch, operations} -> Guardian.Counters.Store.batch(operations, opts)
       _ -> {:error, :invalid_request}
     end
   catch

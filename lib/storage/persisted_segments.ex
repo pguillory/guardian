@@ -1,12 +1,12 @@
-defmodule Storage.PersistedSegments do
+defmodule Guardian.Storage.PersistedSegments do
   # Internal to Storage; see lib/storage/CLAUDE.md, "Public boundary".
   @moduledoc false
 
-  alias Storage.FullSegments
-  alias Storage.LoadedSegments
-  alias Storage.Segment
-  alias Storage.Segment.Registration
-  alias Storage.SegmentFile
+  alias Guardian.Storage.FullSegments
+  alias Guardian.Storage.LoadedSegments
+  alias Guardian.Storage.Segment
+  alias Guardian.Storage.Segment.Registration
+  alias Guardian.Storage.SegmentFile
   require Registration
   use GenServer
   require Logger

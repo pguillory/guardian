@@ -1,5 +1,5 @@
-defmodule MultiplyOperatorTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.MultiplyOperatorTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "multiply operator" do
     assert eval("123 * 123") === 15129

@@ -1,7 +1,7 @@
-defmodule Web.IngestIdempotencyTest do
+defmodule Guardian.Web.IngestIdempotencyTest do
   use ExUnit.Case, async: true
 
-  alias Web.IngestIdempotency, as: Idempotency
+  alias Guardian.Web.IngestIdempotency, as: Idempotency
 
   setup do
     clock = :atomics.new(1, [])

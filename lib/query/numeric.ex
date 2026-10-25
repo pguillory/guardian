@@ -1,4 +1,4 @@
-defmodule Query.Numeric do
+defmodule Guardian.Query.Numeric do
   @moduledoc """
   The number rules every function, operator and aggregate follows (the maintainer's decision:
   "null means there's no good value").

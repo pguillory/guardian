@@ -1,12 +1,12 @@
-defmodule AST.Node.Operators.IsOperator do
-  use AST.Node.BinaryOperator, symbol: "IS"
+defmodule Guardian.AST.Node.Operators.IsOperator do
+  use Guardian.AST.Node.BinaryOperator, symbol: "IS"
 
-  alias Query.ColumnOrConstant
+  alias Guardian.Query.ColumnOrConstant
 
-  defimpl Query.Eval do
+  defimpl Guardian.Query.Eval do
     def eval(%@for{left: left, right: right}, context) do
-      column1 = Query.Eval.eval(left, context)
-      column2 = Query.Eval.eval(right, context)
+      column1 = Guardian.Query.Eval.eval(left, context)
+      column2 = Guardian.Query.Eval.eval(right, context)
       ColumnOrConstant.map(column1, column2, &@for.eval/2)
     end
   end

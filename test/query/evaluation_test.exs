@@ -1,5 +1,5 @@
-defmodule Query.EvaluationTest do
-  import Query.Evaluation
+defmodule Guardian.Query.EvaluationTest do
+  import Guardian.Query.Evaluation
   use ExUnit.Case, async: true
 
   test "pre_eval" do
@@ -15,16 +15,16 @@ defmodule Query.EvaluationTest do
     assert pre_eval("random('foo') < 0.5") == "true"
   end
 
-  describe "Query.Eval" do
+  describe "Guardian.Query.Eval" do
     test "evaluates a rewrite-only node through its rewrite" do
       assert eval("(1 + 2) > 2") == true
       assert eval(%{"x" => 3}, "x BETWEEN 1 AND 5") == true
-      assert Query.EvaluationTestCase.eval("x BETWEEN 1 AND 5", x: 3) == true
+      assert Guardian.Query.EvaluationTestCase.eval("x BETWEEN 1 AND 5", x: 3) == true
     end
 
-    test "raises Query.Error for a node that is not an expression" do
-      assert_raise Query.Error, "* cannot be evaluated as an expression", fn ->
-        Query.Eval.eval(%AST.Node.Splat{}, %{})
+    test "raises Guardian.Query.Error for a node that is not an expression" do
+      assert_raise Guardian.Query.Error, "* cannot be evaluated as an expression", fn ->
+        Guardian.Query.Eval.eval(%Guardian.AST.Node.Splat{}, %{})
       end
     end
   end

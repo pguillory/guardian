@@ -1,4 +1,4 @@
-defmodule Aggregation.Arbitrary do
+defmodule Guardian.Aggregation.Arbitrary do
   def default do
     nil
   end

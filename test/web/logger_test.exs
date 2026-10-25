@@ -1,4 +1,4 @@
-defmodule Web.LoggerTest do
+defmodule Guardian.Web.LoggerTest do
   # Not async: it stops and restarts a Storage child.
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog
@@ -8,18 +8,21 @@ defmodule Web.LoggerTest do
   test "a request succeeds when its log events cannot be written" do
     log =
       capture_log(fn ->
-        :ok = Supervisor.terminate_child(Storage, Storage.MutableSegments)
-        on_exit(fn -> Supervisor.restart_child(Storage, Storage.MutableSegments) end)
+        :ok = Supervisor.terminate_child(Guardian.Storage, Guardian.Storage.MutableSegments)
+
+        on_exit(fn ->
+          Supervisor.restart_child(Guardian.Storage, Guardian.Storage.MutableSegments)
+        end)
 
         conn =
           Plug.Test.conn(:post, "https://localhost/api/json/query", ~s({"query": "SELECT 1"}))
           |> Plug.Conn.put_req_header("content-type", "application/json")
           |> Plug.Conn.put_req_header("x-api-key", @api_key)
-          |> Web.MainRouter.call(nil)
+          |> Guardian.Web.MainRouter.call(nil)
 
         assert conn.status == 200
         assert Jason.decode!(conn.resp_body)["rows"] == [[1]]
-        {:ok, _pid} = Supervisor.restart_child(Storage, Storage.MutableSegments)
+        {:ok, _pid} = Supervisor.restart_child(Guardian.Storage, Guardian.Storage.MutableSegments)
       end)
 
     assert log =~ "Could not record a web_requests event: ArgumentError"
@@ -31,7 +34,7 @@ defmodule Web.LoggerTest do
 
   defp logged(table, user_agent) do
     {:ok, labels, rows} =
-      Query.execute("SELECT * FROM #{table} WHERE user_agent = '#{user_agent}'")
+      Guardian.Query.execute("SELECT * FROM #{table} WHERE user_agent = '#{user_agent}'")
 
     Enum.map(rows, &(Enum.zip(labels, &1) |> Map.new()))
   end
@@ -46,7 +49,7 @@ defmodule Web.LoggerTest do
       |> Plug.Conn.put_req_header("user-agent", user_agent)
       |> Plug.Conn.put_req_header("referer", "https://example.com/page")
       |> Plug.Conn.put_req_header("x-forwarded-for", "203.0.113.7")
-      |> Web.MainRouter.call(nil)
+      |> Guardian.Web.MainRouter.call(nil)
 
     assert conn.status == 200
 

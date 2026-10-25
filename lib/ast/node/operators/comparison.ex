@@ -1,11 +1,11 @@
-defmodule AST.Node.Operators.Comparison do
+defmodule Guardian.AST.Node.Operators.Comparison do
   # Not a node: the evaluation shared by `<` and `<=` (and, through their rewrites,
   # `>`, `>=` and BETWEEN).
   @moduledoc false
 
-  alias Query.ColumnOrConstant
-  alias Query.Constant
-  alias Query.Evaluation
+  alias Guardian.Query.ColumnOrConstant
+  alias Guardian.Query.Constant
+  alias Guardian.Query.Evaluation
 
   @doc """
   Evaluates `left OP right` over `context`. `eval_fun` is the operator's row-by-row
@@ -17,11 +17,11 @@ defmodule AST.Node.Operators.Comparison do
   side), with every other row null; anything else is evaluated row by row.
   """
   def eval(%{left: left, right: right}, context, eval_fun, compare) do
-    column1 = Query.Eval.eval(left, context)
-    column2 = Query.Eval.eval(right, context)
+    column1 = Guardian.Query.Eval.eval(left, context)
+    column2 = Guardian.Query.Eval.eval(right, context)
 
     case {left, right} do
-      {%AST.Node.Literal{value: literal}, _right} when is_number(literal) ->
+      {%Guardian.AST.Node.Literal{value: literal}, _right} when is_number(literal) ->
         case ColumnOrConstant.min_max_number(column2) do
           {nil, nil} ->
             Constant.duplicate(nil, Evaluation.context_count(context))
@@ -39,7 +39,7 @@ defmodule AST.Node.Operators.Comparison do
             end
         end
 
-      {_left, %AST.Node.Literal{value: literal}} when is_number(literal) ->
+      {_left, %Guardian.AST.Node.Literal{value: literal}} when is_number(literal) ->
         case ColumnOrConstant.min_max_number(column1) do
           {nil, nil} ->
             Constant.duplicate(nil, Evaluation.context_count(context))

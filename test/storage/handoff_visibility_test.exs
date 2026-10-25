@@ -1,13 +1,13 @@
-defmodule Storage.HandoffVisibilityTest do
+defmodule Guardian.Storage.HandoffVisibilityTest do
   use ExUnit.Case, async: false
-  import TestHelpers
+  import Guardian.TestHelpers
 
-  alias Storage.BlobStore
-  alias Storage.FullSegments
-  alias Storage.LoadedSegments
-  alias Storage.MutableSegments
-  alias Storage.PersistedSegments
-  alias Storage.Segment
+  alias Guardian.Storage.BlobStore
+  alias Guardian.Storage.FullSegments
+  alias Guardian.Storage.LoadedSegments
+  alias Guardian.Storage.MutableSegments
+  alias Guardian.Storage.PersistedSegments
+  alias Guardian.Storage.Segment
 
   @registries [MutableSegments, FullSegments, PersistedSegments, LoadedSegments]
 
@@ -24,7 +24,9 @@ defmodule Storage.HandoffVisibilityTest do
           {:unloaded_segment_ids, Enum.take(@registries, 3), [:mutable, :full]},
         ] do
       order =
-        observed_reads(:segment_ids, fn -> apply(Storage, api, ["missing_handoff_table"]) end)
+        observed_reads(:segment_ids, fn ->
+          apply(Guardian.Storage, api, ["missing_handoff_table"])
+        end)
 
       assert order == expected
 
@@ -42,14 +44,17 @@ defmodule Storage.HandoffVisibilityTest do
 
         assert ids == [id], "#{api}: #{source} transfer before registry #{boundary}"
         if boundary == length(order), do: transfer(source, registration)
-        assert Enum.to_list(Storage.segment_ids(table)) == [id]
+        assert Enum.to_list(Guardian.Storage.segment_ids(table)) == [id]
         cleanup(table)
       end
     end
   end
 
   test "lookup retries Loaded after the forward miss path at every observed boundary" do
-    order = observed_reads(:get_segment, fn -> Storage.get_segment(SegmentID.generate()) end)
+    order =
+      observed_reads(:get_segment, fn ->
+        Guardian.Storage.get_segment(Guardian.SegmentID.generate())
+      end)
 
     assert order == [
              LoadedSegments,
@@ -88,14 +93,14 @@ defmodule Storage.HandoffVisibilityTest do
     transfer(:persisted, registration)
     assert {:error, :not_found} = PersistedSegments.get_segment(id)
     assert {:ok, loaded} = LoadedSegments.get_segment(id)
-    assert Enum.to_list(Storage.segment_ids(table)) == [id]
+    assert Enum.to_list(Guardian.Storage.segment_ids(table)) == [id]
     assert_query_rows(table)
 
     # Repeated ensures and the same stale expiry do not duplicate loaded metadata.
     assert :ok = LoadedSegments.ensure_loaded(table, id)
     transfer(:persisted, registration)
     assert {:ok, ^loaded} = LoadedSegments.get_segment(id)
-    assert {:ok, 1} = Storage.Schema.get_count(table)
+    assert {:ok, 1} = Guardian.Storage.Schema.get_count(table)
     cleanup(table)
   end
 
@@ -112,8 +117,8 @@ defmodule Storage.HandoffVisibilityTest do
 
     assert :ets.lookup(PersistedSegments, id) == [registration]
     assert {:error, :not_found} = LoadedSegments.get_segment(id)
-    assert Enum.to_list(Storage.segment_ids(table)) == [id]
-    assert {:ok, _} = Storage.get_segment(id)
+    assert Enum.to_list(Guardian.Storage.segment_ids(table)) == [id]
+    assert {:ok, _} = Guardian.Storage.get_segment(id)
 
     :ok = :sys.resume(LoadedSegments)
     :sys.get_state(PersistedSegments)
@@ -136,7 +141,7 @@ defmodule Storage.HandoffVisibilityTest do
     transfer(:persisted, registration)
     assert {:error, :not_found} = LoadedSegments.get_segment(id)
 
-    filename = Storage.SegmentFile.filename(table, id)
+    filename = Guardian.Storage.SegmentFile.filename(table, id)
     assert BlobStore.exists(filename)
     :ok = BlobStore.delete(filename)
     assert {:error, :not_found} = LoadedSegments.ensure_loaded(table, id)
@@ -145,16 +150,16 @@ defmodule Storage.HandoffVisibilityTest do
 
   test "expiry of a current cache entry whose file was removed does not reload it" do
     {table, id, _segment, registration} = fixture(:persisted)
-    :ok = BlobStore.delete(Storage.SegmentFile.filename(table, id))
+    :ok = BlobStore.delete(Guardian.Storage.SegmentFile.filename(table, id))
     transfer(:persisted, registration)
-    assert {:error, :not_found} = Storage.get_segment(id)
-    assert Enum.to_list(Storage.segment_ids(table)) == []
+    assert {:error, :not_found} = Guardian.Storage.get_segment(id)
+    assert Enum.to_list(Guardian.Storage.segment_ids(table)) == []
     cleanup(table)
   end
 
   test "cache expiry rewrites an unreadable persisted file from memory" do
     {table, id, segment, registration} = fixture(:persisted)
-    filename = Storage.SegmentFile.filename(table, id)
+    filename = Guardian.Storage.SegmentFile.filename(table, id)
     File.write!(filename, "")
     ref = Process.monitor(segment)
 
@@ -166,14 +171,14 @@ defmodule Storage.HandoffVisibilityTest do
     assert {:error, :not_found} = PersistedSegments.get_segment(id)
     assert {:ok, _loaded} = LoadedSegments.get_segment(id)
     refute id in LoadedSegments.skipped_segment_ids()
-    assert {:ok, 1} = Storage.Schema.get_count(table)
+    assert {:ok, 1} = Guardian.Storage.Schema.get_count(table)
     assert_query_rows(table)
     cleanup(table)
   end
 
   test "cache expiry keeps serving a segment whose file cannot be repaired" do
     {table, id, _segment, registration} = fixture(:persisted)
-    filename = Storage.SegmentFile.filename(table, id)
+    filename = Guardian.Storage.SegmentFile.filename(table, id)
     # A nonempty directory in the file's place: it does not load, and a rename
     # cannot replace it.
     :ok = BlobStore.delete(filename)
@@ -200,8 +205,8 @@ defmodule Storage.HandoffVisibilityTest do
         send(parent, :reader_started)
 
         for _ <- 1..1000 do
-          assert Enum.to_list(Storage.segment_ids(table)) == [id]
-          assert {:ok, found} = Storage.get_segment(id)
+          assert Enum.to_list(Guardian.Storage.segment_ids(table)) == [id]
+          assert {:ok, found} = Guardian.Storage.get_segment(id)
 
           # The in-memory copy is stopped once its file is loaded, so a lookup that
           # returned it just before then may find it gone. Looking the ID up again
@@ -232,7 +237,7 @@ defmodule Storage.HandoffVisibilityTest do
 
   defp fixture(source) do
     table = "handoff_#{System.unique_integer([:positive])}"
-    :ok = Storage.append(table, %{"a" => 1})
+    :ok = Guardian.Storage.append(table, %{"a" => 1})
     [id] = MutableSegments.segment_ids(table)
     [{^id, segment, ^table} = registration] = :ets.lookup(MutableSegments, id)
 
@@ -285,7 +290,7 @@ defmodule Storage.HandoffVisibilityTest do
       end)
     end
 
-    for filename <- Path.wildcard(Path.join(Storage.segment_dir(), "#{table}.*.seg")) do
+    for filename <- Path.wildcard(Path.join(Guardian.Storage.segment_dir(), "#{table}.*.seg")) do
       :ok = BlobStore.delete(filename)
     end
   end

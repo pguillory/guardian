@@ -190,7 +190,7 @@ built, so a requested field reflects them:
    (report the original event when nothing was dropped) applies only when the rules
    changed nothing. Omitted or null `return_keys` returns the stored event,
    including computed fields and without unset ones.
-3. HTTP and MCP share this through `Web.Ingest`.
+3. HTTP and MCP share this through `Guardian.Web.Ingest`.
 
 ### MCP tools
 
@@ -303,7 +303,7 @@ JSON API rule endpoints in phase 1.
    becomes code. Generating native code per expression is a later optimization.
 2. A compiled module is immutable: a module name is never loaded twice while
    anything can still call it. Names come from a fixed pool of 1,024
-   (`Rules.Compiled.M0` to `M1023`), so atoms are bounded for the VM's lifetime
+   (`Guardian.Rules.Compiled.M0` to `M1023`), so atoms are bounded for the VM's lifetime
    however often rules change. The pool covers the 256-table limit twice over plus
    slack for modules waiting to be reclaimed.
 3. Activation: a reload compiles every changed table into free names, never
@@ -388,7 +388,7 @@ below remain unchanged.
 
 ### Time buckets and identity
 
-1. Record a private arrival time once per event in Engine.ingest_events before
+1. Record a private arrival time once per event in Guardian.Engine.ingest_events before
    rule execution, carried as metadata outside the row. Caller fields and SETs
    cannot supply or overwrite it. Use Unix milliseconds for bucket coordinates
    shared between nodes; use monotonic time for local deadlines and TTLs. Every
@@ -420,13 +420,13 @@ below remain unchanged.
 
 ### C1: node-local key-value store
 
-Build `Counters.Store`, an independently supervised GenServer owning private ETS
+Build `Guardian.Counters.Store`, an independently supervised GenServer owning private ETS
 tables: a key/value set, an insertion-order index, and an expiry index. The
 process serializes operations, making increments and CAS atomic without exposing
-ETS or adding a library/service. Start it after Rules.Server and before Storage;
+ETS or adding a library/service. Start it after Guardian.Rules.Server and before Storage;
 rule loading does not touch counters. A store restart clears only counters.
 
-Contract (server defaults to Counters.Store, tests may use an unnamed PID):
+Contract (server defaults to Guardian.Counters.Store, tests may use an unnamed PID):
 
 ```text
 get(key, opts)                     -> {:ok, value} | :not_found | {:error, reason}
@@ -490,7 +490,7 @@ internal app setting; the user-facing environment setting belongs to C4.
 
 ### C2: counter ownership and bounded cluster operations
 
-Implemented as `Counters.Cluster`. Product spec impact: none; no statements are
+Implemented as `Guardian.Counters.Cluster`. Product spec impact: none; no statements are
 enabled until C4. `new_batch/0` provides a shared atomics failure budget kept outside
 replaceable workers; `new_event/2` captures membership and starts a conservative
 100 ms wall-clock counter phase. Each operation atomically reserves its allowance,
@@ -505,10 +505,10 @@ cleanup bounds flow-control stalls and discards late replies. Mixed-version peer
 without the endpoint fail open. C1 expiry throughput and supervisor crash isolation
 were completed as the separate C4 runtime prerequisite below.
 
-Build `Counters.Cluster` over C1. Use rendezvous hashing (consistent ownership when
+Build `Guardian.Counters.Cluster` over C1. Use rendezvous hashing (consistent ownership when
 members change), selecting the highest stable hash of {routing key, node}. Capture
 the member list once per event from this node and its connected peers. Do not call
-`Cluster.connected_nodes/0` on the ingest path: its storage-readiness RPCs can wait
+`Guardian.Cluster.connected_nodes/0` on the ingest path: its storage-readiness RPCs can wait
 5 seconds. A booting/unavailable owner fails open like any other failure.
 
 1. All C1 operations route to the selected owner's local store. Support fetching
@@ -559,7 +559,7 @@ the member list once per event from this node and its connected peers. Do not ca
 
 ### C3: mergeable aggregate operators
 
-Implemented: `Counters.Aggregate`, a pure operator API with no store or rule
+Implemented: `Guardian.Counters.Aggregate`, a pure operator API with no store or rule
 wiring. Its own product spec impact was none; C4c3 enables TRACK/LOOKUP.
 Operators are `{string_name, arity}` tuples from `operators/0`. `create/2` takes
 one event's list of arguments. Callers compare merged states with the prior state
@@ -611,8 +611,8 @@ Implemented: the C4b prerequisite separates typed SET/UNSET steps, scalar checks
 and field dependency ordering from RuleSet orchestration. It preserves validation
 errors, execution order and counter refusal. Product spec impact: none.
 
-C4b implemented: internal `Rules.RuleSet.prepare/1` returns locally valid unbound
-candidates plus whole-set resolved plans. It validates the `Counters.Aggregate`
+C4b implemented: internal `Guardian.Rules.RuleSet.prepare/1` returns locally valid unbound
+candidates plus whole-set resolved plans. It validates the `Guardian.Counters.Aggregate`
 allowlist, scalar clauses (including nested aggregate refusal), positive integral
 LAST totals through the existing s/m/h/d/w interval parser, the 365-day bound,
 FROM tables, TRACK targets and grouping arity. Signed/compound interval terms
@@ -629,7 +629,7 @@ targets propagate to dependents to a fixed point with stable error details that
 do not depend on a target's broken contents. Reciprocal cross-table references
 are valid: resolution uses definition identities rather than target plan hashes.
 
-`Rules.Activation.select/2` is pure and accepts previous resolved plans. At runtime,
+`Guardian.Rules.Activation.select/2` is pure and accepts previous resolved plans. At runtime,
 components are the undirected union of old bound LOOKUP edges and new locally valid
 candidate edges. If any table is invalid, the whole component retains its previous
 valid plans unchanged. This covers an invalid target with valid changed dependents
@@ -662,7 +662,7 @@ Implementation order (all completed):
    peers, cooldown recovery, duplicate events and partial side effects in live
    coverage, building on C2's routing tests and C4c2's internal execution tests.
 
-C4c1 connected boot, reload and saved writes to `Rules.Activation.select/2`. At that checkpoint it used
+C4c1 connected boot, reload and saved writes to `Guardian.Rules.Activation.select/2`. At that checkpoint it used
 `RuleSet.prepare/2` with `counters: false` everywhere on the live path. The public
 unsupported-before-scalar precedence and Compiler's independent counter gate stayed
 closed at that checkpoint. Local candidates have `resolved?: false`; successful whole-set resolution
@@ -689,7 +689,7 @@ dependency-component reload/restart tests were left to C4c3; C4c1 did not bypass
 the counter gates to simulate execution. Its overview and product spec stayed unchanged.
 
 C4c2 implemented internal execution behind those same closed admission and compiler
-gates. `Rules.Runtime.run/3` dispatches ordered typed steps; tests drive it with
+gates. `Guardian.Rules.Runtime.run/3` dispatches ordered typed steps; tests drive it with
 resolved `RuleSet.prepare/1` plans. There is no compiler bypass or public path
 activating counters. Generated SET/UNSET modules use this dispatcher too and expose
 `apply/2` for private metadata, with `apply/1` creating a fresh event/batch context.
@@ -701,7 +701,7 @@ one batch atomics handle outside replaceable workers and snapshots membership an
 starts each event's bounded Cluster phase on worker entry. Arrival coordinates
 survive replacement and are never automatically stored or modifiable by SET.
 
-`Rules.CounterRuntime` reads up to four complete intersecting buckets (the oldest
+`Guardian.Rules.CounterRuntime` reads up to four complete intersecting buckets (the oldest
 can overcount by almost one bucket). TRACK merges prior buckets with its own
 mutation's returned state, without a read-back that could omit the current event.
 Count uses one native increment; zero deltas read without mutation. Other operators
@@ -736,7 +736,7 @@ Live tests use normal writes, FakeS3 reloads, generated modules, HTTP routers an
 an MCP client. They cover valid target/dependent identity switches, retained old
 modules continuing with old identities, definition moves, invalid target/dependent
 retention across deletion/join/transitive/retarget cases, unrelated activation,
-Rules.Server restarts through invalid/unreachable stores and directed boot failure.
+Guardian.Rules.Server restarts through invalid/unreachable stores and directed boot failure.
 Public counter migrations test the add-new/retarget/delete sequence for incompatible
 BY/name changes. API tests cover 49/50, SET-derived groups/decisions, copied TRACK
 deduplication, forged caller timestamps, return_keys variants and historical fields
@@ -766,8 +766,8 @@ capacity pressure reclaims all expired entries before evicting live keys. Indexe
 capacity reclamation, like existing bulk eviction, can outlast callers; the bounded
 cluster operation/cooldown contract still applies.
 
-Store and Cluster now run inside Counters.Supervisor, owned by a trapping
-Counters.Restarter rather than directly under Main. Local 3-in-5-second restart
+Store and Cluster now run inside Guardian.Counters.Supervisor, owned by a trapping
+Guardian.Counters.Restarter rather than directly under Guardian.Main. Local 3-in-5-second restart
 exhaustion shuts down only counters. The owner logs a fixed error reason and retries
 with capped exponential backoff, reset by a healthy stretch (timing is specified in
 `docs/architecture/system.md` section 2.1).

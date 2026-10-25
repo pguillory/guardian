@@ -1,4 +1,4 @@
-defmodule Aggregation.OverflowTest do
+defmodule Guardian.Aggregation.OverflowTest do
   # A float overflow while merging is sticky (lib/aggregation/CLAUDE.md): merged with
   # anything, in either order, and however many times, it finishes as null.
   use ExUnit.Case, async: true
@@ -15,10 +15,10 @@ defmodule Aggregation.OverflowTest do
 
   test "an overflowed state absorbs every merge and finishes as null" do
     for {name, a, b} <- @cases do
-      aggregation = Aggregation.fetch!(name)
-      start = fn value -> hd(Aggregation.start_row([aggregation], [1], [value])) end
-      overflowed = Aggregation.merge(aggregation, start.(a), start.(b))
-      assert Aggregation.finish(aggregation, overflowed) == nil, name
+      aggregation = Guardian.Aggregation.fetch!(name)
+      start = fn value -> hd(Guardian.Aggregation.start_row([aggregation], [1], [value])) end
+      overflowed = Guardian.Aggregation.merge(aggregation, start.(a), start.(b))
+      assert Guardian.Aggregation.finish(aggregation, overflowed) == nil, name
 
       others = [
         overflowed,
@@ -26,21 +26,21 @@ defmodule Aggregation.OverflowTest do
         start.(2.5),
         start.(nil),
         start.("a"),
-        Aggregation.default(aggregation),
-        Aggregation.merge(aggregation, start.(1), start.(2)),
+        Guardian.Aggregation.default(aggregation),
+        Guardian.Aggregation.merge(aggregation, start.(1), start.(2)),
       ]
 
       for other <- others do
         for merged <- [
-              Aggregation.merge(aggregation, overflowed, other),
-              Aggregation.merge(aggregation, other, overflowed),
+              Guardian.Aggregation.merge(aggregation, overflowed, other),
+              Guardian.Aggregation.merge(aggregation, other, overflowed),
             ] do
-          assert Aggregation.finish(aggregation, merged) == nil,
+          assert Guardian.Aggregation.finish(aggregation, merged) == nil,
                  "#{name}: #{inspect(overflowed)} merged with #{inspect(other)}"
 
           # Still absorbing after another merge.
-          again = Aggregation.merge(aggregation, merged, start.(3))
-          assert Aggregation.finish(aggregation, again) == nil, name
+          again = Guardian.Aggregation.merge(aggregation, merged, start.(3))
+          assert Guardian.Aggregation.finish(aggregation, again) == nil, name
         end
       end
     end

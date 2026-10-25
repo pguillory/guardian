@@ -1,4 +1,4 @@
-defmodule QueryApiKeys do
+defmodule Guardian.QueryApiKeys do
   @moduledoc """
   Runs a test body with the `api_key` query parameter allowed or refused
   (`:guardian, :allow_query_api_key`), restoring the setting afterwards. The setting is
@@ -6,12 +6,12 @@ defmodule QueryApiKeys do
   """
 
   @doc """
-  Runs `fun` with Logger at info and `Web.Auth`'s once-a-minute query-key log reset,
+  Runs `fun` with Logger at info and `Guardian.Web.Auth`'s once-a-minute query-key log reset,
   and returns what was logged.
   """
   def capture_query_key_log(fun) do
     previous_level = Logger.level()
-    :persistent_term.erase({Web.Auth, :query_key_logged_at})
+    :persistent_term.erase({Guardian.Web.Auth, :query_key_logged_at})
     Logger.configure(level: :info)
 
     try do

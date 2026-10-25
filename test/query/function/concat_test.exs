@@ -1,5 +1,5 @@
-defmodule Query.Function.ConcatTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Query.Function.ConcatTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "concat function" do
     assert eval("concat('a', 'b')") === "ab"

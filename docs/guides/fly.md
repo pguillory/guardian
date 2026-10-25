@@ -53,6 +53,12 @@ with `fly certs add <domain>`.
 
 ## Later deploys and rollbacks
 
+When upgrading from unprefixed modules to `Guardian.*`, restart the full release on
+every machine. During the rolling deploy, distributed queries can fail and counter
+peer calls can supply defaults until every machine runs the new build. Stored
+segments and rule files need no migration; see the
+[namespace compatibility audit](../changes/guardian-namespace.md).
+
 Later deploys run the same `fly deploy` command. With one machine, each deploy briefly
 stops ingestion, because the volume attaches to only one machine: the old release stops
 before the new one starts, so producers must retry. A new release that fails its health

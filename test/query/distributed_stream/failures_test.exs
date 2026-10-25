@@ -1,12 +1,12 @@
-defmodule Query.DistributedStream.FailuresTest do
+defmodule Guardian.Query.DistributedStream.FailuresTest do
   # Counts live pipeline processes, so it must not run beside other pipelines.
   use ExUnit.Case, async: false
-  import TestHelpers
+  import Guardian.TestHelpers
 
   # Crashing workers are plain processes, which log their exceptions.
   @moduletag :capture_log
 
-  import Query.DistributedStream
+  import Guardian.Query.DistributedStream
 
   # Two partitions on this node, by value.
   defp by_parity(value) when is_integer(value), do: {node(), rem(value, 2) + 1}
@@ -49,7 +49,7 @@ defmodule Query.DistributedStream.FailuresTest do
   end
 
   defp assert_no_pipeline_left do
-    await_no_processes_running([Query.DistributedStream], except: [self()])
+    await_no_processes_running([Guardian.Query.DistributedStream], except: [self()])
   end
 
   # A crash reaches the consumer either as the worker's own reason (through the
@@ -264,7 +264,7 @@ defmodule Query.DistributedStream.FailuresTest do
       [final_router] =
         Enum.filter(Process.list(), fn pid ->
           Process.info(pid, :current_function) ==
-            {:current_function, {Query.DistributedStream, :final_route, 3}}
+            {:current_function, {Guardian.Query.DistributedStream, :final_route, 3}}
         end)
 
       Process.exit(final_router, signal)

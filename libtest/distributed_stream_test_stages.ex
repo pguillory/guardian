@@ -1,4 +1,4 @@
-defmodule DistributedStreamTestStages do
+defmodule Guardian.DistributedStreamTestStages do
   @moduledoc """
   Stage functions for multi-node DistributedStream tests. Test modules are compiled in
   memory and not loaded on peer nodes, so functions that run there live here.

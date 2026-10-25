@@ -1,4 +1,4 @@
-defmodule Query.Regex do
+defmodule Guardian.Query.Regex do
   @moduledoc """
   Regular expressions for `RLIKE` and `replace()`, on Erlang's `:re` (PCRE). The
   parser validates patterns with `compile/1`, and evaluation compiles them again
@@ -30,7 +30,7 @@ defmodule Query.Regex do
   # query heap limit as its cap, or this many MiB when that is off.
   @inline_max_bytes 16 * 1024
   @helper_heap_mb 256
-  @max_bytes Query.Text.max_bytes()
+  @max_bytes Guardian.Query.Text.max_bytes()
 
   @limits [
     {:match_limit, @match_limit},
@@ -74,7 +74,7 @@ defmodule Query.Regex do
   Replaces every non-overlapping match of `regex` in `subject` with `replacement`,
   inserted literally. Matching follows PCRE: leftmost-first, and after an empty match
   the scan retries the same position for a non-empty one. The result is cut to the
-  string cap (`Query.Text`), and splicing stops there. Returns nil for non-UTF-8
+  string cap (`Guardian.Query.Text`), and splicing stops there. Returns nil for non-UTF-8
   input, when the run exceeds the backtracking limit, when a match would split a UTF-8
   character (`\\C`), and when a value has too many matches to hold.
 
@@ -96,10 +96,10 @@ defmodule Query.Regex do
 
   @doc """
   The heap cap in MiB of the process that replaces in a large value: the query heap
-  limit (`Query.Limits.max_heap_mb/0`), or #{@helper_heap_mb} when that is off.
+  limit (`Guardian.Query.Limits.max_heap_mb/0`), or #{@helper_heap_mb} when that is off.
   """
   def helper_heap_mb do
-    case Query.Limits.max_heap_mb() do
+    case Guardian.Query.Limits.max_heap_mb() do
       mb when is_integer(mb) and mb > 0 -> mb
       _ -> @helper_heap_mb
     end
@@ -108,7 +108,7 @@ defmodule Query.Regex do
   defp replace_inline(regex, subject, replacement) do
     case run(regex, subject, [:global, {:capture, :first, :index}]) do
       :nomatch ->
-        Query.Text.cap(subject)
+        Guardian.Query.Text.cap(subject)
 
       {:match, matches} ->
         if on_boundaries?(subject, matches),
@@ -240,7 +240,7 @@ defmodule Query.Regex do
     do: {acc <> piece, false}
 
   defp append(acc, piece) do
-    {piece, true} = Query.Text.truncate(piece, @max_bytes - byte_size(acc))
+    {piece, true} = Guardian.Query.Text.truncate(piece, @max_bytes - byte_size(acc))
     {acc <> piece, true}
   end
 end

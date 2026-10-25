@@ -1,13 +1,13 @@
-defmodule Query.HeapLimitTest do
+defmodule Guardian.Query.HeapLimitTest do
   # Changes the global heap limit and counts live query processes, and starts a peer
   # node, so it must not run beside other tests.
   use ExUnit.Case, async: false
-  import TestHelpers
+  import Guardian.TestHelpers
 
   # The VM logs a report for each process its heap limit kills.
   @moduletag :capture_log
 
-  alias Query.DistributedStream
+  alias Guardian.Query.DistributedStream
 
   setup do
     previous = Application.fetch_env(:guardian, :query_max_heap_mb)
@@ -39,13 +39,15 @@ defmodule Query.HeapLimitTest do
   end
 
   defp assert_no_query_processes_left do
-    await_no_processes_running([DistributedStream, Query, Query.Executor], except: [self()])
+    await_no_processes_running([DistributedStream, Guardian.Query, Guardian.Query.Executor],
+      except: [self()]
+    )
   end
 
   test "limit_heap/0 sets the configured limit, and nothing when it is off" do
     task = fn ->
       Task.async(fn ->
-        Query.Limits.limit_heap()
+        Guardian.Query.Limits.limit_heap()
         Process.info(self(), :max_heap_size)
       end)
       |> Task.await()
@@ -67,7 +69,7 @@ defmodule Query.HeapLimitTest do
       consume(fn ->
         [1, 2]
         |> DistributedStream.fan_out(fn value -> {node(), value} end)
-        |> DistributedStream.map(&DistributedStreamTestStages.grow_heap/1)
+        |> DistributedStream.map(&Guardian.DistributedStreamTestStages.grow_heap/1)
         |> DistributedStream.fan_in()
         |> Enum.to_list()
       end)
@@ -89,7 +91,7 @@ defmodule Query.HeapLimitTest do
 
     result =
       consume(fn ->
-        Stream.map([1], &DistributedStreamTestStages.grow_heap/1)
+        Stream.map([1], &Guardian.DistributedStreamTestStages.grow_heap/1)
         |> DistributedStream.fan_out(fn _ -> {node(), 1} end)
         |> DistributedStream.fan_in()
         |> Enum.to_list()
@@ -107,15 +109,15 @@ defmodule Query.HeapLimitTest do
     1..40_000
     |> Enum.map(&%{"v" => &1, "w" => "#{marker}_#{&1}"})
     |> Enum.chunk_every(5_000)
-    |> Enum.each(&Engine.ingest_events(table, &1))
+    |> Enum.each(&Guardian.Engine.ingest_events(table, &1))
 
     set_limit(1)
 
     log =
       ExUnit.CaptureLog.capture_log([level: :error], fn ->
         error = catch_error(run_sql("SELECT v, w FROM #{table} ORDER BY v DESC"))
-        assert %Query.Error{message: message} = error
-        assert message == Query.Limits.heap_kill_message()
+        assert %Guardian.Query.Error{message: message} = error
+        assert message == Guardian.Query.Limits.heap_kill_message()
         # The VM sends its report as the process dies; give the logger time to print it.
         Process.sleep(500)
       end)
@@ -130,14 +132,17 @@ defmodule Query.HeapLimitTest do
   end
 
   test "a killed process is reported with the heap message, from the pipeline or the query" do
-    assert Query.Failure.from_exit(:killed).message == Query.Limits.heap_kill_message()
-    assert Query.Failure.query_process_down(:killed).message == Query.Limits.heap_kill_message()
+    assert Guardian.Query.Failure.from_exit(:killed).message ==
+             Guardian.Query.Limits.heap_kill_message()
+
+    assert Guardian.Query.Failure.query_process_down(:killed).message ==
+             Guardian.Query.Limits.heap_kill_message()
   end
 
   describe "on a peer node" do
     setup do
-      started_distribution = TestCluster.ensure_distributed()
-      {peer, peer_node} = TestCluster.start_peer(nil)
+      started_distribution = Guardian.TestCluster.ensure_distributed()
+      {peer, peer_node} = Guardian.TestCluster.start_peer(nil)
 
       on_exit(fn ->
         :peer.stop(peer)
@@ -152,7 +157,7 @@ defmodule Query.HeapLimitTest do
         consume(fn ->
           [1]
           |> DistributedStream.fan_out(fn _ -> {peer_node, 1} end)
-          |> DistributedStream.map(&DistributedStreamTestStages.grow_heap/1)
+          |> DistributedStream.map(&Guardian.DistributedStreamTestStages.grow_heap/1)
           |> DistributedStream.fan_in()
           |> Enum.to_list()
         end)

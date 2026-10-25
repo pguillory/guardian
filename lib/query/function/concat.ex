@@ -1,8 +1,8 @@
-defmodule Query.Function.Concat do
-  alias Query.ColumnOrConstant
+defmodule Guardian.Query.Function.Concat do
+  alias Guardian.Query.ColumnOrConstant
 
-  def eval2(context, %AST.Node.FunctionCall{args: exprs}) do
-    exprs |> Enum.map(&Query.Eval.eval(&1, context)) |> eval_columns()
+  def eval2(context, %Guardian.AST.Node.FunctionCall{args: exprs}) do
+    exprs |> Enum.map(&Guardian.Query.Eval.eval(&1, context)) |> eval_columns()
   end
 
   @doc false
@@ -14,17 +14,17 @@ defmodule Query.Function.Concat do
 
   @doc """
   The values joined: null is the empty string, any other value its string form
-  (`Query.Text`). The result is cut to the string cap, and nothing past the cap is
+  (`Guardian.Query.Text`). The result is cut to the string cap, and nothing past the cap is
   rendered. Joining stops at the first value cut, so the result is always a prefix of
   the whole join.
   """
-  def join(values), do: join(values, Query.Text.max_bytes(), [])
+  def join(values), do: join(values, Guardian.Query.Text.max_bytes(), [])
 
   defp join([], _budget, acc), do: finish(acc)
   defp join([nil | values], budget, acc), do: join(values, budget, acc)
 
   defp join([value | values], budget, acc) do
-    case Query.Text.form_cut(value, budget) do
+    case Guardian.Query.Text.form_cut(value, budget) do
       {string, false} -> join(values, budget - byte_size(string), [string | acc])
       {string, true} -> finish([string | acc])
     end

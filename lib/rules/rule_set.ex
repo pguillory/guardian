@@ -1,9 +1,9 @@
-defmodule Rules.RuleSet do
+defmodule Guardian.Rules.RuleSet do
   @moduledoc """
   Parses and validates a whole rule set: every rule file of every table, together.
 
   `validate/1` takes the files as a map of store key (`<table>/<name>.gsql`) to
-  source and returns, per table, either the table's `Rules.Plan` (statements in run
+  source and returns, per table, either the table's `Guardian.Rules.Plan` (statements in run
   order) or its errors, plus the list of every error. Validation is pure: it reads
   nothing and has no state, so a write validates the set it would leave behind and a
   load validates what it found.
@@ -66,8 +66,8 @@ defmodule Rules.RuleSet do
   @doc "Checks whether a table name is eligible for ingest rules and counter targets."
   def check_table(table) do
     cond do
-      not Engine.valid_table_name?(table) ->
-        {:error, Exception.message(%Engine.InvalidTableNameError{table: table})}
+      not Guardian.Engine.valid_table_name?(table) ->
+        {:error, Exception.message(%Guardian.Engine.InvalidTableNameError{table: table})}
 
       table in @builtin_tables ->
         {:error, "#{table} is a built-in table; rules run only on ingested events"}
@@ -124,7 +124,7 @@ defmodule Rules.RuleSet do
       end)
 
     candidates = tables
-    tables = Rules.Resolution.resolve(candidates)
+    tables = Guardian.Rules.Resolution.resolve(candidates)
 
     table_errors =
       Enum.flat_map(tables, fn
@@ -210,7 +210,7 @@ defmodule Rules.RuleSet do
 
   defp path_table(key) do
     with [table | _] <- String.split(key, "/"),
-         true <- Engine.valid_table_name?(table) and table not in @builtin_tables do
+         true <- Guardian.Engine.valid_table_name?(table) and table not in @builtin_tables do
       table
     else
       _ -> nil
@@ -220,18 +220,18 @@ defmodule Rules.RuleSet do
   defp parse_source(key, table, source) do
     statements =
       source
-      |> AST.Parser.parse_rules()
+      |> Guardian.AST.Parser.parse_rules()
       |> Enum.with_index()
       |> Enum.map(fn {{statement, line}, index} ->
-        Rules.Step.new(table, key, line, index, statement)
+        Guardian.Rules.Step.new(table, key, line, index, statement)
       end)
 
-    case Enum.flat_map(statements, &Rules.Validation.errors/1) do
+    case Enum.flat_map(statements, &Guardian.Rules.Validation.errors/1) do
       [] -> {:ok, table, statements}
       errors -> {:error, table, errors}
     end
   rescue
-    e in AST.ParseError ->
+    e in Guardian.AST.ParseError ->
       {:error, table, [error(key, e.row + 1, :parse, e.reason, e.reason, table)]}
 
     # A stored file must never crash the server that loads it: report anything else
@@ -266,9 +266,9 @@ defmodule Rules.RuleSet do
     barrier_errors =
       statements
       |> Enum.reject(&(&1.kind == :unset))
-      |> Rules.DependencyGraph.barrier_violations()
+      |> Guardian.Rules.DependencyGraph.barrier_violations()
       |> Enum.map(
-        &Rules.Validation.error(
+        &Guardian.Rules.Validation.error(
           &1,
           :counter_barrier,
           &1.field,
@@ -302,7 +302,7 @@ defmodule Rules.RuleSet do
   end
 
   defp cycle_errors(table, statements) do
-    case Rules.DependencyGraph.order(Enum.reject(statements, &(&1.kind == :unset))) do
+    case Guardian.Rules.DependencyGraph.order(Enum.reject(statements, &(&1.kind == :unset))) do
       {:ok, _ordered} ->
         []
 
@@ -325,19 +325,22 @@ defmodule Rules.RuleSet do
 
   defp plan(table, statements) do
     statements = Enum.uniq_by(statements, &{&1.kind, &1.field, &1.source})
-    {:ok, ordered} = Rules.DependencyGraph.order(Enum.reject(statements, &(&1.kind == :unset)))
+
+    {:ok, ordered} =
+      Guardian.Rules.DependencyGraph.order(Enum.reject(statements, &(&1.kind == :unset)))
+
     unsets = Enum.filter(statements, &(&1.kind == :unset))
     steps = ordered ++ unsets
     # File and line too: compiled modules report them when a statement fails.
     identity = Enum.map(steps, &{&1.file, &1.line, &1.source})
     hash = :crypto.hash(:sha256, :erlang.term_to_binary(identity))
-    %Rules.Plan{table: table, steps: steps, hash: Base.encode16(hash, case: :lower)}
+    %Guardian.Rules.Plan{table: table, steps: steps, hash: Base.encode16(hash, case: :lower)}
   end
 
   @doc "The top-level field of a field name or path (`user` for `user.name`)."
-  defdelegate top_level(name), to: Rules.DependencyGraph
+  defdelegate top_level(name), to: Guardian.Rules.DependencyGraph
 
   defp error(file, line, kind, detail, message, table) do
-    Rules.Validation.error(file, line, kind, detail, message, table)
+    Guardian.Rules.Validation.error(file, line, kind, detail, message, table)
   end
 end

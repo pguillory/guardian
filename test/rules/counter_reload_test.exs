@@ -1,27 +1,27 @@
-defmodule Rules.CounterReloadTest do
+defmodule Guardian.Rules.CounterReloadTest do
   use ExUnit.Case, async: false
-  import RulesTestHelper
+  import Guardian.RulesTestHelper
 
   setup do
-    s3 = FakeS3.start()
-    on_exit(fn -> FakeS3.stop(s3) end)
-    {:ok, _} = restart_server(FakeS3.store(s3))
+    s3 = Guardian.FakeS3.start()
+    on_exit(fn -> Guardian.FakeS3.stop(s3) end)
+    {:ok, _} = restart_server(Guardian.FakeS3.store(s3))
     %{s3: s3}
   end
 
   defp load(s3, files) do
-    for key <- Map.keys(FakeS3.objects(s3)),
+    for key <- Map.keys(Guardian.FakeS3.objects(s3)),
         String.ends_with?(key, ".gsql"),
         not Map.has_key?(files, key) do
-      assert :ok = Rules.Store.delete(FakeS3.store(s3), key)
+      assert :ok = Guardian.Rules.Store.delete(Guardian.FakeS3.store(s3), key)
     end
 
-    for {key, source} <- files, do: FakeS3.put_object(s3, key, source)
-    ExUnit.CaptureLog.capture_log(fn -> assert :ok = Rules.reload() end)
+    for {key, source} <- files, do: Guardian.FakeS3.put_object(s3, key, source)
+    ExUnit.CaptureLog.capture_log(fn -> assert :ok = Guardian.Rules.reload() end)
   end
 
   defp ingest(table, event \\ %{}) do
-    assert [{:ok, row}] = Engine.ingest_events(table, [event])
+    assert [{:ok, row}] = Guardian.Engine.ingest_events(table, [event])
     row
   end
 
@@ -39,15 +39,15 @@ defmodule Rules.CounterReloadTest do
     }
 
     load(s3, files)
-    old_a = Rules.lookup(a)
-    old_b = Rules.lookup(b)
+    old_a = Guardian.Rules.lookup(a)
+    old_b = Guardian.Rules.lookup(b)
     assert ingest(a)["hits"] == 1
     assert ingest(b)["prior"] == 1
 
     files = Map.put(files, "#{a}/r.gsql", "TRACK hits = sum(amount) LAST '1h'")
     load(s3, files)
-    new_a = Rules.lookup(a)
-    new_b = Rules.lookup(b)
+    new_a = Guardian.Rules.lookup(a)
+    new_b = Guardian.Rules.lookup(b)
     refute new_a == old_a
     refute new_b == old_b
     assert target(new_b).identity == identity(new_a)
@@ -66,7 +66,7 @@ defmodule Rules.CounterReloadTest do
       |> Map.put("#{a}/moved.gsql", "-- moved\nTRACK hits = sum(amount) LAST '1h'")
 
     load(s3, moved)
-    assert identity(Rules.lookup(a)) == identity(new_a)
+    assert identity(Guardian.Rules.lookup(a)) == identity(new_a)
     assert ingest(a, %{"amount" => 3})["hits"] == 10
     assert ingest(b)["prior"] == 10
   end
@@ -88,7 +88,7 @@ defmodule Rules.CounterReloadTest do
       }
 
       load(s3, files)
-      old = Map.take(Rules.published(), [a, b])
+      old = Map.take(Guardian.Rules.published(), [a, b])
       assert ingest(a)["hits"] == 1
 
       changed =
@@ -104,19 +104,19 @@ defmodule Rules.CounterReloadTest do
           else: Map.put(changed, "#{b}/r.gsql", "LOOKUP renamed = hits FROM #{a}")
 
       load(s3, changed)
-      assert Map.take(Rules.published(), [a, b]) == old
+      assert Map.take(Guardian.Rules.published(), [a, b]) == old
       assert ingest(a)["hits"] == 2
       assert ingest(b)["prior"] == 2
-      assert {:invalid, _} = Rules.lookup(join)
+      assert {:invalid, _} = Guardian.Rules.lookup(join)
       assert ingest(other)["value"] == 2
-      assert Rules.lookup(deleted) == nil
+      assert Guardian.Rules.lookup(deleted) == nil
 
       load(s3, Map.put(changed, "#{a}/r.gsql", "TRACK hits = sum(amount) LAST '1h'"))
       assert ingest(a, %{"amount" => 9})["hits"] == 9
       assert ingest(join)["prior"] == 9
 
       if delete_dependent?,
-        do: assert(Rules.lookup(b) == nil),
+        do: assert(Guardian.Rules.lookup(b) == nil),
         else: assert(ingest(b)["renamed"] == 9)
     end
   end
@@ -139,7 +139,7 @@ defmodule Rules.CounterReloadTest do
       }
 
       load(s3, files)
-      old = Map.take(Rules.published(), [a, b])
+      old = Map.take(Guardian.Rules.published(), [a, b])
       assert ingest(a)["hits"] == 1
       changed = Map.put(files, "#{b}/r.gsql", "LOOKUP prior = hits FROM #{a}; SET")
 
@@ -153,10 +153,10 @@ defmodule Rules.CounterReloadTest do
       group = if source && source =~ "BY ip", do: " BY ip", else: ""
       changed = Map.put(changed, "#{join}/r.gsql", "LOOKUP prior = #{counter} FROM #{a}#{group}")
       load(s3, changed)
-      assert Map.take(Rules.published(), [a, b]) == old
+      assert Map.take(Guardian.Rules.published(), [a, b]) == old
       assert ingest(a)["hits"] == 2
       assert ingest(b)["prior"] == 2
-      assert {:invalid, _} = Rules.lookup(join)
+      assert {:invalid, _} = Guardian.Rules.lookup(join)
     end
   end
 
@@ -174,7 +174,7 @@ defmodule Rules.CounterReloadTest do
     }
 
     load(s3, files)
-    old = Rules.published()
+    old = Guardian.Rules.published()
 
     changed =
       files
@@ -183,7 +183,7 @@ defmodule Rules.CounterReloadTest do
       |> Map.put("#{d}/r.gsql", "TRACK cd = sum(amount) LAST '1h'")
 
     load(s3, changed)
-    assert Rules.published() == old
+    assert Guardian.Rules.published() == old
     assert ingest(a)["ca"] == 1
     assert ingest(b)["pa"] == 1
     assert ingest(c)["pb"] == 1
@@ -206,35 +206,35 @@ defmodule Rules.CounterReloadTest do
     }
 
     load(s3, files)
-    old = Rules.published()
+    old = Guardian.Rules.published()
     assert ingest(a)["hits"] == 1
-    FakeS3.put_object(s3, "#{a}/r.gsql", "TRACK hits = sum(amount) LAST '1h'")
-    FakeS3.put_object(s3, "#{b}/r.gsql", "SET")
+    Guardian.FakeS3.put_object(s3, "#{a}/r.gsql", "TRACK hits = sum(amount) LAST '1h'")
+    Guardian.FakeS3.put_object(s3, "#{b}/r.gsql", "SET")
 
     ExUnit.CaptureLog.capture_log(fn ->
-      assert :ok = Supervisor.terminate_child(Main, Rules.Server)
-      assert {:ok, _} = Supervisor.restart_child(Main, Rules.Server)
-      assert :ok = Rules.reload()
+      assert :ok = Supervisor.terminate_child(Guardian.Main, Guardian.Rules.Server)
+      assert {:ok, _} = Supervisor.restart_child(Guardian.Main, Guardian.Rules.Server)
+      assert :ok = Guardian.Rules.reload()
     end)
 
-    assert Rules.published() == old
+    assert Guardian.Rules.published() == old
     assert ingest(a)["hits"] == 2
     assert ingest(b)["prior"] == 2
 
-    assert :ok = Supervisor.terminate_child(Main, Rules.Server)
-    FakeS3.fault(s3, {:status, 503})
+    assert :ok = Supervisor.terminate_child(Guardian.Main, Guardian.Rules.Server)
+    Guardian.FakeS3.fault(s3, {:status, 503})
 
     ExUnit.CaptureLog.capture_log(fn ->
-      assert {:ok, _} = Supervisor.restart_child(Main, Rules.Server)
-      assert :sys.get_state(Rules.Server).stale
+      assert {:ok, _} = Supervisor.restart_child(Guardian.Main, Guardian.Rules.Server)
+      assert :sys.get_state(Guardian.Rules.Server).stale
     end)
 
-    assert Rules.published() == old
+    assert Guardian.Rules.published() == old
     assert ingest(b)["prior"] == 2
-    FakeS3.fault(s3, nil)
-    FakeS3.put_object(s3, "#{b}/r.gsql", files["#{b}/r.gsql"])
-    assert :ok = Rules.reload()
-    refute Rules.published() == old
+    Guardian.FakeS3.fault(s3, nil)
+    Guardian.FakeS3.put_object(s3, "#{b}/r.gsql", files["#{b}/r.gsql"])
+    assert :ok = Guardian.Rules.reload()
+    refute Guardian.Rules.published() == old
     assert ingest(a, %{"amount" => 11})["hits"] == 11
     assert ingest(b)["prior"] == 11
   end
@@ -244,20 +244,24 @@ defmodule Rules.CounterReloadTest do
     a = unique_table("boot_target")
     b = unique_table("boot_invalid_reader")
     c = unique_table("boot_transitive_reader")
-    FakeS3.put_object(s3, "#{a}/r.gsql", "TRACK ca = count() LAST '1h'")
+    Guardian.FakeS3.put_object(s3, "#{a}/r.gsql", "TRACK ca = count() LAST '1h'")
 
-    FakeS3.put_object(
+    Guardian.FakeS3.put_object(
       s3,
       "#{b}/r.gsql",
       "TRACK cb = count() LAST '1h'; LOOKUP bad = ca FROM #{a} BY ip"
     )
 
-    FakeS3.put_object(s3, "#{c}/r.gsql", "LOOKUP bad = cb FROM #{b}")
-    ExUnit.CaptureLog.capture_log(fn -> assert {:ok, _} = restart_server(FakeS3.store(s3)) end)
+    Guardian.FakeS3.put_object(s3, "#{c}/r.gsql", "LOOKUP bad = cb FROM #{b}")
+
+    ExUnit.CaptureLog.capture_log(fn ->
+      assert {:ok, _} = restart_server(Guardian.FakeS3.store(s3))
+    end)
+
     assert ingest(a)["ca"] == 1
-    assert {:invalid, _} = Rules.lookup(b)
-    assert {:invalid, _} = Rules.lookup(c)
-    assert [{:error, _}] = Engine.ingest_events(c, [%{}])
+    assert {:invalid, _} = Guardian.Rules.lookup(b)
+    assert {:invalid, _} = Guardian.Rules.lookup(c)
+    assert [{:error, _}] = Guardian.Engine.ingest_events(c, [%{}])
   end
 
   test "dependent name and arity migrations use a new counter then retarget before deleting", %{
@@ -272,13 +276,16 @@ defmodule Rules.CounterReloadTest do
     })
 
     assert {:error, {:rejected, _}} =
-             Rules.write_rule(a, "r", "TRACK hits = count() BY ip LAST '1h'")
+             Guardian.Rules.write_rule(a, "r", "TRACK hits = count() BY ip LAST '1h'")
 
-    assert {:error, {:rejected, _}} = Rules.delete_rule(a, "r")
-    assert {:ok, _} = Rules.write_rule(a, "new", "TRACK grouped = count() BY ip LAST '1h'")
+    assert {:error, {:rejected, _}} = Guardian.Rules.delete_rule(a, "r")
+
+    assert {:ok, _} =
+             Guardian.Rules.write_rule(a, "new", "TRACK grouped = count() BY ip LAST '1h'")
+
     assert ingest(a, %{"ip" => "a"})["grouped"] == 1
-    assert {:ok, _} = Rules.write_rule(b, "r", "LOOKUP prior = grouped FROM #{a} BY ip")
-    assert {:ok, _} = Rules.delete_rule(a, "r")
+    assert {:ok, _} = Guardian.Rules.write_rule(b, "r", "LOOKUP prior = grouped FROM #{a} BY ip")
+    assert {:ok, _} = Guardian.Rules.delete_rule(a, "r")
     assert ingest(b, %{"ip" => "a"})["prior"] == 1
   end
 end

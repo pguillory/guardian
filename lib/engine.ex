@@ -1,4 +1,4 @@
-defmodule Engine do
+defmodule Guardian.Engine do
   @moduledoc """
   High-level event ingestion interface for Guardian.
 
@@ -7,7 +7,7 @@ defmodule Engine do
 
   ## Event Ingestion Flow
 
-      Engine.ingest_event(table, event)
+      Guardian.Engine.ingest_event(table, event)
         ↓
       1. Validate storage-safe values
       2. Store in a segment
@@ -33,13 +33,13 @@ defmodule Engine do
   `[a-z_][a-z0-9_]*`, excluding
   SQL keywords, `null`/`true`/`false`, `current_date`/`current_timestamp`, and the
   virtual `schema` table. This also keeps them safe in segment filenames. Other names
-  raise `Engine.InvalidTableNameError` before anything is written.
+  raise `Guardian.Engine.InvalidTableNameError` before anything is written.
 
   See `ARCHITECTURE.md` for architecture details.
   """
 
-  alias Storage.Flattening
-  alias Storage.Value
+  alias Guardian.Storage.Flattening
+  alias Guardian.Storage.Value
   require Logger
 
   @doc """
@@ -51,7 +51,7 @@ defmodule Engine do
   def ingest_events(table, events) do
     validate_table!(table)
 
-    case Rules.lookup(table) do
+    case Guardian.Rules.lookup(table) do
       nil -> Enum.map(events, &ingest_result(table, &1))
       _rules -> ingest_with_rules(table, events)
     end
@@ -60,7 +60,7 @@ defmodule Engine do
   def ingest_event(table, event) do
     validate_table!(table)
     {valid_row, invalid_row} = validate_event(table, event)
-    :ok = Storage.append_flattened(table, valid_row)
+    :ok = Guardian.Storage.append_flattened(table, valid_row)
     reported_event(event, valid_row, invalid_row)
   end
 
@@ -90,7 +90,7 @@ defmodule Engine do
   @doc """
   Names a caught failure by its kind only, the way `try_log_event/2` reports one: the
   exception module for an error, `"exit "` and the exit's reason kind for an exit
-  (`Storage.exit_kind/1`), or `"throw"`. Never the reason's contents or a message, so
+  (`Guardian.Storage.exit_kind/1`), or `"throw"`. Never the reason's contents or a message, so
   it is safe to log. Shared by the writers of built-in tables that catch their own
   failures.
   """
@@ -100,7 +100,7 @@ defmodule Engine do
     inspect(module)
   end
 
-  def failure_kind(:exit, reason, _stacktrace), do: "exit " <> Storage.exit_kind(reason)
+  def failure_kind(:exit, reason, _stacktrace), do: "exit " <> Guardian.Storage.exit_kind(reason)
   def failure_kind(:throw, _value, _stacktrace), do: "throw"
 
   defp ingest_result(table, event) when is_map(event) do
@@ -118,13 +118,13 @@ defmodule Engine do
 
   defp ingest_result(_table, _event), do: {:error, "event is not a JSON object"}
 
-  # Rules run on every event's validated row, in a worker (Rules.Runner), after which
+  # Rules run on every event's validated row, in a worker (Guardian.Rules.Runner), after which
   # the values they produced are validated the same way and the row is stored. The
   # reported event is built from the row after rules.
   defp ingest_with_rules(table, events) do
     prepared =
       Enum.map(events, fn event ->
-        arrival = Rules.Event.arrival()
+        arrival = Guardian.Rules.Event.arrival()
 
         prepared =
           if is_map(event),
@@ -162,7 +162,7 @@ defmodule Engine do
   end
 
   defp run_rules(table, rows) do
-    {:ok, Rules.run_with_metadata(table, rows)}
+    {:ok, Guardian.Rules.run_with_metadata(table, rows)}
   catch
     kind, reason ->
       log_ingest_failure(table, kind, reason, __STACKTRACE__)
@@ -207,7 +207,7 @@ defmodule Engine do
   end
 
   defp store_event(table, event, flat_row) do
-    case Storage.append_flattened_result(table, flat_row) do
+    case Guardian.Storage.append_flattened_result(table, flat_row) do
       :ok -> {:ok, event}
       {:error, :invalid_value} -> {:error, "value cannot be stored; the event was not stored"}
     end
@@ -238,7 +238,7 @@ defmodule Engine do
 
   # Identifiers that SQL cannot use as a plain table reference: tokenizer keywords and
   # literals, parser-level functions, and the virtual schema table.
-  @reserved_table_names Enum.map(AST.Tokenizer.keywords(), &String.downcase/1) ++
+  @reserved_table_names Enum.map(Guardian.AST.Tokenizer.keywords(), &String.downcase/1) ++
                           ~w[null true false current_date current_timestamp schema]
 
   # Segment files are named `{table}.{32-character id}.seg`, written through a
@@ -261,7 +261,7 @@ defmodule Engine do
 
   defp validate_table!(table) do
     unless valid_table_name?(table) do
-      raise Engine.InvalidTableNameError, table: table
+      raise Guardian.Engine.InvalidTableNameError, table: table
     end
   end
 

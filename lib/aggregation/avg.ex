@@ -1,4 +1,4 @@
-defmodule Aggregation.Avg do
+defmodule Guardian.Aggregation.Avg do
   def default do
     nil
   end
@@ -15,7 +15,7 @@ defmodule Aggregation.Avg do
 
   # An integer sum stays exact (a bignum of a few words at most, for any real count).
   # A float overflow makes the state :overflow, which absorbs every later merge and
-  # finishes as null (Query.Numeric).
+  # finishes as null (Guardian.Query.Numeric).
   def merge(:overflow, _acc2), do: :overflow
   def merge(_acc1, :overflow), do: :overflow
 

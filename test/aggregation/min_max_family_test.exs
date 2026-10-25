@@ -1,7 +1,7 @@
-defmodule Aggregation.MinMaxFamilyTest do
+defmodule Guardian.Aggregation.MinMaxFamilyTest do
   # Behavior shared by min and max and their _by, _n and _n_by forms: which of equal
   # keys wins, null skipping, and Erlang term order across types.
-  use Query.EvaluationTestCase, async: true
+  use Guardian.Query.EvaluationTestCase, async: true
 
   defp values(xs), do: Enum.map(xs, &[x: &1])
 

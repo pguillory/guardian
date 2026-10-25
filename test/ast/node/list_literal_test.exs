@@ -1,5 +1,5 @@
-defmodule ListLiteralTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.ListLiteralTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "list literal" do
     assert eval("[]") == []

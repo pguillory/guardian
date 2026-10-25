@@ -1,4 +1,4 @@
-defmodule Rules.Event do
+defmodule Guardian.Rules.Event do
   @moduledoc "Private arrival coordinates and per-event counter routing context, never row fields."
   @enforce_keys [:arrival_ms, :monotonic_ms]
   defstruct [:arrival_ms, :monotonic_ms, :counters]
@@ -11,8 +11,8 @@ defmodule Rules.Event do
   end
 
   def start(%__MODULE__{} = arrival, batch, opts \\ []) do
-    %{arrival | counters: Counters.Cluster.new_event(batch, opts)}
+    %{arrival | counters: Guardian.Counters.Cluster.new_event(batch, opts)}
   end
 
-  def new, do: start(arrival(), Counters.Cluster.new_batch())
+  def new, do: start(arrival(), Guardian.Counters.Cluster.new_batch())
 end

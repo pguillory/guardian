@@ -1,4 +1,4 @@
-defmodule RuntimeConfigTest do
+defmodule Guardian.RuntimeConfigTest do
   use ExUnit.Case, async: false
 
   @runtime_config Path.expand("../../config/runtime.exs", __DIR__)
@@ -125,8 +125,8 @@ defmodule RuntimeConfigTest do
   end
 
   test "Storage uses the configured data directory" do
-    assert Storage.data_dir() == Application.fetch_env!(:guardian, :data_dir)
-    assert Storage.segment_dir() == Path.join(Storage.data_dir(), "segments")
+    assert Guardian.Storage.data_dir() == Application.fetch_env!(:guardian, :data_dir)
+    assert Guardian.Storage.segment_dir() == Path.join(Guardian.Storage.data_dir(), "segments")
   end
 
   test "reads a positive mutable segment maximum age override" do
@@ -215,8 +215,10 @@ defmodule RuntimeConfigTest do
   test "counter memory defaults to Store's 64 MiB and accepts positive MiB overrides" do
     System.put_env("GUARDIAN_API_KEY", @key)
     refute Keyword.has_key?(read_runtime_config()[:guardian], :counter_memory_budget_bytes)
-    store = start_supervised!({Counters.Store, name: nil})
-    assert {:ok, %{memory_budget_bytes: 67_108_864}} = Counters.Store.stats(server: store)
+    store = start_supervised!({Guardian.Counters.Store, name: nil})
+
+    assert {:ok, %{memory_budget_bytes: 67_108_864}} =
+             Guardian.Counters.Store.stats(server: store)
 
     for {value, mb} <- [{"1", 1}, {"128", 128}, {"+64", 64}] do
       System.put_env("GUARDIAN_COUNTER_MEMORY_MB", value)
@@ -238,8 +240,8 @@ defmodule RuntimeConfigTest do
     System.put_env("GUARDIAN_API_KEY", @key)
     System.put_env("GUARDIAN_COUNTER_MEMORY_MB", "2")
     budget = get_in(read_runtime_config(), [:guardian, :counter_memory_budget_bytes])
-    RulesTestHelper.put_env(:counter_memory_budget_bytes, budget)
-    store = start_supervised!({Counters.Store, name: nil})
-    assert {:ok, %{memory_budget_bytes: 2_097_152}} = Counters.Store.stats(server: store)
+    Guardian.RulesTestHelper.put_env(:counter_memory_budget_bytes, budget)
+    store = start_supervised!({Guardian.Counters.Store, name: nil})
+    assert {:ok, %{memory_budget_bytes: 2_097_152}} = Guardian.Counters.Store.stats(server: store)
   end
 end

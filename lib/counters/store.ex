@@ -1,4 +1,4 @@
-defmodule Counters.Store do
+defmodule Guardian.Counters.Store do
   @moduledoc """
   Ephemeral, node-local counter storage. One owner serializes operations on private
   ETS tables, so increments and compare-and-swap are atomic. Keys and values are
@@ -379,7 +379,7 @@ defmodule Counters.Store do
 
       :erlang.raise(
         :error,
-        %RuntimeError{message: "Counters.Store failed (details redacted)"},
+        %RuntimeError{message: "Guardian.Counters.Store failed (details redacted)"},
         stack
       )
   end

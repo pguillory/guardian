@@ -1,8 +1,8 @@
-defmodule Storage.Segment.Registration do
+defmodule Guardian.Storage.Segment.Registration do
   # Internal to Storage; see lib/storage/CLAUDE.md, "Public boundary".
   @moduledoc false
 
-  alias Storage.Segment
+  alias Guardian.Storage.Segment
 
   defmacro tuple(opts \\ []) do
     underscore =

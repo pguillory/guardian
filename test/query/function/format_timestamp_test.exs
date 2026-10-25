@@ -1,5 +1,5 @@
-defmodule Query.Function.FormatTimestampTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Query.Function.FormatTimestampTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "format_timestamp function" do
     assert eval("format_timestamp('0001-02-03 04:05:06', 'y')") === "1"

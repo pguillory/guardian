@@ -1,5 +1,5 @@
-defmodule AST.Node.Splat do
-  use AST.Node
+defmodule Guardian.AST.Node.Splat do
+  use Guardian.AST.Node
 
   defstruct []
 

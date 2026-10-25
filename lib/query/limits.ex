@@ -1,4 +1,4 @@
-defmodule Query.Limits do
+defmodule Guardian.Query.Limits do
   @moduledoc """
   Per-query bounds that keep a careless query from exhausting a machine's memory.
 
@@ -9,12 +9,12 @@ defmodule Query.Limits do
     merge of an ORDER BY ... LIMIT. Rows scanned or aggregated are not counted, so
     aggregates over big tables are unaffected. ORDER BY with a LIMIT above the row cap
     is refused up front, since each machine would hold that many rows.
-  - Strings that functions build are cut to 64 KiB (`Query.Text`), never refused.
-  - Time: a query may run for at most `:query_time_limit_ms` (30 s). `Query.run/1`
+  - Strings that functions build are cut to 64 KiB (`Guardian.Query.Text`), never refused.
+  - Time: a query may run for at most `:query_time_limit_ms` (30 s). `Guardian.Query.run/1`
     then stops it on every machine and raises. Nothing else bounds a query's running
     time: query stages and segment reads wait as long as they need to.
   - Heap: each process a query runs in (the query process and every
-    `Query.DistributedStream` worker, on every machine) is killed if its own Erlang
+    `Guardian.Query.DistributedStream` worker, on every machine) is killed if its own Erlang
     heap grows past `:query_max_heap_mb` (256 MiB; 0 turns it off), read on the
     machine the process runs on. The query then fails with a message saying a process
     was killed and may have exceeded its heap limit (an exit reason of `:killed` does
@@ -23,9 +23,9 @@ defmodule Query.Limits do
     `replace` on a value over 16 KiB runs in its own helper process with the same cap
     (256 MiB when the limit is off), so a value's match offsets stay bounded even with
     the limit off; a helper killed by it gives null for that value
-    (`Query.Regex.replace/3`).
+    (`Guardian.Query.Regex.replace/3`).
 
-  Exceeding a bound raises `Query.Error` with what to change. These cover the common
+  Exceeding a bound raises `Guardian.Query.Error` with what to change. These cover the common
   accidental cases, not total query memory: the heap limit is per process and checked
   at garbage collection, so it can overshoot, and it does not count GROUP BY state
   (ETS), column data (native memory), or shared binaries. A deliberate or exotic query
@@ -100,13 +100,13 @@ defmodule Query.Limits do
 
       cond do
         rows > max_rows ->
-          raise Query.Error,
+          raise Guardian.Query.Error,
             message:
               "query result exceeds #{max_rows} rows; add a LIMIT, narrow it with WHERE, " <>
                 "or aggregate with GROUP BY"
 
         bytes > max_bytes ->
-          raise Query.Error,
+          raise Guardian.Query.Error,
             message:
               "query result exceeds #{div(max_bytes, 1024 * 1024)} MiB; add a LIMIT, " <>
                 "select fewer or smaller columns, or aggregate with GROUP BY"
@@ -124,7 +124,7 @@ defmodule Query.Limits do
     max_rows = max_result_rows()
 
     if limit > max_rows do
-      raise Query.Error,
+      raise Guardian.Query.Error,
         message:
           "ORDER BY with LIMIT #{limit} exceeds the #{max_rows}-row result cap; lower the LIMIT"
     end

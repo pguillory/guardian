@@ -1,9 +1,9 @@
-defmodule Web.QueryParseErrorsTest do
+defmodule Guardian.Web.QueryParseErrorsTest do
   use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
 
-  alias Web.QueryParseErrors
+  alias Guardian.Web.QueryParseErrors
 
   @api_key Application.compile_env!(:guardian, :api_key)
 
@@ -16,7 +16,7 @@ defmodule Web.QueryParseErrorsTest do
     :ok = QueryParseErrors.sync(server)
 
     QueryParseErrors.table()
-    |> Storage.dump_table()
+    |> Guardian.Storage.dump_table()
     |> Enum.filter(&(&1["sql"] == sql))
   end
 
@@ -29,7 +29,7 @@ defmodule Web.QueryParseErrorsTest do
     conn = Enum.reduce(headers, conn, fn {k, v}, conn -> Plug.Conn.put_req_header(conn, k, v) end)
 
     try do
-      conn = Web.MainRouter.call(conn, nil)
+      conn = Guardian.Web.MainRouter.call(conn, nil)
       {conn.status, Jason.decode!(conn.resp_body)}
     rescue
       # Plug.ErrorHandler sends the 500 response and then reraises the error.
@@ -41,10 +41,10 @@ defmodule Web.QueryParseErrorsTest do
 
   defp parse_message(sql) do
     try do
-      Query.Resolver.resolve(sql)
+      Guardian.Query.Resolver.resolve(sql)
       flunk("expected a parse error for #{inspect(sql)}")
     rescue
-      e in AST.ParseError -> Exception.message(e)
+      e in Guardian.AST.ParseError -> Exception.message(e)
     end
   end
 
@@ -52,7 +52,7 @@ defmodule Web.QueryParseErrorsTest do
     test "a parse error returns the same 500 and records one row" do
       sql = bad_sql()
 
-      assert {500, %{"status" => 500}, %AST.ParseError{}} =
+      assert {500, %{"status" => 500}, %Guardian.AST.ParseError{}} =
                http_query(sql, [{"user-agent", "test-agent/1"}, {"x-forwarded-for", "9.9.9.9"}])
 
       assert [row] = rows_for(sql)
@@ -65,7 +65,7 @@ defmodule Web.QueryParseErrorsTest do
       assert row["sql_bytes"] == byte_size(sql)
       assert row["sql_truncated"] == false
       assert row["dropped_before"] == 0
-      assert row["hostname"] == Utils.hostname()
+      assert row["hostname"] == Guardian.Utils.hostname()
       assert row["timestamp"] =~ ~r/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/
       refute Map.has_key?(row, "mcp_client_name")
     end
@@ -77,23 +77,23 @@ defmodule Web.QueryParseErrorsTest do
       assert {400, _} = http_query("SELECT 1 FROM #{marker}; SELECT 2")
       :ok = QueryParseErrors.sync()
 
-      rows = Storage.dump_table(QueryParseErrors.table())
+      rows = Guardian.Storage.dump_table(QueryParseErrors.table())
       refute Enum.any?(rows, &String.contains?(&1["sql"] || "", marker))
     end
 
     test "a stopped recorder is logged and the caller still gets the parse error 500" do
       sql = bad_sql()
-      :ok = Supervisor.terminate_child(Main, QueryParseErrors)
+      :ok = Supervisor.terminate_child(Guardian.Main, QueryParseErrors)
 
       try do
         log =
           capture_log(fn ->
-            assert {500, %{"status" => 500}, %AST.ParseError{}} = http_query(sql)
+            assert {500, %{"status" => 500}, %Guardian.AST.ParseError{}} = http_query(sql)
           end)
 
         assert log =~ "Failed to record a http query parse error: the recorder is not running"
       after
-        {:ok, _} = Supervisor.restart_child(Main, QueryParseErrors)
+        {:ok, _} = Supervisor.restart_child(Guardian.Main, QueryParseErrors)
       end
 
       assert rows_for(sql) == []
@@ -106,7 +106,7 @@ defmodule Web.QueryParseErrorsTest do
 
       try do
         {micros, result} = :timer.tc(fn -> http_query(sql) end)
-        assert {500, %{"status" => 500}, %AST.ParseError{}} = result
+        assert {500, %{"status" => 500}, %Guardian.AST.ParseError{}} = result
         assert micros < 1_000_000
       after
         :ok = :sys.resume(pid)
@@ -135,7 +135,7 @@ defmodule Web.QueryParseErrorsTest do
     end
 
     test "a failure while building the row is logged by kind only and returns :ok" do
-      error = %AST.ParseError{reason: "test", row: 0, col: 0}
+      error = %Guardian.AST.ParseError{reason: "test", row: 0, col: 0}
 
       callers = [
         {fn -> raise "boom secret" end, "RuntimeError"},
@@ -158,9 +158,9 @@ defmodule Web.QueryParseErrorsTest do
   describe "MCP" do
     test "a parse error returns the same tool error and records one row" do
       sql = bad_sql()
-      MCPTestClient.start()
+      Guardian.MCPTestClient.start()
 
-      {:ok, response} = MCPTestClient.call_tool("query", %{"sql" => sql})
+      {:ok, response} = Guardian.MCPTestClient.call_tool("query", %{"sql" => sql})
 
       assert response.result["isError"] == true
       assert [%{"text" => text}] = response.result["content"]
@@ -177,28 +177,28 @@ defmodule Web.QueryParseErrorsTest do
 
     test "resolve errors are not recorded" do
       table = "ambiguous_#{System.unique_integer([:positive])}_end"
-      Engine.ingest_event(table, %{"a" => 1, "A" => 2})
-      MCPTestClient.start()
+      Guardian.Engine.ingest_event(table, %{"a" => 1, "A" => 2})
+      Guardian.MCPTestClient.start()
 
       {:ok, response} =
-        MCPTestClient.call_tool("query", %{"sql" => "SELECT a FROM #{table}"})
+        Guardian.MCPTestClient.call_tool("query", %{"sql" => "SELECT a FROM #{table}"})
 
       assert response.result["isError"] == true
       assert [%{"text" => "ambiguous column" <> _}] = response.result["content"]
       :ok = QueryParseErrors.sync()
 
       refute Enum.any?(
-               Storage.dump_table(QueryParseErrors.table()),
+               Guardian.Storage.dump_table(QueryParseErrors.table()),
                &String.contains?(&1["sql"] || "", table)
              )
     end
 
     test "an unknown function is a parse error and is recorded" do
       sql = "SELECT no_such_function_#{System.unique_integer([:positive])}(1)"
-      MCPTestClient.start()
+      Guardian.MCPTestClient.start()
 
       {:ok, response} =
-        MCPTestClient.call_tool("query", %{"sql" => sql})
+        Guardian.MCPTestClient.call_tool("query", %{"sql" => sql})
 
       assert [%{"text" => "Parse error" <> _ = text}] = response.result["content"]
       assert [%{"error" => ^text}] = rows_for(sql)
@@ -209,7 +209,7 @@ defmodule Web.QueryParseErrorsTest do
     test "long SQL is cut to 16 KiB on a UTF-8 boundary" do
       # "é" is two bytes after an odd-length prefix, so the cap splits a character.
       sql = "SELECT FROM x WHERE " <> String.duplicate("é", 10_000)
-      error = %AST.ParseError{reason: "test", row: 0, col: 0}
+      error = %Guardian.AST.ParseError{reason: "test", row: 0, col: 0}
       row = QueryParseErrors.row(sql, error, %{"interface" => "http"})
 
       assert row["sql_truncated"] == true
@@ -222,7 +222,7 @@ defmodule Web.QueryParseErrorsTest do
     end
 
     test "caller fields are capped and non-strings become null" do
-      error = %AST.ParseError{reason: "test", row: 0, col: 0}
+      error = %Guardian.AST.ParseError{reason: "test", row: 0, col: 0}
       long = String.duplicate("x", 10_000)
 
       row =
@@ -244,15 +244,15 @@ defmodule Web.QueryParseErrorsTest do
       writer = fn table, row ->
         if :counters.get(failures, 1) > 0 do
           :counters.sub(failures, 1, 1)
-          # What Engine.try_log_event/2 returns for a raised RuntimeError.
+          # What Guardian.Engine.try_log_event/2 returns for a raised RuntimeError.
           {:error, "RuntimeError"}
         else
-          Engine.try_log_event(table, row)
+          Guardian.Engine.try_log_event(table, row)
         end
       end
 
       start_supervised!({QueryParseErrors, name: server, writer: writer})
-      error = %AST.ParseError{reason: "test", row: 0, col: 0}
+      error = %Guardian.AST.ParseError{reason: "test", row: 0, col: 0}
       [lost, kept] = [bad_sql(), bad_sql()]
 
       log =
@@ -278,7 +278,7 @@ defmodule Web.QueryParseErrorsTest do
       server = :"backlog_#{System.unique_integer([:positive])}"
       pid = start_supervised!({QueryParseErrors, name: server})
       :ok = :sys.suspend(pid)
-      error = %AST.ParseError{reason: "test", row: 0, col: 0}
+      error = %Guardian.AST.ParseError{reason: "test", row: 0, col: 0}
       for _ <- 1..100, do: GenServer.cast(pid, :filler)
       sql = bad_sql()
 
@@ -301,7 +301,7 @@ defmodule Web.QueryParseErrorsTest do
       # A field that is short but points into a large binary.
       agent = binary_part(big, 0, 100)
       assert :binary.referenced_byte_size(agent) > byte_size(agent)
-      error = %AST.ParseError{reason: "test", row: 0, col: 0}
+      error = %Guardian.AST.ParseError{reason: "test", row: 0, col: 0}
 
       :ok =
         QueryParseErrors.record(
@@ -334,7 +334,7 @@ defmodule Web.QueryParseErrorsTest do
       log =
         capture_log(fn ->
           for sql <- sqls do
-            error = %AST.ParseError{reason: "test", row: 0, col: 0}
+            error = %Guardian.AST.ParseError{reason: "test", row: 0, col: 0}
 
             assert QueryParseErrors.record(sql, error, fn -> %{"interface" => "http"} end,
                      server: server
@@ -350,7 +350,7 @@ defmodule Web.QueryParseErrorsTest do
       # Next hour: the first row reports the three dropped.
       :counters.add(now, 1, 3600)
       sql = bad_sql()
-      error = %AST.ParseError{reason: "test", row: 0, col: 0}
+      error = %Guardian.AST.ParseError{reason: "test", row: 0, col: 0}
 
       :ok =
         QueryParseErrors.record(sql, error, fn -> %{"interface" => "http"} end, server: server)

@@ -1,8 +1,8 @@
-defmodule AST.Node.Operators.LikeOperator do
-  use AST.Node.BinaryOperator, symbol: "LIKE"
+defmodule Guardian.AST.Node.Operators.LikeOperator do
+  use Guardian.AST.Node.BinaryOperator, symbol: "LIKE"
 
-  alias Query.ColumnOrConstant
-  alias Query.Constant
+  alias Guardian.Query.ColumnOrConstant
+  alias Guardian.Query.Constant
 
   # The most pattern characters (not counting `%`) LIKE accepts; a longer pattern
   # matches nothing (null). It bounds the state machine below to a few machine words.
@@ -10,11 +10,11 @@ defmodule AST.Node.Operators.LikeOperator do
 
   def max_pattern_items, do: @max_pattern_items
 
-  defimpl Query.Eval do
+  defimpl Guardian.Query.Eval do
     def eval(%@for{left: left, right: right}, context) do
-      column1 = Query.Eval.eval(left, context)
+      column1 = Guardian.Query.Eval.eval(left, context)
 
-      case Query.Eval.eval(right, context) do
+      case Guardian.Query.Eval.eval(right, context) do
         # A constant pattern, the usual case, is compiled once rather than per row.
         %Constant{value: pattern} ->
           compiled = @for.compile_constant(pattern)

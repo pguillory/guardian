@@ -1,4 +1,4 @@
-defmodule Query.Function.Log do
+defmodule Guardian.Query.Function.Log do
   # Zero and negatives have no logarithm: null.
   def eval(value) when is_number(value) and value > 0 do
     :math.log(value)

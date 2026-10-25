@@ -1,4 +1,4 @@
-defmodule Rules.Resolution do
+defmodule Guardian.Rules.Resolution do
   @moduledoc """
   Binds LOOKUPs to immutable TRACK definitions and hashes the resulting plans.
   Invalid targets propagate in synchronous rounds to a fixed point. Target
@@ -10,9 +10,9 @@ defmodule Rules.Resolution do
   defp resolve(candidates, current) do
     definitions =
       for {table, {:ok, plan}} <- current,
-          %Rules.Step.Track{} = track <- plan.steps,
+          %Guardian.Rules.Step.Track{} = track <- plan.steps,
           into: %{},
-          do: {{table, track.field}, Rules.CounterDefinition.from_track(track)}
+          do: {{table, track.field}, Guardian.Rules.CounterDefinition.from_track(track)}
 
     next =
       Map.new(candidates, fn
@@ -40,7 +40,7 @@ defmodule Rules.Resolution do
   defp bind(plan, definitions) do
     {steps, errors} =
       Enum.map_reduce(plan.steps, [], fn
-        %Rules.Step.Lookup{} = step, errors ->
+        %Guardian.Rules.Step.Lookup{} = step, errors ->
           case target(step, definitions) do
             {:ok, definition} -> {%{step | target: definition}, errors}
             {:error, error} -> {step, errors ++ [error]}
@@ -56,7 +56,7 @@ defmodule Rules.Resolution do
          %{
            plan
            | steps: steps,
-             levels: Rules.DependencyGraph.levels(steps),
+             levels: Guardian.Rules.DependencyGraph.levels(steps),
              hash: hash(plan.hash, steps),
              resolved?: true,
          }}
@@ -74,7 +74,7 @@ defmodule Rules.Resolution do
     cond do
       is_nil(definition) ->
         {:error,
-         Rules.Validation.error(
+         Guardian.Rules.Validation.error(
            step,
            :counter_target,
            detail,
@@ -83,7 +83,7 @@ defmodule Rules.Resolution do
 
       length(step.by_exprs) != definition.group_arity ->
         {:error,
-         Rules.Validation.error(
+         Guardian.Rules.Validation.error(
            step,
            :counter_arity,
            detail,
@@ -98,7 +98,7 @@ defmodule Rules.Resolution do
   # Preserve the existing SET/UNSET hash exactly. A LOOKUP's binding adds only its
   # target definition, so moving a target between files does not reset dependents.
   defp hash(base_hash, steps) do
-    targets = for %Rules.Step.Lookup{target: target} <- steps, do: target
+    targets = for %Guardian.Rules.Step.Lookup{target: target} <- steps, do: target
 
     case targets do
       [] ->

@@ -1,4 +1,4 @@
-defmodule Query.Function.Ltrim do
+defmodule Guardian.Query.Function.Ltrim do
   def eval(value) when is_binary(value) do
     String.trim_leading(value)
   end

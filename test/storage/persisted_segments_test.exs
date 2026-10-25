@@ -1,8 +1,8 @@
-defmodule Storage.PersistedSegmentsTest do
-  alias Storage.FullSegments
-  alias Storage.PersistedSegments
-  alias Storage.Segment
-  alias Storage.Segment.Registration
+defmodule Guardian.Storage.PersistedSegmentsTest do
+  alias Guardian.Storage.FullSegments
+  alias Guardian.Storage.PersistedSegments
+  alias Guardian.Storage.Segment
+  alias Guardian.Storage.Segment.Registration
   require Registration
   use ExUnit.Case, async: true
   import ExUnit.CaptureLog
@@ -29,7 +29,7 @@ defmodule Storage.PersistedSegmentsTest do
     # as an older release or a disk fault could leave behind.
     test "is logged once, stays queryable in memory, and does not stop the persister" do
       table = String.duplicate("t", 230)
-      segment_id = SegmentID.generate()
+      segment_id = Guardian.SegmentID.generate()
       segment = unlinked_segment(%{"v" => 1})
       registration = Registration.tuple(segment_id: segment_id, segment: segment, table: table)
       persister = Process.whereis(PersistedSegments)
@@ -52,7 +52,7 @@ defmodule Storage.PersistedSegmentsTest do
 
       # Other segments still persist.
       other = "persist_after_failure_#{System.unique_integer([:positive])}"
-      other_id = SegmentID.generate()
+      other_id = Guardian.SegmentID.generate()
       other_segment = unlinked_segment(%{"v" => 2})
 
       other_registration =
@@ -62,7 +62,7 @@ defmodule Storage.PersistedSegmentsTest do
       PersistedSegments.ping()
       :sys.get_state(PersistedSegments)
       assert {:ok, ^other_segment} = PersistedSegments.get_segment(other_id)
-      assert File.exists?(Storage.SegmentFile.filename(other, other_id))
+      assert File.exists?(Guardian.Storage.SegmentFile.filename(other, other_id))
 
       :ok = FullSegments.delete(registration)
     end

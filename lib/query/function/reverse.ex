@@ -1,4 +1,4 @@
-defmodule Query.Function.Reverse do
+defmodule Guardian.Query.Function.Reverse do
   def eval(value) when is_binary(value) do
     String.reverse(value)
   end

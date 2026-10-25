@@ -1,5 +1,5 @@
-defmodule AST.Node.Statements.SelectStatement do
-  use AST.Node
+defmodule Guardian.AST.Node.Statements.SelectStatement do
+  use Guardian.AST.Node
 
   defstruct [
     :select_exprs,
@@ -13,24 +13,24 @@ defmodule AST.Node.Statements.SelectStatement do
 
   def to_source(%__MODULE__{} = expr) do
     [
-      "SELECT " <> Enum.map_join(expr.select_exprs, ", ", &AST.unparse/1),
+      "SELECT " <> Enum.map_join(expr.select_exprs, ", ", &Guardian.AST.unparse/1),
       if expr.from_expr do
-        " FROM " <> AST.unparse(expr.from_expr)
+        " FROM " <> Guardian.AST.unparse(expr.from_expr)
       end,
       if expr.where_expr do
-        " WHERE " <> AST.unparse(expr.where_expr)
+        " WHERE " <> Guardian.AST.unparse(expr.where_expr)
       end,
       if expr.group_by_exprs do
-        " GROUP BY " <> Enum.map_join(expr.group_by_exprs, ", ", &AST.unparse/1)
+        " GROUP BY " <> Enum.map_join(expr.group_by_exprs, ", ", &Guardian.AST.unparse/1)
       end,
       if expr.having_expr do
-        " HAVING " <> AST.unparse(expr.having_expr)
+        " HAVING " <> Guardian.AST.unparse(expr.having_expr)
       end,
       if expr.order_by_exprs do
-        " ORDER BY " <> Enum.map_join(expr.order_by_exprs, ", ", &AST.unparse/1)
+        " ORDER BY " <> Enum.map_join(expr.order_by_exprs, ", ", &Guardian.AST.unparse/1)
       end,
       if expr.limit_expr do
-        " LIMIT " <> AST.unparse(expr.limit_expr)
+        " LIMIT " <> Guardian.AST.unparse(expr.limit_expr)
       end,
     ]
     |> Enum.reject(&is_nil/1)

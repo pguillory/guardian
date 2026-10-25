@@ -1,5 +1,5 @@
-defmodule EqualOperatorTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.EqualOperatorTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "equal operator" do
     assert eval("1 = 2") == false

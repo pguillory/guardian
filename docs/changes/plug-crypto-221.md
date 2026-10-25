@@ -10,7 +10,7 @@ put secrets in exception stack arguments. See the
 and [Hex release](https://hex.pm/packages/plug_crypto/2.2.1).
 
 No attacker-influenced wrong-typed call path was identified in Guardian. Its only
-direct call is `Web.Auth`'s `secure_compare/2`, reached only with binary credentials;
+direct call is `Guardian.Web.Auth`'s `secure_compare/2`, reached only with binary credentials;
 missing and structured credentials are rejected first. Guardian does not enable
 Phoenix tokens, Plug sessions, signed cookies or the Plug debugger. Generic errors
 can carry stack arguments into stdout and Bandit crash metadata, but HTTP error

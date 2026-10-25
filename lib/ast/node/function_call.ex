@@ -1,21 +1,21 @@
-defmodule AST.Node.FunctionCall do
-  use AST.Node
+defmodule Guardian.AST.Node.FunctionCall do
+  use Guardian.AST.Node
 
-  alias Query.ColumnOrConstant
-  alias Query.Constant
-  alias Query.Evaluation
+  alias Guardian.Query.ColumnOrConstant
+  alias Guardian.Query.Constant
+  alias Guardian.Query.Evaluation
 
   @enforce_keys [:name, :args]
   defstruct [:name, :args]
 
-  defimpl Query.Eval do
+  defimpl Guardian.Query.Eval do
     # A function module that defines `eval2/2` evaluates the call itself; otherwise the
     # call is evaluated row by row with the module's `eval/N`
     # (lib/query/function/CLAUDE.md).
     def eval(%@for{name: name, args: args} = expr, context) do
       arity = length(args)
 
-      case Query.Function.name_and_arity_to_mod(name, arity) do
+      case Guardian.Query.Function.name_and_arity_to_mod(name, arity) do
         {:ok, mod} ->
           Code.ensure_loaded!(mod)
 
@@ -36,7 +36,7 @@ defmodule AST.Node.FunctionCall do
     end
 
     defp eval_per_row(context, mod, args, arity) do
-      columns = Enum.map(args, &Query.Eval.eval(&1, context))
+      columns = Enum.map(args, &Guardian.Query.Eval.eval(&1, context))
       eval = Function.capture(mod, :eval, arity)
 
       case columns do
@@ -61,7 +61,7 @@ defmodule AST.Node.FunctionCall do
   end
 
   def to_source(%__MODULE__{name: name, args: args}) do
-    name <> "(" <> Enum.map_join(args, ", ", &AST.unparse/1) <> ")"
+    name <> "(" <> Enum.map_join(args, ", ", &Guardian.AST.unparse/1) <> ")"
   end
 
   def traverse(%__MODULE__{} = expr, acc, pre, post) do

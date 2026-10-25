@@ -3,10 +3,10 @@
 # Preston Guillory, MIT license: see lib/query/distributed_stream/LICENSE. Guardian has
 # since rewritten its failure model (see "Failure model" below) and added the worker
 # heap limit. Rules for editing it: lib/query/distributed_stream/CLAUDE.md.
-defmodule Query.DistributedStream do
+defmodule Guardian.Query.DistributedStream do
   @moduledoc """
   A lazy, backpressured pipeline whose stages run as worker processes spread over the
-  cluster. Internal to Query: `Query.Executor` builds each query's pipeline with it,
+  cluster. Internal to Query: `Guardian.Query.Executor` builds each query's pipeline with it,
   and the query process is the pipeline's consumer.
 
   A pipeline starts with `fan_out/1,2` over an enumerable (the input), which routes
@@ -48,9 +48,9 @@ defmodule Query.DistributedStream do
 
   ## Exit reasons
 
-  A failed pipeline exits its consumer with a `t:failure_reason/0`. `Query.Failure`
-  translates each into a `Query.Error`; a new reason must be added to the type, this
-  list and `Query.Failure.from_exit/1` together.
+  A failed pipeline exits its consumer with a `t:failure_reason/0`. `Guardian.Query.Failure`
+  translates each into a `Guardian.Query.Error`; a new reason must be added to the type, this
+  list and `Guardian.Query.Failure.from_exit/1` together.
 
   1. Any abnormal reason of a worker, router or initial worker, or of any other
      process linked to a trapping consumer, passed on unchanged: a crash reason, or
@@ -269,7 +269,7 @@ defmodule Query.DistributedStream do
     router = self()
 
     spawn_link(fn ->
-      Query.Limits.limit_heap()
+      Guardian.Query.Limits.limit_heap()
       distribute(id, input_stream, fan_out_func, router)
       send(router, {:done, id})
     end)
@@ -395,7 +395,7 @@ defmodule Query.DistributedStream do
 
     Node.spawn_link(node, fn ->
       # Read on the worker's own node, so each machine applies its own limit.
-      Query.Limits.limit_heap()
+      Guardian.Query.Limits.limit_heap()
 
       stream =
         Stream.resource(

@@ -1,8 +1,8 @@
-defmodule Rules.IngestTest do
+defmodule Guardian.Rules.IngestTest do
   use ExUnit.Case, async: false
-  import RulesTestHelper
+  import Guardian.RulesTestHelper
 
-  defp ingest(table, events), do: Engine.ingest_events(table, events)
+  defp ingest(table, events), do: Guardian.Engine.ingest_events(table, events)
 
   test "SET computes fields before storage; the reported event and stored row include them" do
     table = unique_table("rules_set")
@@ -33,7 +33,9 @@ defmodule Rules.IngestTest do
     assert second == %{"signal" => 0.1, "message" => "hi", "status" => 200, "severity" => "low"}
 
     assert {:ok, ["is_blocked", "severity"], rows} =
-             Query.execute("SELECT is_blocked, severity FROM #{table} ORDER BY signal DESC")
+             Guardian.Query.execute(
+               "SELECT is_blocked, severity FROM #{table} ORDER BY signal DESC"
+             )
 
     assert rows == [[true, "high"], [nil, "low"]]
   end
@@ -61,7 +63,7 @@ defmodule Rules.IngestTest do
     assert [{:ok, reported}] = ingest(table, [event])
     assert reported == %{"has_card" => true, "user" => %{"name" => "bob"}, "env" => "prod"}
 
-    assert Storage.dump_table(table) == [
+    assert Guardian.Storage.dump_table(table) == [
              %{"has_card" => true, "user.name" => "bob", "env" => "prod"},
            ]
 
@@ -84,7 +86,7 @@ defmodule Rules.IngestTest do
 
     assert reported == %{"user" => "redacted", "tags" => "none", "email" => "a@b.com"}
 
-    assert Storage.dump_table(table) == [
+    assert Guardian.Storage.dump_table(table) == [
              %{"user" => "redacted", "tags" => "none", "email" => "a@b.com"},
            ]
   end
@@ -115,7 +117,7 @@ defmodule Rules.IngestTest do
   test "rules that all skip leave an event alone, whatever its keys" do
     table = unique_table("rules_skip_keys")
     with_rules(%{"#{table}/r.gsql" => "SET x = 1 WHERE false; UNSET y WHERE false"})
-    # Storage.Flattening cannot decode this key's flattened form; no skipped rule
+    # Guardian.Storage.Flattening cannot decode this key's flattened form; no skipped rule
     # may decode it.
     event = %{"a.\\" => 1, "b" => 2}
     assert [{:ok, ^event}] = ingest(table, [event])
@@ -123,12 +125,12 @@ defmodule Rules.IngestTest do
 
   test "values a rule produces are validated like incoming ones" do
     table = unique_table("rules_invalid_value")
-    # A field name over Storage.Value.max_key_size/0 bytes cannot be stored.
-    long_name = String.duplicate("k", Storage.Value.max_key_size() + 1)
+    # A field name over Guardian.Storage.Value.max_key_size/0 bytes cannot be stored.
+    long_name = String.duplicate("k", Guardian.Storage.Value.max_key_size() + 1)
     with_rules(%{"#{table}/r.gsql" => "SET #{long_name} = 1; SET ok = 1"})
     assert [{:ok, reported}] = ingest(table, [%{"x" => 1}])
     assert reported == %{"x" => 1, "ok" => 1}
-    assert Storage.dump_table(table) == [%{"x" => 1, "ok" => 1}]
+    assert Guardian.Storage.dump_table(table) == [%{"x" => 1, "ok" => 1}]
   end
 
   test "arithmetic with no good value stores null, and integer overflow wraps" do
@@ -136,7 +138,7 @@ defmodule Rules.IngestTest do
     with_rules(%{"#{table}/r.gsql" => "SET x = div(a, 0); SET y = a * 2; SET z = sqrt(-a)"})
     assert [{:ok, reported}] = ingest(table, [%{"a" => 9_223_372_036_854_775_807}])
     assert reported == %{"a" => 9_223_372_036_854_775_807, "x" => nil, "y" => -2, "z" => nil}
-    assert Storage.dump_table(table) == [%{"a" => 9_223_372_036_854_775_807, "y" => -2}]
+    assert Guardian.Storage.dump_table(table) == [%{"a" => 9_223_372_036_854_775_807, "y" => -2}]
   end
 
   test "a statement that raises fails its event (fail closed), naming the file and line" do
@@ -156,7 +158,7 @@ defmodule Rules.IngestTest do
       end)
 
     refute log =~ secret
-    assert Storage.dump_table(table) == [%{"b" => 1, "ok" => 1}]
+    assert Guardian.Storage.dump_table(table) == [%{"b" => 1, "ok" => 1}]
   end
 
   test "a regular expression past its backtracking limit gives null, not a failure" do
@@ -169,7 +171,7 @@ defmodule Rules.IngestTest do
     evil = String.duplicate("a", 5_000) <> "b"
     assert [{:ok, reported}] = ingest(table, [%{"a" => evil}])
     assert %{"x" => nil, "y" => nil} = reported
-    assert Storage.dump_table(table) == [%{"a" => evil}]
+    assert Guardian.Storage.dump_table(table) == [%{"a" => evil}]
   end
 
   defmodule SlowRules do
@@ -222,7 +224,12 @@ defmodule Rules.IngestTest do
       end)
 
     refute log =~ "SECRET-VALUE"
-    assert table |> Storage.dump_table() |> Enum.map(& &1["n"]) |> Enum.sort() == [1, 2, 3]
+
+    assert table |> Guardian.Storage.dump_table() |> Enum.map(& &1["n"]) |> Enum.sort() == [
+             1,
+             2,
+             3,
+           ]
   end
 
   test "a table whose stored rules are invalid fails its events; other tables are unaffected" do
@@ -234,7 +241,7 @@ defmodule Rules.IngestTest do
     assert message ==
              "rules for #{table} are invalid (#{table}/r.gsql line 1: Expected field name); the event was not stored"
 
-    assert Storage.dump_table(table) == []
+    assert Guardian.Storage.dump_table(table) == []
 
     other = unique_table("rules_other")
     assert [{:ok, %{"x" => 1}}] = ingest(other, [%{"x" => 1}])
@@ -253,11 +260,13 @@ defmodule Rules.IngestTest do
     with_rules(%{"#{table}/r.gsql" => "SET y = 2"})
 
     assert [{:ok, %{"a.\\" => 1, "y" => 2}}] = ingest(table, [%{"a.\\" => 1}])
-    assert {:ok, ["y"], [[2]]} = Query.execute("SELECT y FROM #{table}")
+    assert {:ok, ["y"], [[2]]} = Guardian.Query.execute("SELECT y FROM #{table}")
   end
 
   test "Guardian's own writes to built-in tables never run rules, and rules for them are refused" do
-    assert {:error, {:rejected, [message]}} = Rules.write_rule("queries", "r", "SET x = 1")
+    assert {:error, {:rejected, [message]}} =
+             Guardian.Rules.write_rule("queries", "r", "SET x = 1")
+
     assert message =~ "built-in table"
   end
 
@@ -266,7 +275,7 @@ defmodule Rules.IngestTest do
     with_rules(%{"#{table}/r.gsql" => "SET is_blocked = true WHERE signal > 0.9"})
 
     assert {:ok, %{status: 200, results: results}} =
-             Web.Ingest.send_events(%{
+             Guardian.Web.Ingest.send_events(%{
                "table" => table,
                "events" => [%{"signal" => 0.97}, %{"signal" => 0.1}],
                "return_keys" => ["is_blocked"],

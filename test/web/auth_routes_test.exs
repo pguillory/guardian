@@ -1,11 +1,11 @@
-defmodule Web.AuthRoutesTest do
+defmodule Guardian.Web.AuthRoutesTest do
   # Each well-formed credential form against both authenticated routers, with the
   # exact 401 responses, so how a key is accepted cannot drift between them.
   # The credential forms are checked with query-parameter keys both allowed and
   # refused, a global setting, so this module is not async.
   use ExUnit.Case, async: false
 
-  import QueryApiKeys
+  import Guardian.QueryApiKeys
 
   @api_key Application.compile_env!(:guardian, :api_key)
 
@@ -50,7 +50,7 @@ defmodule Web.AuthRoutesTest do
     url = if query == "", do: path, else: path <> "?" <> query
     conn = Plug.Test.conn(:get, "https://localhost" <> url)
     headers = Enum.map(keys, &{"x-api-key", &1})
-    Web.MainRouter.call(%{conn | req_headers: headers ++ conn.req_headers}, nil)
+    Guardian.Web.MainRouter.call(%{conn | req_headers: headers ++ conn.req_headers}, nil)
   end
 
   test "the JSON API accepts and rejects each credential form" do

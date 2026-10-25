@@ -21,7 +21,7 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       the next rescan loads again
 - [ ] segment-schema-gaps: the schema (SHOW TABLES, DESC, the schema table, SELECT *)
       misses segments that are full or persisted but not yet loaded, and a segment
-      that dies between LoadedSegments starting it and Storage.Schema registering it
+      that dies between LoadedSegments starting it and Guardian.Storage.Schema registering it
       crashes them (docs/architecture/system.md 4.2 and 4.5)
 - [ ] reject-oversized-events: reject, never partly store, an event whose flattened
       row has more than 1,000 columns or 1,000,000 slots, reporting it as that event's
@@ -86,7 +86,7 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       eviction out of the synchronous write turn while preserving the memory budget
 - [x] rules-open-questions: the failure and invalid-at-boot defaults are confirmed
       and their switches (`:rules_on_failure`, `:rules_invalid_at_boot`) removed
-- [x] rules-server-redaction: Rules.Server's formatted status and crash reports
+- [x] rules-server-redaction: Guardian.Rules.Server's formatted status and crash reports
       never show rule text (`format_status/1`, and callbacks re-raise only a kind)
 - [x] rules-s3-loopback-http: the S3 rule store endpoint accepts `http://` only for
       `localhost`, 127.0.0.0/8 or `[::1]`; any other host must use `https://`
@@ -107,7 +107,7 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       (`MAX_COLUMNS_PER_STACK = 3`); raising it is one-way for old readers and needs a
       format-compatibility test
 - [ ] remove-key-size-limit: Engine drops fields whose flattened key exceeds 250
-      bytes; lift it once key and schema memory is bounded (check `Cluster.Metadata`)
+      bytes; lift it once key and schema memory is bounded (check `Guardian.Cluster.Metadata`)
 - [ ] column-nif-dirty-schedulers: `to_list`, `filter`, and packing over 64 MiB
       columns run for tens of milliseconds on normal schedulers
 - [ ] validate-packed-columns: unpacking a corrupt segment file aborts the VM through
@@ -132,8 +132,8 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       table, once on the coordinating machine (`docs/changes/query-log.md`)
 - [ ] drop-query-parse-errors: `queries` records every parse failure too (with
       `error_kind = 'parse'`, without the hourly cap); drop `query_parse_errors` and
-      its recorder, moving `truncate/2` to `Utils` and the caller helpers to a small
-      `Web.Caller` module
+      its recorder, moving `truncate/2` to `Guardian.Utils` and the caller helpers to a small
+      `Guardian.Web.Caller` module
 - [x] replace-offset-memory: `replace` held every match offset of a value with no
       bound when `GUARDIAN_QUERY_MAX_HEAP_MB=0`; a value over 16 KiB is now replaced in
       a helper process with its own heap cap (`docs/changes/replace-offset-memory.md`)
@@ -166,24 +166,26 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       and integer arithmetic wraps to int64
 - [ ] interval-round-trip: `INTERVAL 2 WEEK` unparses to `interval('2w')`, which does
       not parse (INTERVAL is a keyword), so its column label cannot be re-parsed
-- [ ] function-behaviour: an optional `Query.Function` behaviour for function
+- [ ] function-behaviour: an optional `Guardian.Query.Function` behaviour for function
       modules, with `eval2/2` as an optional callback, so the compiler checks a
       module's entry points (`lib/query/function/CLAUDE.md`)
-- [ ] test-only-labels: `Query.labels/1` (SQL text) and the SHOW/DESC clauses of
-      `Query.Resolver.labels/1` are reached only from tests, since the Resolver
+- [ ] test-only-labels: `Guardian.Query.labels/1` (SQL text) and the SHOW/DESC clauses of
+      `Guardian.Query.Resolver.labels/1` are reached only from tests, since the Resolver
       rewrites SHOW and DESC first; drop them and test SHOW/DESC labels through
-      `Query.Resolver.resolve/1`
+      `Guardian.Query.Resolver.resolve/1`
 
 ## Interfaces and operations
 
+- [x] guardian-namespace: qualify every owned module under `Guardian.*`, including
+      web modules, native entry points and the compiled rule pool; preserve disk
+      formats and document full-restart compatibility (`docs/changes/guardian-namespace.md`)
 - [x] remove-console: remove the custom table printer and VM-stop helper; keep the
       release's remote IEx shell (`docs/changes/remove-console.md`)
-
 - [x] plug-crypto-221: update the crypto dependency to 2.2.1 for CVE-2026-105963
       (`docs/changes/plug-crypto-221.md`)
 - [ ] mcp-serialized-tool-calls: Anubis 0.16 runs tool calls in its one server
       process, so a slow MCP query blocks every MCP session for up to the 30 s query
-      time limit. Options: answer `query` calls in `Web.MCP.Router` before Anubis, or
+      time limit. Options: answer `query` calls in `Guardian.Web.MCP.Router` before Anubis, or
       migrate to Anubis 2.x and recheck
 - [ ] mcp-compile-time-components: during the Anubis 2.x migration, define the MCP
       tools and resource as compile-time components and drop the per-request

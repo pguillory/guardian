@@ -1,8 +1,8 @@
-defmodule SegmentTest do
-  alias Storage.Segment
+defmodule Guardian.SegmentTest do
+  alias Guardian.Storage.Segment
   # Segment.append/2 takes flat rows; these tests append nested ones.
   import Segment, except: [append: 2]
-  import TestHelpers, only: [segment_append: 2]
+  import Guardian.TestHelpers, only: [segment_append: 2]
   use ExUnit.Case, async: true
 
   @dir "/tmp/SegmentTest"
@@ -127,19 +127,21 @@ defmodule SegmentTest do
     values = [nil, ["x", "y"], [], [["n", 1], [], [true]], "scalar", [nil, 2.5], [[]]]
     keep = [false, true, false, true, false, true, true]
     expected = [["x", "y"], [["n", 1], [], [true]], [nil, 2.5], [[]]]
-    mask = Storage.Column.from_list(keep)
+    mask = Guardian.Storage.Column.from_list(keep)
 
-    column = Storage.Column.new(length(values))
-    Enum.each(values, &(:ok = Storage.Column.append(column, &1)))
+    column = Guardian.Storage.Column.new(length(values))
+    Enum.each(values, &(:ok = Guardian.Storage.Column.append(column, &1)))
 
     {:ok, segment} = start_link()
-    :ok = put_column(segment, "tags", Storage.Column.pack(column))
+    :ok = put_column(segment, "tags", Guardian.Storage.Column.pack(column))
     :ok = update_count(segment, length(values))
 
     assert_filtered = fn segment ->
       {:ok, column} = get_column(segment, "tags")
-      assert column |> Storage.Column.to_list() === values
-      assert column |> Storage.Column.filter(mask) |> Storage.Column.to_list() === expected
+      assert column |> Guardian.Storage.Column.to_list() === values
+
+      assert column |> Guardian.Storage.Column.filter(mask) |> Guardian.Storage.Column.to_list() ===
+               expected
     end
 
     assert_filtered.(segment)
@@ -170,7 +172,7 @@ defmodule SegmentTest do
       {:ok, loaded} = start_link(load: @filename)
       assert count(loaded) == {:ok, 21}
       {:ok, tags} = get_column(loaded, "tags")
-      assert [_, {100_001, _, _, _, _, _, _, _}] = Storage.Column.metadata(tags)
+      assert [_, {100_001, _, _, _, _, _, _, _}] = Guardian.Storage.Column.metadata(tags)
       assert get_row(loaded, 19) == {:ok, %{"n" => 20, "tags" => List.duplicate(20, 5_000)}}
     end
 
@@ -214,7 +216,7 @@ defmodule SegmentTest do
 
       assert segment_append(segment, %{"i" => 70_000}) == {:ok, :full}
       {:ok, i} = get_column(segment, "i")
-      assert Storage.Column.to_list(i) == Enum.to_list(1..70_000)
+      assert Guardian.Storage.Column.to_list(i) == Enum.to_list(1..70_000)
     end
 
     test "the row that reaches capacity fills the segment" do
@@ -236,7 +238,7 @@ defmodule SegmentTest do
       end
 
       assert GenServer.call(segment, {:append, %{"a" => [[[1]]]}}) == {:error, :invalid_value}
-      # Storage.Value accepts a map value; the segment refuses it.
+      # Guardian.Storage.Value accepts a map value; the segment refuses it.
       assert Segment.append(segment, %{"a" => %{}}) == {:error, :invalid_value}
 
       assert Process.alive?(segment)
@@ -332,7 +334,7 @@ defmodule SegmentTest do
     # What the budget counts: every column's packed size once padded to the row count.
     defp packed_bytes_of_state(state) do
       state.total_value_bytes +
-        map_size(state.columns) * Storage.Column.nil_column_size(state.count)
+        map_size(state.columns) * Guardian.Storage.Column.nil_column_size(state.count)
     end
 
     # Packs the segment and returns the total size of its packed columns.
@@ -366,8 +368,8 @@ defmodule SegmentTest do
     end
 
     defp packed_bytes_before_pack(count, string) do
-      i_column = Storage.Column.from_list(Enum.to_list(1..count))
-      s_column = Storage.Column.from_list(List.duplicate(string, count))
+      i_column = Guardian.Storage.Column.from_list(Enum.to_list(1..count))
+      s_column = Guardian.Storage.Column.from_list(List.duplicate(string, count))
       byte_size(i_column) + byte_size(s_column)
     end
 
@@ -426,7 +428,10 @@ defmodule SegmentTest do
 
       # Columns are allocated as they grow, not at the row capacity up front.
       allocated =
-        state.columns |> Map.values() |> Enum.map(&Storage.Column.allocated_size/1) |> Enum.sum()
+        state.columns
+        |> Map.values()
+        |> Enum.map(&Guardian.Storage.Column.allocated_size/1)
+        |> Enum.sum()
 
       assert allocated <= 2 * budget_bytes
 
@@ -503,12 +508,12 @@ defmodule SegmentTest do
       :ok = segment_append(segment, %{"a" => 1})
       {:ok, a1} = get_column(segment, "a")
       assert is_binary(a1)
-      assert Storage.Column.to_list(a1) == [1]
+      assert Guardian.Storage.Column.to_list(a1) == [1]
 
       :ok = segment_append(segment, %{"a" => 2})
-      assert Storage.Column.to_list(a1) == [1]
+      assert Guardian.Storage.Column.to_list(a1) == [1]
       {:ok, a2} = get_column(segment, "a")
-      assert Storage.Column.to_list(a2) == [1, 2]
+      assert Guardian.Storage.Column.to_list(a2) == [1, 2]
     end
 
     test "a snapshot follows appends of rows without its key" do
@@ -518,13 +523,13 @@ defmodule SegmentTest do
 
       :ok = segment_append(segment, %{})
       {:ok, a} = get_column(segment, "a")
-      assert Storage.Column.to_list(a) == [1, nil]
+      assert Guardian.Storage.Column.to_list(a) == [1, nil]
 
       :ok = segment_append(segment, %{"b" => true})
       {:ok, a} = get_column(segment, "a")
-      assert Storage.Column.to_list(a) == [1, nil, nil]
+      assert Guardian.Storage.Column.to_list(a) == [1, nil, nil]
       {:ok, b} = get_column(segment, "b")
-      assert Storage.Column.to_list(b) == [nil, nil, true]
+      assert Guardian.Storage.Column.to_list(b) == [nil, nil, true]
     end
 
     test "a snapshot follows update_count and put_column" do
@@ -534,16 +539,16 @@ defmodule SegmentTest do
 
       :ok = update_count(segment, 3)
       {:ok, a} = get_column(segment, "a")
-      assert Storage.Column.to_list(a) == [1, nil, nil]
+      assert Guardian.Storage.Column.to_list(a) == [1, nil, nil]
 
-      replacement = Storage.Column.from_list([7, 8, 9])
+      replacement = Guardian.Storage.Column.from_list([7, 8, 9])
       :ok = put_column(segment, "a", replacement)
       assert get_column(segment, "a") == {:ok, replacement}
     end
 
     test "a mutable list column reads as a packed snapshot, before and after pack" do
       values = [["x", "y"], nil, [["n", 1], [true]], "scalar", [nil, 2.5]]
-      mask = Storage.Column.from_list([true, true, true, false, true])
+      mask = Guardian.Storage.Column.from_list([true, true, true, false, true])
       expected = [["x", "y"], nil, [["n", 1], [true]], [nil, 2.5]]
       {:ok, segment} = start_link()
 
@@ -553,13 +558,17 @@ defmodule SegmentTest do
 
       {:ok, snapshot} = get_column(segment, "tags")
       assert is_binary(snapshot)
-      assert Storage.Column.to_list(snapshot) === values
-      assert snapshot |> Storage.Column.filter(mask) |> Storage.Column.to_list() === expected
+      assert Guardian.Storage.Column.to_list(snapshot) === values
+
+      assert snapshot |> Guardian.Storage.Column.filter(mask) |> Guardian.Storage.Column.to_list() ===
+               expected
 
       :ok = pack(segment)
       {:ok, packed} = get_column(segment, "tags")
       assert packed == snapshot
-      assert packed |> Storage.Column.filter(mask) |> Storage.Column.to_list() === expected
+
+      assert packed |> Guardian.Storage.Column.filter(mask) |> Guardian.Storage.Column.to_list() ===
+               expected
     end
 
     test "pack stores the snapshot taken after freezing" do
@@ -572,7 +581,7 @@ defmodule SegmentTest do
       :ok = pack(segment)
       assert get_column(segment, "a") == {:ok, a}
       {:ok, b} = get_column(segment, "b")
-      assert Storage.Column.to_list(b) == ["x", nil]
+      assert Guardian.Storage.Column.to_list(b) == ["x", nil]
       :ok = store(segment, @filename)
 
       {:ok, loaded} = start_link(load: @filename)
@@ -592,14 +601,14 @@ defmodule SegmentTest do
     test "put_column refuses a mutable column" do
       {:ok, segment} = start_link()
       :ok = segment_append(segment, %{"a" => 1})
-      column = Storage.Column.new(1)
-      :ok = Storage.Column.append(column, 5)
+      column = Guardian.Storage.Column.new(1)
+      :ok = Guardian.Storage.Column.append(column, 5)
 
       assert_raise FunctionClauseError, fn -> put_column(segment, "a", column) end
 
       assert GenServer.call(segment, {:put_column, "a", column}) == {:error, :not_binary}
       {:ok, a} = get_column(segment, "a")
-      assert Storage.Column.to_list(a) == [1]
+      assert Guardian.Storage.Column.to_list(a) == [1]
     end
 
     test "store refuses a segment that is not packed" do

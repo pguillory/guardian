@@ -95,8 +95,8 @@ that exposes the port directly beyond the machine sends the key in clear.
 
 Invariants and argument:
 
-1. Routes: `Web.MainRouter` serves `GET /health`, forwards `/api/json` to
-   `Web.JsonApi` and `/mcp` to `Web.MCP.Router`, and answers 404 to everything else.
+1. Routes: `Guardian.Web.MainRouter` serves `GET /health`, forwards `/api/json` to
+   `Guardian.Web.JsonApi` and `/mcp` to `Guardian.Web.MCP.Router`, and answers 404 to everything else.
 2. On Fly, only the HTTP service is public. `fly.toml` declares one `[http_service]`
    (internal port 8080) and no other services, so Fly's edge forwards only HTTP and
    HTTPS on the app's public addresses. Erlang distribution ports and epmd are not
@@ -130,7 +130,7 @@ Gaps:
    request, key included, crosses the internet in clear before the redirect. No HSTS
    header is sent. This is a client configuration risk; the product could reject
    instead of redirect, but does not.
-2. Bandit listens on every IPv4 interface of the machine (`Web.init/1` passes no
+2. Bandit listens on every IPv4 interface of the machine (`Guardian.Web.init/1` passes no
    `:ip`, so Bandit's IPv4 default applies). On Fly, whose private network is
    IPv6-only, the port is probably not reachable there, bypassing the edge; this was
    not verified. Elsewhere, the port is reachable from any network that reaches the
@@ -186,7 +186,7 @@ without the header is 401. None of these reads or writes data.
 
 ### 4.2 How the key is checked
 
-Both routers call `Web.Auth.check_conn/1`, the one place a key is found and checked.
+Both routers call `Guardian.Web.Auth.check_conn/1`, the one place a key is found and checked.
 It reads the first `x-api-key` header if present. Otherwise, only when
 `GUARDIAN_ALLOW_QUERY_API_KEY=true`, it decodes the query string and reads the
 `api_key` parameter. A valid key returns `{:ok, :header}` or `{:ok, :query}`, saying
@@ -196,7 +196,7 @@ over Plug's length limit). Each router sends its own body for these and for a wr
 key, pinned for each credential form by `test/web/auth_routes_test.exs` (an
 undecodable query string is covered at `check_conn/1` in `test/web/auth_test.exs`,
 MCP's answer to it in `auth_routes_test.exs`, and the JSON API's in
-`test/web/json_api_test.exs`). `Web.Auth.authorize_api_key/1` requires
+`test/web/json_api_test.exs`). `Guardian.Web.Auth.authorize_api_key/1` requires
 `byte_size(supplied) == byte_size(configured)` and
 `Plug.Crypto.secure_compare(supplied, configured)`. A structured parameter, which
 Plug decodes from `?api_key[]=x` to a list or from `?api_key[a]=x` to a map, is not a
@@ -221,30 +221,30 @@ Gaps:
    Guardian does not store request URLs (only the `referer` header, item 4.1.3). To
    show whether the setting is still needed, `web_requests.auth_method` records
    `query` for each JSON API request that used it, and, since MCP requests are not
-   recorded in `web_requests`, `Web.MCP.Router` logs one info line naming the path
+   recorded in `web_requests`, `Guardian.Web.MCP.Router` logs one info line naming the path
    (never the key) when an MCP request uses it, at most once a minute per node.
    Because of CORS (section 4.4), the query parameter is the only way a browser page
    can send the key, so a browser client needs the setting on.
 4. Failed attempts leave no trace. A request with a wrong or missing key is rejected
-   with 401 before `Web.Logger` runs (JSON API) or before Anubis sees it (MCP), and
+   with 401 before `Guardian.Web.Logger` runs (JSON API) or before Anubis sees it (MCP), and
    nothing is written to stdout. There is no rate limit, lockout, or alert, so
    guessing is invisible. With a long random key guessing is infeasible; with a weak
    key it would be both feasible and unseen.
 
 ### 4.3 The two authenticated surfaces
 
-JSON API (`Web.JsonApi`), plug order:
+JSON API (`Guardian.Web.JsonApi`), plug order:
 
 1. `CORSPlug`: adds CORS headers; answers a preflight (`OPTIONS` with
    `Access-Control-Request-Method`) with 204 and halts.
 2. `:auth`: the key check; 401 and halt on failure. It reads only headers and, when
    query keys are allowed, the query string. It records where the key was found for
-   `Web.Logger`.
+   `Guardian.Web.Logger`.
 3. `Plug.Parsers` (JSON only, Plug's default 8 MB body limit): reads and decodes the
    body. Failures get 400, 413, or 415 with a fixed message and are not printed.
-4. `:match`, `Web.Logger`, `:dispatch`.
+4. `:match`, `Guardian.Web.Logger`, `:dispatch`.
 
-MCP (`Web.MCP.Router`), plug order:
+MCP (`Guardian.Web.MCP.Router`), plug order:
 
 1. `:auth`: the key check, first.
 2. `:reject_unknown_session` (404), `:reject_get` (405).
@@ -321,10 +321,10 @@ and no single request that takes the service down or destroys stored data.
 
 1. Read-only SQL. The parser and planner implement SELECT, SHOW TABLES, DESC, and LET
    only; there is no INSERT, UPDATE, DELETE, or DDL (spec section 7). Writes happen
-   only through `send_events`, which goes through `Engine`, and, for rule files, the
-   MCP rule tools, which go through `Rules` (item 7).
+   only through `send_events`, which goes through `Guardian.Engine`, and, for rule files, the
+   MCP rule tools, which go through `Guardian.Rules` (item 7).
 2. No path or atom injection from names. Table names must match
-   `[a-z_][a-z0-9_]*` and avoid reserved words (`Engine.valid_table_name?/1`), checked
+   `[a-z_][a-z0-9_]*` and avoid reserved words (`Guardian.Engine.valid_table_name?/1`), checked
    before any write; segment filenames are built only from a validated table name and
    a generated segment ID, so a table name cannot escape `segments/`. Table names are
    at most 64 bytes, which keeps a segment's temporary filename
@@ -333,26 +333,26 @@ and no single request that takes the service down or destroys stored data.
    registered in memory. Nothing in `lib/` converts caller strings to atoms
    (`String.to_atom` and friends do not appear), so the atom table cannot be exhausted
    from input. Compiled rule modules take their names from a fixed pool of 1,024
-   (`Rules.Compiler`), never from a table name or rule text, so editing rules any
+   (`Guardian.Rules.Compiler`), never from a table name or rule text, so editing rules any
    number of times creates no new atoms. Rule file paths are checked
-   (`Rules.RuleSet.check_path/2`: a valid table name and `[a-z0-9_][a-z0-9_-]*`)
+   (`Guardian.Rules.RuleSet.check_path/2`: a valid table name and `[a-z0-9_][a-z0-9_-]*`)
    before they reach the store, and the local store refuses any other key, so a rule
    name cannot escape the rule folder.
 3. No dynamic code from input. Nothing in `lib/` evaluates code, runs shell
    commands, or decodes Erlang terms from input (`Code.eval`, `System.cmd`, `:os.cmd`,
    and `binary_to_term` do not appear). Rules are compiled with `Module.create/3`, but
-   the module body is a fixed template (`Rules.Compiler`): one `Rules.Runtime.run/3`
+   the module body is a fixed template (`Guardian.Rules.Compiler`): one `Guardian.Rules.Runtime.run/3`
    call receives ordered typed steps with parsed ASTs as escaped literals, which the
    query engine's scalar evaluator interprets as it does query expressions. No rule
    text becomes code, and rules can call only the registered scalar functions.
-4. Value validation. `Engine` drops values the column NIF cannot store (out-of-range
+4. Value validation. `Guardian.Engine` drops values the column NIF cannot store (out-of-range
    integers, over-deep lists, oversized strings and lists, keys over 250 bytes) before
    they reach native code (spec section 5).
 5. Query parse failures are recorded asynchronously and with fixed bounds (16 KiB SQL,
    1 KiB error, 256-byte caller fields, 60 rows per machine per hour, queue cap 100), so
    a flood of bad queries cannot grow that table or delay responses without limit
-   (`Web.QueryParseErrors`). Every API query is recorded the same way in `queries`
-   (`Web.QueryLog`): 16 KiB SQL, 1 KiB error, 256-byte caller fields, queue cap 1,000
+   (`Guardian.Web.QueryParseErrors`). Every API query is recorded the same way in `queries`
+   (`Guardian.Web.QueryLog`): 16 KiB SQL, 1 KiB error, 256-byte caller fields, queue cap 1,000
    rows, and no rate cap, since each query writes one row whose cost is of the order
    of the query's own.
 6. A segment the persister cannot store (for any reason, such as a full disk) is
@@ -376,10 +376,10 @@ and no single request that takes the service down or destroys stored data.
    stay inside Guardian). Its S3 credentials stay out of
    application config, logs and error messages (7.2). The S3 endpoint must use
    `https://` unless it is on the same machine (`localhost`, 127.0.0.0/8 or
-   `[::1]`; `Rules.Config` refuses anything else at startup), so no one on the
+   `[::1]`; `Guardian.Rules.Config` refuses anything else at startup), so no one on the
    network path can read rule text or rewrite the rules a node loads. The name
    `localhost` relies on the machine's own resolver mapping it to loopback.
-9. Counter storage: `Counters.Store` owns private ETS with a 64 MiB
+9. Counter storage: `Guardian.Counters.Store` owns private ETS with a 64 MiB
    default budget for resident entries/indexes (`GUARDIAN_COUNTER_MEMORY_MB`, a
    positive integer MiB setting; explicit empty/invalid refuses startup), conservatively charging serialized
    payload sizes and any larger backing allocation retained by a nested binary or
@@ -403,7 +403,7 @@ and no single request that takes the service down or destroys stored data.
    each. Owner calls reserve independently and run concurrently; pending owners
    wait for refunds within the same event deadline. Pipeline errors retain the
    whole-statement default and no-rollback policy; no uncertain write is replayed.
-   `Counters.Cluster` routes native terms to one owner through the fully trusted Erlang
+   `Guardian.Counters.Cluster` routes native terms to one owner through the fully trusted Erlang
    distribution boundary (section 6), without another API or authorization layer.
    It captures connected members without readiness RPCs. Calls are bounded at
    50 ms, within a 100 ms event phase and a shared 250 ms failed-wait batch budget;
@@ -492,7 +492,7 @@ Counter-specific limits:
 
    A heap guard covers part of the rest. `GUARDIAN_QUERY_MAX_HEAP_MB` (default 256,
    `0` turns it off) sets Erlang's `max_heap_size` on the query process and on every
-   `Query.DistributedStream` worker, including the initial worker that reads the first
+   `Guardian.Query.DistributedStream` worker, including the initial worker that reads the first
    stage's input, but not on the routers. Each node reads its own setting when a
    worker starts there. A process whose heap grows past the limit is killed, and the
    query fails with "a query process was killed; it may have exceeded its heap limit
@@ -520,8 +520,8 @@ Counter-specific limits:
    the GET rejection never reach that process). The 30-second transport timeout
    abandons the caller's wait, and the query, which started a little later, stops at
    its own 30-second time limit. Resolving the query comes first and is not covered:
-   for each distinct table a statement reads from, `Query.Resolver` asks every machine
-   for that table's schema (`Cluster.Metadata`, 60-second timeout), before the handler
+   for each distinct table a statement reads from, `Guardian.Query.Resolver` asks every machine
+   for that table's schema (`Guardian.Cluster.Metadata`, 60-second timeout), before the handler
    rejects input with several statements. (`DESC` and `SHOW TABLES` read the `schema`
    table, whose lookup runs inside the query and its limit.) Each lookup first asks
    every peer whether its Storage is ready, leaving out one that doesn't answer within
@@ -531,7 +531,7 @@ Counter-specific limits:
    `send_events` still holds it until it finishes.
    HTTP JSON queries run in their own request processes and stop at the same time
    limit. Exits from a running query do not reach that shared server process:
-   `Query.run` runs each query in its own process and turns every failure inside it,
+   `Guardian.Query.run` runs each query in its own process and turns every failure inside it,
    such as a query worker or machine failing, into an exception the handler rescues.
 4. Error messages reach the caller. The MCP `query` tool returns `Exception.message/1`
    of whatever was raised, which can include internal detail such as peer node names
@@ -598,13 +598,13 @@ Invariants and argument:
    depends on the mode (6.2 to 6.4).
 3. Discovery is not admission. DNSCluster only dials the addresses the discovery name
    lists. But any node with the cookie and network access can connect inbound, and
-   `Cluster` then treats it as a member (`connected_nodes/0` is this node plus every
-   peer in `Node.list()` that answers `Storage.ready?/0` with `true`, with no name or
+   `Guardian.Cluster` then treats it as a member (`connected_nodes/0` is this node plus every
+   peer in `Node.list()` that answers `Guardian.Storage.ready?/0` with `true`, with no name or
    deployment allowlist). Counter routing instead uses this node plus `Node.list()`
    without Storage readiness checks (5.1.9), so a visible non-Guardian peer can own
    keys that then fail open. Membership is therefore exactly invariants 1 and 2.
 4. A misnamed node fails at boot rather than silently never joining: with
-   `DNS_CLUSTER_QUERY` set, `Cluster.discovery_child_spec/1` refuses a node whose host
+   `DNS_CLUSTER_QUERY` set, `Guardian.Cluster.discovery_child_spec/1` refuses a node whose host
    is not an IP literal, is loopback, or is not written exactly as `:inet.ntoa/1`
    writes it (`2001:db8::1`, not an expanded form). This is a correctness check, not
    an admission control.
@@ -682,7 +682,7 @@ Operators are fully trusted, and the design does not try to constrain them. On F
 2. The remote console (`fly ssh console --pty -C "/app/bin/guardian remote"`) attaches
    an Erlang shell to the running node using the cookie from the machine's
    environment. It bypasses the API key by design (spec section 4.4) and can call any
-   function, including `Query.execute/1` and Storage internals that delete tables or
+   function, including `Guardian.Query.execute/1` and Storage internals that delete tables or
    segments.
 3. `fly secrets set` rotates the key or cookie; the machine restarts with the new
    value. Old keys stop working immediately after the restart.
@@ -700,7 +700,7 @@ and the boundary is whatever protects those. Guardian adds nothing on top.
 | `GUARDIAN_API_KEY` | process environment (on Fly, a Fly secret); app env `:guardian, :api_key` | operators; callers who hold it | set the new value and restart (`fly secrets set` restarts) |
 | `RELEASE_COOKIE` | process environment (on Fly, a Fly secret); node memory | operators; peers | set the new value and restart; all nodes must share it |
 | `TUNNEL_TOKEN` (optional) | process environment (on Fly, a Fly secret, also visible in `fly ssh` sessions); `bin/fly-start` unsets it before starting Guardian, so Guardian's process doesn't hold it; the script's shell and connector loop keep it, as cloudflared does | operators; whoever administers the operator's Cloudflare account | rotate the tunnel's token on Cloudflare, then set the new value and restart |
-| `GUARDIAN_RULES_S3_ACCESS_KEY_ID`, `GUARDIAN_RULES_S3_SECRET_ACCESS_KEY` (optional) | process environment (on Fly, Fly secrets); read once by `Rules.Config` into a closure held by Rules.Server and `:persistent_term`, never application config; requests carry only an MFA for signing, and store errors name only a kind | operators; whoever administers the bucket's account | create a new bucket-scoped token, set both values and restart, then revoke the old token |
+| `GUARDIAN_RULES_S3_ACCESS_KEY_ID`, `GUARDIAN_RULES_S3_SECRET_ACCESS_KEY` (optional) | process environment (on Fly, Fly secrets); read once by `Guardian.Rules.Config` into a closure held by Guardian.Rules.Server and `:persistent_term`, never application config; requests carry only an MFA for signing, and store errors name only a kind | operators; whoever administers the bucket's account | create a new bucket-scoped token, set both values and restart, then revoke the old token |
 | Build-time cookie | `releases/COOKIE` in the release and image | anyone with the image or release | per build; used only by a single node (6.4) |
 
 Secrets also end up in any Erlang crash dump the VM writes (`erl_crash.dump` in the
@@ -747,18 +747,18 @@ Where data goes:
    so neither the key nor any other header value.
 4. `system_stats` records VM metrics and counter process availability; no request data.
 5. stdout (on Fly, Fly's log stream) receives more caller data than the tables do:
-   - `Web.JsonApi.handle_errors/2` prints every exception in full. Parse errors carry
+   - `Guardian.Web.JsonApi.handle_errors/2` prints every exception in full. Parse errors carry
      SQL fragments. Body failures (malformed JSON 400, too large 413, wrong content type
      415), a `/query` body without a string `query` (400), and an undecodable query
      string (400) are answered without printing.
-   - `Engine` logs an ingestion crash by table, failure kind (`Engine.failure_kind/3`)
+   - `Guardian.Engine` logs an ingestion crash by table, failure kind (`Guardian.Engine.failure_kind/3`)
      and stack trace with each call's arguments replaced by its arity, so neither the
      exception's message nor the event values passed to the failing function are
      printed.
    - A `web_requests`, `web_responses`, `system_stats`, `query_parse_errors` or
      `queries` write
      that fails is logged with the table and the failure's kind only (an exception
-     module or exit kind, from `Engine.try_log_event/2`), never the event or the
+     module or exit kind, from `Guardian.Engine.try_log_event/2`), never the event or the
      exception's message, and the request, if any, still answers normally.
      `query_parse_errors` and `queries` log the same way when building or handing off
      a row fails.
@@ -766,7 +766,7 @@ Where data goes:
      last message and state, which can hold event data. A segment file that fails to
      load is not a crash: its process stops with a `:shutdown` reason naming only the
      failure's kind, so no crash report carries the file's bytes.
-   - Rules.Server's crash reports and formatted status never carry rule text (rules
+   - Guardian.Rules.Server's crash reports and formatted status never carry rule text (rules
      can hold secrets, such as a value a SET compares against): `format_status/1`
      keeps only each file's ETag, in the state and in past states in the debug log,
      and replaces a write's source with `:redacted`. Plan structs retain only
@@ -778,7 +778,7 @@ Where data goes:
      full-memory access. `init/1`, `handle_call/3` and
      `handle_info/2` re-raise a failure as an error naming only its kind, with a
      stack of arities, because OTP adds the raw stack, arguments included, after
-     `format_status/1`. `Rules.Server.write/3` turns the call's exit into an error
+     `format_status/1`. `Guardian.Rules.Server.write/3` turns the call's exit into an error
      without logging the exit reason, which carries the message. Proc_lib and
      supervisor reports (which include the message queue) are SASL reports, which
      Logger drops in this configuration. One gap, by design: with `:sys.log/2` on,
@@ -786,12 +786,12 @@ Where data goes:
      formatted log keeps write replies, whose validation messages can quote up to
      40 characters of a rule; turning it on takes a remote shell, which reads any
      state anyway.
-   - Counters.Store's formatted status and callback failures redact keys and values
+   - Guardian.Counters.Store's formatted status and callback failures redact keys and values
      (5.1.9). Ordinary operations do not log their arguments or returned values.
      The counter lifecycle owner logs subtree exits and failed recovery attempts
      at error with fixed reason categories and a retry delay, and recovery at info.
      Clean application shutdown stops the subtree without logging a failure.
-     Like Rules.Server, OTP's raw sys debug options and proc_lib mailbox reports
+     Like Guardian.Rules.Server, OTP's raw sys debug options and proc_lib mailbox reports
      are outside this formatting; this configuration drops SASL reports.
    - Invalid rules found at boot or on a reload are logged by file, line and kind only
      (`orders/fix.gsql line 3 (parse)`), never by message: a validation message can
@@ -822,13 +822,13 @@ Production must stay at `:info` or above.
 MCP bodies Anubis cannot decode: Anubis's transport plug logs the whole body of any
 MCP message it cannot decode at error level (`MCP transport event: parse_error`, then
 `MCP transport details` with `body:`), which for a malformed `tools/call` would put
-its SQL or events into the log stream. `Web.MCP.Router` therefore decodes and
+its SQL or events into the log stream. `Guardian.Web.MCP.Router` therefore decodes and
 validates the body itself (4.3) and hands Anubis the decoded map, a path on which
 Anubis does not log; rejected bodies are logged as size, reason, and a known method
 name only, never caller-chosen strings.
 
 The remaining stdout leaks above are accepted: they are bounded by error frequency
-and reach only operators. `IO.puts` in `Web.JsonApi` bypasses the Logger level.
+and reach only operators. `IO.puts` in `Guardian.Web.JsonApi` bypasses the Logger level.
 
 Failed authentication is not logged anywhere (4.2.4).
 
@@ -870,12 +870,12 @@ Open gaps named above, by boundary:
 
 ## 10. How this was checked
 
-Written from the code: the routers, `Web.Auth`, `Web.Logger`, `Web.QueryParseErrors`,
-`Web.QueryLog`, `Engine`, `lib/rules`, `Cluster`, `Query.Limits`, `config/runtime.exs`,
+Written from the code: the routers, `Guardian.Web.Auth`, `Guardian.Web.Logger`, `Guardian.Web.QueryParseErrors`,
+`Guardian.Web.QueryLog`, `Guardian.Engine`, `lib/rules`, `Guardian.Cluster`, `Guardian.Query.Limits`, `config/runtime.exs`,
 `rel/env.sh.eex`, `bin/fly-start`, `Dockerfile`, and `fly.toml` in this repository,
 and the pinned dependencies `cors_plug` 3.0.3, `anubis_mcp` 0.16.0, and `req` 0.7.5
 (its SigV4 step accepts an MFA for credentials, read from its source). Regular
-expressions run on OTP's `:re` through `Query.Regex`. Statements about Fly's platform
+expressions run on OTP's `:re` through `Guardian.Query.Regex`. Statements about Fly's platform
 (volume encryption, private network membership, edge behavior) come from Fly's
 tooling and documentation, not from Guardian's code. Where something was read from a
 dependency's source rather than tested, the text says so.

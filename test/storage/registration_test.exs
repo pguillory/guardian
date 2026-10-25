@@ -1,6 +1,6 @@
-defmodule RegistrationTest do
-  alias Storage.Segment
-  import Storage.Segment.Registration
+defmodule Guardian.RegistrationTest do
+  alias Guardian.Storage.Segment
+  import Guardian.Storage.Segment.Registration
   use ExUnit.Case, async: true
 
   test "tuple" do

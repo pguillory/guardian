@@ -1,5 +1,5 @@
-defmodule Query.Function.UrlPortTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Query.Function.UrlPortTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "url_port function" do
     assert eval("url_port('http://domain.com/path#fragment')") === 80

@@ -1,4 +1,4 @@
-defmodule Web.IngestIdempotency do
+defmodule Guardian.Web.IngestIdempotency do
   @moduledoc """
   Short-lived, node-local receipts for client-keyed ingest batches.
 

@@ -7,7 +7,7 @@ the module, its unit tests, the printer-only MCP assertions and the dead IEx imp
 scaffolding. The ordinary release remote IEx shell remains available with full VM
 access, including direct queries and the operator's Storage escape hatches.
 
-Product spec impact: sections 2 and 4.4 describe direct `Query.execute/1` calls and
+Product spec impact: sections 2 and 4.4 describe direct `Guardian.Query.execute/1` calls and
 their tuple results instead of promising a box-drawn table printer. Direct IEx
 queries remain unlogged. Overview impact: none.
 

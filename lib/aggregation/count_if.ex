@@ -1,4 +1,4 @@
-defmodule Aggregation.CountIf do
+defmodule Guardian.Aggregation.CountIf do
   def default do
     0
   end

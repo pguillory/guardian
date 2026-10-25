@@ -1,5 +1,5 @@
-defmodule AST.Node.Statements.ShowTablesStatement do
-  use AST.Node
+defmodule Guardian.AST.Node.Statements.ShowTablesStatement do
+  use Guardian.AST.Node
 
   defstruct []
 

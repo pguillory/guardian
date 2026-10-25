@@ -52,7 +52,7 @@ request.
 docker exec -it guardian /app/bin/guardian remote
 ```
 
-Inside it, `Query.execute("SHOW TABLES")` returns `{:ok, columns, rows}` or
+Inside it, `Guardian.Query.execute("SHOW TABLES")` returns `{:ok, columns, rows}` or
 `{:error, message}`. Queries called directly from IEx are not recorded in `queries`.
 
 ## Erlang distribution

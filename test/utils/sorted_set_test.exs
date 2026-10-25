@@ -1,5 +1,5 @@
-defmodule SortedSetTest do
-  import SortedSet
+defmodule Guardian.SortedSetTest do
+  import Guardian.SortedSet
   use ExUnit.Case, async: true
 
   test "union" do

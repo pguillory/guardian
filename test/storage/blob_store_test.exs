@@ -1,5 +1,5 @@
-defmodule Storage.BlobStoreTest do
-  alias Storage.BlobStore
+defmodule Guardian.Storage.BlobStoreTest do
+  alias Guardian.Storage.BlobStore
   use ExUnit.Case, async: true
 
   @moduletag :tmp_dir

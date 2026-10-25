@@ -1,7 +1,7 @@
-defmodule Web.Auth do
+defmodule Guardian.Web.Auth do
   @moduledoc """
   How a request's API key is found and checked, for both authenticated routers
-  (`Web.JsonApi` and `Web.MCP.Router`). Guardian is single-user: a valid key grants
+  (`Guardian.Web.JsonApi` and `Guardian.Web.MCP.Router`). Guardian is single-user: a valid key grants
   access to everything and attaches no identity. See docs/architecture/security.md,
   section 4.2.
   """

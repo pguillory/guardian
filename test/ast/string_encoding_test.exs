@@ -1,5 +1,5 @@
-defmodule AST.StringEncodingTest do
-  import AST.StringEncoding
+defmodule Guardian.AST.StringEncodingTest do
+  import Guardian.AST.StringEncoding
   use ExUnit.Case, async: true
 
   defp decode!(literal) do
@@ -12,16 +12,16 @@ defmodule AST.StringEncodingTest do
     assert decode!(~S['abc']) == "abc"
 
     # https://en.wikipedia.org/wiki/UTF-16#U+D800_to_U+DFFF_(surrogates)
-    assert decode!(~S['\u0024']) == AST.Unicode.utf8("U+0024")
-    assert decode!(~S['\u20AC']) == AST.Unicode.utf8("U+20AC")
+    assert decode!(~S['\u0024']) == Guardian.AST.Unicode.utf8("U+0024")
+    assert decode!(~S['\u20AC']) == Guardian.AST.Unicode.utf8("U+20AC")
     assert decode!(~S['\uABEF']) == decode!(~S['\uabef'])
-    assert decode!(~S['\uabef']) == AST.Unicode.utf8("U+ABEF")
-    assert decode!(~S['\uD801\uDC37']) == AST.Unicode.utf8("U+10437")
-    assert decode!(~S['\uD852\uDF62']) == AST.Unicode.utf8("U+24B62")
+    assert decode!(~S['\uabef']) == Guardian.AST.Unicode.utf8("U+ABEF")
+    assert decode!(~S['\uD801\uDC37']) == Guardian.AST.Unicode.utf8("U+10437")
+    assert decode!(~S['\uD852\uDF62']) == Guardian.AST.Unicode.utf8("U+24B62")
 
     # Adjacent escapes that are not a surrogate pair are separate characters.
     assert decode!(~S['\u0001\u0002']) == "\x01\x02"
-    assert decode!(~S['\u0041\uD801\uDC37']) == "A" <> AST.Unicode.utf8("U+10437")
+    assert decode!(~S['\u0041\uD801\uDC37']) == "A" <> Guardian.AST.Unicode.utf8("U+10437")
   end
 
   test "decode_string rejects a literal that is not valid UTF-8" do
@@ -31,8 +31,8 @@ defmodule AST.StringEncodingTest do
     # A bad escape is reported first, at its own offset.
     assert decode_string(<<?', 0xFF, ?\\, ?q, ?'>>) == {:error, "Bad escaped character", 2}
 
-    assert %AST.ParseError{reason: "Invalid UTF-8 in string literal", col: 7} =
-             catch_error(Query.Resolver.resolve("SELECT " <> source))
+    assert %Guardian.AST.ParseError{reason: "Invalid UTF-8 in string literal", col: 7} =
+             catch_error(Guardian.Query.Resolver.resolve("SELECT " <> source))
   end
 
   test "decode_string rejects bad escapes at the escape's backslash" do
@@ -76,14 +76,14 @@ defmodule AST.StringEncodingTest do
           "'\\",
           "/",
           "\x7F",
-          AST.Unicode.utf8("U+10437"),
+          Guardian.AST.Unicode.utf8("U+10437"),
           "é\n\\",
         ]
 
     for string <- strings do
       encoded = encode_string(string)
       assert decode_string(encoded) == {:ok, string}
-      assert AST.Tokenizer.tokenize(encoded) == [string: string]
+      assert Guardian.AST.Tokenizer.tokenize(encoded) == [string: string]
     end
   end
 
@@ -96,6 +96,8 @@ defmodule AST.StringEncodingTest do
     # included, are written as is.
     assert encode_string("\x00\x1b\x1f") == ~S['\u0000\u001b\u001f']
     assert encode_string("\x7F") == "'\x7F'"
-    assert encode_string(AST.Unicode.utf8("U+10437")) == "'" <> AST.Unicode.utf8("U+10437") <> "'"
+
+    assert encode_string(Guardian.AST.Unicode.utf8("U+10437")) ==
+             "'" <> Guardian.AST.Unicode.utf8("U+10437") <> "'"
   end
 end

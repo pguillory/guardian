@@ -1,5 +1,5 @@
-defmodule AST.Node.Statements.NullStatement do
-  use AST.Node
+defmodule Guardian.AST.Node.Statements.NullStatement do
+  use Guardian.AST.Node
 
   defstruct []
 

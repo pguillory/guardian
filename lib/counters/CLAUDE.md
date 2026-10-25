@@ -2,17 +2,17 @@
 
 Ephemeral counter infrastructure for the reviewed TRACK/LOOKUP v1 design in
 `docs/changes/ingest-rules.md`. The node-local store, cluster routing and pure
-aggregate operators and live rule execution (`Rules.CounterRuntime`) are
+aggregate operators and live rule execution (`Guardian.Rules.CounterRuntime`) are
 implemented. TRACK/LOOKUP are available through normal whole-set rule writes,
 startup and reload. GUARDIAN_COUNTER_MEMORY_MB sets positive MiB, default 64;
 explicit empty/invalid values refuse startup.
 
-`Counters.Store` owns private ETS tables for entries, insertion order and expiry.
+`Guardian.Counters.Store` owns private ETS tables for entries, insertion order and expiry.
 Its serialized get/get_many/gets/cas/incr operations are atomic on one node.
 `batch/2` pipelines up to 4,000 Store operations and checks the original queued
 deadline before each; a pipeline is ordered but is not a rollback transaction.
-Start it after Rules.Server and before Storage, independently of both. Store and
-Cluster run under Counters.Supervisor, owned by a trapping Counters.Restarter.
+Start it after Guardian.Rules.Server and before Storage, independently of both. Store and
+Cluster run under Guardian.Counters.Supervisor, owned by a trapping Guardian.Counters.Restarter.
 Exhausting the subtree's restart intensity stops only counters; its owner logs a
 fixed reason category at error and retries with capped exponential backoff (timing
 in `docs/architecture/system.md` section 2.1). Startup failures retry too, except
@@ -54,7 +54,7 @@ external services, credentials, rule text or event logging belongs here.
 Tests use unnamed stores and a private injectable TTL clock. Operation deadlines
 always use real monotonic time. Keep these tests independent of external services.
 
-`Counters.Cluster` routes `{identity, group_tuple, bucket}` keys with rendezvous
+`Guardian.Counters.Cluster` routes `{identity, group_tuple, bucket}` keys with rendezvous
 hashing over identity and group only. Explicit tagged encoding preserves types
 (including integer/float and signed zero), supports JSON lists/maps and nested
 tuples, rejects other atoms/terms, and stays independent of ETF/OTP versions.
@@ -84,8 +84,8 @@ Storage readiness calls. Remote endpoints call only the owner's local store.
    endpoint uses the existing cookie-authenticated, fully trusted distribution
    boundary; it is not an HTTP endpoint or a new authorization mechanism.
 
-`Counters.Machine.run_nested/3` preserves counter/bucket nesting while executing
-every pending key machine together per round. `Counters.KeyMachines` implements
+`Guardian.Counters.Machine.run_nested/3` preserves counter/bucket nesting while executing
+every pending key machine together per round. `Guardian.Counters.KeyMachines` implements
 read, incr and gets/merge/CAS response callbacks. Machine errors remain errors:
 missing keys alone default at the bucket layer; a failed bucket defaults the whole
 statement. Cluster batches by owner and dispatches concurrent pipelines. Pending
@@ -94,14 +94,14 @@ budgets or deadlines skip them. Charge failed waits once per pipeline using its
 completion timestamp. Recompute anchored mutation TTLs at actual pipeline dispatch,
 including after waiting for a reservation. Keep no get_many in this execution path.
 
-`Counters.Aggregate` is independent of store operations and query execution. Its
+`Guardian.Counters.Aggregate` is independent of store operations and query execution. Its
 fixed `{name, arity}` allowlist exposes create/merge/resolve/default. Every default
 is an empty mergeable state: resolve it for zero (count and distinct) or nil
 (sum/min/max/avg). Counter sum's empty result is nil, unlike query sum's 0.0.
 Distinct uses Hypex precision 8 with fixed 256-byte bitstring registers; query
 distinct stays precision 14. Average keeps `{sum, count}` and skips empty states
 without arithmetic, preserving signed zero. Float overflow is absorbing;
-integer sum wraps through `Query.Numeric`, while average keeps exact integer sums.
+integer sum wraps through `Guardian.Query.Numeric`, while average keeps exact integer sums.
 Floating-point rounding/cancellation, overflow and wrapping mixed with floats
 preclude universal associativity. Min/max share query ordering, with the right
 state winning ties, including the type of equal integer/float values.
@@ -109,7 +109,7 @@ state winning ties, including the type of equal integer/float values.
 Bucket callers merge states, compare with the prior state using `===` to skip
 unchanged writes, then resolve once. Count values returned by native increments
 must also be resolved to apply int64 output bounds. Keep historical query
-aggregate sharing as separate follow-up work; rule execution belongs in Rules.
+aggregate sharing as separate follow-up work; rule execution belongs in Guardian.Rules.
 The numeric merge/resolve clauses mirror query aggregates; keep their overflow
 policy changes aligned until that sharing work is done. Counter rule execution
 lives in Rules, with at most three total CAS attempts for definite conflicts only.

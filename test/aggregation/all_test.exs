@@ -1,5 +1,5 @@
-defmodule Aggregation.AllTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Aggregation.AllTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "all" do
     assert eval_aggregate("all(x)", []) == true

@@ -1,11 +1,11 @@
-defmodule Storage.Segment do
+defmodule Guardian.Storage.Segment do
   # Internal to Storage; see lib/storage/CLAUDE.md, "Public boundary".
   @moduledoc false
 
-  alias Storage.Column
-  alias Storage.Flattening
-  alias Storage.SegmentFile
-  alias Storage.Value
+  alias Guardian.Storage.Column
+  alias Guardian.Storage.Flattening
+  alias Guardian.Storage.SegmentFile
+  alias Guardian.Storage.Value
 
   # Exit reasons of a GenServer call to a segment that is gone rather than one that
   # crashed while handling the call.
@@ -98,7 +98,7 @@ defmodule Storage.Segment do
   A description of a segment's exit reason that is safe to log. A crash reason can
   carry the segment's rows (an exception's arguments, a stack trace), so only its kind
   is named: the atom, or the exception's module. A `GenServer.call` exit is named by
-  the reason it carries. Code outside Storage uses `Storage.exit_kind/1`.
+  the reason it carries. Code outside Storage uses `Guardian.Storage.exit_kind/1`.
   """
   def exit_kind({reason, {GenServer, :call, _}}), do: exit_kind(reason)
   def exit_kind(reason) when is_atom(reason), do: inspect(reason)
@@ -118,7 +118,7 @@ defmodule Storage.Segment do
 
   # The bang readers are for Storage's own processes: they wait at most 5 s, and a
   # failed read exits with only the reason's kind (`exit_kind/1`), because the crash
-  # report must not carry the segment's rows. `Storage.schema/1` uses the same budget
+  # report must not carry the segment's rows. `Guardian.Storage.schema/1` uses the same budget
   # and exit.
   @storage_read_timeout 5_000
 
@@ -168,7 +168,7 @@ defmodule Storage.Segment do
   end
 
   @doc """
-  Appends a row, already flattened into dot-notation keys (`Storage.append/2`
+  Appends a row, already flattened into dot-notation keys (`Guardian.Storage.append/2`
   flattens), to the segment atomically.
 
   Returns `:ok` when the row is stored and the segment has room for more, and
@@ -182,7 +182,7 @@ defmodule Storage.Segment do
   call, so the caller can retry elsewhere. Before calling, it raises in the caller
   for a key or value Storage rejects: `ArgumentError` for an over-long key,
   `FunctionClauseError` for a key that is not an atom or string, and `MatchError` for
-  a value `Storage.Value` rejects. Exceptions and exits from the call itself
+  a value `Guardian.Storage.Value` rejects. Exceptions and exits from the call itself
   propagate; those may occur after the row was stored.
   """
   @spec append(pid(), map()) ::
@@ -302,7 +302,7 @@ defmodule Storage.Segment do
   end
 
   @doc """
-  Writes a frozen, packed segment to `filename` (`Storage.SegmentFile.write/4`).
+  Writes a frozen, packed segment to `filename` (`Guardian.Storage.SegmentFile.write/4`).
   """
   def store(segment, filename) do
     {:ok, true} = write_call(segment, :full)

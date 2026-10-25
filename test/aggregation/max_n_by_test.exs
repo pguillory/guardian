@@ -1,5 +1,5 @@
-defmodule Aggregation.MaxNByTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Aggregation.MaxNByTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "max_n_by" do
     rows = [

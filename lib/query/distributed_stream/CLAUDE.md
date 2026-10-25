@@ -1,11 +1,11 @@
-# Query.DistributedStream
+# Guardian.Query.DistributedStream
 
-`Query.DistributedStream` (`lib/query/distributed_stream.ex`) is the multi-node
+`Guardian.Query.DistributedStream` (`lib/query/distributed_stream.ex`) is the multi-node
 pipeline every query runs on. It was vendored from `distributed_stream` 0.1.4 (by
 Preston Guillory, MIT license; see `LICENSE` here) and its failure model rewritten in
 Guardian. It is internal to Query: only
-`Query.Executor` builds pipelines. Its moduledoc is the contract: the API, the failure
-model, and the exit reasons `Query.Failure` translates.
+`Guardian.Query.Executor` builds pipelines. Its moduledoc is the contract: the API, the failure
+model, and the exit reasons `Guardian.Query.Failure` translates.
 
 This is the hardest protocol in the system. Change it only with the rules below in
 mind, and keep the comments in the file in step with them.
@@ -30,10 +30,10 @@ mind, and keep the comments in the file in step with them.
    initial worker (`spawn_link` from the router itself, not a monitor set up after
    the fact, which would see `:noproc` for an input that already ended) and treats
    its normal exit before its `{:done}` as `:input_exited`.
-4. Every worker, including the initial worker, calls `Query.Limits.limit_heap/0`
+4. Every worker, including the initial worker, calls `Guardian.Query.Limits.limit_heap/0`
    first, on its own node, so each machine applies its own heap limit. Routers and the
    final router do not. A worker killed by it exits `:killed`, which
-   `Query.Failure.from_exit/1` turns into the heap-limit message.
+   `Guardian.Query.Failure.from_exit/1` turns into the heap-limit message.
 
 ## Messages and edges
 
@@ -84,7 +84,7 @@ mind, and keep the comments in the file in step with them.
 ## Changing it
 
 1. A new exit reason goes in the `failure_reason` type, the moduledoc list, and
-   `Query.Failure.from_exit/1` together.
+   `Guardian.Query.Failure.from_exit/1` together.
 2. Closures and the `node_schedulers/0` multicall run on other nodes by module name,
    so every node must run the same build.
 3. Stage functions that tests run on peers live in

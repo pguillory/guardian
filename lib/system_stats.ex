@@ -1,4 +1,4 @@
-defmodule SystemStats do
+defmodule Guardian.SystemStats do
   use GenServer
   require Logger
 
@@ -34,7 +34,7 @@ defmodule SystemStats do
 
   @doc "Writes one system_stats event now. Raises if the write fails."
   def record_metrics do
-    Engine.log_event("system_stats", metrics())
+    Guardian.Engine.log_event("system_stats", metrics())
     :ok
   end
 
@@ -42,7 +42,7 @@ defmodule SystemStats do
   # process every second, which would use up Main's restart budget while Storage
   # recovers. The failure is logged once, and so is the recovery.
   defp record_tick(state) do
-    case Engine.try_log_event("system_stats", metrics()) do
+    case Guardian.Engine.try_log_event("system_stats", metrics()) do
       {:ok, _event} ->
         if state.failing, do: Logger.info("SystemStats: recording system_stats again")
         %{state | failing: false}
@@ -79,8 +79,8 @@ defmodule SystemStats do
     {total_wallclock_time, wallclock_time_since_last_call} = :erlang.statistics(:wall_clock)
 
     erlang_stats = [
-      timestamp: Timestamp.now(),
-      host: Utils.hostname(),
+      timestamp: Guardian.Timestamp.now(),
+      host: Guardian.Utils.hostname(),
       context_switches: context_switches,
       total_exact_reductions: total_exact_reductions,
       exact_reductions_since_last_call: exact_reductions_since_last_call,
@@ -107,7 +107,7 @@ defmodule SystemStats do
       port_limit: :erlang.system_info(:port_limit),
       process_count: :erlang.system_info(:process_count),
       process_limit: :erlang.system_info(:process_limit),
-      counters_available: Counters.Supervisor.available?(),
+      counters_available: Guardian.Counters.Supervisor.available?(),
     ]
 
     memory_stats ++ erlang_stats

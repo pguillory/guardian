@@ -1,9 +1,9 @@
-defmodule AST.Node.Operators.LessThanOrEqualOperator do
-  use AST.Node.BinaryOperator, symbol: "<="
+defmodule Guardian.AST.Node.Operators.LessThanOrEqualOperator do
+  use Guardian.AST.Node.BinaryOperator, symbol: "<="
 
-  alias AST.Node.Operators.Comparison
+  alias Guardian.AST.Node.Operators.Comparison
 
-  defimpl Query.Eval do
+  defimpl Guardian.Query.Eval do
     def eval(%@for{} = expr, context) do
       Comparison.eval(expr, context, &@for.eval/2, &<=/2)
     end

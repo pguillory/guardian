@@ -1,4 +1,4 @@
-defmodule SortedSet do
+defmodule Guardian.SortedSet do
   def new do
     []
   end

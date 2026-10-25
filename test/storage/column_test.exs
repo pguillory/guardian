@@ -1,5 +1,5 @@
-defmodule ColumnTest do
-  alias Storage.Column
+defmodule Guardian.ColumnTest do
+  alias Guardian.Storage.Column
   import Column
   use ExUnit.Case, async: true
 
@@ -395,7 +395,7 @@ defmodule ColumnTest do
 
     test "empty strings" do
       assert from_list(["", [""], "a"]) |> to_list() === ["", [""], "a"]
-      assert from_list(["", 1]) |> Storage.Column.to_string() |> to_list() === ["", nil]
+      assert from_list(["", 1]) |> Guardian.Storage.Column.to_string() |> to_list() === ["", nil]
     end
 
     test "counts no column can have" do
@@ -433,7 +433,14 @@ defmodule ColumnTest do
       for column <- [mutable, packed, from_list(values)] do
         assert to_list(column) === values
         assert column |> filter(mask) |> to_list() === [string, list, [string]]
-        assert column |> Storage.Column.to_string() |> to_list() === [string, nil, nil, nil, nil]
+
+        assert column |> Guardian.Storage.Column.to_string() |> to_list() === [
+                 string,
+                 nil,
+                 nil,
+                 nil,
+                 nil,
+               ]
       end
     end
 
@@ -470,7 +477,7 @@ defmodule ColumnTest do
       for column <- [new(0), new(0) |> pack(), from_list([])] do
         assert to_list(column) == []
         assert count(column) == 0
-        assert column |> Storage.Column.to_string() |> to_list() == []
+        assert column |> Guardian.Storage.Column.to_string() |> to_list() == []
         assert column |> filter(from_list([])) |> to_list() == []
       end
 

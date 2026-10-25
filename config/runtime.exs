@@ -46,7 +46,7 @@ if config_env() != :test do
     _ -> raise "GUARDIAN_ALLOW_QUERY_API_KEY must be true or false"
   end
 
-  # Each query process's heap limit in MiB (Query.Limits); 0 turns it off.
+  # Each query process's heap limit in MiB (Guardian.Query.Limits); 0 turns it off.
   case System.get_env("GUARDIAN_QUERY_MAX_HEAP_MB") do
     value when value in [nil, ""] ->
       :ok
@@ -70,7 +70,7 @@ if config_env() != :test do
   end
 
   # A DNS name resolving to every peer's address; rel/env.sh.eex defaults it on Fly.io.
-  # Unset means no peer discovery. Cluster.discovery_child_spec/1 checks the node name.
+  # Unset means no peer discovery. Guardian.Cluster.discovery_child_spec/1 checks the node name.
   case System.get_env("DNS_CLUSTER_QUERY") do
     query when query in [nil, ""] -> :ok
     query -> config :guardian, dns_cluster_query: query

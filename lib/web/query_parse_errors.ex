@@ -1,15 +1,15 @@
-defmodule Web.QueryParseErrors do
+defmodule Guardian.Web.QueryParseErrors do
   @moduledoc """
   Records query-API parse failures in the built-in `query_parse_errors` table, so real
   failing queries can guide better parse error messages.
 
-  `Web.Query.execute/3`, the JSON and MCP query path, hands each `AST.ParseError` to
+  `Guardian.Web.Query.execute/3`, the JSON and MCP query path, hands each `Guardian.AST.ParseError` to
   `record/4`, which hands one row to this GenServer; the original error is then
   reraised, so the caller's response is exactly what it would have been. The handoff
-  is a cast: the request never waits on the recorder or Storage. Rows are written by
+  is a cast: the request never waits on the recorder or Guardian.Storage. Rows are written by
   this process, capped per machine per clock hour. Any failure to build, hand off, or
   write a row is logged with `Logger.error`, naming only the failure's kind (as
-  `Engine.try_log_event/2` does, never a message or stack, which could carry query
+  `Guardian.Engine.try_log_event/2` does, never a message or stack, which could carry query
   text), and never reaches the caller.
   """
 
@@ -40,7 +40,7 @@ defmodule Web.QueryParseErrors do
   (see `http_caller/1` and `mcp_caller/1`). Never raises, throws, or exits; always
   returns `:ok`. Options: `:server` names the recorder.
   """
-  def record(sql, %AST.ParseError{} = error, caller_fun, opts \\ []) do
+  def record(sql, %Guardian.AST.ParseError{} = error, caller_fun, opts \\ []) do
     server = Keyword.get(opts, :server, __MODULE__)
     caller = caller_fun.()
     row = row(sql, error, caller)
@@ -63,7 +63,7 @@ defmodule Web.QueryParseErrors do
     :ok
   catch
     kind, reason ->
-      log_failure(nil, Engine.failure_kind(kind, reason, __STACKTRACE__))
+      log_failure(nil, Guardian.Engine.failure_kind(kind, reason, __STACKTRACE__))
       :ok
   end
 
@@ -74,14 +74,14 @@ defmodule Web.QueryParseErrors do
 
   @doc false
   def row(sql, error, caller) do
-    {stored_sql, truncated?} = Query.Text.truncate(sql, @max_sql_bytes)
-    {message, _} = Query.Text.truncate(Exception.message(error), @max_error_bytes)
+    {stored_sql, truncated?} = Guardian.Query.Text.truncate(sql, @max_sql_bytes)
+    {message, _} = Guardian.Query.Text.truncate(Exception.message(error), @max_error_bytes)
 
     caller
     |> bound_caller_fields()
     |> Map.merge(%{
-      "timestamp" => Timestamp.now(),
-      "hostname" => Utils.hostname(),
+      "timestamp" => Guardian.Timestamp.now(),
+      "hostname" => Guardian.Utils.hostname(),
       "sql" => stored_sql,
       "sql_bytes" => byte_size(sql),
       "sql_truncated" => truncated?,
@@ -98,7 +98,7 @@ defmodule Web.QueryParseErrors do
   end
 
   defp bound_caller_field(value) when is_binary(value) do
-    {value, _} = Query.Text.truncate(value, @max_caller_field_bytes)
+    {value, _} = Guardian.Query.Text.truncate(value, @max_caller_field_bytes)
     value
   end
 
@@ -168,8 +168,8 @@ defmodule Web.QueryParseErrors do
       end)
 
     clock = Keyword.get(opts, :clock, fn -> System.system_time(:second) end)
-    # A writer returns like `Engine.try_log_event/2` and never raises.
-    writer = Keyword.get(opts, :writer, &Engine.try_log_event/2)
+    # A writer returns like `Guardian.Engine.try_log_event/2` and never raises.
+    writer = Keyword.get(opts, :writer, &Guardian.Engine.try_log_event/2)
 
     {:ok,
      %{limit: limit, clock: clock, writer: writer, hour: nil, count: 0, dropped: 0, warned: nil}}

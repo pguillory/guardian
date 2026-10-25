@@ -1,7 +1,7 @@
-defmodule Counters.AggregateTest do
+defmodule Guardian.Counters.AggregateTest do
   use ExUnit.Case, async: true
 
-  alias Counters.Aggregate
+  alias Guardian.Counters.Aggregate
 
   @operators [
     {"count", 0},
@@ -72,7 +72,7 @@ defmodule Counters.AggregateTest do
 
   test "count keeps an unwrapped integer state and resolves native increments safely" do
     for operator <- [{"count", 0}, {"count", 1}] do
-      max = Query.Numeric.max_int()
+      max = Guardian.Query.Numeric.max_int()
       assert Aggregate.resolve(operator, max) === max
       state = Aggregate.merge(operator, max, 1)
       assert state === max + 1
@@ -91,15 +91,15 @@ defmodule Counters.AggregateTest do
   end
 
   test "sum wraps positive and negative integer overflow to int64" do
-    max = Query.Numeric.max_int()
-    min = Query.Numeric.min_int()
+    max = Guardian.Query.Numeric.max_int()
+    min = Guardian.Query.Numeric.min_int()
     assert result({"sum", 1}, [max, 1]) === min
     assert result({"sum", 1}, [min, -1]) === max
     assert result({"sum", 1}, [max, max, 2]) === 0
   end
 
   test "average preserves exact integer sums rather than wrapping" do
-    max = Query.Numeric.max_int()
+    max = Guardian.Query.Numeric.max_int()
     operator = {"avg", 1}
     assert state(operator, [max, max]) === {max * 2, 2}
     assert result(operator, [max, max]) === max * 1.0
@@ -265,7 +265,7 @@ defmodule Counters.AggregateTest do
 
   test "integer sum merging is associative even when modular arithmetic wraps" do
     operator = {"sum", 1}
-    max = Query.Numeric.max_int()
+    max = Guardian.Query.Numeric.max_int()
     left = Aggregate.merge(operator, Aggregate.merge(operator, max, max), 3)
     right = Aggregate.merge(operator, max, Aggregate.merge(operator, max, 3))
     assert left === right
@@ -273,9 +273,9 @@ defmodule Counters.AggregateTest do
   end
 
   test "counter defaults and precision do not change query aggregate contracts" do
-    assert Aggregation.Sum.default() === 0.0
-    assert Aggregation.Avg.default() === nil
-    assert {Hypex.Array, 14, _} = Aggregation.CountDistinct.start(nil)
+    assert Guardian.Aggregation.Sum.default() === 0.0
+    assert Guardian.Aggregation.Avg.default() === nil
+    assert {Hypex.Array, 14, _} = Guardian.Aggregation.CountDistinct.start(nil)
   end
 
   defp create({"count", 0} = operator, _value), do: Aggregate.create(operator, [])

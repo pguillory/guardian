@@ -1,4 +1,4 @@
-defmodule Utils do
+defmodule Guardian.Utils do
   def tab2stream(tab, opts \\ []) do
     [delete_after: delete_after] = SuperList.take_opts(opts, delete_after: false)
 

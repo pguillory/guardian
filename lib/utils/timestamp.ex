@@ -1,4 +1,4 @@
-defmodule Timestamp do
+defmodule Guardian.Timestamp do
   defmacro match(opts \\ []) do
     underscore =
       quote do

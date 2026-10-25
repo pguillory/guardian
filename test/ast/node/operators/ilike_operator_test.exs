@@ -1,5 +1,5 @@
-defmodule IlikeOperatorTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.IlikeOperatorTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "ilike operator" do
     assert eval("'' ilike ''") == true
@@ -27,7 +27,7 @@ defmodule IlikeOperatorTest do
   end
 
   describe "long values and LIKE equivalence" do
-    @max Query.Text.max_bytes()
+    @max Guardian.Query.Text.max_bytes()
 
     test "matches a long value exactly as LIKE matches its lowercase" do
       long = String.duplicate("A", @max) <> "Needle"
@@ -48,10 +48,13 @@ defmodule IlikeOperatorTest do
             {"x", "_"},
           ] do
         expected =
-          AST.Node.Operators.LikeOperator.eval(String.downcase(value), String.downcase(pattern))
+          Guardian.AST.Node.Operators.LikeOperator.eval(
+            String.downcase(value),
+            String.downcase(pattern)
+          )
 
         assert eval("a ILIKE b", a: value, b: pattern) == expected
-        assert AST.Node.Operators.IlikeOperator.eval(value, pattern) == expected
+        assert Guardian.AST.Node.Operators.IlikeOperator.eval(value, pattern) == expected
       end
 
       assert eval("a ILIKE b", a: 1, b: "1") == nil

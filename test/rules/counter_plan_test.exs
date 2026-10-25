@@ -1,7 +1,7 @@
-defmodule Rules.CounterPlanTest do
+defmodule Guardian.Rules.CounterPlanTest do
   use ExUnit.Case, async: true
 
-  alias Rules.RuleSet
+  alias Guardian.Rules.RuleSet
 
   defp plan(files, table \\ "t") do
     preparation = RuleSet.prepare(files)
@@ -34,11 +34,11 @@ defmodule Rules.CounterPlanTest do
       assert resolved.resolved?
       module = __MODULE__.CandidateProbe
       before = :code.is_loaded(module)
-      assert Rules.Compiler.compile(module, candidate) == {:error, :unresolved_plan}
+      assert Guardian.Rules.Compiler.compile(module, candidate) == {:error, :unresolved_plan}
       assert :code.is_loaded(module) == before
 
       if Enum.any?(candidate.steps, &(&1.kind == :lookup)) do
-        assert Rules.Compiler.compile(module, %{candidate | resolved?: true}) ==
+        assert Guardian.Rules.Compiler.compile(module, %{candidate | resolved?: true}) ==
                  {:error, :unbound_lookup}
 
         assert :code.is_loaded(module) == before
@@ -81,7 +81,7 @@ defmodule Rules.CounterPlanTest do
   end
 
   test "counter operators are the aggregate allowlist, with scalar arguments" do
-    for {name, arity} <- Counters.Aggregate.operators() do
+    for {name, arity} <- Guardian.Counters.Aggregate.operators() do
       args = if arity == 0, do: "", else: "amount"
       [track] = plan(%{"t/a.gsql" => "TRACK c = #{name}(#{args}) LAST '1h'"}).steps
       assert track.operator == {name, arity}
@@ -282,7 +282,7 @@ defmodule Rules.CounterPlanTest do
     before = Enum.filter(preparation.errors, &(&1.table in ["b", "t"]))
     after_errors = Enum.filter(changed.errors, &(&1.table in ["b", "t"]))
     assert RuleSet.new_errors(before, after_errors) == []
-    assert Rules.Activation.select(preparation).tables == preparation.tables
+    assert Guardian.Rules.Activation.select(preparation).tables == preparation.tables
   end
 
   test "reciprocal cross-table references resolve by definition without execution edges" do
@@ -308,7 +308,7 @@ defmodule Rules.CounterPlanTest do
 
     old = previous(files)
     changed = RuleSet.prepare(%{"a/r.gsql" => "SET x = count()", "new/r.gsql" => "SET"})
-    selected = Rules.Activation.select(changed, old)
+    selected = Guardian.Rules.Activation.select(changed, old)
     assert selected.tables["a"] == {:ok, old["a"]}
     assert {:error, _} = selected.tables["new"]
     refute Map.has_key?(selected.tables, "deleted")
@@ -330,7 +330,7 @@ defmodule Rules.CounterPlanTest do
       |> Map.put("b/r.gsql", "LOOKUP renamed = c FROM a")
       |> Map.put("u/r.gsql", "SET x = 2")
 
-    selected = Rules.Activation.select(RuleSet.prepare(changed), old)
+    selected = Guardian.Rules.Activation.select(RuleSet.prepare(changed), old)
     assert selected.tables["a"] == {:ok, old["a"]}
     assert selected.tables["b"] == {:ok, old["b"]}
     assert selected.retained == MapSet.new(["a", "b"])
@@ -364,13 +364,13 @@ defmodule Rules.CounterPlanTest do
 
         if dependent == files["b/r.gsql"] and target_source == "TRACK c = sum(amount) LAST '1h'" do
           assert prep.errors == []
-          selected = Rules.Activation.select(prep, old)
+          selected = Guardian.Rules.Activation.select(prep, old)
           assert {:ok, updated} = selected.tables["b"]
           assert target(updated).operator == {"sum", 1}
           refute updated.hash == old["b"].hash
         else
           refute prep.errors == []
-          selected = Rules.Activation.select(prep, old)
+          selected = Guardian.Rules.Activation.select(prep, old)
           assert selected.tables["a"] == {:ok, old["a"]}
           assert selected.tables["b"] == {:ok, old["b"]}
         end
@@ -386,12 +386,12 @@ defmodule Rules.CounterPlanTest do
 
     old = previous(files)
     invalid = files |> Map.delete("b/r.gsql") |> Map.put("a/r.gsql", "SET")
-    selected = Rules.Activation.select(RuleSet.prepare(invalid), old)
+    selected = Guardian.Rules.Activation.select(RuleSet.prepare(invalid), old)
     assert selected.tables["b"] == {:ok, old["b"]}
     assert selected.tables["a"] == {:ok, old["a"]}
     valid = Map.delete(files, "b/r.gsql")
-    refute Map.has_key?(Rules.Activation.select(RuleSet.prepare(valid), old).tables, "b")
-    assert Rules.Activation.select(RuleSet.prepare(%{}), old).tables == %{}
+    refute Map.has_key?(Guardian.Rules.Activation.select(RuleSet.prepare(valid), old).tables, "b")
+    assert Guardian.Rules.Activation.select(RuleSet.prepare(%{}), old).tables == %{}
   end
 
   test "boot invalidity is directed; runtime refuses new valid targets in a retained component" do
@@ -402,10 +402,10 @@ defmodule Rules.CounterPlanTest do
     }
 
     preparation = RuleSet.prepare(files)
-    assert {:ok, _} = Rules.Activation.select(preparation).tables["a"]
+    assert {:ok, _} = Guardian.Rules.Activation.select(preparation).tables["a"]
     assert {:error, _} = preparation.tables["b"]
     old = previous(%{"u/r.gsql" => "SET x = 1"})
-    selected = Rules.Activation.select(preparation, old)
+    selected = Guardian.Rules.Activation.select(preparation, old)
     assert {:error, [%{kind: :reload_dependency}]} = selected.tables["a"]
     assert {:error, [%{kind: :counter_arity}]} = selected.tables["b"]
   end
@@ -424,12 +424,12 @@ defmodule Rules.CounterPlanTest do
       |> Map.put("a/r.gsql", "TRACK c = sum(amount) LAST '1h'")
       |> Map.put("new/r.gsql", "LOOKUP prior = c FROM a")
 
-    selected = Rules.Activation.select(RuleSet.prepare(changed), old)
+    selected = Guardian.Rules.Activation.select(RuleSet.prepare(changed), old)
     assert {:error, [%{kind: :reload_dependency, message: message}]} = selected.tables["new"]
     assert message =~ "component (b)"
     assert selected.tables["a"] == {:ok, old["a"]}
     repaired = Map.put(changed, "b/r.gsql", "LOOKUP prior = c FROM a")
-    selected = Rules.Activation.select(RuleSet.prepare(repaired), old)
+    selected = Guardian.Rules.Activation.select(RuleSet.prepare(repaired), old)
     assert selected.retained == MapSet.new()
     assert {:ok, new} = selected.tables["new"]
     assert target(new).operator == {"sum", 1}
@@ -453,7 +453,7 @@ defmodule Rules.CounterPlanTest do
       prep = RuleSet.prepare(changed)
       assert {:error, _} = prep.tables[b]
       assert {:error, _} = prep.tables[c]
-      selected = Rules.Activation.select(prep, old)
+      selected = Guardian.Rules.Activation.select(prep, old)
       assert selected.retained == MapSet.new([a, b, c])
       for table <- [a, b, c], do: assert(selected.tables[table] == {:ok, old[table]})
     end
@@ -476,7 +476,7 @@ defmodule Rules.CounterPlanTest do
 
     preparation = RuleSet.prepare(changed)
     assert {:ok, _} = preparation.tables["b"]
-    selected = Rules.Activation.select(preparation, old)
+    selected = Guardian.Rules.Activation.select(preparation, old)
     assert selected.retained == MapSet.new(["a", "b", "c"])
     for table <- ["a", "b", "c"], do: assert(selected.tables[table] == {:ok, old[table]})
   end
@@ -514,7 +514,7 @@ defmodule Rules.CounterPlanTest do
       |> Map.put("new_a/r.gsql", "LOOKUP prior = ca FROM a")
       |> Map.put("new_b/r.gsql", "LOOKUP prior = cb FROM b")
 
-    selected = Rules.Activation.select(RuleSet.prepare(changed), old)
+    selected = Guardian.Rules.Activation.select(RuleSet.prepare(changed), old)
     assert {:error, [%{message: a_cause}]} = selected.tables["new_a"]
     assert {:error, [%{message: b_cause}]} = selected.tables["new_b"]
     assert a_cause =~ "component (x)"
@@ -532,7 +532,7 @@ defmodule Rules.CounterPlanTest do
     changed = files |> Map.put("a/r.gsql", "SET") |> Map.put("b/r.gsql", "SET x = 2")
     preparation = RuleSet.prepare(changed)
     assert {:ok, _} = preparation.tables["b"]
-    selected = Rules.Activation.select(preparation, old)
+    selected = Guardian.Rules.Activation.select(preparation, old)
     assert selected.tables["b"] == {:ok, old["b"]}
   end
 end

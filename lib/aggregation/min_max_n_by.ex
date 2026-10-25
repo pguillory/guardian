@@ -1,8 +1,8 @@
-defmodule Aggregation.MinMaxNBy do
+defmodule Guardian.Aggregation.MinMaxNBy do
   # min_n_by and max_n_by: the values of the n rows with the least or greatest ordering
   # values, best first. The accumulator is {[{value, order_value}], n}. Rows whose
   # ordering value is null are skipped.
-  alias Aggregation.Ordering
+  alias Guardian.Aggregation.Ordering
 
   def default(_extreme) do
     nil
@@ -27,7 +27,7 @@ defmodule Aggregation.MinMaxNBy do
   # As in min_n and max_n, a result nested deeper than storage holds is null.
   def finish(_extreme, {value_orders, _n}) do
     values = Enum.map(value_orders, fn {value, _order_value} -> value end)
-    if Storage.Value.valid?(values), do: values, else: nil
+    if Guardian.Storage.Value.valid?(values), do: values, else: nil
   end
 
   defp name(:min), do: "min_n_by"

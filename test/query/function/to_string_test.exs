@@ -1,7 +1,7 @@
-defmodule Query.Function.ToStringTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Query.Function.ToStringTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
-  @max Query.Text.max_bytes()
+  @max Guardian.Query.Text.max_bytes()
 
   test "to_string gives every value's string form, and null for null" do
     assert eval("to_string(x)", x: nil) === nil

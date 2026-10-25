@@ -1,5 +1,5 @@
-defmodule Query.TimestampTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Query.TimestampTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   @timestamp "2024-01-02 03:04:05"
   @offsets ~w[+02:00 -05:30 +0200 -0500 +02 -05 +00:00 -00:00 +0000 -0000 +00 -00]

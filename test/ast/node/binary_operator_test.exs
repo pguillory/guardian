@@ -1,11 +1,11 @@
-defmodule AST.Node.BinaryOperatorTest do
+defmodule Guardian.AST.Node.BinaryOperatorTest do
   use ExUnit.Case, async: true
 
-  alias AST.Node.Identifier
-  alias AST.Node.Operators
+  alias Guardian.AST.Node.Identifier
+  alias Guardian.AST.Node.Operators
 
   @symbols [
-    {AST.Node.As, "AS"},
+    {Guardian.AST.Node.As, "AS"},
     {Operators.AddOperator, "+"},
     {Operators.AndOperator, "AND"},
     {Operators.ConcatOperator, "||"},
@@ -36,21 +36,23 @@ defmodule AST.Node.BinaryOperatorTest do
       mod = unquote(mod)
       symbol = unquote(symbol)
       expr = struct!(mod, left: %Identifier{name: "a"}, right: %Identifier{name: "b"})
-      assert AST.unparse(expr) == "a #{symbol} b"
+      assert Guardian.AST.unparse(expr) == "a #{symbol} b"
 
       {_, visited} =
-        AST.postwalk(expr, [], fn expr, acc -> {expr, acc ++ [AST.unparse(expr)]} end)
+        Guardian.AST.postwalk(expr, [], fn expr, acc ->
+          {expr, acc ++ [Guardian.AST.unparse(expr)]}
+        end)
 
       assert visited == ["a", "b", "a #{symbol} b"]
 
       # Rewritten children are put back.
       rewritten =
-        AST.prewalk(expr, fn
+        Guardian.AST.prewalk(expr, fn
           %Identifier{name: "a"} -> %Identifier{name: "z"}
           expr -> expr
         end)
 
-      assert AST.unparse(rewritten) == "z #{symbol} b"
+      assert Guardian.AST.unparse(rewritten) == "z #{symbol} b"
 
       assert_raise ArgumentError, fn -> struct!(mod, left: %Identifier{name: "a"}) end
       assert_raise ArgumentError, fn -> struct!(mod, right: %Identifier{name: "b"}) end

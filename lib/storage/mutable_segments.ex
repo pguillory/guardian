@@ -1,11 +1,11 @@
-defmodule Storage.MutableSegments do
+defmodule Guardian.Storage.MutableSegments do
   # Internal to Storage; see lib/storage/CLAUDE.md, "Public boundary".
   @moduledoc false
 
-  alias Storage.FullSegments
-  alias Storage.PersistedSegments
-  alias Storage.Segment
-  alias Storage.Segment.Registration
+  alias Guardian.Storage.FullSegments
+  alias Guardian.Storage.PersistedSegments
+  alias Guardian.Storage.Segment
+  alias Guardian.Storage.Segment.Registration
   require Registration
   require Logger
   use GenServer
@@ -49,7 +49,7 @@ defmodule Storage.MutableSegments do
   @doc """
   Appends a row already flattened into dot-notation keys to one of `table`'s mutable
   segments, retrying in another when a segment is full or gone. Returns explicit
-  segment refusals; `Storage` holds the flattening and raising wrappers.
+  segment refusals; `Guardian.Storage` holds the flattening and raising wrappers.
   """
   @spec append(String.t(), map()) :: :ok | {:error, :invalid_value}
   def append(table, flat_row) do
@@ -180,7 +180,7 @@ defmodule Storage.MutableSegments do
 
   defp create_segments(table, count, max_age_ms) when count > 0 do
     {:ok, segment} = Segment.start_link(max_age_ms: max_age_ms, max_age_owner: self())
-    segment_id = SegmentID.generate()
+    segment_id = Guardian.SegmentID.generate()
 
     true =
       :ets.insert(

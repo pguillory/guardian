@@ -1,4 +1,4 @@
-defmodule Rules.Lock do
+defmodule Guardian.Rules.Lock do
   @moduledoc """
   The cluster-wide rule write lock: an object in the rule store (`_write.lock`), not
   an Erlang lock, so it also holds across a network partition.
@@ -14,7 +14,7 @@ defmodule Rules.Lock do
 
   What it cannot do, with no commit object: fence a holder that stalls past its lease
   after checking it (`remaining_ms/1`), or a write the store applies long after the
-  holder gave up on it. `Rules.Server` checks for `@save_margin_ms` left before its
+  holder gave up on it. `Guardian.Rules.Server` checks for `@save_margin_ms` left before its
   one write, whose deadline is 20 s, and leaves the lock to expire when a write's
   outcome is unknown.
   """
@@ -46,15 +46,15 @@ defmodule Rules.Lock do
     started = now()
 
     result =
-      case Rules.Store.put(store, @key, body, :absent) do
+      case Guardian.Rules.Store.put(store, @key, body, :absent) do
         {:ok, etag} ->
           {:ok, etag}
 
         {:error, :precondition_failed} ->
-          case Rules.Store.get(store, @key) do
+          case Guardian.Rules.Store.get(store, @key) do
             {:ok, current, meta} ->
               if released?(current) or meta.age_ms >= lease_ms() do
-                Rules.Store.put(store, @key, body, {:etag, meta.etag})
+                Guardian.Rules.Store.put(store, @key, body, {:etag, meta.etag})
               else
                 {:error, :busy}
               end
@@ -92,7 +92,7 @@ defmodule Rules.Lock do
 
   @doc "Releases the lock if this holder still has it."
   def release(%__MODULE__{store: store, etag: etag}) do
-    case Rules.Store.put(store, @key, body("", "released"), {:etag, etag}) do
+    case Guardian.Rules.Store.put(store, @key, body("", "released"), {:etag, etag}) do
       {:ok, _etag} -> :ok
       {:error, reason} -> {:error, reason}
     end

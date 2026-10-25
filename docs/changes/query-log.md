@@ -31,19 +31,19 @@ fail to parse, capped at 60 an hour.
      (resolution, schema lookups and execution), a float with microsecond precision.
    - `outcome`: `ok` or `error`.
    - `row_count`: rows returned; null on error.
-   - `error_kind`: null on success; `parse` (an `AST.ParseError`, which includes
+   - `error_kind`: null on success; `parse` (an `Guardian.AST.ParseError`, which includes
      unknown functions), `query` (a failure the query APIs answer as a query error:
-     zero or several statements, or a `Query.Error` such as a resource or time
+     zero or several statements, or a `Guardian.Query.Error` such as a resource or time
      limit), or `internal` (anything else raised: an ambiguous column, a machine
      failing the schema lookup, an unexpected exception).
    - `error`: the error message cut to 1 KiB (for an exit or throw, only its kind,
-     as `Engine.failure_kind/3` names it); null on success.
+     as `Guardian.Engine.failure_kind/3` names it); null on success.
    - `dropped_before`: rows this machine dropped (backlog full, or a write that
      failed) since its previous recorded row; normally 0.
 3. Recording never changes or fails a response, and never makes the caller wait on
    Storage: the request process builds the row and casts it to a recorder process
-   (`Web.QueryLog`, a GenServer under Main beside `Web.QueryParseErrors`), which
-   writes it with `Engine.try_log_event/2`. The response is the same as before for
+   (`Guardian.Web.QueryLog`, a GenServer under Main beside `Guardian.Web.QueryParseErrors`), which
+   writes it with `Guardian.Engine.try_log_event/2`. The response is the same as before for
    every outcome; raises, exits and throws are reraised with `:erlang.raise/3` and
    their original stacktrace. If the recorder's mailbox already holds 1,000 rows
    (Storage stalled; a best-effort check, so a soft bound), the sender drops the row
@@ -77,18 +77,18 @@ fail to parse, capped at 60 an hour.
 
 ## Implementation
 
-- `Web.Query.execute/3` (the one place both interfaces run SQL) measures the call,
+- `Guardian.Web.Query.execute/3` (the one place both interfaces run SQL) measures the call,
   catches every outcome (`{:ok, ...}`, `{:error, msg}`, raise, exit, throw), records,
   and returns or reraises the original. Building and casting the row is wrapped so it
   cannot raise. The caller function it already takes is used for both recorders.
-- `Web.QueryLog`: like `Web.QueryParseErrors` (cast, `whereis` and mailbox check,
+- `Guardian.Web.QueryLog`: like `Guardian.Web.QueryParseErrors` (cast, `whereis` and mailbox check,
   writer option, `sync/1` for tests), without the hourly cap. It reuses
-  `Web.QueryParseErrors.truncate/2`, `bound_caller_fields/1` (newly public) and the
+  `Guardian.Web.QueryParseErrors.truncate/2`, `bound_caller_fields/1` (newly public) and the
   `http_caller/1`/`mcp_caller/1` helpers, keeping only the allowed caller fields;
-  moving them (`truncate/2` to `Utils`, the caller helpers to a `Web.Caller` module)
+  moving them (`truncate/2` to `Guardian.Utils`, the caller helpers to a `Guardian.Web.Caller` module)
   is left for the removal of `query_parse_errors`
-  (TODO.md `drop-query-parse-errors`). `Web.Query.execute/3` takes an `:execute`
-  option replacing `Query.execute/2`, so tests can make the query path exit or
+  (TODO.md `drop-query-parse-errors`). `Guardian.Web.Query.execute/3` takes an `:execute`
+  option replacing `Guardian.Query.execute/2`, so tests can make the query path exit or
   throw.
 - Docs: the built-in tables list in `docs/reference/api.md` (the README links to
   it); spec sections 2 (table of Guardian's tables), 3

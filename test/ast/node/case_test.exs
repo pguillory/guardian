@@ -1,5 +1,5 @@
-defmodule CaseTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.CaseTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "case expression" do
     assert eval("case when true then 1 end") == 1
@@ -14,7 +14,7 @@ defmodule CaseTest do
           "CASE x WHEN 1 THEN 'one' END",
           "CASE x WHEN 1 THEN 'one' ELSE 'other' END",
         ] do
-      assert AST.unparse(AST.Parser.parse_expression(source)) == source
+      assert Guardian.AST.unparse(Guardian.AST.Parser.parse_expression(source)) == source
     end
   end
 end

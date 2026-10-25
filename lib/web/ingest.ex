@@ -1,4 +1,4 @@
-defmodule Web.Ingest do
+defmodule Guardian.Web.Ingest do
   @moduledoc """
   Shared request validation and ordered ingestion results for HTTP and MCP.
   """
@@ -10,14 +10,14 @@ defmodule Web.Ingest do
       if key == nil do
         {:ok, ingest_fun.()}
       else
-        Web.IngestIdempotency.run(table, key, {events, return_keys}, ingest_fun)
+        Guardian.Web.IngestIdempotency.run(table, key, {events, return_keys}, ingest_fun)
       end
     end
   end
 
   defp ingest(table, events, return_keys) do
     results =
-      Engine.ingest_events(table, events)
+      Guardian.Engine.ingest_events(table, events)
       |> Enum.map(fn
         {:ok, event} -> %{success: true, event: filter_keys(event, return_keys)}
         {:error, message} -> %{success: false, error: message}
@@ -33,8 +33,8 @@ defmodule Web.Ingest do
     key = Map.get(params, "idempotency_key")
 
     cond do
-      not Engine.valid_table_name?(table) ->
-        {:error, Exception.message(%Engine.InvalidTableNameError{table: table})}
+      not Guardian.Engine.valid_table_name?(table) ->
+        {:error, Exception.message(%Guardian.Engine.InvalidTableNameError{table: table})}
 
       not is_list(events) ->
         {:error, "events must be a list"}

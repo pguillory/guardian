@@ -1,4 +1,4 @@
-defmodule Query.Function.EmailDomain do
+defmodule Guardian.Query.Function.EmailDomain do
   def eval(value) when is_binary(value) do
     case String.split(value, "@", parts: 2) do
       [_username, domain] -> domain

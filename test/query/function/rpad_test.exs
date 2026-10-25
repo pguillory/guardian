@@ -1,5 +1,5 @@
-defmodule Query.Function.RpadTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Query.Function.RpadTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "rpad function" do
     assert eval("rpad('abc', 5)") === "abc  "

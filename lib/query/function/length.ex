@@ -1,4 +1,4 @@
-defmodule Query.Function.Length do
+defmodule Guardian.Query.Function.Length do
   def eval(value) when is_binary(value) do
     String.length(value)
   end

@@ -1,4 +1,4 @@
-defmodule Query.Function.Substr do
+defmodule Guardian.Query.Function.Substr do
   def eval(value, start) when is_binary(value) and is_integer(start) and start >= 1 do
     String.slice(value, start - 1, byte_size(value))
   end

@@ -1,5 +1,5 @@
-defmodule IdentifierTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.IdentifierTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "identifiers" do
     assert eval("a", a: 1) == 1

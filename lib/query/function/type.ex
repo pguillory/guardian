@@ -1,4 +1,4 @@
-defmodule Query.Function.Type do
+defmodule Guardian.Query.Function.Type do
   def eval(nil) do
     "null"
   end

@@ -1,4 +1,4 @@
-defmodule Query.Function.GenerateUUID do
+defmodule Guardian.Query.Function.GenerateUUID do
   def eval do
     UUID.uuid4()
   end

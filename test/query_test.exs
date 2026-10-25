@@ -3,12 +3,12 @@
 #         table = "t" <> (:crypto.strong_rand_bytes(8) |> Base.encode16())
 #         # IO.inspect(table, label: "table")
 #         # source = unquote(source)
-#         ast = AST.parse(source)
-#         source2 = AST.unparse(ast)
-#         ^ast = AST.parse(source2)
+#         ast = Guardian.AST.parse(source)
+#         source2 = Guardian.AST.unparse(ast)
+#         ^ast = Guardian.AST.parse(source2)
 #         %SelectStatement{from_expr: nil} = statement = ast
-#         ast3 = %SelectStatement{statement | from_expr: %AST.Node.Identifier{name: table}}
-#         source3 = AST.unparse(ast3)
+#         ast3 = %SelectStatement{statement | from_expr: %Guardian.AST.Node.Identifier{name: table}}
+#         source3 = Guardian.AST.unparse(ast3)
 #         # IO.inspect(source3, label: "source3")
 
 #     quote location: :keep do
@@ -20,16 +20,16 @@
 #         # IO.inspect(unquote(table), label: "table")
 #         # IO.inspect(rows, label: "rows")
 #         # IO.inspect(unquote(source3), label: "source3")
-#         :ok = Storage.append(unquote(table), rows)
+#         :ok = Guardian.Storage.append(unquote(table), rows)
 #         assert run(unquote(source3)) == unquote(expected_result)
 #       end
 #     end
 #   end
 # end
 
-defmodule QueryTest do
-  import Query, except: [run: 1]
-  import TestHelpers, only: [run_sql: 1]
+defmodule Guardian.QueryTest do
+  import Guardian.Query, except: [run: 1]
+  import Guardian.TestHelpers, only: [run_sql: 1]
   # import QueryTestHelper
   # require QueryTestHelper
   use ExUnit.Case, async: false
@@ -50,36 +50,40 @@ defmodule QueryTest do
     # test_raise/1 (test build only) raises; any exception during evaluation behaves alike.
     setup do
       table = "worker_errors_#{System.unique_integer([:positive])}"
-      for v <- 1..5, do: :ok = Storage.append(table, k: rem(v, 2), v: v)
+      for v <- 1..5, do: :ok = Guardian.Storage.append(table, k: rem(v, 2), v: v)
       %{table: table}
     end
 
     test "fail the query instead of dropping rows", %{table: table} do
-      error = assert_raise Query.Error, fn -> run("select test_raise(v) from #{table}") end
+      error =
+        assert_raise Guardian.Query.Error, fn -> run("select test_raise(v) from #{table}") end
+
       assert error.message =~ "query evaluation failed"
       assert error.message =~ "test_raise"
 
-      assert_raise Query.Error, fn ->
+      assert_raise Guardian.Query.Error, fn ->
         run("select count() from #{table} where test_raise(v) = 1")
       end
 
-      assert_raise Query.Error, fn ->
+      assert_raise Guardian.Query.Error, fn ->
         run("select k, count() from #{table} where test_raise(v) = 1 group by k")
       end
 
-      assert_raise Query.Error, fn -> run("select v from #{table} order by test_raise(v)") end
+      assert_raise Guardian.Query.Error, fn ->
+        run("select v from #{table} order by test_raise(v)")
+      end
     end
 
     test "do not affect the next query in the same process", %{table: table} do
-      assert_raise Query.Error, fn -> run("select test_raise(v) from #{table}") end
+      assert_raise Guardian.Query.Error, fn -> run("select test_raise(v) from #{table}") end
       assert run("select count() from #{table}") == [[5]]
-      assert_raise Query.Error, fn -> run("select test_raise(v) from #{table}") end
+      assert_raise Guardian.Query.Error, fn -> run("select test_raise(v) from #{table}") end
       assert Enum.sort(run("select v from #{table}")) == [[1], [2], [3], [4], [5]]
     end
 
     test "leave no messages or linked processes behind", %{table: table} do
       {:links, links_before} = Process.info(self(), :links)
-      assert_raise Query.Error, fn -> run("select test_raise(v) from #{table}") end
+      assert_raise Guardian.Query.Error, fn -> run("select test_raise(v) from #{table}") end
       assert run("select 1") == [[1]]
       assert {:messages, []} = Process.info(self(), :messages)
       assert {:links, ^links_before} = Process.info(self(), :links)
@@ -88,34 +92,36 @@ defmodule QueryTest do
 
   test "a node that is not an expression fails the query, naming it" do
     table = "not_expressions_#{System.unique_integer([:positive])}"
-    on_exit(fn -> :ok = Storage.delete_table(table) end)
-    :ok = Storage.append(table, x: 1)
+    on_exit(fn -> :ok = Guardian.Storage.delete_table(table) end)
+    :ok = Guardian.Storage.append(table, x: 1)
 
-    assert_raise Query.Error, "count() cannot be evaluated as an expression", fn ->
+    assert_raise Guardian.Query.Error, "count() cannot be evaluated as an expression", fn ->
       run("select x from #{table} where count(*) > 1")
     end
 
-    assert_raise Query.Error, "* cannot be evaluated as an expression", fn ->
+    assert_raise Guardian.Query.Error, "* cannot be evaluated as an expression", fn ->
       run("select x from #{table} where * = 1")
     end
 
-    assert_raise Query.Error, "x ASC cannot be evaluated as an expression", fn ->
+    assert_raise Guardian.Query.Error, "x ASC cannot be evaluated as an expression", fn ->
       run("select abs(x asc) from #{table}")
     end
   end
 
-  test "an aggregate's Query.Error reaches the caller with its message" do
+  test "an aggregate's Guardian.Query.Error reaches the caller with its message" do
     table = "top_n_errors_#{System.unique_integer([:positive])}"
-    for v <- 1..5, do: :ok = Storage.append(table, k: rem(v, 2), v: v)
+    for v <- 1..5, do: :ok = Guardian.Storage.append(table, k: rem(v, 2), v: v)
 
     # Guarded like evaluation: no worker crash report reaches the log.
     log =
       ExUnit.CaptureLog.capture_log(fn ->
-        assert_raise Query.Error, "min_n: n must be the same for every row of a group", fn ->
-          run("select min_n(v, k + 1) from #{table}")
-        end
+        assert_raise Guardian.Query.Error,
+                     "min_n: n must be the same for every row of a group",
+                     fn ->
+                       run("select min_n(v, k + 1) from #{table}")
+                     end
 
-        assert_raise Query.Error, "max_n: n must be a non-negative integer", fn ->
+        assert_raise Guardian.Query.Error, "max_n: n must be a non-negative integer", fn ->
           run("select max_n(v, -1) from #{table}")
         end
 
@@ -135,9 +141,9 @@ defmodule QueryTest do
   end
 
   test "run" do
-    :ok = Storage.append("t", k: "foo", v: 1)
-    :ok = Storage.append("t", k: "foo", v: 2)
-    :ok = Storage.append("t", k: "bar", v: 3)
+    :ok = Guardian.Storage.append("t", k: "foo", v: 1)
+    :ok = Guardian.Storage.append("t", k: "foo", v: 2)
+    :ok = Guardian.Storage.append("t", k: "bar", v: 3)
 
     assert run("select v from t") == [[1], [2], [3]]
     assert run("select x, v from t") == [[nil, 1], [nil, 2], [nil, 3]]
@@ -215,11 +221,16 @@ defmodule QueryTest do
 
   test "dotted field paths address nested columns" do
     table = "nested_paths_test"
-    :ok = Storage.append(table, %{"user" => %{"name" => "Bob", "address" => %{"city" => "NYC"}}})
-    :ok = Storage.append(table, %{"user" => %{"name" => "Alice"}, "n" => 1})
-    :ok = Storage.append(table, %{"user" => %{"name" => "Bob"}, "n" => 2})
-    :ok = Storage.append(table, %{"users" => [%{"name" => "Joe"}, %{"name" => "Ann"}]})
-    :ok = Storage.append(table, %{"grid" => [[%{"x" => 1}, %{"x" => 2}], [%{"x" => 3}]]})
+
+    :ok =
+      Guardian.Storage.append(table, %{
+        "user" => %{"name" => "Bob", "address" => %{"city" => "NYC"}},
+      })
+
+    :ok = Guardian.Storage.append(table, %{"user" => %{"name" => "Alice"}, "n" => 1})
+    :ok = Guardian.Storage.append(table, %{"user" => %{"name" => "Bob"}, "n" => 2})
+    :ok = Guardian.Storage.append(table, %{"users" => [%{"name" => "Joe"}, %{"name" => "Ann"}]})
+    :ok = Guardian.Storage.append(table, %{"grid" => [[%{"x" => 1}, %{"x" => 2}], [%{"x" => 3}]]})
 
     assert run("select user.name from #{table}") == [["Bob"], ["Alice"], ["Bob"], [nil], [nil]]
     assert run("select n from #{table} where user.name = 'Bob'") == [[nil], [2]]
@@ -243,18 +254,38 @@ defmodule QueryTest do
     assert labels("select user.name, users..name from #{table}") == ["user.name", "users..name"]
 
     # Names from SELECT * can be pasted back into a query.
-    [{statement, star_labels}] = Query.Resolver.resolve("select * from #{table}")
+    [{statement, star_labels}] = Guardian.Query.Resolver.resolve("select * from #{table}")
     assert "user.address.city" in star_labels
     assert "users..name" in star_labels
     assert "grid...x" in star_labels
-    assert run("select #{Enum.join(star_labels, ", ")} from #{table}") == Query.run(statement)
+
+    assert run("select #{Enum.join(star_labels, ", ")} from #{table}") ==
+             Guardian.Query.run(statement)
   end
 
   test "column names match stored names ignoring case" do
     table = "case_insensitive_test"
-    :ok = Storage.append(table, %{"userId" => 1, "user" => %{"firstName" => "Bob"}, "n" => 10})
-    :ok = Storage.append(table, %{"userId" => 2, "user" => %{"firstName" => "Ann"}, "n" => 20})
-    :ok = Storage.append(table, %{"userId" => 2, "user" => %{"firstName" => "Ann"}, "n" => 30})
+
+    :ok =
+      Guardian.Storage.append(table, %{
+        "userId" => 1,
+        "user" => %{"firstName" => "Bob"},
+        "n" => 10,
+      })
+
+    :ok =
+      Guardian.Storage.append(table, %{
+        "userId" => 2,
+        "user" => %{"firstName" => "Ann"},
+        "n" => 20,
+      })
+
+    :ok =
+      Guardian.Storage.append(table, %{
+        "userId" => 2,
+        "user" => %{"firstName" => "Ann"},
+        "n" => 30,
+      })
 
     assert run("select userId from #{table}") == [[1], [2], [2]]
     assert run("select userid from #{table}") == [[1], [2], [2]]
@@ -270,52 +301,64 @@ defmodule QueryTest do
     assert run("select count(*) from #{table} having max(userid) = 2") == [[3]]
 
     assert [{_statement, ["userId", "upper(user.firstName)", "x"]}] =
-             Query.Resolver.resolve("select USERID, upper(user.firstname), n as x from #{table}")
+             Guardian.Query.Resolver.resolve(
+               "select USERID, upper(user.firstname), n as x from #{table}"
+             )
   end
 
   test "a name matching two stored spellings is ambiguous" do
     table = "case_ambiguous_test"
-    :ok = Storage.append(table, %{"userId" => 1, "userid" => 2, "n" => 3})
+    :ok = Guardian.Storage.append(table, %{"userId" => 1, "userid" => 2, "n" => 3})
 
     message = "ambiguous column userid: matches userId, userid"
-    assert_raise Query.AmbiguousColumnError, message, fn -> run("select userid from #{table}") end
-    assert_raise Query.AmbiguousColumnError, message, fn -> run("select userId from #{table}") end
 
-    assert_raise Query.AmbiguousColumnError, message, fn ->
+    assert_raise Guardian.Query.AmbiguousColumnError, message, fn ->
+      run("select userid from #{table}")
+    end
+
+    assert_raise Guardian.Query.AmbiguousColumnError, message, fn ->
+      run("select userId from #{table}")
+    end
+
+    assert_raise Guardian.Query.AmbiguousColumnError, message, fn ->
       run("select n from #{table} where userid = 1")
     end
 
     assert run("select n from #{table}") == [[3]]
 
     assert [{statement, ["n", "userId", "userid"]}] =
-             Query.Resolver.resolve("select * from #{table}")
+             Guardian.Query.Resolver.resolve("select * from #{table}")
 
-    assert Query.run(statement) == [[3, 1, 2]]
+    assert Guardian.Query.run(statement) == [[3, 1, 2]]
   end
 
   test "LET names and aliases are not resolved as columns" do
     table = "case_let_test"
-    :ok = Storage.append(table, %{"Total" => 5, "N" => 1})
+    :ok = Guardian.Storage.append(table, %{"Total" => 5, "N" => 1})
 
     assert [{statement, ["total", "n"]}] =
-             Query.Resolver.resolve("let total = n + 1; select total, total as n from #{table}")
+             Guardian.Query.Resolver.resolve(
+               "let total = n + 1; select total, total as n from #{table}"
+             )
 
-    assert Query.run(statement) == [[2, 2]]
+    assert Guardian.Query.run(statement) == [[2, 2]]
   end
 
   test "resolution follows LET scope, LET table names, and nested aliases" do
     table = "case_scope_test"
-    :ok = Storage.append(table, %{"userId" => 1, "Alias" => "a", "alias" => "b"})
+    :ok = Guardian.Storage.append(table, %{"userId" => 1, "Alias" => "a", "alias" => "b"})
 
     # A LET after the SELECT does not bind names in it.
     assert [{_statement, ["userId"]}, {_, _}] =
-             Query.Resolver.resolve("select userid from #{table}; let userid = 1; select 2")
+             Guardian.Query.Resolver.resolve(
+               "select userid from #{table}; let userid = 1; select 2"
+             )
 
     # LET can name the table.
     assert [{statement, ["userId"]}] =
-             Query.Resolver.resolve("let t = #{table}; select userid from t")
+             Guardian.Query.Resolver.resolve("let t = #{table}; select userid from t")
 
-    assert Query.run(statement) == [[1]]
+    assert Guardian.Query.run(statement) == [[1]]
 
     # An alias nested in an expression is not a column, even when it names an ambiguous one.
     assert run("select (userid as alias) from #{table}") == [[1]]
@@ -325,7 +368,7 @@ defmodule QueryTest do
     assert run("select -9223372036854775807 - 1") == [[-9_223_372_036_854_775_808]]
     assert run("select 9223372036854775807") == [[9_223_372_036_854_775_807]]
 
-    assert_raise AST.ParseError, ~r/Number out of range/, fn ->
+    assert_raise Guardian.AST.ParseError, ~r/Number out of range/, fn ->
       run("select -9223372036854775808")
     end
   end
@@ -339,14 +382,14 @@ defmodule QueryTest do
   end
 
   test "show tables" do
-    :ok = Storage.append("show_tables_test", x: 1)
+    :ok = Guardian.Storage.append("show_tables_test", x: 1)
 
     tables = run("show tables") |> Enum.map(&hd/1)
     assert "show_tables_test" in tables
   end
 
   test "desc" do
-    :ok = Storage.append("desc_test", name: "alice", score: 100)
+    :ok = Guardian.Storage.append("desc_test", name: "alice", score: 100)
 
     keys = run("desc desc_test") |> Enum.map(&hd/1)
     assert "name" in keys
@@ -355,14 +398,14 @@ defmodule QueryTest do
 
   test "comparing with a number literal skips non-numbers when every number is on one side" do
     table = "comparison_fast_path_test"
-    :ok = Storage.delete_table(table)
-    on_exit(fn -> :ok = Storage.delete_table(table) end)
+    :ok = Guardian.Storage.delete_table(table)
+    on_exit(fn -> :ok = Guardian.Storage.delete_table(table) end)
 
     for x <- [10, 2.5, nil, "s", true, [3]] do
-      :ok = Storage.append(table, %{"k" => inspect(x), "x" => x})
+      :ok = Guardian.Storage.append(table, %{"k" => inspect(x), "x" => x})
     end
 
-    :ok = Storage.append(table, %{"k" => "missing"})
+    :ok = Guardian.Storage.append(table, %{"k" => "missing"})
 
     assert Enum.sort(run("select k from #{table} where x > 0")) == [["10"], ["2.5"]]
     assert Enum.sort(run("select k from #{table} where 0 <= x")) == [["10"], ["2.5"]]
@@ -385,8 +428,8 @@ defmodule QueryTest do
 
   test "WHERE keeping only some rows of a segment with list values" do
     table = "list_filter_test"
-    :ok = Storage.delete_table(table)
-    on_exit(fn -> :ok = Storage.delete_table(table) end)
+    :ok = Guardian.Storage.delete_table(table)
+    on_exit(fn -> :ok = Guardian.Storage.delete_table(table) end)
 
     for row <- [
           %{"a" => 1},
@@ -396,7 +439,7 @@ defmodule QueryTest do
           %{"tags" => 7},
           %{"a" => 2, "tags" => nil},
         ] do
-      :ok = Storage.append(table, row)
+      :ok = Guardian.Storage.append(table, row)
     end
 
     assert_queries = fn ->
@@ -414,21 +457,21 @@ defmodule QueryTest do
     assert_queries.()
 
     # Full, then persisted and loaded from disk.
-    for segment <- Storage.MutableSegments.get_mutable_segments(table) do
-      :ok = Storage.MutableSegments.segment_is_full(table, segment)
+    for segment <- Guardian.Storage.MutableSegments.get_mutable_segments(table) do
+      :ok = Guardian.Storage.MutableSegments.segment_is_full(table, segment)
     end
 
-    :sys.get_state(Storage.PersistedSegments)
-    :ok = Storage.LoadedSegments.rescan()
-    assert Storage.LoadedSegments.segment_ids(table) != []
-    assert Storage.MutableSegments.segment_ids(table) == []
+    :sys.get_state(Guardian.Storage.PersistedSegments)
+    :ok = Guardian.Storage.LoadedSegments.rescan()
+    assert Guardian.Storage.LoadedSegments.segment_ids(table) != []
+    assert Guardian.Storage.MutableSegments.segment_ids(table) == []
     assert_queries.()
   end
 
   test "WHERE on list-of-object paths keeping only some rows" do
     table = "list_path_filter_test"
-    :ok = Storage.delete_table(table)
-    on_exit(fn -> :ok = Storage.delete_table(table) end)
+    :ok = Guardian.Storage.delete_table(table)
+    on_exit(fn -> :ok = Guardian.Storage.delete_table(table) end)
 
     for row <- [
           %{"a" => 1},
@@ -437,7 +480,7 @@ defmodule QueryTest do
           %{"users" => [%{"name" => "Sue", "age" => 4}, %{"age" => 5}]},
           %{"grid" => [[%{"x" => 1}, %{"x" => 2}], [%{"x" => 3}]]},
         ] do
-      :ok = Storage.append(table, row)
+      :ok = Guardian.Storage.append(table, row)
     end
 
     # Flattening drops trailing nils from list columns: Sue's list loses the missing
@@ -453,23 +496,25 @@ defmodule QueryTest do
 
   describe "reassembling rows into columns" do
     test "rows become one column per key" do
-      assert [a, b] = Query.Executor.rows_to_columns([[1, ["x"]], [2, ["y"]]], ["a", "b"])
-      assert Storage.Column.to_list(a) === [1, 2]
-      assert Storage.Column.to_list(b) === [["x"], ["y"]]
+      assert [a, b] =
+               Guardian.Query.Executor.rows_to_columns([[1, ["x"]], [2, ["y"]]], ["a", "b"])
+
+      assert Guardian.Storage.Column.to_list(a) === [1, 2]
+      assert Guardian.Storage.Column.to_list(b) === [["x"], ["y"]]
     end
 
     test "list-heavy rows stay in order" do
       big = List.duplicate(1, 40_000)
       rows = [[1, big], [2, big], [3, [7]], [4, big]]
 
-      assert [n, l] = Query.Executor.rows_to_columns(rows, ["n", "l"])
-      assert Storage.Column.to_list(n) == [1, 2, 3, 4]
-      assert Storage.Column.to_list(l) == [big, big, [7], big]
+      assert [n, l] = Guardian.Query.Executor.rows_to_columns(rows, ["n", "l"])
+      assert Guardian.Storage.Column.to_list(n) == [1, 2, 3, 4]
+      assert Guardian.Storage.Column.to_list(l) == [big, big, [7], big]
     end
 
     test "a value no column can hold raises naming the column" do
       assert_raise ArgumentError, ~r/query result column "l"/, fn ->
-        Query.Executor.rows_to_columns([[1, [1]], [2, [[[1]]]]], ["n", "l"])
+        Guardian.Query.Executor.rows_to_columns([[1, [1]], [2, [[[1]]]]], ["n", "l"])
       end
     end
   end
@@ -477,17 +522,19 @@ defmodule QueryTest do
   describe "execute" do
     test "runs one statement, labeled before LET with stored column names" do
       table = "execute_test_#{System.unique_integer([:positive])}"
-      :ok = Storage.append(table, %{"N" => 1})
+      :ok = Guardian.Storage.append(table, %{"N" => 1})
 
-      assert Query.execute("let x = n + 1; select x, n from #{table}") ==
+      assert Guardian.Query.execute("let x = n + 1; select x, n from #{table}") ==
                {:ok, ["x", "N"], [[2, 1]]}
     end
 
     test "requires exactly one statement" do
-      assert Query.execute("") == {:error, "Query resolved to no executable statements"}
-      assert Query.execute("let x = 1") == {:error, "Query resolved to no executable statements"}
+      assert Guardian.Query.execute("") == {:error, "Query resolved to no executable statements"}
 
-      assert Query.execute("select 1; select 2") ==
+      assert Guardian.Query.execute("let x = 1") ==
+               {:error, "Query resolved to no executable statements"}
+
+      assert Guardian.Query.execute("select 1; select 2") ==
                {:error, "Only single-statement queries are supported"}
     end
 
@@ -496,26 +543,26 @@ defmodule QueryTest do
       on_parse_error = fn error -> send(parent, {:parse_error, error}) end
 
       error =
-        assert_raise AST.ParseError, fn ->
-          Query.execute("select from", on_parse_error: on_parse_error)
+        assert_raise Guardian.AST.ParseError, fn ->
+          Guardian.Query.execute("select from", on_parse_error: on_parse_error)
         end
 
       assert_received {:parse_error, ^error}
       refute_received {:parse_error, _}
     end
 
-    test "returns a Query.Error from running the query" do
+    test "returns a Guardian.Query.Error from running the query" do
       assert {:error, "max_n: n must be a non-negative integer"} =
-               Query.execute("select max_n(1, -1)")
+               Guardian.Query.execute("select max_n(1, -1)")
     end
 
     test "raises other resolution errors without calling on_parse_error" do
       table = "execute_ambiguous_#{System.unique_integer([:positive])}"
-      :ok = Storage.append(table, %{"userId" => 1, "userid" => 2})
+      :ok = Guardian.Storage.append(table, %{"userId" => 1, "userid" => 2})
       on_parse_error = fn error -> flunk("unexpected #{inspect(error)}") end
 
-      assert_raise Query.AmbiguousColumnError, fn ->
-        Query.execute("select userid from #{table}", on_parse_error: on_parse_error)
+      assert_raise Guardian.Query.AmbiguousColumnError, fn ->
+        Guardian.Query.execute("select userid from #{table}", on_parse_error: on_parse_error)
       end
     end
   end

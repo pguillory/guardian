@@ -170,4 +170,4 @@ static int load(ErlNifEnv * env, void ** priv_data, ERL_NIF_TERM load_info) {
   return mapping_type == NULL;
 }
 
-ERL_NIF_INIT(Elixir.Storage.Mmap, nif_funcs, load, NULL, NULL, NULL)
+ERL_NIF_INIT(Elixir.Guardian.Storage.Mmap, nif_funcs, load, NULL, NULL, NULL)

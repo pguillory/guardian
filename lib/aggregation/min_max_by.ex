@@ -1,4 +1,4 @@
-defmodule Aggregation.MinMaxBy do
+defmodule Guardian.Aggregation.MinMaxBy do
   # min_by and max_by: the value of the row with the least or greatest ordering value.
   # Rows whose ordering value is null are skipped.
 
@@ -23,7 +23,9 @@ defmodule Aggregation.MinMaxBy do
   end
 
   def merge(extreme, {_, order_value1} = acc1, {_, order_value2} = acc2) do
-    if Aggregation.Ordering.wins?(extreme, order_value1, order_value2), do: acc1, else: acc2
+    if Guardian.Aggregation.Ordering.wins?(extreme, order_value1, order_value2),
+      do: acc1,
+      else: acc2
   end
 
   def finish(_extreme, nil) do

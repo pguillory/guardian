@@ -1,5 +1,5 @@
-defmodule Query.Function.Now do
+defmodule Guardian.Query.Function.Now do
   def eval do
-    Timestamp.now()
+    Guardian.Timestamp.now()
   end
 end

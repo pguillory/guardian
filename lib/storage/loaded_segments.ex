@@ -1,12 +1,12 @@
-defmodule Storage.LoadedSegments do
+defmodule Guardian.Storage.LoadedSegments do
   # Internal to Storage; see lib/storage/CLAUDE.md, "Public boundary".
   @moduledoc false
 
-  alias Storage.BlobStore
-  alias Storage.Schema
-  alias Storage.Segment
-  alias Storage.Segment.Registration
-  alias Storage.SegmentFile
+  alias Guardian.Storage.BlobStore
+  alias Guardian.Storage.Schema
+  alias Guardian.Storage.Segment
+  alias Guardian.Storage.Segment.Registration
+  alias Guardian.Storage.SegmentFile
   require Logger
   require Registration
   use GenServer
@@ -61,7 +61,7 @@ defmodule Storage.LoadedSegments do
   # minute.
   #
   # Loaded segments are linked to this process, which traps exits, so a crashing
-  # segment is unregistered (Storage.Schema's monitor subtracts its metadata) and the
+  # segment is unregistered (Guardian.Storage.Schema's monitor subtracts its metadata) and the
   # next scan reloads its file, instead of restarting every later Storage manager.
   def init(_opts) do
     Process.flag(:trap_exit, true)
@@ -141,7 +141,7 @@ defmodule Storage.LoadedSegments do
   end
 
   # Unregisters a loaded segment and stops its process. Stopping it releases the
-  # mapped file and lets Storage.Schema subtract the segment's metadata. The segment
+  # mapped file and lets Guardian.Storage.Schema subtract the segment's metadata. The segment
   # may already be dead; its EXIT then arrives later and finds no registration.
   defp unload_segment(registration), do: Registration.retire(__MODULE__, registration)
 
@@ -172,7 +172,7 @@ defmodule Storage.LoadedSegments do
   end
 
   defp load_all_segments_from_disk(state) do
-    {:ok, filenames} = BlobStore.list(Storage.segment_dir())
+    {:ok, filenames} = BlobStore.list(Guardian.Storage.segment_dir())
     warn_about_unparseable_segment_files(filenames)
 
     filenames
@@ -206,7 +206,7 @@ defmodule Storage.LoadedSegments do
   # down and the rest of the data stays available.
   defp load_segment_file(filename, state) do
     {:ok, table, segment_id} = SegmentFile.parse_filename(filename)
-    timestamp = SegmentID.timestamp(segment_id)
+    timestamp = Guardian.SegmentID.timestamp(segment_id)
 
     # A retried skipped file was announced already; its failure is logged once below.
     unless Map.has_key?(state.skipped, segment_id) do
@@ -277,7 +277,7 @@ defmodule Storage.LoadedSegments do
 
       ignored ->
         IO.puts(
-          "Ignoring #{length(ignored)} .seg file(s) in #{Storage.segment_dir()} " <>
+          "Ignoring #{length(ignored)} .seg file(s) in #{Guardian.Storage.segment_dir()} " <>
             "that are not named {table}.{segment_id}.seg " <>
             "(for example, segments from the older per-user filename format)"
         )
@@ -285,7 +285,7 @@ defmodule Storage.LoadedSegments do
   end
 
   defp scan_for_changes(state) do
-    {:ok, filenames} = BlobStore.list(Storage.segment_dir())
+    {:ok, filenames} = BlobStore.list(Guardian.Storage.segment_dir())
 
     # Build map from segment_id -> filename for files on disk
     disk_segments =

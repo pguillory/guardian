@@ -1,7 +1,7 @@
-defmodule Rules.ConfigTest do
+defmodule Guardian.Rules.ConfigTest do
   use ExUnit.Case, async: true
 
-  alias Rules.Config
+  alias Guardian.Rules.Config
 
   @s3 %{
     "GUARDIAN_RULES_S3_BUCKET" => "b",
@@ -13,17 +13,17 @@ defmodule Rules.ConfigTest do
   test "defaults to a local folder under the data directory" do
     dir = Path.join(System.tmp_dir!(), "rules_config_#{System.unique_integer([:positive])}")
 
-    assert {:ok, {Rules.Store.Local, %{dir: ^dir}}} =
+    assert {:ok, {Guardian.Rules.Store.Local, %{dir: ^dir}}} =
              Config.from_env(%{"GUARDIAN_RULES_DIR" => dir})
 
     File.rm_rf!(dir)
 
     default = Path.join(Application.fetch_env!(:guardian, :data_dir), "rules")
-    assert {:ok, {Rules.Store.Local, %{dir: ^default}}} = Config.from_env(%{})
+    assert {:ok, {Guardian.Rules.Store.Local, %{dir: ^default}}} = Config.from_env(%{})
   end
 
   test "an S3 store holds its secret only in a closure" do
-    assert {:ok, {Rules.Store.S3, config}} = Config.from_env(@s3)
+    assert {:ok, {Guardian.Rules.Store.S3, config}} = Config.from_env(@s3)
     assert config.region == "auto" and config.prefix == ""
     assert config.credentials.() == {"id", "SECRET-XYZ"}
     refute inspect(config) =~ "SECRET-XYZ"
@@ -60,7 +60,7 @@ defmodule Rules.ConfigTest do
           "http://[::1]:9000",
           "https://127.evil.example",
         ] do
-      assert {:ok, {Rules.Store.S3, %{endpoint: ^url}}} = endpoint.(url)
+      assert {:ok, {Guardian.Rules.Store.S3, %{endpoint: ^url}}} = endpoint.(url)
     end
 
     for url <- [

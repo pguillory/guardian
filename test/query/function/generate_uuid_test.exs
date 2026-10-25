@@ -1,10 +1,10 @@
-defmodule Query.Function.GenerateUUIDTest do
-  use Query.EvaluationTestCase, async: false
-  alias Storage.Column
+defmodule Guardian.Query.Function.GenerateUUIDTest do
+  use Guardian.Query.EvaluationTestCase, async: false
+  alias Guardian.Storage.Column
 
   test "generate_uuid function" do
     [uuid1, uuid2] =
-      Query.Evaluation.eval(snapshot([%{}, %{}]), "generate_uuid()") |> Column.to_list()
+      Guardian.Query.Evaluation.eval(snapshot([%{}, %{}]), "generate_uuid()") |> Column.to_list()
 
     UUID.string_to_binary!(uuid1)
     UUID.string_to_binary!(uuid2)

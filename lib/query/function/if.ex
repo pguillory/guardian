@@ -1,43 +1,43 @@
-defmodule Query.Function.If do
-  alias Query.ColumnOrConstant
-  alias Query.Constant
-  alias Storage.Column.Metadata
+defmodule Guardian.Query.Function.If do
+  alias Guardian.Query.ColumnOrConstant
+  alias Guardian.Query.Constant
+  alias Guardian.Storage.Column.Metadata
   require Metadata
 
   # if/2
-  def eval2(context, %AST.Node.FunctionCall{args: [expr1, expr2]}) do
-    column1 = Query.Eval.eval(expr1, context)
+  def eval2(context, %Guardian.AST.Node.FunctionCall{args: [expr1, expr2]}) do
+    column1 = Guardian.Query.Eval.eval(expr1, context)
 
     case ColumnOrConstant.metadata(column1) do
       [Metadata.tuple(true_count: count, count: count) | _] ->
-        Query.Eval.eval(expr2, context)
+        Guardian.Query.Eval.eval(expr2, context)
 
       [Metadata.tuple(true_count: 0, count: count) | _] ->
         Constant.duplicate(nil, count)
 
       [Metadata.tuple() | _] ->
-        column2 = Query.Eval.eval(expr2, context)
+        column2 = Guardian.Query.Eval.eval(expr2, context)
         ColumnOrConstant.map(column1, column2, &__MODULE__.eval/2)
     end
   end
 
   # if/3
-  def eval2(context, %AST.Node.FunctionCall{args: [expr1, expr2, expr3]}) do
-    column1 = Query.Eval.eval(expr1, context)
+  def eval2(context, %Guardian.AST.Node.FunctionCall{args: [expr1, expr2, expr3]}) do
+    column1 = Guardian.Query.Eval.eval(expr1, context)
 
     case ColumnOrConstant.metadata(column1) do
       [Metadata.tuple(true_count: count, count: count) | _] ->
-        Query.Eval.eval(expr2, context)
+        Guardian.Query.Eval.eval(expr2, context)
 
       [Metadata.tuple(false_count: count, count: count) | _] ->
-        Query.Eval.eval(expr3, context)
+        Guardian.Query.Eval.eval(expr3, context)
 
       [Metadata.tuple(true_count: 0, false_count: 0, count: count) | _] ->
         Constant.duplicate(nil, count)
 
       [Metadata.tuple() | _] ->
-        column2 = Query.Eval.eval(expr2, context)
-        column3 = Query.Eval.eval(expr3, context)
+        column2 = Guardian.Query.Eval.eval(expr2, context)
+        column3 = Guardian.Query.Eval.eval(expr3, context)
         ColumnOrConstant.map(column1, column2, column3, &__MODULE__.eval/3)
     end
   end

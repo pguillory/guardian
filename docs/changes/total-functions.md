@@ -31,7 +31,7 @@ past its limit gives null; keep it simple.
 ## Behavior after the change
 
 1. Integers wrap. `+ - *`, unary `-`, `abs`, `div` and integer `sum` wrap to signed
-   64-bit, two's complement (`Query.Numeric.wrap/1`). `div(-2^63, -1)` is -2^63. The
+   64-bit, two's complement (`Guardian.Query.Numeric.wrap/1`). `div(-2^63, -1)` is -2^63. The
    NIF's int64 `+ - *` use `__builtin_add/sub/mul_overflow`, keeping the wrapped
    result: defined behavior, no branches, and the same answer as the Elixir path.
 2. A float result that isn't finite is null. Erlang raises on float overflow, so
@@ -53,16 +53,16 @@ past its limit gives null; keep it simple.
    marker that absorbs every later merge, across segments and machines, and finishes
    as null. `avg` keeps its exact integer sum and is null if the final division
    overflows.
-6. `Query.Limits.check_factorial!/1` is gone.
+6. `Guardian.Query.Limits.check_factorial!/1` is gone.
 
-7. String forms (`Query.Text.form/2`): a string as it is; an integer in decimal; a
+7. String forms (`Guardian.Query.Text.form/2`): a string as it is; an integer in decimal; a
    float in its shortest round-trip form (`1.0e300`); `true`, `false`; a list as
    compact JSON-style text, `[1,null,"a",[2.5]]`, its strings quoted and escaped as
    JSON with invalid UTF-8 bytes as U+FFFD. `to_string(x)` gives the form, and null
    for null; `concat` and `||` use it with null as the empty string. Rendering stops
    at its budget, so a huge list costs no more than the cap. Over a column of only
    strings and nulls, `to_string` still returns the column at once (the NIF).
-8. One string cap, 64 KiB (`Query.Text.max_bytes/0`, fixed; the
+8. One string cap, 64 KiB (`Guardian.Query.Text.max_bytes/0`, fixed; the
    `:query_max_string_bytes` setting and its 16 MiB default are gone). `concat`, `||`,
    `lpad`, `rpad`, `replace`, `to_string`, `lower`, `upper`, `normalize` and
    `format_timestamp` cut their results to it at a UTF-8 character boundary (bytes,
@@ -80,8 +80,8 @@ past its limit gives null; keep it simple.
    `replace` whose match splits a character or whose value has too many matches to
    hold (its helper process killed by its heap cap). The engine and its limits are
    unchanged.
-11. UTF-8 truncation (`Query.Text.truncate/2`) moved from `Web.QueryParseErrors`,
-   which, with `Web.QueryLog`, now uses it from there.
+11. UTF-8 truncation (`Guardian.Query.Text.truncate/2`) moved from `Guardian.Web.QueryParseErrors`,
+   which, with `Guardian.Web.QueryLog`, now uses it from there.
 
 With every function total, a rule statement fails only through a bug; the test build
 registers `test_raise/1` for the tests that need one.

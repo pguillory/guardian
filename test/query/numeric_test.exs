@@ -1,21 +1,21 @@
-defmodule Query.NumericTest do
-  # Targeted cases for the number rules (Query.Numeric). `eval/2` checks each one per
+defmodule Guardian.Query.NumericTest do
+  # Targeted cases for the number rules (Guardian.Query.Numeric). `eval/2` checks each one per
   # event, over a multi-row column, and pre-evaluated; the totality grid
-  # (Query.TotalityTest) covers every function and operator more broadly.
-  use Query.EvaluationTestCase, async: true
+  # (Guardian.Query.TotalityTest) covers every function and operator more broadly.
+  use Guardian.Query.EvaluationTestCase, async: true
 
-  import TestHelpers, only: [run_sql: 1]
+  import Guardian.TestHelpers, only: [run_sql: 1]
 
-  alias Query.Function.Interval
+  alias Guardian.Query.Function.Interval
 
-  @max Query.Numeric.max_int()
-  @min Query.Numeric.min_int()
+  @max Guardian.Query.Numeric.max_int()
+  @min Guardian.Query.Numeric.min_int()
 
   test "wrap matches two's complement" do
-    assert Query.Numeric.wrap(@max + 1) == @min
-    assert Query.Numeric.wrap(@min - 1) == @max
-    assert Query.Numeric.wrap(@max * @max) == 1
-    assert Query.Numeric.wrap(5) == 5
+    assert Guardian.Query.Numeric.wrap(@max + 1) == @min
+    assert Guardian.Query.Numeric.wrap(@min - 1) == @max
+    assert Guardian.Query.Numeric.wrap(@max * @max) == 1
+    assert Guardian.Query.Numeric.wrap(5) == 5
   end
 
   test "integer arithmetic wraps, per event and over columns" do
@@ -118,8 +118,10 @@ defmodule Query.NumericTest do
     assert eval_aggregate("max_n(x, 2)", [[x: [[1]]], [x: 2]]) == nil
 
     table = "numeric_max_n_#{System.unique_integer([:positive])}"
-    on_exit(fn -> :ok = Storage.delete_table(table) end)
-    for {x, k} <- [{[[1]], 1}, {[[2]], 1}, {[3], 2}], do: :ok = Storage.append(table, k: k, x: x)
+    on_exit(fn -> :ok = Guardian.Storage.delete_table(table) end)
+
+    for {x, k} <- [{[[1]], 1}, {[[2]], 1}, {[3], 2}],
+        do: :ok = Guardian.Storage.append(table, k: k, x: x)
 
     assert Enum.sort(run_sql("select k, max_n(x, 2), min_n_by(x, k, 2) from #{table} group by k")) ==
              [[1, nil, nil], [2, [[3]], [[3]]]]
@@ -135,9 +137,9 @@ defmodule Query.NumericTest do
 
   test "a query summing past the float range answers null, not an error" do
     table = "numeric_sum_#{System.unique_integer([:positive])}"
-    on_exit(fn -> :ok = Storage.delete_table(table) end)
-    for v <- [1.0e308, 1.0e308, 1.0], do: :ok = Storage.append(table, k: 1, v: v)
-    for v <- [@max, 1], do: :ok = Storage.append(table, k: 2, v: v)
+    on_exit(fn -> :ok = Guardian.Storage.delete_table(table) end)
+    for v <- [1.0e308, 1.0e308, 1.0], do: :ok = Guardian.Storage.append(table, k: 1, v: v)
+    for v <- [@max, 1], do: :ok = Guardian.Storage.append(table, k: 2, v: v)
 
     assert Enum.sort(run_sql("select k, sum(v) from #{table} group by k")) ==
              [[1, nil], [2, @min]]

@@ -1,4 +1,4 @@
-defmodule Web.MCP.QueryLanguageTest do
+defmodule Guardian.Web.MCP.QueryLanguageTest do
   use ExUnit.Case, async: true
 
   @reference File.read!("lib/web/mcp/query_language.md")
@@ -6,7 +6,9 @@ defmodule Web.MCP.QueryLanguageTest do
   test "documents every registered function and aggregate" do
     # `interval` is registered for the INTERVAL n UNIT syntax, but INTERVAL is a keyword,
     # so interval(...) cannot be called directly. `test_raise` exists only in the test build.
-    names = Enum.uniq(Query.Function.names() ++ Aggregation.names()) -- ["interval", "test_raise"]
+    names =
+      Enum.uniq(Guardian.Query.Function.names() ++ Guardian.Aggregation.names()) --
+        ["interval", "test_raise"]
 
     missing =
       Enum.reject(names, fn name ->
@@ -26,7 +28,7 @@ defmodule Web.MCP.QueryLanguageTest do
     assert length(examples) > 3
 
     for [example] <- examples do
-      assert [_ | _] = AST.parse_statements(example)
+      assert [_ | _] = Guardian.AST.parse_statements(example)
     end
   end
 
@@ -42,7 +44,9 @@ defmodule Web.MCP.QueryLanguageTest do
         {"#{table}/reference.gsql", example}
       end
 
-    assert Rules.RuleSet.validate(files).errors == []
-    for {name, _arity} <- Counters.Aggregate.operators(), do: assert(rule_section =~ name)
+    assert Guardian.Rules.RuleSet.validate(files).errors == []
+
+    for {name, _arity} <- Guardian.Counters.Aggregate.operators(),
+        do: assert(rule_section =~ name)
   end
 end

@@ -1,11 +1,11 @@
-defmodule AST.Node.AggregateFunctionCall do
-  use AST.Node
+defmodule Guardian.AST.Node.AggregateFunctionCall do
+  use Guardian.AST.Node
 
   @enforce_keys [:name, :args]
   defstruct [:name, :args]
 
   def to_source(%__MODULE__{name: name, args: args}) do
-    name <> "(" <> Enum.map_join(args, ", ", &AST.unparse/1) <> ")"
+    name <> "(" <> Enum.map_join(args, ", ", &Guardian.AST.unparse/1) <> ")"
   end
 
   def traverse(%__MODULE__{} = expr, acc, pre, post) do

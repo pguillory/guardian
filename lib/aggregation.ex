@@ -1,4 +1,4 @@
-defmodule Aggregation do
+defmodule Guardian.Aggregation do
   @moduledoc """
   The aggregation registry, and the one way to run an aggregation.
 
@@ -10,28 +10,28 @@ defmodule Aggregation do
   """
 
   @names_and_mods [
-    {"all", 1, Aggregation.All},
-    {"arbitrary", 1, Aggregation.Arbitrary},
-    {"avg", 1, Aggregation.Avg},
-    {"count", 0, Aggregation.Count},
-    {"count", 1, Aggregation.Count},
-    {"count_distinct", 1, Aggregation.CountDistinct},
-    {"count_if", 1, Aggregation.CountIf},
-    {"max", 1, {Aggregation.MinMax, :max}},
-    {"max_by", 2, {Aggregation.MinMaxBy, :max}},
-    {"max_n", 2, {Aggregation.MinMaxN, :max}},
-    {"max_n_by", 3, {Aggregation.MinMaxNBy, :max}},
-    {"min", 1, {Aggregation.MinMax, :min}},
-    {"min_by", 2, {Aggregation.MinMaxBy, :min}},
-    {"min_n", 2, {Aggregation.MinMaxN, :min}},
-    {"min_n_by", 3, {Aggregation.MinMaxNBy, :min}},
-    {"stddev", 1, {Aggregation.Moments, :stddev_samp}},
-    {"stddev_pop", 1, {Aggregation.Moments, :stddev_pop}},
-    {"stddev_samp", 1, {Aggregation.Moments, :stddev_samp}},
-    {"sum", 1, Aggregation.Sum},
-    {"var_pop", 1, {Aggregation.Moments, :var_pop}},
-    {"var_samp", 1, {Aggregation.Moments, :var_samp}},
-    {"variance", 1, {Aggregation.Moments, :var_samp}},
+    {"all", 1, Guardian.Aggregation.All},
+    {"arbitrary", 1, Guardian.Aggregation.Arbitrary},
+    {"avg", 1, Guardian.Aggregation.Avg},
+    {"count", 0, Guardian.Aggregation.Count},
+    {"count", 1, Guardian.Aggregation.Count},
+    {"count_distinct", 1, Guardian.Aggregation.CountDistinct},
+    {"count_if", 1, Guardian.Aggregation.CountIf},
+    {"max", 1, {Guardian.Aggregation.MinMax, :max}},
+    {"max_by", 2, {Guardian.Aggregation.MinMaxBy, :max}},
+    {"max_n", 2, {Guardian.Aggregation.MinMaxN, :max}},
+    {"max_n_by", 3, {Guardian.Aggregation.MinMaxNBy, :max}},
+    {"min", 1, {Guardian.Aggregation.MinMax, :min}},
+    {"min_by", 2, {Guardian.Aggregation.MinMaxBy, :min}},
+    {"min_n", 2, {Guardian.Aggregation.MinMaxN, :min}},
+    {"min_n_by", 3, {Guardian.Aggregation.MinMaxNBy, :min}},
+    {"stddev", 1, {Guardian.Aggregation.Moments, :stddev_samp}},
+    {"stddev_pop", 1, {Guardian.Aggregation.Moments, :stddev_pop}},
+    {"stddev_samp", 1, {Guardian.Aggregation.Moments, :stddev_samp}},
+    {"sum", 1, Guardian.Aggregation.Sum},
+    {"var_pop", 1, {Guardian.Aggregation.Moments, :var_pop}},
+    {"var_samp", 1, {Guardian.Aggregation.Moments, :var_samp}},
+    {"variance", 1, {Guardian.Aggregation.Moments, :var_samp}},
   ]
 
   {names, arities, mods} = SuperList.unzip(@names_and_mods)

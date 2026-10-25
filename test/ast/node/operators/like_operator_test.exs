@@ -1,7 +1,7 @@
-defmodule LikeOperatorTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.LikeOperatorTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
-  alias AST.Node.Operators.LikeOperator
+  alias Guardian.AST.Node.Operators.LikeOperator
 
   test "like operator" do
     assert eval("'' like ''") == true

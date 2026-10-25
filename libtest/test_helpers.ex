@@ -1,4 +1,4 @@
-defmodule TestHelpers do
+defmodule Guardian.TestHelpers do
   @moduledoc """
   SQL, polling, process-finding, time-limit and segment helpers (picking, appending,
   intercepting appends) shared by tests. Import it in a test module.
@@ -12,15 +12,15 @@ defmodule TestHelpers do
   resolution reads schemas from every node.
   """
   def resolve_sql(sql) do
-    [{statement, _labels}] = Query.Resolver.resolve(sql)
+    [{statement, _labels}] = Guardian.Query.Resolver.resolve(sql)
     statement
   end
 
   @doc """
   Resolves and runs SQL text that holds exactly one executable statement and returns
-  its rows. Unlike `Query.execute/2`, a `Query.Error` raises.
+  its rows. Unlike `Guardian.Query.execute/2`, a `Guardian.Query.Error` raises.
   """
-  def run_sql(sql), do: Query.run(resolve_sql(sql))
+  def run_sql(sql), do: Guardian.Query.run(resolve_sql(sql))
 
   @doc """
   Calls `fun` every 10 ms until it returns a truthy value, and fails the test if none
@@ -110,7 +110,8 @@ defmodule TestHelpers do
 
   @doc """
   The processes on `node` whose current stack runs code from any of `modules`, such
-  as a query's pipeline workers (`[Query.DistributedStream, Query, Query.Executor]`).
+  as a query's pipeline workers
+  (`[Guardian.Query.DistributedStream, Guardian.Query, Guardian.Query.Executor]`).
   """
   def processes_running(modules, node \\ node()) do
     processes_where(node, fn stack -> Enum.any?(modules, &(&1 in stack)) end)
@@ -119,7 +120,7 @@ defmodule TestHelpers do
   @doc """
   The processes on `node` whose current stack runs code from every one of `modules`,
   such as a query worker blocked reading a segment
-  (`[Query.Executor, Storage.Segment]`).
+  (`[Guardian.Query.Executor, Guardian.Storage.Segment]`).
   """
   def processes_running_all(modules, node \\ node()) do
     processes_where(node, fn stack -> Enum.all?(modules, &(&1 in stack)) end)
@@ -183,23 +184,26 @@ defmodule TestHelpers do
   """
   @spec loaded_segment(String.t(), non_neg_integer()) :: {String.t(), pid()}
   def loaded_segment(table, index) do
-    id = table |> Storage.segment_ids() |> Enum.sort() |> Enum.at(index)
-    filename = Storage.SegmentFile.filename(table, id)
-    :ok = Storage.PersistedSegments.ping()
+    id = table |> Guardian.Storage.segment_ids() |> Enum.sort() |> Enum.at(index)
+    filename = Guardian.Storage.SegmentFile.filename(table, id)
+    :ok = Guardian.Storage.PersistedSegments.ping()
     eventually(fn -> File.exists?(filename) end, 30_000)
     # Loads just this file, with no call timeout (a full rescan is a 5 s call).
-    :ok = Storage.LoadedSegments.ensure_loaded(table, id)
-    {:ok, pid} = Storage.LoadedSegments.get_segment(id)
-    {:ok, ^pid} = Storage.get_segment(id)
+    :ok = Guardian.Storage.LoadedSegments.ensure_loaded(table, id)
+    {:ok, pid} = Guardian.Storage.LoadedSegments.get_segment(id)
+    {:ok, ^pid} = Guardian.Storage.get_segment(id)
     {id, pid}
   end
 
   @doc """
   Appends a row that may be nested to `segment`, flattening it first as
-  `Storage.append/2` does (`Storage.Segment.append/2` takes flat rows).
+  `Guardian.Storage.append/2` does (`Guardian.Storage.Segment.append/2` takes flat rows).
   """
   def segment_append(segment, row) do
-    Storage.Segment.append(segment, Storage.Flattening.flatten_event(Map.new(row)))
+    Guardian.Storage.Segment.append(
+      segment,
+      Guardian.Storage.Flattening.flatten_event(Map.new(row))
+    )
   end
 
   @doc """
@@ -208,10 +212,10 @@ defmodule TestHelpers do
   caller removes the file.
   """
   def write_segment_file(filename, rows) do
-    {:ok, segment} = Storage.Segment.start_link()
-    Enum.each(rows, &(:ok = Storage.Segment.append(segment, &1)))
-    :ok = Storage.Segment.pack(segment)
-    :ok = Storage.Segment.store(segment, filename)
+    {:ok, segment} = Guardian.Storage.Segment.start_link()
+    Enum.each(rows, &(:ok = Guardian.Storage.Segment.append(segment, &1)))
+    :ok = Guardian.Storage.Segment.pack(segment)
+    :ok = Guardian.Storage.Segment.store(segment, filename)
     GenServer.stop(segment)
     filename
   end
@@ -225,15 +229,15 @@ defmodule TestHelpers do
   faults (`lib/storage/CLAUDE.md`).
   """
   def intercept_append(table, callback) do
-    segment_id = SegmentID.generate()
+    segment_id = Guardian.SegmentID.generate()
 
     segment =
       spawn(fn ->
         receive do
           {:"$gen_call", from, {:append, row}} ->
             # Unregister without stopping: deletion would stop this fake segment.
-            :sys.replace_state(Storage.MutableSegments, fn state ->
-              true = :ets.delete(Storage.MutableSegments, segment_id)
+            :sys.replace_state(Guardian.Storage.MutableSegments, fn state ->
+              true = :ets.delete(Guardian.Storage.MutableSegments, segment_id)
               state
             end)
 
@@ -241,15 +245,15 @@ defmodule TestHelpers do
         end
       end)
 
-    :sys.replace_state(Storage.MutableSegments, fn state ->
-      true = :ets.insert(Storage.MutableSegments, {segment_id, segment, table})
+    :sys.replace_state(Guardian.Storage.MutableSegments, fn state ->
+      true = :ets.insert(Guardian.Storage.MutableSegments, {segment_id, segment, table})
       state
     end)
 
     ExUnit.Callbacks.on_exit(fn ->
       # Kill first: deletion stops the segment, and this fake one does not answer.
       Process.exit(segment, :kill)
-      Storage.MutableSegments.delete_segment(segment_id)
+      Guardian.Storage.MutableSegments.delete_segment(segment_id)
     end)
   end
 

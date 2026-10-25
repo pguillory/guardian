@@ -1,4 +1,4 @@
-defmodule Query.DistributedStream.ClusterTest do
+defmodule Guardian.Query.DistributedStream.ClusterTest do
   # Starts peer nodes. While a peer is connected every query in this VM fans out to
   # it, so this module must not run concurrently with other tests.
   use ExUnit.Case, async: false
@@ -6,9 +6,9 @@ defmodule Query.DistributedStream.ClusterTest do
   # Crashing workers are plain processes, which log their exceptions.
   @moduletag :capture_log
 
-  import Query.DistributedStream
-  import TestHelpers
-  alias DistributedStreamTestStages, as: Stages
+  import Guardian.Query.DistributedStream
+  import Guardian.TestHelpers
+  alias Guardian.DistributedStreamTestStages, as: Stages
 
   # Keeps :global from disconnecting the other nodes when two peers lose their
   # connection, so the routers' links (all through the test node) stay up and only
@@ -16,9 +16,9 @@ defmodule Query.DistributedStream.ClusterTest do
   @no_partition_prevention [~c"-kernel", ~c"prevent_overlapping_partitions", ~c"false"]
 
   setup_all do
-    started_distribution = TestCluster.ensure_distributed()
-    {peer_a, a} = TestCluster.start_peer(nil, @no_partition_prevention)
-    {peer_b, b} = TestCluster.start_peer(nil, @no_partition_prevention)
+    started_distribution = Guardian.TestCluster.ensure_distributed()
+    {peer_a, a} = Guardian.TestCluster.start_peer(nil, @no_partition_prevention)
+    {peer_b, b} = Guardian.TestCluster.start_peer(nil, @no_partition_prevention)
     true = :erpc.call(a, Node, :connect, [b])
 
     on_exit(fn ->

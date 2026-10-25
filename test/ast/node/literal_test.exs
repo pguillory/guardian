@@ -1,6 +1,6 @@
-defmodule LiteralTest do
-  import AST.Node.Literal
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.LiteralTest do
+  import Guardian.AST.Node.Literal
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "literals" do
     assert eval("null") == nil
@@ -14,20 +14,20 @@ defmodule LiteralTest do
   end
 
   test "to_source" do
-    assert to_source(%AST.Node.Literal{value: "abc"}) == "'abc'"
-    assert to_source(%AST.Node.Literal{value: "💩"}) == "'💩'"
-    assert to_source(%AST.Node.Literal{value: "\u0008"}) == ~S['\b']
-    assert to_source(%AST.Node.Literal{value: "\u000c"}) == ~S['\f']
-    assert to_source(%AST.Node.Literal{value: "\u000a"}) == ~S['\n']
-    assert to_source(%AST.Node.Literal{value: "\u000d"}) == ~S['\r']
-    assert to_source(%AST.Node.Literal{value: "\u0009"}) == ~S['\t']
-    assert to_source(%AST.Node.Literal{value: "𝄞"}) == ~S['𝄞']
+    assert to_source(%Guardian.AST.Node.Literal{value: "abc"}) == "'abc'"
+    assert to_source(%Guardian.AST.Node.Literal{value: "💩"}) == "'💩'"
+    assert to_source(%Guardian.AST.Node.Literal{value: "\u0008"}) == ~S['\b']
+    assert to_source(%Guardian.AST.Node.Literal{value: "\u000c"}) == ~S['\f']
+    assert to_source(%Guardian.AST.Node.Literal{value: "\u000a"}) == ~S['\n']
+    assert to_source(%Guardian.AST.Node.Literal{value: "\u000d"}) == ~S['\r']
+    assert to_source(%Guardian.AST.Node.Literal{value: "\u0009"}) == ~S['\t']
+    assert to_source(%Guardian.AST.Node.Literal{value: "𝄞"}) == ~S['𝄞']
   end
 
   # Floats print with an exponent when very large or small, which must parse back.
   test "to_source of a float parses back to the same value" do
     for value <- [1.0e20, -1.0e20, 1.0e-7, 1.5, 1.0e300] do
-      assert eval(to_source(%AST.Node.Literal{value: value})) == value
+      assert eval(to_source(%Guardian.AST.Node.Literal{value: value})) == value
     end
   end
 end

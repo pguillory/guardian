@@ -1,4 +1,4 @@
-defmodule Storage.Column.Metadata do
+defmodule Guardian.Storage.Column.Metadata do
   defmacro tuple(opts \\ []) do
     underscore =
       quote do

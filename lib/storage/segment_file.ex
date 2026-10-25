@@ -1,4 +1,4 @@
-defmodule Storage.SegmentFile do
+defmodule Guardian.Storage.SegmentFile do
   # Internal to Storage; see lib/storage/CLAUDE.md, "Public boundary".
   @moduledoc false
 
@@ -14,8 +14,8 @@ defmodule Storage.SegmentFile do
   # stored column), then the packed columns in key order. The count columns are
   # written for the format but not read: a column's metadata comes from its bytes.
 
-  alias Storage.BlobStore
-  alias Storage.Column
+  alias Guardian.Storage.BlobStore
+  alias Guardian.Storage.Column
 
   @primary_header_size 72
 
@@ -24,7 +24,7 @@ defmodule Storage.SegmentFile do
   """
   def filename(table, segment_id) when is_binary(segment_id) do
     basename = [table, segment_id, "seg"] |> Enum.join(".")
-    Path.join(Storage.segment_dir(), basename)
+    Path.join(Guardian.Storage.segment_dir(), basename)
   end
 
   @doc """
@@ -116,7 +116,7 @@ defmodule Storage.SegmentFile do
 
   defp decode(filename) do
     serialized_segment =
-      case Storage.Mmap.read(filename) do
+      case Guardian.Storage.Mmap.read(filename) do
         {:ok, binary} -> binary
         {:error, posix} -> throw({:mmap, posix})
       end

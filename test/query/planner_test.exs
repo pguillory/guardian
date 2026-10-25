@@ -1,36 +1,36 @@
-defmodule Query.PlannerTest do
-  import Query.Planner
+defmodule Guardian.Query.PlannerTest do
+  import Guardian.Query.Planner
   use ExUnit.Case, async: true
 
-  alias AST.Node.Statements.SelectStatement
+  alias Guardian.AST.Node.Statements.SelectStatement
 
   def debug_query_plan(source) do
-    [%SelectStatement{}] = [statement] = AST.parse(source)
+    [%SelectStatement{}] = [statement] = Guardian.AST.parse(source)
 
     query_plan(statement)
     |> Enum.map(fn
       {:select, select_exprs} ->
-        select_exprs = Enum.map(select_exprs, &AST.unparse/1)
+        select_exprs = Enum.map(select_exprs, &Guardian.AST.unparse/1)
         {:select, select_exprs}
 
       {:from, nil} ->
         {:from, nil}
 
       {:from, from_expr} ->
-        from_expr = AST.unparse(from_expr)
+        from_expr = Guardian.AST.unparse(from_expr)
         {:from, from_expr}
 
       {:where, where_expr} ->
-        where_expr = AST.unparse(where_expr)
+        where_expr = Guardian.AST.unparse(where_expr)
         {:where, where_expr}
 
       {:select_where, select_exprs, where_expr} ->
-        select_exprs = Enum.map(select_exprs, &AST.unparse/1)
-        where_expr = AST.unparse(where_expr)
+        select_exprs = Enum.map(select_exprs, &Guardian.AST.unparse/1)
+        where_expr = Guardian.AST.unparse(where_expr)
         {:select_where, select_exprs, where_expr}
 
       {:group_by, group_by_exprs, aggregate_names_and_arities} ->
-        group_by_exprs = Enum.map(group_by_exprs, &AST.unparse/1)
+        group_by_exprs = Enum.map(group_by_exprs, &Guardian.AST.unparse/1)
 
         aggregate_names_and_arities =
           Enum.map(aggregate_names_and_arities, fn {name, arity} ->
@@ -45,7 +45,7 @@ defmodule Query.PlannerTest do
       {:reassemble_segments, keys_and_old_exprs} ->
         keys_and_old_exprs =
           Enum.map(keys_and_old_exprs, fn {key, old_expr} ->
-            {String.to_atom(key), AST.unparse(old_expr)}
+            {String.to_atom(key), Guardian.AST.unparse(old_expr)}
           end)
 
         {:reassemble_segments, keys_and_old_exprs}
@@ -162,14 +162,14 @@ defmodule Query.PlannerTest do
   # The parser accepts only an integer literal after LIMIT; a statement built some
   # other way fails planning with an ArgumentError that says why.
   test "a LIMIT that is not a non-negative integer literal fails planning" do
-    [statement] = AST.parse("select a from t limit 1")
+    [statement] = Guardian.AST.parse("select a from t limit 1")
 
     message = ~r/^LIMIT must be a non-negative integer literal, got: /
 
     for limit_expr <- [
-          %AST.Node.Literal{value: -1},
-          %AST.Node.Literal{value: "x"},
-          %AST.Node.Identifier{name: "a"},
+          %Guardian.AST.Node.Literal{value: -1},
+          %Guardian.AST.Node.Literal{value: "x"},
+          %Guardian.AST.Node.Identifier{name: "a"},
         ] do
       assert_raise ArgumentError, message, fn ->
         query_plan(%{statement | limit_expr: limit_expr})
@@ -179,7 +179,7 @@ defmodule Query.PlannerTest do
         query_plan(%{
           statement
           | limit_expr: limit_expr,
-            order_by_exprs: [%AST.Node.Identifier{name: "a"}],
+            order_by_exprs: [%Guardian.AST.Node.Identifier{name: "a"}],
         })
       end
     end

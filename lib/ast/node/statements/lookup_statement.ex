@@ -1,22 +1,22 @@
-defmodule AST.Node.Statements.LookupStatement do
+defmodule Guardian.AST.Node.Statements.LookupStatement do
   @moduledoc """
   Counter rule syntax, `LOOKUP field = counter [FROM table] [BY expr, ...] [WHERE cond]`.
-  Parsed only by `AST.Parser.parse_rules/1`; Rules binds its target before execution.
+  Parsed only by `Guardian.AST.Parser.parse_rules/1`; Rules binds its target before execution.
   """
 
-  use AST.Node
+  use Guardian.AST.Node
 
-  alias AST.Node.Statements.SetStatement
-  alias AST.Node.Statements.TrackStatement
+  alias Guardian.AST.Node.Statements.SetStatement
+  alias Guardian.AST.Node.Statements.TrackStatement
 
   @enforce_keys [:field, :counter]
   defstruct [:field, :counter, :from_table, by_exprs: [], where_expr: nil]
 
   def to_source(%__MODULE__{} = expr) do
     "LOOKUP " <>
-      AST.unparse(expr.field) <>
+      Guardian.AST.unparse(expr.field) <>
       " = " <>
-      AST.unparse(expr.counter) <>
+      Guardian.AST.unparse(expr.counter) <>
       from_source(expr.from_table) <>
       TrackStatement.by_source(expr.by_exprs) <> SetStatement.where_source(expr.where_expr)
   end
@@ -26,5 +26,5 @@ defmodule AST.Node.Statements.LookupStatement do
   end
 
   defp from_source(nil), do: ""
-  defp from_source(table), do: " FROM " <> AST.unparse(table)
+  defp from_source(table), do: " FROM " <> Guardian.AST.unparse(table)
 end

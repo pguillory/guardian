@@ -1,9 +1,9 @@
-defmodule Storage.PersistedSegmentsSchedulingTest do
+defmodule Guardian.Storage.PersistedSegmentsSchedulingTest do
   use ExUnit.Case, async: false
 
-  alias Storage.FullSegments
-  alias Storage.PersistedSegments
-  alias Storage.Segment
+  alias Guardian.Storage.FullSegments
+  alias Guardian.Storage.PersistedSegments
+  alias Guardian.Storage.Segment
 
   test "external pings leave only one recurring periodic timer" do
     on_exit(fn -> :ok = :sys.resume(PersistedSegments) end)
@@ -45,10 +45,10 @@ defmodule Storage.PersistedSegmentsSchedulingTest do
 
   defp pending_segment do
     table = "persistence_timer_#{System.unique_integer([:positive])}"
-    id = SegmentID.generate()
+    id = Guardian.SegmentID.generate()
     {:ok, segment} = Segment.start_link(capacity: 1)
     Process.unlink(segment)
-    filename = Storage.SegmentFile.filename(table, id)
+    filename = Guardian.Storage.SegmentFile.filename(table, id)
 
     on_exit(fn ->
       :ok = :sys.resume(PersistedSegments)
@@ -62,7 +62,7 @@ defmodule Storage.PersistedSegmentsSchedulingTest do
         end)
       end
 
-      :ok = Storage.LoadedSegments.delete_segment(id)
+      :ok = Guardian.Storage.LoadedSegments.delete_segment(id)
       File.rm(filename)
       :ok = Segment.retire(segment)
     end)

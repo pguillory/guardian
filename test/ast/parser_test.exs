@@ -1,23 +1,23 @@
-defmodule ParserTest do
-  import AST.Parser
-  alias AST.ParseError
+defmodule Guardian.ParserTest do
+  import Guardian.AST.Parser
+  alias Guardian.AST.ParseError
   use ExUnit.Case, async: true
 
-  alias AST.Node.Operators.AddOperator
-  alias AST.Node.Operators.AndOperator
-  alias AST.Node.Operators.BetweenOperator
-  alias AST.Node.Operators.EqualOperator
-  alias AST.Node.Operators.IsOperator
-  alias AST.Node.Operators.ListLiteral
-  alias AST.Node.Operators.MultiplyOperator
-  alias AST.Node.Operators.NotOperator
-  alias AST.Node.Operators.RlikeOperator
+  alias Guardian.AST.Node.Operators.AddOperator
+  alias Guardian.AST.Node.Operators.AndOperator
+  alias Guardian.AST.Node.Operators.BetweenOperator
+  alias Guardian.AST.Node.Operators.EqualOperator
+  alias Guardian.AST.Node.Operators.IsOperator
+  alias Guardian.AST.Node.Operators.ListLiteral
+  alias Guardian.AST.Node.Operators.MultiplyOperator
+  alias Guardian.AST.Node.Operators.NotOperator
+  alias Guardian.AST.Node.Operators.RlikeOperator
 
-  alias AST.Node.Statements.DescStatement
-  alias AST.Node.Statements.LetStatement
-  alias AST.Node.Statements.NullStatement
-  alias AST.Node.Statements.SelectStatement
-  alias AST.Node.Statements.ShowTablesStatement
+  alias Guardian.AST.Node.Statements.DescStatement
+  alias Guardian.AST.Node.Statements.LetStatement
+  alias Guardian.AST.Node.Statements.NullStatement
+  alias Guardian.AST.Node.Statements.SelectStatement
+  alias Guardian.AST.Node.Statements.ShowTablesStatement
 
   defmacro assert_parse_error(source, expected_error_indicator, expected_reason) do
     quote do
@@ -32,29 +32,29 @@ defmodule ParserTest do
   end
 
   test "parse identifier" do
-    assert parse("foo") == %AST.Node.Identifier{name: "foo"}
+    assert parse("foo") == %Guardian.AST.Node.Identifier{name: "foo"}
   end
 
   test "parse dotted field path" do
-    assert parse("user.name") == %AST.Node.Identifier{name: "user.name"}
-    assert parse("users..name") == %AST.Node.Identifier{name: "users..name"}
+    assert parse("user.name") == %Guardian.AST.Node.Identifier{name: "user.name"}
+    assert parse("users..name") == %Guardian.AST.Node.Identifier{name: "users..name"}
 
     source = "SELECT user.name, sum(user.age) FROM t WHERE users..name = 'Bob' GROUP BY user.name"
     [statement] = parse(source)
-    assert AST.unparse(statement) == source
+    assert Guardian.AST.unparse(statement) == source
 
     assert_parse_error("select user. from t", "           ^", "Unexpected character")
   end
 
   test "parse literal" do
-    assert parse("null") == %AST.Node.Literal{value: nil}
-    assert parse("false") == %AST.Node.Literal{value: false}
-    assert parse("true") == %AST.Node.Literal{value: true}
-    assert parse("123") == %AST.Node.Literal{value: 123}
-    assert parse("4.5") == %AST.Node.Literal{value: 4.5}
-    assert parse("'abc'") == %AST.Node.Literal{value: "abc"}
-    assert parse(~S['\u0024']) == %AST.Node.Literal{value: "$"}
-    assert parse(~S['\uD83D\uDCA9']) == %AST.Node.Literal{value: "💩"}
+    assert parse("null") == %Guardian.AST.Node.Literal{value: nil}
+    assert parse("false") == %Guardian.AST.Node.Literal{value: false}
+    assert parse("true") == %Guardian.AST.Node.Literal{value: true}
+    assert parse("123") == %Guardian.AST.Node.Literal{value: 123}
+    assert parse("4.5") == %Guardian.AST.Node.Literal{value: 4.5}
+    assert parse("'abc'") == %Guardian.AST.Node.Literal{value: "abc"}
+    assert parse(~S['\u0024']) == %Guardian.AST.Node.Literal{value: "$"}
+    assert parse(~S['\uD83D\uDCA9']) == %Guardian.AST.Node.Literal{value: "💩"}
 
     assert_parse_error(
       "select 'abc",
@@ -83,10 +83,10 @@ defmodule ParserTest do
 
   test "list literal" do
     assert parse("[]") == %ListLiteral{exprs: []}
-    assert parse("[1]") == %ListLiteral{exprs: [%AST.Node.Literal{value: 1}]}
+    assert parse("[1]") == %ListLiteral{exprs: [%Guardian.AST.Node.Literal{value: 1}]}
 
     assert parse("[1, 2]") == %ListLiteral{
-             exprs: [%AST.Node.Literal{value: 1}, %AST.Node.Literal{value: 2}],
+             exprs: [%Guardian.AST.Node.Literal{value: 1}, %Guardian.AST.Node.Literal{value: 2}],
            }
   end
 
@@ -116,29 +116,29 @@ defmodule ParserTest do
         "already columns: query them by dotted name, for example payload.user.id"
     )
 
-    assert parse("jq") == %AST.Node.Identifier{name: "jq"}
+    assert parse("jq") == %Guardian.AST.Node.Identifier{name: "jq"}
   end
 
   test "an RLIKE pattern ends at AND" do
     assert parse("msg rlike 'a' and x = 1") == %AndOperator{
              left: %RlikeOperator{
-               left: %AST.Node.Identifier{name: "msg"},
-               right: %AST.Node.Literal{value: "a"},
+               left: %Guardian.AST.Node.Identifier{name: "msg"},
+               right: %Guardian.AST.Node.Literal{value: "a"},
              },
              right: %EqualOperator{
-               left: %AST.Node.Identifier{name: "x"},
-               right: %AST.Node.Literal{value: 1},
+               left: %Guardian.AST.Node.Identifier{name: "x"},
+               right: %Guardian.AST.Node.Literal{value: 1},
              },
            }
 
     source = "msg NOT RLIKE 'a' AND x = 1"
-    assert AST.unparse(parse(source)) == source
+    assert Guardian.AST.unparse(parse(source)) == source
   end
 
   test "a string literal may end in an escaped backslash" do
     assert parse(~S['a\\' = 'b']) == %EqualOperator{
-             left: %AST.Node.Literal{value: "a\\"},
-             right: %AST.Node.Literal{value: "b"},
+             left: %Guardian.AST.Node.Literal{value: "a\\"},
+             right: %Guardian.AST.Node.Literal{value: "b"},
            }
   end
 
@@ -148,14 +148,14 @@ defmodule ParserTest do
   end
 
   test "interval" do
-    assert parse("interval 1 hour") == %AST.Node.FunctionCall{
+    assert parse("interval 1 hour") == %Guardian.AST.Node.FunctionCall{
              name: "interval",
-             args: [%AST.Node.Literal{value: "1h"}],
+             args: [%Guardian.AST.Node.Literal{value: "1h"}],
            }
 
-    assert parse("interval 9223372036854775807 week") == %AST.Node.FunctionCall{
+    assert parse("interval 9223372036854775807 week") == %Guardian.AST.Node.FunctionCall{
              name: "interval",
-             args: [%AST.Node.Literal{value: "9223372036854775807w"}],
+             args: [%Guardian.AST.Node.Literal{value: "9223372036854775807w"}],
            }
 
     assert_parse_error("interval 9223372036854775808 week", "         ^", "Number out of range")
@@ -173,7 +173,9 @@ defmodule ParserTest do
   end
 
   test "parse parenthesized expression" do
-    assert parse("(123)") == %AST.Node.Parentheses{expr: %AST.Node.Literal{value: 123}}
+    assert parse("(123)") == %Guardian.AST.Node.Parentheses{
+             expr: %Guardian.AST.Node.Literal{value: 123},
+           }
 
     assert_parse_error(
       "select (123 from",
@@ -184,50 +186,50 @@ defmodule ParserTest do
 
   test "parse binary expression" do
     assert parse("a is b") == %IsOperator{
-             left: %AST.Node.Identifier{name: "a"},
-             right: %AST.Node.Identifier{name: "b"},
+             left: %Guardian.AST.Node.Identifier{name: "a"},
+             right: %Guardian.AST.Node.Identifier{name: "b"},
            }
 
     assert parse("a + b") == %AddOperator{
-             left: %AST.Node.Identifier{name: "a"},
-             right: %AST.Node.Identifier{name: "b"},
+             left: %Guardian.AST.Node.Identifier{name: "a"},
+             right: %Guardian.AST.Node.Identifier{name: "b"},
            }
 
     assert parse("a * b") == %MultiplyOperator{
-             left: %AST.Node.Identifier{name: "a"},
-             right: %AST.Node.Identifier{name: "b"},
+             left: %Guardian.AST.Node.Identifier{name: "a"},
+             right: %Guardian.AST.Node.Identifier{name: "b"},
            }
 
     assert parse("a + b + c") == %AddOperator{
              left: %AddOperator{
-               left: %AST.Node.Identifier{name: "a"},
-               right: %AST.Node.Identifier{name: "b"},
+               left: %Guardian.AST.Node.Identifier{name: "a"},
+               right: %Guardian.AST.Node.Identifier{name: "b"},
              },
-             right: %AST.Node.Identifier{name: "c"},
+             right: %Guardian.AST.Node.Identifier{name: "c"},
            }
 
     assert parse("a * b + c") == %AddOperator{
              left: %MultiplyOperator{
-               left: %AST.Node.Identifier{name: "a"},
-               right: %AST.Node.Identifier{name: "b"},
+               left: %Guardian.AST.Node.Identifier{name: "a"},
+               right: %Guardian.AST.Node.Identifier{name: "b"},
              },
-             right: %AST.Node.Identifier{name: "c"},
+             right: %Guardian.AST.Node.Identifier{name: "c"},
            }
 
     assert parse("a + b * c") == %AddOperator{
-             left: %AST.Node.Identifier{name: "a"},
+             left: %Guardian.AST.Node.Identifier{name: "a"},
              right: %MultiplyOperator{
-               left: %AST.Node.Identifier{name: "b"},
-               right: %AST.Node.Identifier{name: "c"},
+               left: %Guardian.AST.Node.Identifier{name: "b"},
+               right: %Guardian.AST.Node.Identifier{name: "c"},
              },
            }
 
     assert parse("a * b * c") == %MultiplyOperator{
              left: %MultiplyOperator{
-               left: %AST.Node.Identifier{name: "a"},
-               right: %AST.Node.Identifier{name: "b"},
+               left: %Guardian.AST.Node.Identifier{name: "a"},
+               right: %Guardian.AST.Node.Identifier{name: "b"},
              },
-             right: %AST.Node.Identifier{name: "c"},
+             right: %Guardian.AST.Node.Identifier{name: "c"},
            }
 
     assert_parse_error(
@@ -239,47 +241,47 @@ defmodule ParserTest do
 
   test "parse between" do
     assert parse("a between b and c") == %BetweenOperator{
-             left: %AST.Node.Identifier{name: "a"},
-             min_expr: %AST.Node.Identifier{name: "b"},
-             max_expr: %AST.Node.Identifier{name: "c"},
+             left: %Guardian.AST.Node.Identifier{name: "a"},
+             min_expr: %Guardian.AST.Node.Identifier{name: "b"},
+             max_expr: %Guardian.AST.Node.Identifier{name: "c"},
            }
 
     assert parse("d and a between b and c") ==
              %AndOperator{
-               left: %AST.Node.Identifier{name: "d"},
+               left: %Guardian.AST.Node.Identifier{name: "d"},
                right: %BetweenOperator{
-                 left: %AST.Node.Identifier{name: "a"},
-                 min_expr: %AST.Node.Identifier{name: "b"},
-                 max_expr: %AST.Node.Identifier{name: "c"},
+                 left: %Guardian.AST.Node.Identifier{name: "a"},
+                 min_expr: %Guardian.AST.Node.Identifier{name: "b"},
+                 max_expr: %Guardian.AST.Node.Identifier{name: "c"},
                },
              }
 
     assert parse("a between b and c and e") ==
              %AndOperator{
                left: %BetweenOperator{
-                 left: %AST.Node.Identifier{name: "a"},
-                 min_expr: %AST.Node.Identifier{name: "b"},
-                 max_expr: %AST.Node.Identifier{name: "c"},
+                 left: %Guardian.AST.Node.Identifier{name: "a"},
+                 min_expr: %Guardian.AST.Node.Identifier{name: "b"},
+                 max_expr: %Guardian.AST.Node.Identifier{name: "c"},
                },
-               right: %AST.Node.Identifier{name: "e"},
+               right: %Guardian.AST.Node.Identifier{name: "e"},
              }
 
     assert parse("d and a between b and c and e") ==
              %AndOperator{
                left: %AndOperator{
-                 left: %AST.Node.Identifier{name: "d"},
+                 left: %Guardian.AST.Node.Identifier{name: "d"},
                  right: %BetweenOperator{
-                   left: %AST.Node.Identifier{name: "a"},
-                   min_expr: %AST.Node.Identifier{name: "b"},
-                   max_expr: %AST.Node.Identifier{name: "c"},
+                   left: %Guardian.AST.Node.Identifier{name: "a"},
+                   min_expr: %Guardian.AST.Node.Identifier{name: "b"},
+                   max_expr: %Guardian.AST.Node.Identifier{name: "c"},
                  },
                },
-               right: %AST.Node.Identifier{name: "e"},
+               right: %Guardian.AST.Node.Identifier{name: "e"},
              }
   end
 
   test "parse function" do
-    assert parse("now()") == %AST.Node.FunctionCall{name: "now", args: []}
+    assert parse("now()") == %Guardian.AST.Node.FunctionCall{name: "now", args: []}
 
     assert_parse_error(
       "select now(1)",
@@ -293,9 +295,9 @@ defmodule ParserTest do
       "Wrong number of parameters for function floor"
     )
 
-    assert parse("floor(1)") == %AST.Node.FunctionCall{
+    assert parse("floor(1)") == %Guardian.AST.Node.FunctionCall{
              name: "floor",
-             args: [%AST.Node.Literal{value: 1}],
+             args: [%Guardian.AST.Node.Literal{value: 1}],
            }
 
     assert_parse_error(
@@ -304,9 +306,9 @@ defmodule ParserTest do
       "Wrong number of parameters for aggregate function avg"
     )
 
-    assert parse("avg(1)") == %AST.Node.AggregateFunctionCall{
+    assert parse("avg(1)") == %Guardian.AST.Node.AggregateFunctionCall{
              name: "avg",
-             args: [%AST.Node.Literal{value: 1}],
+             args: [%Guardian.AST.Node.Literal{value: 1}],
            }
 
     assert_parse_error(
@@ -336,22 +338,22 @@ defmodule ParserTest do
     )
 
     assert parse("select foo") == [
-             %SelectStatement{select_exprs: [%AST.Node.Identifier{name: "foo"}]},
+             %SelectStatement{select_exprs: [%Guardian.AST.Node.Identifier{name: "foo"}]},
            ]
 
     assert parse("select foo, bar") == [
              %SelectStatement{
                select_exprs: [
-                 %AST.Node.Identifier{name: "foo"},
-                 %AST.Node.Identifier{name: "bar"},
+                 %Guardian.AST.Node.Identifier{name: "foo"},
+                 %Guardian.AST.Node.Identifier{name: "bar"},
                ],
              },
            ]
 
     assert parse("select 1 where 2") == [
              %SelectStatement{
-               select_exprs: [%AST.Node.Literal{value: 1}],
-               where_expr: %AST.Node.Literal{value: 2},
+               select_exprs: [%Guardian.AST.Node.Literal{value: 1}],
+               where_expr: %Guardian.AST.Node.Literal{value: 2},
              },
            ]
 
@@ -378,23 +380,23 @@ defmodule ParserTest do
     long_string = "'" <> String.duplicate("x", 60) <> "'"
 
     assert %ParseError{reason: reason} =
-             catch_error(AST.parse_statements("select a limit #{long_string}"))
+             catch_error(Guardian.AST.parse_statements("select a limit #{long_string}"))
 
     assert reason == "Expected integer literal, got '" <> String.duplicate("x", 39) <> "..."
   end
 
   test "reject removed rule syntax" do
     assert %ParseError{reason: "Expected statements, got update"} =
-             catch_error(AST.parse_statements("update events set approved = true"))
+             catch_error(Guardian.AST.parse_statements("update events set approved = true"))
   end
 
   test "parse let statement" do
     assert parse("let x = 1 + 2") == [
              %LetStatement{
-               key_expr: %AST.Node.Identifier{name: "x"},
+               key_expr: %Guardian.AST.Node.Identifier{name: "x"},
                value_expr: %AddOperator{
-                 left: %AST.Node.Literal{value: 1},
-                 right: %AST.Node.Literal{value: 2},
+                 left: %Guardian.AST.Node.Literal{value: 1},
+                 right: %Guardian.AST.Node.Literal{value: 2},
                },
              },
            ]
@@ -408,13 +410,13 @@ defmodule ParserTest do
           "INSERT INTO a SELECT * FROM d",
         ] do
       assert %ParseError{} = catch_error(parse(source))
-      assert %ParseError{} = catch_error(AST.parse_statements(source))
+      assert %ParseError{} = catch_error(Guardian.AST.parse_statements(source))
     end
   end
 
   test "DELETE is not a statement" do
     assert %ParseError{} = catch_error(parse("delete from a"))
-    assert %ParseError{} = catch_error(AST.parse_statements("DELETE FROM a"))
+    assert %ParseError{} = catch_error(Guardian.AST.parse_statements("DELETE FROM a"))
   end
 
   test "parse show tables statement" do
@@ -425,7 +427,7 @@ defmodule ParserTest do
 
   test "parse desc statement" do
     assert parse("desc foo") == [
-             %DescStatement{expr: %AST.Node.Identifier{name: "foo"}},
+             %DescStatement{expr: %Guardian.AST.Node.Identifier{name: "foo"}},
            ]
   end
 
@@ -433,39 +435,39 @@ defmodule ParserTest do
     assert parse("") == []
 
     assert parse("select 1") == [
-             %SelectStatement{select_exprs: [%AST.Node.Literal{value: 1}]},
+             %SelectStatement{select_exprs: [%Guardian.AST.Node.Literal{value: 1}]},
            ]
 
     assert parse("select 1;") == [
-             %SelectStatement{select_exprs: [%AST.Node.Literal{value: 1}]},
+             %SelectStatement{select_exprs: [%Guardian.AST.Node.Literal{value: 1}]},
              %NullStatement{},
            ]
 
     assert parse("select 1;;") == [
-             %SelectStatement{select_exprs: [%AST.Node.Literal{value: 1}]},
+             %SelectStatement{select_exprs: [%Guardian.AST.Node.Literal{value: 1}]},
              %NullStatement{},
              %NullStatement{},
            ]
 
     assert parse(";select 1") == [
              %NullStatement{},
-             %SelectStatement{select_exprs: [%AST.Node.Literal{value: 1}]},
+             %SelectStatement{select_exprs: [%Guardian.AST.Node.Literal{value: 1}]},
            ]
 
     assert parse(";;select 1") == [
              %NullStatement{},
              %NullStatement{},
-             %SelectStatement{select_exprs: [%AST.Node.Literal{value: 1}]},
+             %SelectStatement{select_exprs: [%Guardian.AST.Node.Literal{value: 1}]},
            ]
 
     assert parse("select 1; select 2") == [
-             %SelectStatement{select_exprs: [%AST.Node.Literal{value: 1}]},
-             %SelectStatement{select_exprs: [%AST.Node.Literal{value: 2}]},
+             %SelectStatement{select_exprs: [%Guardian.AST.Node.Literal{value: 1}]},
+             %SelectStatement{select_exprs: [%Guardian.AST.Node.Literal{value: 2}]},
            ]
 
     assert parse("select 1; select 2;") == [
-             %SelectStatement{select_exprs: [%AST.Node.Literal{value: 1}]},
-             %SelectStatement{select_exprs: [%AST.Node.Literal{value: 2}]},
+             %SelectStatement{select_exprs: [%Guardian.AST.Node.Literal{value: 1}]},
+             %SelectStatement{select_exprs: [%Guardian.AST.Node.Literal{value: 2}]},
              %NullStatement{},
            ]
   end
@@ -591,55 +593,61 @@ defmodule ParserTest do
   test "every infix operator parses into its node and unparses as written" do
     operators = [
       {"*", MultiplyOperator},
-      {"/", AST.Node.Operators.DivideOperator},
+      {"/", Guardian.AST.Node.Operators.DivideOperator},
       {"+", AddOperator},
-      {"-", AST.Node.Operators.SubtractOperator},
-      {"||", AST.Node.Operators.ConcatOperator},
-      {"<", AST.Node.Operators.LessThanOperator},
-      {"<=", AST.Node.Operators.LessThanOrEqualOperator},
-      {">", AST.Node.Operators.GreaterThanOperator},
-      {">=", AST.Node.Operators.GreaterThanOrEqualOperator},
-      {"<=>", AST.Node.Operators.NullSafeEqualOperator},
+      {"-", Guardian.AST.Node.Operators.SubtractOperator},
+      {"||", Guardian.AST.Node.Operators.ConcatOperator},
+      {"<", Guardian.AST.Node.Operators.LessThanOperator},
+      {"<=", Guardian.AST.Node.Operators.LessThanOrEqualOperator},
+      {">", Guardian.AST.Node.Operators.GreaterThanOperator},
+      {">=", Guardian.AST.Node.Operators.GreaterThanOrEqualOperator},
+      {"<=>", Guardian.AST.Node.Operators.NullSafeEqualOperator},
       {"=", EqualOperator},
-      {"!=", AST.Node.Operators.NotEqualOperator},
+      {"!=", Guardian.AST.Node.Operators.NotEqualOperator},
       {"IS", IsOperator},
-      {"IS NOT", AST.Node.Operators.IsNotOperator},
-      {"LIKE", AST.Node.Operators.LikeOperator},
-      {"ILIKE", AST.Node.Operators.IlikeOperator},
-      {"NOT LIKE", AST.Node.Operators.NotLikeOperator},
-      {"NOT ILIKE", AST.Node.Operators.NotIlikeOperator},
-      {"IN", AST.Node.Operators.InOperator},
+      {"IS NOT", Guardian.AST.Node.Operators.IsNotOperator},
+      {"LIKE", Guardian.AST.Node.Operators.LikeOperator},
+      {"ILIKE", Guardian.AST.Node.Operators.IlikeOperator},
+      {"NOT LIKE", Guardian.AST.Node.Operators.NotLikeOperator},
+      {"NOT ILIKE", Guardian.AST.Node.Operators.NotIlikeOperator},
+      {"IN", Guardian.AST.Node.Operators.InOperator},
       {"AND", AndOperator},
-      {"OR", AST.Node.Operators.OrOperator},
-      {"AS", AST.Node.As},
+      {"OR", Guardian.AST.Node.Operators.OrOperator},
+      {"AS", Guardian.AST.Node.As},
     ]
 
     for {symbol, module} <- operators do
       source = "a #{symbol} b"
 
       assert %^module{
-               left: %AST.Node.Identifier{name: "a"},
-               right: %AST.Node.Identifier{name: "b"},
+               left: %Guardian.AST.Node.Identifier{name: "a"},
+               right: %Guardian.AST.Node.Identifier{name: "b"},
              } = parse(source)
 
-      assert AST.unparse(parse(source)) == source
+      assert Guardian.AST.unparse(parse(source)) == source
     end
 
     for {symbol, module} <- [
           {"RLIKE", RlikeOperator},
-          {"NOT RLIKE", AST.Node.Operators.NotRlikeOperator},
+          {"NOT RLIKE", Guardian.AST.Node.Operators.NotRlikeOperator},
         ] do
       source = "a #{symbol} 'x'"
-      assert %^module{right: %AST.Node.Literal{value: "x"}} = parse(source)
-      assert AST.unparse(parse(source)) == source
+      assert %^module{right: %Guardian.AST.Node.Literal{value: "x"}} = parse(source)
+      assert Guardian.AST.unparse(parse(source)) == source
     end
 
     assert %BetweenOperator{} = parse("a BETWEEN 1 AND 2")
-    assert AST.unparse(parse("a BETWEEN 1 AND 2")) == "a BETWEEN 1 AND 2"
-    assert %AST.Node.Ascending{left: %AST.Node.Identifier{name: "a"}} = parse("a ASC")
-    assert AST.unparse(parse("a ASC")) == "a ASC"
-    assert %AST.Node.Descending{left: %AST.Node.Identifier{name: "a"}} = parse("a DESC")
-    assert AST.unparse(parse("a DESC")) == "a DESC"
+    assert Guardian.AST.unparse(parse("a BETWEEN 1 AND 2")) == "a BETWEEN 1 AND 2"
+
+    assert %Guardian.AST.Node.Ascending{left: %Guardian.AST.Node.Identifier{name: "a"}} =
+             parse("a ASC")
+
+    assert Guardian.AST.unparse(parse("a ASC")) == "a ASC"
+
+    assert %Guardian.AST.Node.Descending{left: %Guardian.AST.Node.Identifier{name: "a"}} =
+             parse("a DESC")
+
+    assert Guardian.AST.unparse(parse("a DESC")) == "a DESC"
   end
 
   test "an incomplete operator is an error at the missing operand" do
@@ -669,26 +677,26 @@ defmodule ParserTest do
     for source <- ["a NOT LIKE 'x%'", "a NOT ILIKE 'x%'", "a NOT RLIKE 'x'", "a IS NOT b"] do
       %module{} = expr = parse(source)
       rewritten = module.rewrite(expr)
-      assert parse(AST.unparse(rewritten)) == rewritten
+      assert parse(Guardian.AST.unparse(rewritten)) == rewritten
     end
   end
 
   defp associativity(source) do
     parse(source)
     |> wrap_binary_operators_in_parentheses()
-    |> AST.unparse()
+    |> Guardian.AST.unparse()
   end
 
   defp wrap_binary_operators_in_parentheses(expr) do
-    AST.postwalk(expr, fn
+    Guardian.AST.postwalk(expr, fn
       %{left: _, right: _} = expr ->
-        %AST.Node.Parentheses{expr: expr}
+        %Guardian.AST.Node.Parentheses{expr: expr}
 
       %struct{} = expr when struct in [NotOperator, BetweenOperator] ->
-        %AST.Node.Parentheses{expr: expr}
+        %Guardian.AST.Node.Parentheses{expr: expr}
 
-      %AST.Node.Parentheses{expr: %AST.Node.Parentheses{expr: expr}} ->
-        %AST.Node.Parentheses{expr: expr}
+      %Guardian.AST.Node.Parentheses{expr: %Guardian.AST.Node.Parentheses{expr: expr}} ->
+        %Guardian.AST.Node.Parentheses{expr: expr}
 
       expr ->
         expr

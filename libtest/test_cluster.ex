@@ -1,10 +1,10 @@
-defmodule TestCluster do
+defmodule Guardian.TestCluster do
   @moduledoc """
   Starts extra Guardian nodes for multi-node tests.
 
   Each peer is a separate BEAM node on this host, connected to the test node with
   normal distribution. A peer runs only Storage, in its own data directory, so it has
-  its own tables and segments, and it appears in `Cluster.connected_nodes/0` once its
+  its own tables and segments, and it appears in `Guardian.Cluster.connected_nodes/0` once its
   Storage has started.
   Web, SystemStats, and Cluster are not started on peers.
 
@@ -88,7 +88,7 @@ defmodule TestCluster do
     # Storage links to its starter, so start it from a process that outlives this
     # RPC.
     spawn(fn ->
-      {:ok, _} = Storage.start_link([])
+      {:ok, _} = Guardian.Storage.start_link([])
       send(caller, :storage_started)
       Process.sleep(:infinity)
     end)
@@ -101,7 +101,7 @@ defmodule TestCluster do
   end
 
   @doc """
-  Starts Rules.Server on this node (a peer) with `store` and extra app env, from a
+  Starts Guardian.Rules.Server on this node (a peer) with `store` and extra app env, from a
   process that outlives the RPC, as `start_storage/1` does for Storage.
   """
   def start_rules(store, app_env \\ []) do
@@ -111,7 +111,7 @@ defmodule TestCluster do
     caller = self()
 
     spawn(fn ->
-      send(caller, {:rules_started, Rules.Server.start_link([])})
+      send(caller, {:rules_started, Guardian.Rules.Server.start_link([])})
       Process.sleep(:infinity)
     end)
 

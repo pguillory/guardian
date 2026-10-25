@@ -38,6 +38,12 @@ nodes that cannot load the syntax can retain previous plans (or reject affected
 tables at boot), so a mixed-version rollout does not give consistent counter rules.
 See [counter edits and retries](rules.md#editing-and-retrying-counters).
 
+The transition from unprefixed modules to `Guardian.*` requires a full release
+restart on every node. During a rolling deploy, old and new nodes cannot reliably
+exchange module-bearing RPCs or terms: distributed queries can fail and unavailable
+counter peer calls supply defaults. Finish upgrading every node before relying on
+distributed operations. Stored segments and rule files need no migration.
+
 ## Network security
 
 Keep epmd and the distribution port on a private network. Anyone who can reach them

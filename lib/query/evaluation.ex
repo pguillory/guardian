@@ -1,6 +1,6 @@
-defmodule Query.Evaluation do
-  alias AST.Parser
-  alias Query.ColumnOrConstant
+defmodule Guardian.Query.Evaluation do
+  alias Guardian.AST.Parser
+  alias Guardian.Query.ColumnOrConstant
 
   @moduledoc """
   Columnar expression evaluation for Guardian queries.
@@ -14,8 +14,8 @@ defmodule Query.Evaluation do
 
   Evaluates expression on all rows in a segment simultaneously:
 
-      iex> snapshot = Query.Evaluation.snapshot!(segment_id) # a segment of 1000 events
-      iex> Query.Evaluation.eval(snapshot, %AST.Node.Identifier{name: "amount"})
+      iex> snapshot = Guardian.Query.Evaluation.snapshot!(segment_id) # a segment of 1000 events
+      iex> Guardian.Query.Evaluation.eval(snapshot, %Guardian.AST.Node.Identifier{name: "amount"})
       %Column{data: [100, 200, nil, 150, ...]}
 
   ### Scalar (Event)
@@ -23,14 +23,14 @@ defmodule Query.Evaluation do
   Evaluates expression on a single event map:
 
       iex> event = %{"amount" => 100, "tax" => 10}
-      iex> Query.Evaluation.eval(event, parse("amount + tax"))
+      iex> Guardian.Query.Evaluation.eval(event, parse("amount + tax"))
       110
 
   ## SegmentSnapshot
 
   Queries work with `SegmentSnapshot` structs that contain:
 
-  - `segment` - A stored segment's ID, read through `Storage.get_column/2` by
+  - `segment` - A stored segment's ID, read through `Guardian.Storage.get_column/2` by
     `read_column/2`. Covers mutable and persisted segments alike.
   - `columns` - Instead of `segment`, for query temporaries: a map from key to packed
     column binary. Temporaries are plain data with no process behind them.
@@ -41,8 +41,8 @@ defmodule Query.Evaluation do
 
   ## Expression Evaluation Strategy
 
-  Each evaluable AST node implements the `Query.Eval` protocol in its own file, and
-  `Query.Eval.eval/2` returns either:
+  Each evaluable AST node implements the `Guardian.Query.Eval` protocol in its own file, and
+  `Guardian.Query.Eval.eval/2` returns either:
 
   - a packed column binary - For columnar evaluation
   - `%Constant{value: v, count: n}` - For constant values
@@ -59,7 +59,7 @@ defmodule Query.Evaluation do
   `x + 3`), leaving identifiers and non-deterministic functions (`curdate()`,
   `curtime()`, `current_date()`, `current_timestamp()`, `date()`, `now()`,
   `random()`, `generate_uuid()`) unevaluated. Queries do not use it: the planner
-  evaluates expressions as written. `Query.EvaluationTestCase` uses it to cross-check
+  evaluates expressions as written. `Guardian.Query.EvaluationTestCase` uses it to cross-check
   that folding first gives the same result.
 
   ## Performance
@@ -76,8 +76,8 @@ defmodule Query.Evaluation do
   See `ARCHITECTURE.md` for query evaluation details.
   """
 
-  alias Query.Constant
-  alias AST.Node.Operators.ListLiteral
+  alias Guardian.Query.Constant
+  alias Guardian.AST.Node.Operators.ListLiteral
   import ColumnOrConstant
 
   defmodule SegmentSnapshot do
@@ -85,7 +85,7 @@ defmodule Query.Evaluation do
     Snapshot of a segment for query evaluation, with its row count.
 
     Exactly one of `segment` and `columns` is set. `segment` is a stored segment's ID;
-    every column read resolves it through Storage. `columns` is a query
+    every column read resolves it through Guardian.Storage. `columns` is a query
     temporary (the one row of a SELECT without FROM, the `schema` table, or
     reassembled GROUP BY output): a map from key to packed column binary. Temporaries
     are plain data, so no process has to be stopped when the query ends.
@@ -117,23 +117,23 @@ defmodule Query.Evaluation do
 
   def eval(%SegmentSnapshot{} = snapshot, expr) do
     expr
-    |> Query.Eval.eval(snapshot)
+    |> Guardian.Query.Eval.eval(snapshot)
     |> column_or_constant_to_column()
   end
 
   def eval(event, expr) when is_map(event) do
-    %Constant{value: value, count: 1} = Query.Eval.eval(expr, event)
+    %Constant{value: value, count: 1} = Guardian.Query.Eval.eval(expr, event)
     value
   end
 
   @doc """
   A snapshot of a stored segment: its ID and its current row count, which bounds every
-  later read of it in the query. Raises `Query.Error` naming the segment if it no
+  later read of it in the query. Raises `Guardian.Query.Error` naming the segment if it no
   longer exists (deleted or expired since the query listed it) or stops during the
   read.
   """
   def snapshot!(segment_id) when is_binary(segment_id) do
-    case Storage.segment_row_count(segment_id) do
+    case Guardian.Storage.segment_row_count(segment_id) do
       {:ok, count} -> %SegmentSnapshot{segment: segment_id, count: count}
       {:error, {:segment_unavailable, reason}} -> segment_unavailable!(segment_id, reason)
     end
@@ -141,9 +141,9 @@ defmodule Query.Evaluation do
 
   @doc """
   Reads column `name` from a snapshot as a column or constant of the snapshot's row
-  count: from its `columns` map for a temporary, or through `Storage.get_column/2` for
+  count: from its `columns` map for a temporary, or through `Guardian.Storage.get_column/2` for
   a stored segment. A column the snapshot does not have reads as nulls. Raises
-  `Query.Error` naming the segment if it is no longer available.
+  `Guardian.Query.Error` naming the segment if it is no longer available.
   """
   @spec read_column(%SegmentSnapshot{}, String.t()) :: binary() | %Constant{}
   def read_column(%SegmentSnapshot{columns: columns, count: count}, name)
@@ -156,7 +156,7 @@ defmodule Query.Evaluation do
 
   def read_column(%SegmentSnapshot{segment: segment_id, count: count}, name)
       when is_binary(segment_id) do
-    case Storage.get_column(segment_id, name) do
+    case Guardian.Storage.get_column(segment_id, name) do
       {:ok, :missing} ->
         Constant.duplicate(nil, count)
 
@@ -178,7 +178,7 @@ defmodule Query.Evaluation do
   # snapshot see the same rows even if the segment gained rows since.
   defp resize(column, count) do
     column
-    |> Storage.Column.resize(count)
+    |> Guardian.Storage.Column.resize(count)
     |> ColumnOrConstant.column_to_column_or_constant()
   end
 
@@ -193,16 +193,16 @@ defmodule Query.Evaluation do
     # retry that case once on the file, so it reaches here only if the file's copy is
     # gone too). `:noproc` is a read sent to a segment already gone, nearly always for
     # one of those reasons; a crash is logged by its manager when it happens.
-    raise Query.Error,
+    raise Guardian.Query.Error,
       message:
         "segment #{name} became unavailable during the query " <>
           "(it was deleted, expired, or moved to its file)"
   end
 
   defp segment_unavailable!(name, reason) do
-    raise Query.Error,
+    raise Guardian.Query.Error,
       message:
-        "segment #{name} became unavailable during the query (#{Storage.exit_kind(reason)})"
+        "segment #{name} became unavailable during the query (#{Guardian.Storage.exit_kind(reason)})"
   end
 
   def context_count(%SegmentSnapshot{count: count}) do
@@ -215,17 +215,17 @@ defmodule Query.Evaluation do
 
   def pre_eval(source) when is_binary(source) do
     source
-    |> AST.parse_expression()
+    |> Guardian.AST.parse_expression()
     |> pre_eval()
-    |> AST.unparse()
+    |> Guardian.AST.unparse()
   end
 
   def pre_eval(expr) do
     pre = fn
-      %AST.Node.Identifier{} = expr, acc ->
+      %Guardian.AST.Node.Identifier{} = expr, acc ->
         {expr, [false | acc]}
 
-      %AST.Node.FunctionCall{name: name, args: args} = expr, acc
+      %Guardian.AST.Node.FunctionCall{name: name, args: args} = expr, acc
       when {name, length(args)} in @non_deterministic_functions ->
         {expr, [false | acc]}
 
@@ -235,7 +235,7 @@ defmodule Query.Evaluation do
 
     post = fn
       expr, [true | acc] ->
-        %Constant{value: value, count: 1} = Query.Eval.eval(expr, %{})
+        %Constant{value: value, count: 1} = Guardian.Query.Eval.eval(expr, %{})
         expr = value_to_literal(value)
         {expr, acc}
 
@@ -243,17 +243,17 @@ defmodule Query.Evaluation do
         {expr, [false | acc]}
     end
 
-    {expr, _} = AST.traverse(expr, [true], pre, post)
+    {expr, _} = Guardian.AST.traverse(expr, [true], pre, post)
     expr
   end
 
   defp value_to_literal(value) do
-    true = Storage.Value.valid?(value)
+    true = Guardian.Storage.Value.valid?(value)
 
     if is_list(value) do
       %ListLiteral{exprs: Enum.map(value, &value_to_literal/1)}
     else
-      %AST.Node.Literal{value: value}
+      %Guardian.AST.Node.Literal{value: value}
     end
   end
 end

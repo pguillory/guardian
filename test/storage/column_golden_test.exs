@@ -1,6 +1,6 @@
-defmodule Storage.ColumnGoldenTest do
+defmodule Guardian.Storage.ColumnGoldenTest do
   use ExUnit.Case, async: true
-  alias Storage.Column
+  alias Guardian.Storage.Column
 
   # test/fixtures/column_nif_outputs.etf holds these outputs as produced by the column
   # NIF before its arithmetic moved to 64-bit types (column-64bit-arithmetic). Packed

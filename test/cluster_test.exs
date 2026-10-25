@@ -1,5 +1,5 @@
-defmodule ClusterTest do
-  import Cluster
+defmodule Guardian.ClusterTest do
+  import Guardian.Cluster
   use ExUnit.Case, async: false
 
   test "discovery is off without a DNS query" do

@@ -1,9 +1,9 @@
-defmodule Rules.Store do
+defmodule Guardian.Rules.Store do
   @moduledoc """
-  Where rule files live: a local folder (`Rules.Store.Local`) or an S3-compatible
-  bucket (`Rules.Store.S3`). There is no index or manifest: listing the store is the
+  Where rule files live: a local folder (`Guardian.Rules.Store.Local`) or an S3-compatible
+  bucket (`Guardian.Rules.Store.S3`). There is no index or manifest: listing the store is the
   index, each object one rule file (`<table>/<name>.gsql`), plus the write lock
-  (`Rules.Lock`), which the loader ignores.
+  (`Guardian.Rules.Lock`), which the loader ignores.
 
   A store is `{module, config}`. Results never carry credentials or response bodies:
   failures are `{:error, reason}` with reason one of
@@ -56,7 +56,7 @@ defmodule Rules.Store do
   @doc "A description of the store for logs: its kind and location, never a secret."
   def describe({mod, config}), do: mod.describe(config)
 
-  def local?({Rules.Store.Local, _config}), do: true
+  def local?({Guardian.Rules.Store.Local, _config}), do: true
   def local?(_store), do: false
 
   @doc "A message for a failure reason, safe to log and to return to clients."

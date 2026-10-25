@@ -1,21 +1,21 @@
-defmodule Query.Executor do
-  # Internal to Query: `Query.run/1` calls it in the query process.
+defmodule Guardian.Query.Executor do
+  # Internal to Query: `Guardian.Query.run/1` calls it in the query process.
   @moduledoc false
 
-  alias Query.DistributedStream
-  alias Query.Evaluation
-  alias Query.Evaluation.SegmentSnapshot
-  alias Query.Limits
-  alias Query.Planner
-  alias Query.Sorting
-  alias Query.WorkerErrors
-  alias Storage.Column
+  alias Guardian.Query.DistributedStream
+  alias Guardian.Query.Evaluation
+  alias Guardian.Query.Evaluation.SegmentSnapshot
+  alias Guardian.Query.Limits
+  alias Guardian.Query.Planner
+  alias Guardian.Query.Sorting
+  alias Guardian.Query.WorkerErrors
+  alias Guardian.Storage.Column
 
   @doc """
   Plans a SELECT, runs each step of the plan, and returns the rows, capped by
-  `Query.Limits.cap_rows/1`. Runs in the query process, the consumer of the plan's
+  `Guardian.Query.Limits.cap_rows/1`. Runs in the query process, the consumer of the plan's
   DistributedStream pipeline; worker exceptions are reported to `errors`, a
-  `Query.WorkerErrors` collector.
+  `Guardian.Query.WorkerErrors` collector.
   """
   def run(statement, errors) do
     statement
@@ -29,23 +29,23 @@ defmodule Query.Executor do
     [%SegmentSnapshot{columns: %{}, count: 1}]
   end
 
-  defp step({:from, %AST.Node.Identifier{name: "schema"}}, nil = _stream, _errors) do
-    Query.VirtualTable.Schema.snapshots()
+  defp step({:from, %Guardian.AST.Node.Identifier{name: "schema"}}, nil = _stream, _errors) do
+    Guardian.Query.VirtualTable.Schema.snapshots()
   end
 
-  defp step({:from, %AST.Node.Identifier{name: table}}, nil = _stream, errors) do
-    Cluster.connected_nodes()
+  defp step({:from, %Guardian.AST.Node.Identifier{name: table}}, nil = _stream, errors) do
+    Guardian.Cluster.connected_nodes()
     |> DistributedStream.fan_out(fn node ->
       {node, 0}
     end)
     |> DistributedStream.transform(fn nodes ->
       node = Node.self()
       [^node] = Enum.to_list(nodes)
-      Storage.segment_ids(table)
+      Guardian.Storage.segment_ids(table)
     end)
     |> DistributedStream.flat_map(fn segment_id when is_binary(segment_id) ->
       # Guarded like evaluation, so a segment that is gone fails the query with a
-      # Query.Error naming it, and no crash report.
+      # Guardian.Query.Error naming it, and no crash report.
       WorkerErrors.guard(errors, fn -> [Evaluation.snapshot!(segment_id)] end)
     end)
   end
@@ -70,7 +70,11 @@ defmodule Query.Executor do
     end)
   end
 
-  defp step({:select_where, select_exprs, %AST.Node.Literal{value: true}}, stream, errors) do
+  defp step(
+         {:select_where, select_exprs, %Guardian.AST.Node.Literal{value: true}},
+         stream,
+         errors
+       ) do
     # Optimize a special case where the planner inserts a "WHERE true"
     # clause.
     step({:select, select_exprs}, stream, errors)
@@ -85,7 +89,7 @@ defmodule Query.Executor do
 
   defp step({:group_by, group_by_exprs, aggregate_names_and_arities}, stream, errors) do
     {aggregate_names, arities} = Enum.unzip(aggregate_names_and_arities)
-    aggregations = Enum.map(aggregate_names, &Aggregation.fetch!/1)
+    aggregations = Enum.map(aggregate_names, &Guardian.Aggregation.fetch!/1)
     num_group_by_exprs = length(group_by_exprs)
 
     partitions = DistributedStream.partitions(concurrency: 2)
@@ -96,7 +100,7 @@ defmodule Query.Executor do
       SuperList.split(row, num_group_by_exprs)
     end)
     |> DistributedStream.fan_out(fn {key, _row} ->
-      Query.Rendezvous.top(partitions, key)
+      Guardian.Query.Rendezvous.top(partitions, key)
     end)
     |> DistributedStream.transform(fn stream ->
       stream
@@ -231,7 +235,7 @@ defmodule Query.Executor do
   defp values_to_sketches(stream, aggregations, arities, errors) do
     Stream.flat_map(stream, fn {key, row} ->
       WorkerErrors.guard(errors, fn ->
-        [{key, Aggregation.start_row(aggregations, arities, row)}]
+        [{key, Guardian.Aggregation.start_row(aggregations, arities, row)}]
       end)
     end)
   end
@@ -246,19 +250,19 @@ defmodule Query.Executor do
             true = :ets.insert(tab, {key, row})
 
           [{_key, old_row}] ->
-            row = SuperList.map(aggregations, row, old_row, &Aggregation.merge/3)
+            row = SuperList.map(aggregations, row, old_row, &Guardian.Aggregation.merge/3)
             true = :ets.insert(tab, {key, row})
         end
       end)
     end)
 
-    Utils.tab2stream(tab, delete_after: true)
+    Guardian.Utils.tab2stream(tab, delete_after: true)
   end
 
   defp sketches_to_values(stream, aggregations, errors) do
     Stream.flat_map(stream, fn {_key, row} ->
       WorkerErrors.guard(errors, fn ->
-        [SuperList.map(aggregations, row, &Aggregation.finish/2)]
+        [SuperList.map(aggregations, row, &Guardian.Aggregation.finish/2)]
       end)
     end)
   end

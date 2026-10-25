@@ -1,6 +1,6 @@
-defmodule Web.MCP.ClientTest do
+defmodule Guardian.Web.MCP.ClientTest do
   use ExUnit.Case, async: false
-  import MCPTestClient
+  import Guardian.MCPTestClient
 
   @api_key Application.compile_env!(:guardian, :api_key)
 
@@ -10,7 +10,7 @@ defmodule Web.MCP.ClientTest do
   end
 
   defp wait_for_server(retries \\ 10) do
-    case Registry.lookup(Anubis.Server.Registry, {:server, Web.MCP.Server}) do
+    case Registry.lookup(Anubis.Server.Registry, {:server, Guardian.Web.MCP.Server}) do
       [{_pid, _}] ->
         :ok
 
@@ -25,7 +25,7 @@ defmodule Web.MCP.ClientTest do
 
   describe "initialization" do
     test "client connects and initializes" do
-      MCPTestClient.start()
+      Guardian.MCPTestClient.start()
 
       # get_server_info returns the map directly (not wrapped in {:ok, ...})
       info = get_server_info()
@@ -36,7 +36,7 @@ defmodule Web.MCP.ClientTest do
 
   describe "tools/list" do
     test "returns available tools" do
-      MCPTestClient.start()
+      Guardian.MCPTestClient.start()
 
       {:ok, response} = list_tools()
       tools = response.result["tools"]
@@ -83,7 +83,7 @@ defmodule Web.MCP.ClientTest do
 
   describe "resources" do
     test "serves the query language reference" do
-      MCPTestClient.start()
+      Guardian.MCPTestClient.start()
 
       {:ok, response} = list_resources()
 
@@ -99,11 +99,11 @@ defmodule Web.MCP.ClientTest do
 
   describe "query tool" do
     test "executes SELECT query and returns list of maps" do
-      MCPTestClient.start()
+      Guardian.MCPTestClient.start()
       table = "mcp_select_#{System.unique_integer([:positive])}"
 
-      Engine.ingest_event(table, %{"name" => "alice", "score" => 10})
-      Engine.ingest_event(table, %{"name" => "bob", "score" => 20})
+      Guardian.Engine.ingest_event(table, %{"name" => "alice", "score" => 10})
+      Guardian.Engine.ingest_event(table, %{"name" => "bob", "score" => 20})
 
       {:ok, response} =
         call_tool("query", %{"sql" => "SELECT name, score FROM #{table} ORDER BY score"})
@@ -120,7 +120,7 @@ defmodule Web.MCP.ClientTest do
     end
 
     test "executes SHOW TABLES" do
-      MCPTestClient.start()
+      Guardian.MCPTestClient.start()
 
       {:ok, response} =
         call_tool("query", %{"sql" => "SHOW TABLES"})
@@ -129,7 +129,7 @@ defmodule Web.MCP.ClientTest do
     end
 
     test "returns error for invalid SQL" do
-      MCPTestClient.start()
+      Guardian.MCPTestClient.start()
 
       {:ok, response} =
         call_tool("query", %{"sql" => "INVALID SQL QUERY"})
@@ -138,7 +138,7 @@ defmodule Web.MCP.ClientTest do
     end
 
     test "parse errors name the token found" do
-      MCPTestClient.start()
+      Guardian.MCPTestClient.start()
 
       {:ok, response} =
         call_tool("query", %{"sql" => "SELECT a FROM t UNION SELECT b FROM t"})
@@ -148,8 +148,8 @@ defmodule Web.MCP.ClientTest do
       assert content["text"] =~ "Expected end of statement, got UNION"
     end
 
-    test "a Query.Error while running is a tool error with its message" do
-      MCPTestClient.start()
+    test "a Guardian.Query.Error while running is a tool error with its message" do
+      Guardian.MCPTestClient.start()
 
       {:ok, response} = call_tool("query", %{"sql" => "SELECT max_n(1, -1)"})
 
@@ -159,7 +159,7 @@ defmodule Web.MCP.ClientTest do
     end
 
     test "returns error for multi-statement queries" do
-      MCPTestClient.start()
+      Guardian.MCPTestClient.start()
 
       {:ok, response} =
         call_tool(
@@ -173,12 +173,12 @@ defmodule Web.MCP.ClientTest do
     end
 
     test "executes GROUP BY with aggregation" do
-      MCPTestClient.start()
+      Guardian.MCPTestClient.start()
       table = "mcp_aggregate_#{System.unique_integer([:positive])}"
 
-      Engine.ingest_event(table, %{"category" => "A", "value" => 10})
-      Engine.ingest_event(table, %{"category" => "A", "value" => 20})
-      Engine.ingest_event(table, %{"category" => "B", "value" => 30})
+      Guardian.Engine.ingest_event(table, %{"category" => "A", "value" => 10})
+      Guardian.Engine.ingest_event(table, %{"category" => "A", "value" => 20})
+      Guardian.Engine.ingest_event(table, %{"category" => "B", "value" => 30})
 
       {:ok, response} =
         call_tool(
@@ -212,7 +212,7 @@ defmodule Web.MCP.ClientTest do
     end
 
     test "HTTP and MCP share same-node receipts and MCP conflicts are tool errors" do
-      MCPTestClient.start()
+      Guardian.MCPTestClient.start()
       table = "mcp_retry_#{System.unique_integer([:positive])}"
 
       params = %{
@@ -225,7 +225,7 @@ defmodule Web.MCP.ClientTest do
         Plug.Test.conn(:post, "/api/json/send_events", params)
         |> Plug.Conn.put_req_header("content-type", "application/json")
         |> Plug.Conn.put_req_header("x-api-key", @api_key)
-        |> Web.MainRouter.call(nil)
+        |> Guardian.Web.MainRouter.call(nil)
 
       assert conn.status == 200
 
@@ -234,25 +234,28 @@ defmodule Web.MCP.ClientTest do
 
       assert send_events(Map.put(params, "events", [%{"value" => 2}]))["isError"] == true
       assert send_events(Map.put(params, "idempotency_key", ""))["isError"] == true
-      assert Storage.dump_table(table) == params["events"]
+      assert Guardian.Storage.dump_table(table) == params["events"]
 
       other = Map.put(params, "idempotency_key", "mcp-first")
       assert %{"results" => [_]} = send_events(other) |> decoded_result()
 
-      assert Web.Ingest.send_events(other) ==
+      assert Guardian.Web.Ingest.send_events(other) ==
                {:ok, %{status: 200, duplicate: true, failed_events: 0}}
 
-      assert length(Storage.dump_table(table)) == 2
+      assert length(Guardian.Storage.dump_table(table)) == 2
     end
 
     test "MCP reports pending HTTP claims as tool errors and acknowledges mixed failures" do
-      MCPTestClient.start()
+      Guardian.MCPTestClient.start()
       table = "mcp_pending_#{System.unique_integer([:positive])}"
       events = [%{"value" => 1}, nil]
       token = make_ref()
       digest = :crypto.hash(:sha256, :erlang.term_to_binary({events, nil}, [:deterministic]))
 
-      assert GenServer.call(Web.IngestIdempotency, {:claim, {table, "pending"}, digest, token}) ==
+      assert GenServer.call(
+               Guardian.Web.IngestIdempotency,
+               {:claim, {table, "pending"}, digest, token}
+             ) ==
                :claimed
 
       params = %{"table" => table, "events" => events, "idempotency_key" => "pending"}
@@ -260,20 +263,20 @@ defmodule Web.MCP.ClientTest do
       assert response["isError"] == true
       assert [%{"text" => message}] = response["content"]
       assert message =~ "in flight"
-      assert Storage.dump_table(table) == []
-      GenServer.cast(Web.IngestIdempotency, {:cancel, token, self()})
+      assert Guardian.Storage.dump_table(table) == []
+      GenServer.cast(Guardian.Web.IngestIdempotency, {:cancel, token, self()})
       # A call from the claimant orders cancellation before the tool retry.
-      _state = :sys.get_state(Web.IngestIdempotency)
+      _state = :sys.get_state(Guardian.Web.IngestIdempotency)
       assert %{"results" => [_, _]} = send_events(params) |> decoded_result()
 
       assert send_events(params) |> decoded_result() ==
                %{"status" => 200, "duplicate" => true, "failed_events" => 1}
 
-      assert Storage.dump_table(table) == [%{"value" => 1}]
+      assert Guardian.Storage.dump_table(table) == [%{"value" => 1}]
     end
 
     test "ingests arbitrary nested keys and values unchanged and makes them queryable" do
-      MCPTestClient.start()
+      Guardian.MCPTestClient.start()
       table = "mcp_ingest_#{System.unique_integer([:positive])}"
 
       event = %{
@@ -288,10 +291,10 @@ defmodule Web.MCP.ClientTest do
       assert result == %{"status" => 200, "results" => [%{"success" => true, "event" => event}]}
 
       stored =
-        Storage.Flattening.flatten_event(event)
+        Guardian.Storage.Flattening.flatten_event(event)
         |> Map.reject(fn {_key, value} -> is_nil(value) end)
 
-      assert Storage.dump_table(table) == [stored]
+      assert Guardian.Storage.dump_table(table) == [stored]
 
       {:ok, response} =
         call_tool("query", %{"sql" => "SELECT name, score FROM #{table}"})
@@ -300,7 +303,7 @@ defmodule Web.MCP.ClientTest do
     end
 
     test "mixed per-event failures continue in input order with HTTP-equivalent results" do
-      MCPTestClient.start()
+      Guardian.MCPTestClient.start()
       table = "mcp_mixed_#{System.unique_integer([:positive])}"
       http_table = "http_mcp_mixed_#{System.unique_integer([:positive])}"
 
@@ -327,29 +330,29 @@ defmodule Web.MCP.ClientTest do
                    [%{"success" => true, "event" => %{"value" => 2}}],
              }
 
-      assert Storage.dump_table(table) == [hd(events), List.last(events)]
+      assert Guardian.Storage.dump_table(table) == [hd(events), List.last(events)]
 
       conn =
         Plug.Test.conn(:post, "/api/json/send_events", Map.put(arguments, "table", http_table))
         |> Plug.Conn.put_req_header("content-type", "application/json")
         |> Plug.Conn.put_req_header("x-api-key", @api_key)
-        |> Web.MainRouter.call(nil)
+        |> Guardian.Web.MainRouter.call(nil)
 
       assert Jason.decode!(conn.resp_body) == result
     end
 
     test "storage call failures retain uncertain wording and continue later events" do
-      MCPTestClient.start()
+      Guardian.MCPTestClient.start()
       table = "mcp_uncertain_#{System.unique_integer([:positive])}"
-      segment_id = SegmentID.generate()
+      segment_id = Guardian.SegmentID.generate()
 
       segment =
         spawn(fn ->
           receive do
             {:"$gen_call", _from, {:append, _row}} ->
               # Unregister without stopping: deletion would stop this fake segment.
-              :sys.replace_state(Storage.MutableSegments, fn state ->
-                true = :ets.delete(Storage.MutableSegments, segment_id)
+              :sys.replace_state(Guardian.Storage.MutableSegments, fn state ->
+                true = :ets.delete(Guardian.Storage.MutableSegments, segment_id)
                 state
               end)
 
@@ -357,16 +360,16 @@ defmodule Web.MCP.ClientTest do
           end
         end)
 
-      :sys.replace_state(Storage.MutableSegments, fn state ->
-        true = :ets.insert(Storage.MutableSegments, {segment_id, segment, table})
+      :sys.replace_state(Guardian.Storage.MutableSegments, fn state ->
+        true = :ets.insert(Guardian.Storage.MutableSegments, {segment_id, segment, table})
         state
       end)
 
       on_exit(fn ->
         # Kill first: deletion stops the segment, and this fake one does not answer.
         Process.exit(segment, :kill)
-        Storage.MutableSegments.delete_segment(segment_id)
-        Storage.delete_table(table)
+        Guardian.Storage.MutableSegments.delete_segment(segment_id)
+        Guardian.Storage.delete_table(table)
       end)
 
       log =
@@ -388,11 +391,11 @@ defmodule Web.MCP.ClientTest do
         end)
 
       assert log =~ "mcp_ingest_test_failure"
-      assert Storage.dump_table(table) == [%{"value" => 2}]
+      assert Guardian.Storage.dump_table(table) == [%{"value" => 2}]
     end
 
     test "preserves absent, null, selected and empty return_keys without filtering stored events; a missing selected key is null" do
-      MCPTestClient.start()
+      Guardian.MCPTestClient.start()
       event = %{"value" => 1, "nested" => %{"x" => 2}}
 
       for {options, expected} <- [
@@ -410,12 +413,14 @@ defmodule Web.MCP.ClientTest do
                  "results" => [%{"success" => true, "event" => expected}],
                }
 
-        assert Storage.dump_table(table) == [Storage.Flattening.flatten_event(event)]
+        assert Guardian.Storage.dump_table(table) == [
+                 Guardian.Storage.Flattening.flatten_event(event),
+               ]
       end
     end
 
     test "empty and all-failed batches remain successful tool calls" do
-      MCPTestClient.start()
+      Guardian.MCPTestClient.start()
       table = "mcp_failed_#{System.unique_integer([:positive])}"
 
       assert send_events(%{"table" => table, "events" => []}) |> decoded_result() == %{
@@ -433,11 +438,11 @@ defmodule Web.MCP.ClientTest do
                    ),
                }
 
-      assert Storage.dump_table(table) == []
+      assert Guardian.Storage.dump_table(table) == []
     end
 
     test "malformed requests produce tool errors with messages before any writes" do
-      MCPTestClient.start()
+      Guardian.MCPTestClient.start()
       table = "mcp_invalid_#{System.unique_integer([:positive])}"
       valid = %{"table" => table, "events" => [%{"value" => 1}]}
 
@@ -455,7 +460,7 @@ defmodule Web.MCP.ClientTest do
         assert response["isError"] == true
         [%{"type" => "text", "text" => message}] = response["content"]
         assert is_binary(message) and byte_size(message) > 0
-        assert Storage.dump_table(table) == []
+        assert Guardian.Storage.dump_table(table) == []
       end
     end
 
@@ -479,10 +484,10 @@ defmodule Web.MCP.ClientTest do
             Plug.Conn.put_req_header(conn, key, value)
           end)
           |> Plug.Conn.put_req_header("content-type", "application/json")
-          |> Web.MainRouter.call(nil)
+          |> Guardian.Web.MainRouter.call(nil)
 
         assert conn.status == 401
-        assert Storage.dump_table(table) == []
+        assert Guardian.Storage.dump_table(table) == []
       end
     end
   end
@@ -494,7 +499,7 @@ defmodule Web.MCP.ClientTest do
         |> Plug.Conn.put_req_header("content-type", "application/json")
         |> Plug.Conn.put_req_header("x-api-key", @api_key)
         |> Plug.Conn.put_req_header("user-agent", user_agent)
-        |> Web.MainRouter.call(nil)
+        |> Guardian.Web.MainRouter.call(nil)
 
       Jason.decode!(conn.resp_body)
     end
@@ -506,7 +511,7 @@ defmodule Web.MCP.ClientTest do
     end
 
     test "events sent through the JSON API are visible to MCP and JSON queries" do
-      MCPTestClient.start()
+      Guardian.MCPTestClient.start()
       table = "single_store_#{System.unique_integer([:positive])}"
 
       assert %{"status" => 200} =
@@ -527,8 +532,8 @@ defmodule Web.MCP.ClientTest do
     end
 
     test "system_stats is queryable through MCP and the JSON API" do
-      MCPTestClient.start()
-      :ok = SystemStats.record_metrics()
+      Guardian.MCPTestClient.start()
+      :ok = Guardian.SystemStats.record_metrics()
 
       assert [%{"count()" => mcp_count}] = mcp_query("SELECT count() FROM system_stats")
       assert mcp_count > 0
@@ -540,7 +545,7 @@ defmodule Web.MCP.ClientTest do
     end
 
     test "request logs are queryable and carry no user namespace" do
-      MCPTestClient.start()
+      Guardian.MCPTestClient.start()
       # web_requests outlives a test run, and other tests share the default user agent.
       user_agent = "request-log-test-#{Base.encode16(:crypto.strong_rand_bytes(8))}"
       json_request("/api/json/query", %{query: "SELECT 1"}, user_agent)
@@ -549,8 +554,8 @@ defmodule Web.MCP.ClientTest do
         mcp_query("SELECT path FROM web_requests WHERE user_agent = '#{user_agent}'")
 
       assert [%{"path" => "/api/json/query"}] = rows
-      refute Map.has_key?(Storage.schema("web_requests"), "user_id")
-      refute Map.has_key?(Storage.schema("web_responses"), "user_id")
+      refute Map.has_key?(Guardian.Storage.schema("web_requests"), "user_id")
+      refute Map.has_key?(Guardian.Storage.schema("web_responses"), "user_id")
     end
   end
 end

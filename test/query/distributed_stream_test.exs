@@ -1,7 +1,7 @@
 # The first test is vendored from distributed_stream 0.1.4 with
 # lib/query/distributed_stream.ex.
-defmodule Query.DistributedStreamTest do
-  import Query.DistributedStream
+defmodule Guardian.Query.DistributedStreamTest do
+  import Guardian.Query.DistributedStream
   use ExUnit.Case, async: true
 
   test "fan_out, transform, fan_in" do

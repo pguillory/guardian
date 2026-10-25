@@ -1,5 +1,5 @@
-defmodule BetweenOperatorTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.BetweenOperatorTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "between operator" do
     assert eval("1 between 2 and 3") == false

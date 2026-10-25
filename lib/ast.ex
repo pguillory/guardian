@@ -1,4 +1,4 @@
-defmodule AST do
+defmodule Guardian.AST do
   @moduledoc """
   Abstract Syntax Tree utilities for Guardian's query language.
 
@@ -8,16 +8,16 @@ defmodule AST do
 
   ## Parsing
 
-      iex> AST.parse_expression("amount + tax")
-      %AST.Node.Operators.AddOperator{left: %AST.Node.Identifier{name: "amount"}, right: %AST.Node.Identifier{name: "tax"}}
+      iex> Guardian.AST.parse_expression("amount + tax")
+      %Guardian.AST.Node.Operators.AddOperator{left: %Guardian.AST.Node.Identifier{name: "amount"}, right: %Guardian.AST.Node.Identifier{name: "tax"}}
 
-      iex> AST.parse_statements("SELECT amount + tax FROM transactions")
-      [%AST.Node.Statements.SelectStatement{...}]
+      iex> Guardian.AST.parse_statements("SELECT amount + tax FROM transactions")
+      [%Guardian.AST.Node.Statements.SelectStatement{...}]
 
   ## Unparsing (Converting back to source)
 
-      iex> expr = AST.parse_expression("amount + tax")
-      iex> AST.unparse(expr)
+      iex> expr = Guardian.AST.parse_expression("amount + tax")
+      iex> Guardian.AST.unparse(expr)
       "amount + tax"
 
   ## Traversal
@@ -48,13 +48,13 @@ defmodule AST do
   - Logical: `AndOperator`, `OrOperator`, `NotOperator`
   - String: `ConcatOperator`, `LikeOperator`
 
-  Each node module implements the `AST.Node` behaviour (`traverse/4`, `to_source/1`).
+  Each node module implements the `Guardian.AST.Node` behaviour (`traverse/4`, `to_source/1`).
 
-  Node modules live under `lib/ast/node/`; `AST.Node` is their contract.
+  Node modules live under `lib/ast/node/`; `Guardian.AST.Node` is their contract.
   """
 
-  alias AST.ParseError
-  alias AST.Parser
+  alias Guardian.AST.ParseError
+  alias Guardian.AST.Parser
 
   def parse(source) do
     Parser.parse(source)
@@ -102,11 +102,11 @@ defmodule AST do
 
   def valid_identifier(source) do
     try do
-      AST.parse_expression(source)
+      Guardian.AST.parse_expression(source)
     rescue
       ParseError -> false
     else
-      %AST.Node.Identifier{} -> true
+      %Guardian.AST.Node.Identifier{} -> true
       _ -> false
     end
   end

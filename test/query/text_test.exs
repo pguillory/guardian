@@ -1,9 +1,9 @@
-defmodule Query.TextTest do
-  # The string cap, truncation and string forms (Query.Text), and the functions the
+defmodule Guardian.Query.TextTest do
+  # The string cap, truncation and string forms (Guardian.Query.Text), and the functions the
   # cap applies to.
-  use Query.EvaluationTestCase, async: true
+  use Guardian.Query.EvaluationTestCase, async: true
 
-  alias Query.Text
+  alias Guardian.Query.Text
 
   @max Text.max_bytes()
 

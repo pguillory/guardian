@@ -1,6 +1,6 @@
-defmodule Counters.Supervisor do
+defmodule Guardian.Counters.Supervisor do
   @moduledoc """
-  A disposable restart boundary for advisory counters. Counters.Restarter owns
+  A disposable restart boundary for advisory counters. Guardian.Counters.Restarter owns
   its lifecycle and brings it back with backoff, without spending Main's restarts.
   """
   use Supervisor
@@ -14,8 +14,8 @@ defmodule Counters.Supervisor do
     Enum.all?(
       [
         Keyword.get(opts, :name, __MODULE__),
-        opts |> Keyword.get(:store, []) |> Keyword.get(:name, Counters.Store),
-        opts |> Keyword.get(:cluster, []) |> Keyword.get(:name, Counters.Cluster),
+        opts |> Keyword.get(:store, []) |> Keyword.get(:name, Guardian.Counters.Store),
+        opts |> Keyword.get(:cluster, []) |> Keyword.get(:name, Guardian.Counters.Cluster),
       ],
       &is_pid(Process.whereis(&1))
     )
@@ -24,8 +24,8 @@ defmodule Counters.Supervisor do
   @impl true
   def init(opts) do
     children = [
-      {Counters.Store, Keyword.get(opts, :store, [])},
-      {Counters.Cluster, Keyword.get(opts, :cluster, [])},
+      {Guardian.Counters.Store, Keyword.get(opts, :store, [])},
+      {Guardian.Counters.Cluster, Keyword.get(opts, :cluster, [])},
     ]
 
     Supervisor.init(children, strategy: :one_for_one, max_restarts: 3, max_seconds: 5)

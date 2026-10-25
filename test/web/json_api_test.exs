@@ -1,8 +1,8 @@
-defmodule JsonApiTest do
+defmodule Guardian.JsonApiTest do
   # async: false because some tests switch query-parameter keys on.
   use ExUnit.Case, async: false
 
-  import QueryApiKeys
+  import Guardian.QueryApiKeys
 
   @api_key Application.compile_env!(:guardian, :api_key)
 
@@ -12,7 +12,7 @@ defmodule JsonApiTest do
     conn =
       Plug.Test.conn(:get, "https://localhost" <> location <> "?" <> URI.encode_query(query))
       |> Plug.Conn.put_req_header("x-api-key", api_key)
-      |> Web.MainRouter.call(nil)
+      |> Guardian.Web.MainRouter.call(nil)
 
     Jason.decode!(conn.resp_body)
   end
@@ -25,17 +25,17 @@ defmodule JsonApiTest do
       Plug.Test.conn(:post, "https://localhost" <> location, query)
       |> Plug.Conn.put_req_header("content-type", "application/json")
       |> Plug.Conn.put_req_header("x-api-key", api_key)
-      |> Web.MainRouter.call(nil)
+      |> Guardian.Web.MainRouter.call(nil)
 
     Jason.decode!(conn.resp_body)
   end
 
   test "/health answers without an API key; the JSON API still requires one" do
-    conn = Plug.Test.conn(:get, "/health") |> Web.MainRouter.call(nil)
+    conn = Plug.Test.conn(:get, "/health") |> Guardian.Web.MainRouter.call(nil)
     assert conn.status == 200
     assert conn.resp_body == "ok"
 
-    conn = Plug.Test.conn(:get, "/api/json/status") |> Web.MainRouter.call(nil)
+    conn = Plug.Test.conn(:get, "/api/json/status") |> Guardian.Web.MainRouter.call(nil)
     assert conn.status == 401
   end
 
@@ -69,7 +69,7 @@ defmodule JsonApiTest do
              ],
            }
 
-    assert Storage.dump_table(table) == [Enum.at(events, 0), Enum.at(events, 2)]
+    assert Guardian.Storage.dump_table(table) == [Enum.at(events, 0), Enum.at(events, 2)]
   end
 
   test "/api/json/send_events accepts absent, null and empty return_keys" do
@@ -86,7 +86,7 @@ defmodule JsonApiTest do
                "results" => [%{"success" => true, "event" => expected}],
              }
 
-      assert Storage.dump_table(table) == [%{"value" => 1, "nested.x" => 2}]
+      assert Guardian.Storage.dump_table(table) == [%{"value" => 1, "nested.x" => 2}]
     end
   end
 
@@ -105,7 +105,7 @@ defmodule JsonApiTest do
                  List.duplicate(%{"success" => false, "error" => "event is not a JSON object"}, 2),
              }
 
-    assert Storage.dump_table(table) == []
+    assert Guardian.Storage.dump_table(table) == []
   end
 
   test "/api/json/send_events validates the entire request before storing anything" do
@@ -126,7 +126,7 @@ defmodule JsonApiTest do
       assert %{"status" => 400, "info" => message} = result
       assert is_binary(message)
       assert Map.keys(result) |> Enum.sort() == ["info", "status"]
-      assert Storage.dump_table(table) == []
+      assert Guardian.Storage.dump_table(table) == []
     end
   end
 
@@ -139,7 +139,7 @@ defmodule JsonApiTest do
              events: [%{"value" => 1}]
            ) == %{"status" => 401, "info" => "unauthorized"}
 
-    assert Storage.dump_table(table) == []
+    assert Guardian.Storage.dump_table(table) == []
   end
 
   test "/api/json/send_events rejects table names SQL cannot address" do
@@ -164,7 +164,7 @@ defmodule JsonApiTest do
           {name, value}, conn -> Plug.Conn.put_req_header(conn, name, value)
         end)
 
-      Web.MainRouter.call(conn, nil)
+      Guardian.Web.MainRouter.call(conn, nil)
     end
 
     test "requests without a valid key get 401 and their body is never parsed" do
@@ -231,7 +231,7 @@ defmodule JsonApiTest do
       end)
 
       {:ok, _labels, rows} =
-        Query.execute("SELECT auth_method FROM #{table} WHERE user_agent = '#{marker}'")
+        Guardian.Query.execute("SELECT auth_method FROM #{table} WHERE user_agent = '#{marker}'")
 
       assert Enum.sort(List.flatten(rows)) == ["header", "query"]
       refute inspect(rows) =~ @api_key
@@ -360,7 +360,7 @@ defmodule JsonApiTest do
         Plug.Test.conn(:options, "https://localhost/api/json/query")
         |> Plug.Conn.put_req_header("origin", "https://example.com")
         |> Plug.Conn.put_req_header("access-control-request-method", "POST")
-        |> Web.MainRouter.call(nil)
+        |> Guardian.Web.MainRouter.call(nil)
 
       assert conn.status == 204
       assert Plug.Conn.get_resp_header(conn, "access-control-allow-origin") != []
@@ -371,9 +371,9 @@ defmodule JsonApiTest do
     table = "json_query_#{System.unique_integer([:positive])}"
 
     # Insert some test events
-    Engine.ingest_event(table, %{"ip" => "1.2.3.4", "status" => 404})
-    Engine.ingest_event(table, %{"ip" => "1.2.3.4", "status" => 404})
-    Engine.ingest_event(table, %{"ip" => "5.6.7.8", "status" => 404})
+    Guardian.Engine.ingest_event(table, %{"ip" => "1.2.3.4", "status" => 404})
+    Guardian.Engine.ingest_event(table, %{"ip" => "1.2.3.4", "status" => 404})
+    Guardian.Engine.ingest_event(table, %{"ip" => "5.6.7.8", "status" => 404})
 
     # Query the data
     result =
@@ -390,7 +390,7 @@ defmodule JsonApiTest do
 
   test "/api/json/query answers query errors with 400 and the message" do
     table = "json_query_error_#{System.unique_integer([:positive])}"
-    Engine.ingest_event(table, %{"v" => 1})
+    Guardian.Engine.ingest_event(table, %{"v" => 1})
 
     result =
       json_post("/api/json/query", api_key: @api_key, query: "SELECT test_raise(v) FROM #{table}")
@@ -401,7 +401,7 @@ defmodule JsonApiTest do
 
   test "/api/json/query resolves SELECT *, SHOW TABLES, DESC, and LET" do
     table = "json_resolve_#{System.unique_integer([:positive])}"
-    Engine.ingest_event(table, %{"a" => 1, "b" => "x"})
+    Guardian.Engine.ingest_event(table, %{"a" => 1, "b" => "x"})
 
     query = fn source -> json_post("/api/json/query", api_key: @api_key, query: source) end
 
@@ -446,7 +446,7 @@ defmodule JsonApiTest do
 
   test "/api/json/query matches column names ignoring case" do
     table = "json_case_#{System.unique_integer([:positive])}"
-    Engine.ingest_event(table, %{"userId" => 7, "user" => %{"firstName" => "Bob"}})
+    Guardian.Engine.ingest_event(table, %{"userId" => 7, "user" => %{"firstName" => "Bob"}})
 
     assert json_post("/api/json/query",
              api_key: @api_key,

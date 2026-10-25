@@ -1,5 +1,5 @@
-defmodule Aggregation.VarSampTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Aggregation.VarSampTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   def var_samp(values) do
     eval_aggregate("var_samp(x)", Enum.map(values, &[x: &1]))

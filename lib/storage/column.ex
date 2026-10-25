@@ -1,5 +1,5 @@
-defmodule Storage.Column do
-  alias Storage.Column.NIF
+defmodule Guardian.Storage.Column do
+  alias Guardian.Storage.Column.NIF
 
   def new do
     new(0)

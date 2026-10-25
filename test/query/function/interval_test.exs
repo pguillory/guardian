@@ -1,6 +1,6 @@
-defmodule Query.Function.IntervalTest do
-  use Query.EvaluationTestCase, async: true
-  alias Query.Function.Interval
+defmodule Guardian.Query.Function.IntervalTest do
+  use Guardian.Query.EvaluationTestCase, async: true
+  alias Guardian.Query.Function.Interval
 
   # test "interval function" do
   #   assert eval("interval('1h')") === 3600

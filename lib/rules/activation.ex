@@ -1,4 +1,4 @@
-defmodule Rules.Activation do
+defmodule Guardian.Rules.Activation do
   @moduledoc """
   Pure selection for rule activation. An invalid dependency component retains its
   previous valid plans together, including deleted tables.
@@ -37,13 +37,15 @@ defmodule Rules.Activation do
   defp dependencies(candidates, previous) do
     old =
       for {table, plan} <- previous,
-          %Rules.Step.Lookup{target: %Rules.CounterDefinition{identity: {target_table, _, _}}} <-
+          %Guardian.Rules.Step.Lookup{
+            target: %Guardian.Rules.CounterDefinition{identity: {target_table, _, _}},
+          } <-
             plan.steps,
           do: {table, target_table}
 
     new =
       for {table, {:ok, plan}} <- candidates,
-          %Rules.Step.Lookup{target_table: target_table} <- plan.steps,
+          %Guardian.Rules.Step.Lookup{target_table: target_table} <- plan.steps,
           do: {table, target_table}
 
     Enum.reduce(old ++ new, %{}, fn {left, right}, edges ->
@@ -71,7 +73,7 @@ defmodule Rules.Activation do
         cause = failed |> Enum.filter(&(&1 in component)) |> Enum.sort() |> Enum.join(", ")
 
         error =
-          Rules.Validation.error(
+          Guardian.Rules.Validation.error(
             "#{table}/",
             nil,
             :reload_dependency,

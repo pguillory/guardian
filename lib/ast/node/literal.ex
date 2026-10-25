@@ -1,13 +1,13 @@
-defmodule AST.Node.Literal do
-  use AST.Node
+defmodule Guardian.AST.Node.Literal do
+  use Guardian.AST.Node
 
-  alias Query.Constant
-  alias Query.Evaluation
+  alias Guardian.Query.Constant
+  alias Guardian.Query.Evaluation
 
   @enforce_keys [:value]
   defstruct [:value]
 
-  defimpl Query.Eval do
+  defimpl Guardian.Query.Eval do
     def eval(%@for{value: value}, context) do
       Constant.duplicate(value, Evaluation.context_count(context))
     end
@@ -28,7 +28,7 @@ defmodule AST.Node.Literal do
         to_string(value)
 
       _ when is_binary(value) ->
-        AST.StringEncoding.encode_string(value)
+        Guardian.AST.StringEncoding.encode_string(value)
     end
   end
 

@@ -1,4 +1,4 @@
-defmodule Rules.Store.S3 do
+defmodule Guardian.Rules.Store.S3 do
   @moduledoc """
   Rule files in an S3-compatible bucket (Cloudflare R2, or any S3 API), signed with
   SigV4 by Req (`service: :s3`; region `auto` for R2). Objects are
@@ -8,7 +8,7 @@ defmodule Rules.Store.S3 do
   Credentials are held only in a zero-arity function (`:credentials`), and requests
   carry `{module, function, [that function, region]}` as their signing option, so a
   request or this config, inspected or in a crash report, shows no secret. Every call
-  catches everything and returns a `Rules.Store` reason naming only a kind (an HTTP
+  catches everything and returns a `Guardian.Rules.Store` reason naming only a kind (an HTTP
   status, `timeout`, ...): never a body, header, or exception. A VM crash dump still
   contains the secret, as it does every secret Guardian holds.
 
@@ -17,7 +17,7 @@ defmodule Rules.Store.S3 do
   `{:unknown, kind}`.
   """
 
-  @behaviour Rules.Store
+  @behaviour Guardian.Rules.Store
 
   @enforce_keys [:endpoint, :bucket, :region, :prefix, :credentials]
   defstruct [:endpoint, :bucket, :region, :prefix, :credentials]
@@ -35,7 +35,7 @@ defmodule Rules.Store.S3 do
 
   defimpl Inspect do
     def inspect(config, _opts) do
-      "#Rules.Store.S3<#{config.endpoint}/#{config.bucket}/#{config.prefix}>"
+      "#Guardian.Rules.Store.S3<#{config.endpoint}/#{config.bucket}/#{config.prefix}>"
     end
   end
 

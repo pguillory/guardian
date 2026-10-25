@@ -1,4 +1,4 @@
-defmodule Cluster.NodeError do
+defmodule Guardian.Cluster.NodeError do
   @moduledoc """
   Raised when a cluster-wide operation fails or times out on one or more connected
   nodes. `failures` is a list of `{node, {class, reason}}` as returned by

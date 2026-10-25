@@ -1,4 +1,4 @@
-defmodule Aggregation.Ordering do
+defmodule Guardian.Aggregation.Ordering do
   @moduledoc """
   What the min and max aggregation families share. `extreme` is `:min` or `:max`.
   """
@@ -18,7 +18,7 @@ defmodule Aggregation.Ordering do
   end
 
   def check_n!(name, _n) do
-    raise Query.Error, message: "#{name}: n must be a non-negative integer"
+    raise Guardian.Query.Error, message: "#{name}: n must be a non-negative integer"
   end
 
   @doc """
@@ -26,10 +26,10 @@ defmodule Aggregation.Ordering do
   sorted best first, keeping the best `n`. `wins?` compares two list elements.
   """
   def merge_n(_name, {list1, n}, {list2, n}, wins?) do
-    {Query.Sorting.merge_take(list1, list2, n, wins?), n}
+    {Guardian.Query.Sorting.merge_take(list1, list2, n, wins?), n}
   end
 
   def merge_n(name, _acc1, _acc2, _wins?) do
-    raise Query.Error, message: "#{name}: n must be the same for every row of a group"
+    raise Guardian.Query.Error, message: "#{name}: n must be the same for every row of a group"
   end
 end

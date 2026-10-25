@@ -1,4 +1,4 @@
-defmodule Aggregation.MinMax do
+defmodule Guardian.Aggregation.MinMax do
   # min and max. Null values are skipped.
 
   def default(_extreme) do
@@ -18,7 +18,7 @@ defmodule Aggregation.MinMax do
   end
 
   def merge(extreme, value1, value2) do
-    if Aggregation.Ordering.wins?(extreme, value1, value2), do: value1, else: value2
+    if Guardian.Aggregation.Ordering.wins?(extreme, value1, value2), do: value1, else: value2
   end
 
   def finish(_extreme, value) do

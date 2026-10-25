@@ -1,4 +1,4 @@
-defmodule Query.Function.Md5 do
+defmodule Guardian.Query.Function.Md5 do
   def eval(value) when is_binary(value) do
     :crypto.hash(:md5, value)
     |> Base.encode16(case: :lower)

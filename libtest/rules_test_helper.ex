@@ -1,6 +1,6 @@
-defmodule RulesTestHelper do
+defmodule Guardian.RulesTestHelper do
   @moduledoc """
-  Helpers for rule tests, which share the test VM's one `Rules.Server` and so must be
+  Helpers for rule tests, which share the test VM's one `Guardian.Rules.Server` and so must be
   `async: false`.
   """
 
@@ -10,13 +10,13 @@ defmodule RulesTestHelper do
   def with_rules(files) do
     for {key, source} <- files do
       [table, name] = String.split(String.replace_suffix(key, ".gsql", ""), "/")
-      {:ok, _} = Rules.write_rule(table, name, source)
+      {:ok, _} = Guardian.Rules.write_rule(table, name, source)
     end
 
     on_exit(fn ->
       for {key, _source} <- files do
         [table, name] = String.split(String.replace_suffix(key, ".gsql", ""), "/")
-        Rules.delete_rule(table, name)
+        Guardian.Rules.delete_rule(table, name)
       end
     end)
 
@@ -24,7 +24,7 @@ defmodule RulesTestHelper do
   end
 
   @doc """
-  Restarts the test VM's Rules.Server on `store` (or on what `env` configures) from a
+  Restarts the test VM's Guardian.Rules.Server on `store` (or on what `env` configures) from a
   clean slate (nothing published), returning what restarting the child returned. The
   original server is restored when the test exits.
   """
@@ -33,24 +33,27 @@ defmodule RulesTestHelper do
       Application.delete_env(:guardian, :rules_store)
       for {key, _} <- app_env, do: Application.delete_env(:guardian, key)
       stop_server()
-      {:ok, _} = Supervisor.restart_child(Main, Rules.Server)
+      {:ok, _} = Supervisor.restart_child(Guardian.Main, Guardian.Rules.Server)
     end)
 
     stop_server()
     if store, do: Application.put_env(:guardian, :rules_store, store)
     for {key, value} <- app_env, do: Application.put_env(:guardian, key, value)
-    Supervisor.restart_child(Main, Rules.Server)
+    Supervisor.restart_child(Guardian.Main, Guardian.Rules.Server)
   end
 
   defp stop_server do
-    _ = Supervisor.terminate_child(Main, Rules.Server)
-    :persistent_term.erase({Rules, :tables})
+    _ = Supervisor.terminate_child(Guardian.Main, Guardian.Rules.Server)
+    :persistent_term.erase({Guardian.Rules, :tables})
   end
 
   @doc "Puts a module straight into the published map for `table` until the test exits."
   def publish_module(table, module) do
-    Rules.publish(Map.put(Rules.published() || %{}, table, module))
-    on_exit(fn -> Rules.publish(Map.delete(Rules.published() || %{}, table)) end)
+    Guardian.Rules.publish(Map.put(Guardian.Rules.published() || %{}, table, module))
+
+    on_exit(fn ->
+      Guardian.Rules.publish(Map.delete(Guardian.Rules.published() || %{}, table))
+    end)
   end
 
   @doc "Puts app env for a test, restoring the previous value when it exits."

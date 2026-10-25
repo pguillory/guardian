@@ -1,5 +1,5 @@
-defmodule Query.Function.ToBooleanTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Query.Function.ToBooleanTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "to_boolean function" do
     assert eval("to_boolean(x)", x: nil) === nil

@@ -1,12 +1,12 @@
-defmodule Counters.ClusterTest do
+defmodule Guardian.Counters.ClusterTest do
   use ExUnit.Case, async: false
-  alias Counters.Cluster, as: CountersCluster
-  alias Counters.Store
+  alias Guardian.Counters.Cluster, as: CountersCluster
+  alias Guardian.Counters.Store
 
   setup_all do
-    distributed = TestCluster.ensure_distributed()
-    {peer, peer_node} = TestCluster.start_peer(nil)
-    {:ok, _} = :erpc.call(peer_node, CounterClusterHelper, :start_store, [])
+    distributed = Guardian.TestCluster.ensure_distributed()
+    {peer, peer_node} = Guardian.TestCluster.start_peer(nil)
+    {:ok, _} = :erpc.call(peer_node, Guardian.CounterClusterHelper, :start_store, [])
 
     on_exit(fn ->
       :peer.stop(peer)
@@ -48,8 +48,8 @@ defmodule Counters.ClusterTest do
   test "owner pipelines run concurrently, group every key, and refund healthy waits", %{
     peer_node: peer,
   } do
-    local = start_supervised!({CounterPipelineProbe, self()})
-    {:ok, remote} = :erpc.call(peer, CounterPipelineProbe, :start, [self()])
+    local = start_supervised!({Guardian.CounterPipelineProbe, self()})
+    {:ok, remote} = :erpc.call(peer, Guardian.CounterPipelineProbe, :start, [self()])
 
     on_exit(fn ->
       send(local, :release)
@@ -71,7 +71,7 @@ defmodule Counters.ClusterTest do
       Task.async(fn ->
         context =
           CountersCluster.new_event(batch,
-            store: CounterPipelineProbe,
+            store: Guardian.CounterPipelineProbe,
             members: members,
             cooldown_table: :counter_cluster_test
           )
@@ -105,7 +105,7 @@ defmodule Counters.ClusterTest do
       Task.async(fn ->
         context =
           CountersCluster.new_event(limited,
-            store: CounterPipelineProbe,
+            store: Guardian.CounterPipelineProbe,
             members: members,
             cooldown_table: :counter_cluster_test
           )
@@ -133,7 +133,7 @@ defmodule Counters.ClusterTest do
       Task.async(fn ->
         context =
           CountersCluster.new_event(limited,
-            store: CounterPipelineProbe,
+            store: Guardian.CounterPipelineProbe,
             members: members,
             cooldown_table: :counter_cluster_test
           )
@@ -152,14 +152,14 @@ defmodule Counters.ClusterTest do
     send(stalled, :release)
     assert :atomics.get(limited, 1) < 10_000
     refute_receive {:pipeline, _, _, _}, 10
-    TestHelpers.eventually(fn -> counter_helpers() == [] end)
+    Guardian.TestHelpers.eventually(fn -> counter_helpers() == [] end)
     assert {:messages, []} = Process.info(self(), :messages)
   end
 
   test "pending healthy owners use refunds, even with more than five owners or a spent budget", %{
     peer_node: peer,
   } do
-    extra = for _ <- 1..4, do: TestCluster.start_peer(nil)
+    extra = for _ <- 1..4, do: Guardian.TestCluster.start_peer(nil)
     on_exit(fn -> Enum.each(extra, fn {controller, _} -> :peer.stop(controller) end) end)
     members = [node(), peer | Enum.map(extra, &elem(&1, 1))]
     start_supervised!({Store, name: :counter_pipeline_store}, id: :counter_pipeline_store)
@@ -168,7 +168,7 @@ defmodule Counters.ClusterTest do
         do:
           assert(
             {:ok, _} =
-              :erpc.call(member, CounterClusterHelper, :start_store, [
+              :erpc.call(member, Guardian.CounterClusterHelper, :start_store, [
                 [name: :counter_pipeline_store],
               ])
           )
@@ -190,11 +190,11 @@ defmodule Counters.ClusterTest do
     end
 
     # A later refund must release pending work while the earliest owner is blocked.
-    local = start_supervised!({CounterPipelineProbe, self()})
+    local = start_supervised!({Guardian.CounterPipelineProbe, self()})
 
     probes =
       Map.new(tl(members), fn member ->
-        {:ok, pid} = :erpc.call(member, CounterPipelineProbe, :start, [self()])
+        {:ok, pid} = :erpc.call(member, Guardian.CounterPipelineProbe, :start, [self()])
         {member, pid}
       end)
       |> Map.put(node(), local)
@@ -208,7 +208,7 @@ defmodule Counters.ClusterTest do
 
     task =
       Task.async(fn ->
-        context = event(CounterPipelineProbe, members: members)
+        context = event(Guardian.CounterPipelineProbe, members: members)
         CountersCluster.batch(ops, context)
       end)
 
@@ -226,7 +226,7 @@ defmodule Counters.ClusterTest do
     assert_receive {:pipeline, ^sixth, _, [_]}
     Enum.each(probes, fn {member, pid} -> if member != later, do: send(pid, :release) end)
     assert Task.await(task) == Map.new(members, &{&1, {:ok, 1}})
-    TestHelpers.eventually(fn -> counter_helpers() == [] end)
+    Guardian.TestHelpers.eventually(fn -> counter_helpers() == [] end)
     assert {:messages, []} = Process.info(self(), :messages)
     :erpc.call(peer, GenServer, :stop, [:counter_pipeline_store])
   end
@@ -237,7 +237,9 @@ defmodule Counters.ClusterTest do
     local = start_supervised!({Store, name: :counter_partial_store}, id: :counter_partial_store)
 
     {:ok, remote} =
-      :erpc.call(peer, CounterClusterHelper, :start_store, [[name: :counter_partial_store]])
+      :erpc.call(peer, Guardian.CounterClusterHelper, :start_store, [
+        [name: :counter_partial_store],
+      ])
 
     members = [node(), peer]
     local_key = owned_key(node(), members)
@@ -265,7 +267,7 @@ defmodule Counters.ClusterTest do
              ) == %{remote: {:error, :cooldown}}
 
       # A translated remote deadline may outlive the caller by transit time.
-      TestHelpers.await_queued_call(remote, node: peer)
+      Guardian.TestHelpers.await_queued_call(remote, node: peer)
       Process.sleep(55)
     after
       :erpc.call(peer, :sys, :resume, [remote])
@@ -273,7 +275,7 @@ defmodule Counters.ClusterTest do
 
     assert :erpc.call(peer, Store, :get, [remote_key, [server: remote]]) == :not_found
     :erpc.call(peer, GenServer, :stop, [remote])
-    TestHelpers.eventually(fn -> counter_helpers() == [] end)
+    Guardian.TestHelpers.eventually(fn -> counter_helpers() == [] end)
     assert {:messages, []} = Process.info(self(), :messages)
   end
 
@@ -296,10 +298,10 @@ defmodule Counters.ClusterTest do
       end)
 
     try do
-      TestHelpers.await_queued_call(store)
+      Guardian.TestHelpers.await_queued_call(store)
       helpers = counter_helpers()
       Process.exit(caller, :kill)
-      TestHelpers.eventually(fn -> Enum.all?(helpers, &(not Process.alive?(&1))) end)
+      Guardian.TestHelpers.eventually(fn -> Enum.all?(helpers, &(not Process.alive?(&1))) end)
       assert :atomics.get(batch, 1) in 200_000..249_999
       # A dispatched call can survive its caller. Leave it queued past its own deadline.
       Process.sleep(55)
@@ -423,7 +425,7 @@ defmodule Counters.ClusterTest do
   end
 
   test "booting and lost owners fail immediately without readiness or failover", %{store: store} do
-    {peer, booting} = TestCluster.start_peer(nil)
+    {peer, booting} = Guardian.TestCluster.start_peer(nil)
     on_exit(fn -> if Process.alive?(peer), do: :peer.stop(peer) end)
 
     for module <- [CountersCluster, Store],
@@ -554,11 +556,11 @@ defmodule Counters.ClusterTest do
     caller = spawn(fn -> CountersCluster.incr(key(), 1, 5_000, context) end)
 
     try do
-      TestHelpers.await_queued_call(store)
+      Guardian.TestHelpers.await_queued_call(store)
       helpers = counter_helpers()
       assert length(helpers) >= 2
       Process.exit(caller, :kill)
-      TestHelpers.eventually(fn -> Enum.all?(helpers, &(not Process.alive?(&1))) end)
+      Guardian.TestHelpers.eventually(fn -> Enum.all?(helpers, &(not Process.alive?(&1))) end)
       assert :atomics.get(batch, 1) >= 200_000
       assert :atomics.get(batch, 1) < 250_000
     after
@@ -576,7 +578,7 @@ defmodule Counters.ClusterTest do
       assert CountersCluster.get(key(), context) in [:not_found, {:error, :timeout}]
     end
 
-    TestHelpers.eventually(fn -> counter_helpers() == [] end)
+    Guardian.TestHelpers.eventually(fn -> counter_helpers() == [] end)
     assert {:messages, []} = Process.info(self(), :messages)
   end
 
@@ -619,8 +621,8 @@ defmodule Counters.ClusterTest do
   end
 
   test "frozen peer and distribution backpressure cannot outlive the failure budget" do
-    {peer_controller, peer} = TestCluster.start_peer(nil)
-    {:ok, _} = :erpc.call(peer, CounterClusterHelper, :start_store, [])
+    {peer_controller, peer} = Guardian.TestCluster.start_peer(nil)
+    {:ok, _} = :erpc.call(peer, Guardian.CounterClusterHelper, :start_store, [])
     # This PID is obtained directly from our local test peer, never discovered by
     # a process-name search. Always resume it before peer teardown.
     os_pid = :erpc.call(peer, :os, :getpid, []) |> List.to_string()
@@ -656,7 +658,7 @@ defmodule Counters.ClusterTest do
       assert Enum.count(outcomes, &(&1 == {:error, :timeout})) <= 25
       assert :atomics.get(batch, 1) < 10_000
       assert System.monotonic_time(:millisecond) - started < 750
-      TestHelpers.eventually(fn -> counter_helpers() == [] end)
+      Guardian.TestHelpers.eventually(fn -> counter_helpers() == [] end)
       assert {:messages, []} = Process.info(self(), :messages)
     after
       {_, 0} = System.cmd("/bin/kill", ["-CONT", os_pid])
@@ -666,16 +668,16 @@ defmodule Counters.ClusterTest do
 
   test "cooldown expires without reads, departed members are pruned, absent routing fails fast",
        %{store: store} do
-    {peer, member} = TestCluster.start_peer(nil)
+    {peer, member} = Guardian.TestCluster.start_peer(nil)
     on_exit(fn -> if Process.alive?(peer), do: :peer.stop(peer) end)
     future = System.monotonic_time(:microsecond) + 10_000_000
     :ets.insert(:counter_cluster_test, {member, future})
     :peer.stop(peer)
-    TestHelpers.eventually(fn -> :ets.lookup(:counter_cluster_test, member) == [] end)
+    Guardian.TestHelpers.eventually(fn -> :ets.lookup(:counter_cluster_test, member) == [] end)
 
     :ets.insert(:counter_cluster_test, {node(), System.monotonic_time(:microsecond) - 1})
     send(Process.whereis(:counter_cluster_test), :cleanup)
-    TestHelpers.eventually(fn -> :ets.tab2list(:counter_cluster_test) == [] end)
+    Guardian.TestHelpers.eventually(fn -> :ets.tab2list(:counter_cluster_test) == [] end)
 
     stop_supervised(CountersCluster)
     started = System.monotonic_time(:millisecond)

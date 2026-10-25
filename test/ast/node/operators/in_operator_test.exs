@@ -1,5 +1,5 @@
-defmodule InOperatorTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.InOperatorTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "in operator" do
     assert eval("1 in [1, 2]") == true

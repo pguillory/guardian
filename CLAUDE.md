@@ -63,36 +63,43 @@ store. There is no user namespace.
 - Treat Storage as the source of truth for event data and inferred schemas.
 - Preserve query-time aggregations and scalar query functions.
 - Run the full test suite after every change.
-- Preserve the `SystemStats` process and its `system_stats` event stream.
+- Preserve the `Guardian.SystemStats` process and its `system_stats` event stream.
 
 ## Architecture
 
+All Guardian-owned modules use `Guardian.*`, including `Guardian.Web.*`; do not add
+unprefixed modules. The Mix application/configuration namespace remains `:guardian`.
+The namespace transition requires a full release restart, with no disk migration
+(`docs/changes/guardian-namespace.md`).
+
 Summary; the full description is `docs/architecture/system.md`.
 
-The runtime consists of Rules.Server (loads the rule store first; an unreachable or
-misconfigured store refuses startup), Counters.Restarter (isolates and recovers the
-Counters.Supervisor subtree containing node-local Counters.Store and bounded
-Counters.Cluster routing for TRACK/LOOKUP), Storage,
-SystemStats, Web.QueryParseErrors (records query parse failures), Web.QueryLog
-(records every API query in `queries`),
-Web.IngestIdempotency (short-lived, node-local client-key receipts), Web, and
-Cluster (DNS peer discovery
-through `DNS_CLUSTER_QUERY`; `<app>.internal` by default on Fly.io). Schema lookups (SHOW TABLES, DESC, the `schema` virtual table, SELECT *) fan
-out to every connected node through `Cluster.Metadata`.
+The runtime consists of Guardian.Rules.Server (loads the rule store first; an
+unreachable or misconfigured store refuses startup), Guardian.Counters.Restarter
+(isolates and recovers Guardian.Counters.Supervisor, with node-local
+Guardian.Counters.Store and bounded Guardian.Counters.Cluster routing for
+TRACK/LOOKUP), Guardian.Storage, Guardian.SystemStats,
+Guardian.Web.QueryParseErrors (records query parse failures), Guardian.Web.QueryLog
+(records every API query in `queries`), Guardian.Web.IngestIdempotency (short-lived,
+node-local client-key receipts), Guardian.Web, and Guardian.Cluster (DNS discovery
+through `DNS_CLUSTER_QUERY`; `<app>.internal` by default on Fly.io). Schema lookups
+(SHOW TABLES, DESC, the `schema` virtual table, SELECT *) fan out to every connected
+node through `Guardian.Cluster.Metadata`.
 
 Event ingestion:
 
 ```text
-Engine.ingest_events(table, events)
+Guardian.Engine.ingest_events(table, events)
   -> validate storage-safe values
-  -> the table's rules (Rules.Runner, in a worker), then validate their outputs
-  -> Storage.append(table, event)
+  -> the table's rules (Guardian.Rules.Runner, in a worker), then validate their outputs
+  -> Guardian.Storage.append(table, event)
 ```
 
 Query execution:
 
 ```text
-SQL -> AST -> Query.Resolver -> Query.Planner -> Query.Evaluation -> rows
+SQL -> Guardian.AST -> Guardian.Query.Resolver -> Guardian.Query.Planner
+  -> Guardian.Query.Evaluation -> rows
 ```
 
 Storage uses mutable, full, persisted, and loaded segment managers. Files are named

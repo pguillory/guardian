@@ -1,5 +1,5 @@
-defmodule Query.Function.Sha512Test do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Query.Function.Sha512Test do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "sha512 function" do
     assert eval("sha512('abc')") ===

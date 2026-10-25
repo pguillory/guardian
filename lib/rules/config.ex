@@ -1,4 +1,4 @@
-defmodule Rules.Config do
+defmodule Guardian.Rules.Config do
   @moduledoc """
   Chooses the rule store from the environment, at startup.
 
@@ -13,7 +13,7 @@ defmodule Rules.Config do
 
   Setting the folder and the bucket, or only some of the bucket settings, is an
   error. The secrets are read here and kept only inside a closure
-  (`Rules.Store.S3`), never in application config.
+  (`Guardian.Rules.Store.S3`), never in application config.
 
   Tests set `:guardian, :rules_store` to a store directly, skipping the environment.
   """
@@ -48,9 +48,9 @@ defmodule Rules.Config do
       Enum.all?(Map.values(s3), &is_nil/1) ->
         dir = dir || Path.join(Application.fetch_env!(:guardian, :data_dir), "rules")
 
-        case Rules.Store.Local.new(dir) do
+        case Guardian.Rules.Store.Local.new(dir) do
           {:ok, store} -> {:ok, store}
-          {:error, reason} -> {:error, Rules.Store.reason_message(reason)}
+          {:error, reason} -> {:error, Guardian.Rules.Store.reason_message(reason)}
         end
 
       dir != nil ->
@@ -88,7 +88,7 @@ defmodule Rules.Config do
         access_key_id = s3["GUARDIAN_RULES_S3_ACCESS_KEY_ID"]
         secret_access_key = s3["GUARDIAN_RULES_S3_SECRET_ACCESS_KEY"]
 
-        config = %Rules.Store.S3{
+        config = %Guardian.Rules.Store.S3{
           endpoint: endpoint,
           bucket: s3["GUARDIAN_RULES_S3_BUCKET"],
           region: blank_to_nil(env["GUARDIAN_RULES_S3_REGION"]) || "auto",
@@ -96,7 +96,7 @@ defmodule Rules.Config do
           credentials: fn -> {access_key_id, secret_access_key} end,
         }
 
-        {:ok, {Rules.Store.S3, config}}
+        {:ok, {Guardian.Rules.Store.S3, config}}
     end
   end
 

@@ -6,8 +6,8 @@
 #
 # Exits 0 and prints "ok ..." if every read saw the right values.
 
-alias Storage.Column
-alias Storage.Segment
+alias Guardian.Storage.Column
+alias Guardian.Storage.Segment
 
 # A watchdog, so a hang can't outlive the test.
 spawn(fn ->

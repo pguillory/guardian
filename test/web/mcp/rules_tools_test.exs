@@ -1,9 +1,9 @@
-defmodule Web.MCP.RulesToolsTest do
+defmodule Guardian.Web.MCP.RulesToolsTest do
   use ExUnit.Case, async: false
-  import RulesTestHelper
+  import Guardian.RulesTestHelper
 
   defp call(tool, arguments) do
-    {:ok, response} = MCPTestClient.call_tool(tool, arguments)
+    {:ok, response} = Guardian.MCPTestClient.call_tool(tool, arguments)
     [%{"type" => "text", "text" => text}] = response.result["content"]
     {response.result["isError"] == true, text}
   end
@@ -14,7 +14,7 @@ defmodule Web.MCP.RulesToolsTest do
   end
 
   test "write, list, read and delete rules, and get computed fields back from send_events" do
-    MCPTestClient.start()
+    Guardian.MCPTestClient.start()
     table = unique_table("mcp_rules")
 
     assert ok("write_rule", %{
@@ -24,7 +24,7 @@ defmodule Web.MCP.RulesToolsTest do
            }) ==
              %{"saved" => true, "remaining_errors" => [], "nodes_not_yet_reloaded" => []}
 
-    on_exit(fn -> Rules.delete_rule(table, "blocking") end)
+    on_exit(fn -> Guardian.Rules.delete_rule(table, "blocking") end)
 
     assert ok("list_rules", %{"table" => table}) == [
              %{"table" => table, "name" => "blocking", "size" => 40},
@@ -61,7 +61,7 @@ defmodule Web.MCP.RulesToolsTest do
   end
 
   test "counter writes reject invalid definitions and later rule failures preserve prior increments" do
-    MCPTestClient.start()
+    Guardian.MCPTestClient.start()
     table = unique_table("mcp_counter_validation")
 
     for source <- ["TRACK hits = count() LAST '0s'", "LOOKUP prior = absent"] do
@@ -74,7 +74,7 @@ defmodule Web.MCP.RulesToolsTest do
 
     source = "TRACK hits = count() LAST '1h'; SET decision = test_raise(bad) + hits; UNSET secret"
     assert ok("write_rule", %{"table" => table, "name" => "r", "source" => source})["saved"]
-    on_exit(fn -> Rules.delete_rule(table, "r") end)
+    on_exit(fn -> Guardian.Rules.delete_rule(table, "r") end)
 
     ExUnit.CaptureLog.capture_log(fn ->
       assert %{"results" => [failed, good]} =
@@ -89,6 +89,6 @@ defmodule Web.MCP.RulesToolsTest do
       assert good == %{"success" => true, "event" => %{"hits" => 2, "secret" => nil}}
     end)
 
-    assert Storage.dump_table(table) == [%{"hits" => 2}]
+    assert Guardian.Storage.dump_table(table) == [%{"hits" => 2}]
   end
 end

@@ -1,14 +1,14 @@
-defmodule Cluster.Metadata do
+defmodule Guardian.Cluster.Metadata do
   @moduledoc """
   Cluster-wide table metadata.
 
-  Each lookup asks every node in `Cluster.connected_nodes/0` for its local Storage
+  Each lookup asks every node in `Guardian.Cluster.connected_nodes/0` for its local Storage
   schemas and merges them. A schema holds per-column, per-type value counts
-  (`Storage.Column.Metadata`), so merging adds the counts with
-  `Storage.merge_schemas/2`. A column that holds ints on one node and strings on
+  (`Guardian.Storage.Column.Metadata`), so merging adds the counts with
+  `Guardian.Storage.merge_schemas/2`. A column that holds ints on one node and strings on
   another is the same as a mixed column on one node; there is nothing to reconcile.
 
-  If any connected node fails or times out, the lookup raises `Cluster.NodeError`
+  If any connected node fails or times out, the lookup raises `Guardian.Cluster.NodeError`
   instead of returning partial metadata.
 
   Only connected nodes are asked. A node that is disconnected when the lookup runs is
@@ -21,7 +21,7 @@ defmodule Cluster.Metadata do
   @doc "Returns the schema of `table`, merged across the cluster."
   def schema(table) when is_binary(table) do
     call_all(:local_schema, [table])
-    |> Enum.reduce(%{}, &Storage.merge_schemas(&2, &1))
+    |> Enum.reduce(%{}, &Guardian.Storage.merge_schemas(&2, &1))
   end
 
   @doc "Returns `%{table => schema}` for every table on any connected node."
@@ -29,23 +29,23 @@ defmodule Cluster.Metadata do
     call_all(:local_schemas, [])
     |> Enum.reduce(%{}, fn tables, acc ->
       Map.merge(acc, tables, fn _table, schema1, schema2 ->
-        Storage.merge_schemas(schema1, schema2)
+        Guardian.Storage.merge_schemas(schema1, schema2)
       end)
     end)
   end
 
   @doc false
   def local_schema(table) do
-    Storage.schema(table)
+    Guardian.Storage.schema(table)
   end
 
   @doc false
   def local_schemas do
-    Map.new(Storage.table_names(), &{&1, Storage.schema(&1)})
+    Map.new(Guardian.Storage.table_names(), &{&1, Guardian.Storage.schema(&1)})
   end
 
   defp call_all(function, args) do
-    nodes = Cluster.connected_nodes()
+    nodes = Guardian.Cluster.connected_nodes()
     results = :erpc.multicall(nodes, __MODULE__, function, args, @timeout)
 
     failures =
@@ -53,7 +53,7 @@ defmodule Cluster.Metadata do
       |> Enum.reject(&match?({_node, {:ok, _value}}, &1))
 
     if failures != [] do
-      raise Cluster.NodeError, operation: function, failures: failures
+      raise Guardian.Cluster.NodeError, operation: function, failures: failures
     end
 
     Enum.map(results, fn {:ok, value} -> value end)

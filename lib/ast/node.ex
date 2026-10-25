@@ -1,15 +1,15 @@
-defmodule AST.Node do
+defmodule Guardian.AST.Node do
   @moduledoc """
-  The contract every AST node module implements; `use AST.Node` declares it and
+  The contract every AST node module implements; `use Guardian.AST.Node` declares it and
   imports `traverse_fields/5`.
 
-  Every node defines `to_source/1` (`AST.unparse/1`) and `traverse/4`
-  (`AST.traverse/4`). An expression node that can be evaluated implements the
-  `Query.Eval` protocol in its own module (`defimpl Query.Eval do ... end`), or
-  defines `rewrite/1` to an equivalent node that can, which `Query.Eval`'s fallback
+  Every node defines `to_source/1` (`Guardian.AST.unparse/1`) and `traverse/4`
+  (`Guardian.AST.traverse/4`). An expression node that can be evaluated implements the
+  `Guardian.Query.Eval` protocol in its own module (`defimpl Guardian.Query.Eval do ... end`), or
+  defines `rewrite/1` to an equivalent node that can, which `Guardian.Query.Eval`'s fallback
   evaluates instead. A node that does neither (a splat, ASC and DESC, an aggregate
   call, a statement) is not evaluated as an expression; the planner handles it, and
-  evaluating one raises `Query.Error`.
+  evaluating one raises `Guardian.Query.Error`.
   """
 
   @typedoc "An AST node: a struct whose module implements this behaviour."
@@ -25,7 +25,7 @@ defmodule AST.Node do
   @callback to_source(t()) :: String.t()
 
   @doc """
-  Traverses the node's children with `AST.traverse/4`, in a fixed order, and returns
+  Traverses the node's children with `Guardian.AST.traverse/4`, in a fixed order, and returns
   the node with its children replaced. Childless nodes return `{node, acc}`.
   """
   @callback traverse(t(), acc(), pre :: visitor(), post :: visitor()) :: {t(), acc()}
@@ -37,13 +37,13 @@ defmodule AST.Node do
 
   defmacro __using__(_opts) do
     quote do
-      @behaviour AST.Node
-      import AST.Node, only: [traverse_fields: 5]
+      @behaviour Guardian.AST.Node
+      import Guardian.AST.Node, only: [traverse_fields: 5]
     end
   end
 
   @doc """
-  Traverses `fields` of `expr` in order with `AST.traverse/4` and puts the results
+  Traverses `fields` of `expr` in order with `Guardian.AST.traverse/4` and puts the results
   back. A field holding `nil` is skipped, one holding a list is traversed element by
   element, and any other value is traversed as one node.
   """
@@ -60,10 +60,10 @@ defmodule AST.Node do
   end
 
   defp traverse_value(exprs, acc, pre, post) when is_list(exprs) do
-    Enum.map_reduce(exprs, acc, &AST.traverse(&1, &2, pre, post))
+    Enum.map_reduce(exprs, acc, &Guardian.AST.traverse(&1, &2, pre, post))
   end
 
   defp traverse_value(expr, acc, pre, post) do
-    AST.traverse(expr, acc, pre, post)
+    Guardian.AST.traverse(expr, acc, pre, post)
   end
 end

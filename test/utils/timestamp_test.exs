@@ -1,5 +1,5 @@
-defmodule TimestampTest do
-  import Timestamp
+defmodule Guardian.TimestampTest do
+  import Guardian.Timestamp
   use ExUnit.Case, async: true
 
   test "to_seconds" do

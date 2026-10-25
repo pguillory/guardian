@@ -1,5 +1,5 @@
-defmodule SubtractOperatorTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.SubtractOperatorTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "subtract operator" do
     assert eval("123 - 123") === 0

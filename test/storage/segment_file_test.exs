@@ -1,7 +1,7 @@
-defmodule Storage.SegmentFileTest do
+defmodule Guardian.Storage.SegmentFileTest do
   use ExUnit.Case, async: true
 
-  alias Storage.SegmentFile
+  alias Guardian.Storage.SegmentFile
 
   @segment_id "0123456789ABCDEF0123456789ABCDEF"
 
@@ -56,12 +56,12 @@ defmodule Storage.SegmentFileTest do
 
     test "filename is in segment directory" do
       filename = SegmentFile.filename("events", @segment_id)
-      assert String.starts_with?(filename, Storage.segment_dir())
+      assert String.starts_with?(filename, Guardian.Storage.segment_dir())
     end
 
     test "round-trips with parse_filename" do
       table = "test_table"
-      segment_id = SegmentID.generate()
+      segment_id = Guardian.SegmentID.generate()
 
       filename = SegmentFile.filename(table, segment_id)
       assert {:ok, ^table, ^segment_id} = SegmentFile.parse_filename(filename)

@@ -1,5 +1,5 @@
-defmodule Query.Function.LengthTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Query.Function.LengthTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "length function" do
     assert eval("length('Abc')") === 3

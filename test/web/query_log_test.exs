@@ -1,9 +1,9 @@
-defmodule Web.QueryLogTest do
+defmodule Guardian.Web.QueryLogTest do
   use ExUnit.Case, async: false
 
   import ExUnit.CaptureLog
 
-  alias Web.QueryLog
+  alias Guardian.Web.QueryLog
 
   @api_key Application.compile_env!(:guardian, :api_key)
 
@@ -13,7 +13,7 @@ defmodule Web.QueryLogTest do
     :ok = QueryLog.sync(server)
 
     QueryLog.table()
-    |> Storage.dump_table()
+    |> Guardian.Storage.dump_table()
     |> Enum.filter(&(&1["sql"] == sql))
   end
 
@@ -26,7 +26,7 @@ defmodule Web.QueryLogTest do
     conn = Enum.reduce(headers, conn, fn {k, v}, conn -> Plug.Conn.put_req_header(conn, k, v) end)
 
     try do
-      conn = Web.MainRouter.call(conn, nil)
+      conn = Guardian.Web.MainRouter.call(conn, nil)
       {conn.status, Jason.decode!(conn.resp_body)}
     rescue
       # Plug.ErrorHandler sends the 500 response and then reraises the error.
@@ -37,19 +37,19 @@ defmodule Web.QueryLogTest do
   end
 
   defp mcp_query(sql) do
-    MCPTestClient.start()
-    {:ok, response} = MCPTestClient.call_tool("query", %{"sql" => sql})
+    Guardian.MCPTestClient.start()
+    {:ok, response} = Guardian.MCPTestClient.call_tool("query", %{"sql" => sql})
     response.result
   end
 
   defp info(caller \\ %{"interface" => "http"}) do
-    %{timestamp: Timestamp.now(), duration_native: 0, caller_fun: fn -> caller end}
+    %{timestamp: Guardian.Timestamp.now(), duration_native: 0, caller_fun: fn -> caller end}
   end
 
   describe "JSON API" do
     test "a successful query records one row, without the key or headers" do
       table = marker()
-      Engine.ingest_events(table, [%{"v" => 1}, %{"v" => 2}])
+      Guardian.Engine.ingest_events(table, [%{"v" => 1}, %{"v" => 2}])
       sql = "SELECT v FROM #{table}"
 
       assert {200, %{"rows" => [[1], [2]]}} =
@@ -66,7 +66,7 @@ defmodule Web.QueryLogTest do
       assert row["sql_bytes"] == byte_size(sql)
       assert row["sql_truncated"] == false
       assert row["dropped_before"] == 0
-      assert row["hostname"] == Utils.hostname()
+      assert row["hostname"] == Guardian.Utils.hostname()
       assert row["timestamp"] =~ ~r/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/
 
       values = row |> Map.values() |> Enum.map(&inspect/1) |> Enum.join(" ")
@@ -96,7 +96,7 @@ defmodule Web.QueryLogTest do
 
     test "a parse error returns the same 500 and records kind parse" do
       sql = "SELECT FROM #{marker()} WHERE"
-      assert {500, %{"status" => 500}, %AST.ParseError{} = error} = http_query(sql)
+      assert {500, %{"status" => 500}, %Guardian.AST.ParseError{} = error} = http_query(sql)
 
       assert [row] = rows_for(sql)
       assert row["error_kind"] == "parse"
@@ -105,7 +105,7 @@ defmodule Web.QueryLogTest do
 
     test "an internal error (500) records kind internal with the unsent message" do
       table = marker()
-      Engine.ingest_event(table, %{"a" => 1, "A" => 2})
+      Guardian.Engine.ingest_event(table, %{"a" => 1, "A" => 2})
       sql = "SELECT a FROM #{table}"
 
       assert {500, %{"status" => 500}, error} = http_query(sql)
@@ -133,14 +133,14 @@ defmodule Web.QueryLogTest do
 
     test "a stopped recorder is logged and the query still succeeds" do
       sql = "SELECT 1 FROM #{marker()}"
-      :ok = Supervisor.terminate_child(Main, QueryLog)
+      :ok = Supervisor.terminate_child(Guardian.Main, QueryLog)
 
       try do
         log = capture_log(fn -> assert {200, _} = http_query(sql) end)
         assert log =~ "Failed to record a query in queries: the recorder is not running"
         refute log =~ sql
       after
-        {:ok, _} = Supervisor.restart_child(Main, QueryLog)
+        {:ok, _} = Supervisor.restart_child(Guardian.Main, QueryLog)
       end
 
       assert rows_for(sql) == []
@@ -170,7 +170,7 @@ defmodule Web.QueryLogTest do
   describe "MCP" do
     test "a successful query records one row with the client's name" do
       table = marker()
-      Engine.ingest_events(table, [%{"v" => 1}])
+      Guardian.Engine.ingest_events(table, [%{"v" => 1}])
       sql = "SELECT v FROM #{table}"
       assert %{"isError" => false} = mcp_query(sql)
 
@@ -192,7 +192,7 @@ defmodule Web.QueryLogTest do
 
     test "an internal error (ambiguous column) records kind internal with its message" do
       table = marker()
-      Engine.ingest_event(table, %{"a" => 1, "A" => 2})
+      Guardian.Engine.ingest_event(table, %{"a" => 1, "A" => 2})
       sql = "SELECT a FROM #{table}"
 
       assert %{"isError" => true, "content" => [%{"text" => text}]} = mcp_query(sql)
@@ -208,7 +208,7 @@ defmodule Web.QueryLogTest do
     end
   end
 
-  describe "Web.Query.execute/3" do
+  describe "Guardian.Web.Query.execute/3" do
     setup do
       server = :"query_log_test_#{System.unique_integer([:positive])}"
       start_supervised!({QueryLog, name: server})
@@ -222,8 +222,8 @@ defmodule Web.QueryLogTest do
 
       log =
         capture_log(fn ->
-          assert_raise AST.ParseError, fn ->
-            Web.Query.execute(sql, fn -> exit(:caller_gone) end, opts)
+          assert_raise Guardian.AST.ParseError, fn ->
+            Guardian.Web.Query.execute(sql, fn -> exit(:caller_gone) end, opts)
           end
         end)
 
@@ -248,7 +248,7 @@ defmodule Web.QueryLogTest do
 
         assert {^kind, ^reason, ^stacktrace} =
                  (try do
-                    Web.Query.execute(sql, fn -> %{"interface" => "http"} end, opts)
+                    Guardian.Web.Query.execute(sql, fn -> %{"interface" => "http"} end, opts)
                   catch
                     caught_kind, caught_reason -> {caught_kind, caught_reason, __STACKTRACE__}
                   end)

@@ -1,4 +1,4 @@
-defmodule MCPTestClient do
+defmodule Guardian.MCPTestClient do
   @moduledoc """
   An MCP client for tests that drive Guardian's MCP endpoint end to end (Anubis
   client). It identifies itself as `guardian` version `0.1.0`, which tests read back
@@ -24,14 +24,14 @@ defmodule MCPTestClient do
   process), and waits for it to initialize: 31 checks, 100 ms apart, then raises.
 
   The client registers locally under its module name, which the calls use. Don't give
-  it a `{:global, _}` name: see `Query.DistributedStream.ClusterTest`.
+  it a `{:global, _}` name: see `Guardian.Query.DistributedStream.ClusterTest`.
   """
   def start do
     child_spec =
       child_spec(
         transport:
           {:streamable_http,
-           base_url: "http://localhost:#{Web.bound_port()}",
+           base_url: "http://localhost:#{Guardian.Web.bound_port()}",
            mcp_path: "/mcp",
            headers: %{"x-api-key" => @api_key}}
       )

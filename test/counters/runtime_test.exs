@@ -1,7 +1,7 @@
-defmodule Counters.RuntimeTest do
+defmodule Guardian.Counters.RuntimeTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog
-  import TestHelpers, only: [eventually: 1]
+  import Guardian.TestHelpers, only: [eventually: 1]
 
   @names [
     :counter_runtime_supervisor,
@@ -23,14 +23,14 @@ defmodule Counters.RuntimeTest do
         start:
           {Supervisor, :start_link,
            [
-             [{Counters.Restarter, opts}, {Task, fn -> Process.sleep(:infinity) end}],
+             [{Guardian.Counters.Restarter, opts}, {Task, fn -> Process.sleep(:infinity) end}],
              [strategy: :one_for_one, max_restarts: 1, max_seconds: 5],
            ]},
         type: :supervisor,
       })
 
     sibling = child(root, Task)
-    {root, child(root, Counters.Restarter), sibling}
+    {root, child(root, Guardian.Counters.Restarter), sibling}
   end
 
   defp child(supervisor, id) do
@@ -89,7 +89,7 @@ defmodule Counters.RuntimeTest do
       assert :sys.get_state(owner).subtree == subtree
       assert Process.alive?(root)
       assert Process.alive?(sibling)
-      assert Counters.Supervisor.available?(@counters)
+      assert Guardian.Counters.Supervisor.available?(@counters)
     end
   end
 
@@ -133,8 +133,8 @@ defmodule Counters.RuntimeTest do
     assert Process.alive?(root)
     assert Process.alive?(owner)
     assert Process.alive?(sibling)
-    assert child(root, Counters.Restarter) == owner
-    assert Counters.Supervisor.available?(@counters)
+    assert child(root, Guardian.Counters.Restarter) == owner
+    assert Guardian.Counters.Supervisor.available?(@counters)
   end
 
   test "down counters fail open and failed starts double/cap backoff without crashing the owner" do
@@ -144,19 +144,19 @@ defmodule Counters.RuntimeTest do
       capture_log(fn ->
         crash_subtree(:sys.get_state(owner).subtree)
         state = await_down(owner)
-        refute Counters.Supervisor.available?(@counters)
+        refute Guardian.Counters.Supervisor.available?(@counters)
         assert :erlang.read_timer(state.retry_timer) in 1..15_000
         assert state.next_delay == 30_000
 
         event =
-          Counters.Cluster.new_event(Counters.Cluster.new_batch(),
+          Guardian.Counters.Cluster.new_event(Guardian.Counters.Cluster.new_batch(),
             members: [node()],
             store: :counter_runtime_store,
             cooldown_table: :counter_runtime_cluster
           )
 
         key = {{"events", "hits", "hash"}, {}, 1}
-        assert Counters.Cluster.incr(key, 1, 1_000, event) == {:error, :cooldown}
+        assert Guardian.Counters.Cluster.incr(key, 1, 1_000, event) == {:error, :cooldown}
 
         # Failed linked starts return a shutdown tuple and may deliver a stray EXIT.
         :sys.replace_state(owner, fn state ->
@@ -257,13 +257,13 @@ defmodule Counters.RuntimeTest do
 
     log =
       capture_log(fn ->
-        :ok = Supervisor.terminate_child(root, Counters.Restarter)
+        :ok = Supervisor.terminate_child(root, Guardian.Counters.Restarter)
       end)
 
     refute log =~ "[error]"
     refute log =~ "Counters: subtree unavailable"
     for pid <- [owner | pids], do: refute(Process.alive?(pid))
-    refute Counters.Supervisor.available?(@counters)
+    refute Guardian.Counters.Supervisor.available?(@counters)
   end
 
   test "owner killed during old-subtree teardown retries instead of adopting the old parent" do
@@ -307,14 +307,14 @@ defmodule Counters.RuntimeTest do
       assert is_pid(fire_timer(replacement, :retry_timer, :retry).subtree)
       assert Process.alive?(root)
       assert Process.alive?(sibling)
-      assert Counters.Supervisor.available?(@counters)
+      assert Guardian.Counters.Supervisor.available?(@counters)
     end)
   end
 
   test "invalid configured store budget still refuses startup" do
     assert {:error, _} =
              start_supervised(
-               {Counters.Restarter,
+               {Guardian.Counters.Restarter,
                 name: :counter_runtime_restarter,
                 counters:
                   Keyword.put(@counters, :store,
@@ -343,7 +343,7 @@ defmodule Counters.RuntimeTest do
     refute log =~ "PRIVATE"
 
     formatted =
-      Counters.Restarter.format_status(%{
+      Guardian.Counters.Restarter.format_status(%{
         state: "PRIVATE",
         message: "PRIVATE",
         log: ["PRIVATE"],

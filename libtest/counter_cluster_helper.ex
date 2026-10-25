@@ -1,12 +1,12 @@
-defmodule CounterClusterHelper do
+defmodule Guardian.CounterClusterHelper do
   @moduledoc false
 
   def start_store(opts \\ []) do
-    Code.ensure_loaded!(Counters.Cluster)
+    Code.ensure_loaded!(Guardian.Counters.Cluster)
     caller = self()
 
     spawn(fn ->
-      send(caller, {:counter_store_started, Counters.Store.start_link(opts)})
+      send(caller, {:counter_store_started, Guardian.Counters.Store.start_link(opts)})
       Process.sleep(:infinity)
     end)
 
@@ -18,7 +18,7 @@ defmodule CounterClusterHelper do
   end
 end
 
-defmodule CounterPipelineProbe do
+defmodule Guardian.CounterPipelineProbe do
   @moduledoc false
   use GenServer
 

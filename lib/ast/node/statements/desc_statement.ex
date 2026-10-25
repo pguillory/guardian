@@ -1,11 +1,11 @@
-defmodule AST.Node.Statements.DescStatement do
-  use AST.Node
+defmodule Guardian.AST.Node.Statements.DescStatement do
+  use Guardian.AST.Node
 
   @enforce_keys [:expr]
   defstruct [:expr]
 
   def to_source(%__MODULE__{} = expr) do
-    "DESC " <> AST.unparse(expr.expr)
+    "DESC " <> Guardian.AST.unparse(expr.expr)
   end
 
   def traverse(%__MODULE__{} = expr, acc, pre, post) do

@@ -1,4 +1,4 @@
-defmodule Storage.BlobStore do
+defmodule Guardian.Storage.BlobStore do
   # Internal to Storage; see lib/storage/CLAUDE.md, "Public boundary".
   @moduledoc false
 

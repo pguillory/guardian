@@ -1,6 +1,6 @@
-defmodule AST.Unicode do
+defmodule Guardian.AST.Unicode do
   @moduledoc """
-  Code points named as `"U+XXXX"`, for `AST.StringEncoding`'s compile-time ranges and
+  Code points named as `"U+XXXX"`, for `Guardian.AST.StringEncoding`'s compile-time ranges and
   for tests.
   """
 

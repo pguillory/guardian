@@ -1,4 +1,4 @@
-defmodule Web.MCP.BodyTest do
+defmodule Guardian.Web.MCP.BodyTest do
   # Not async: capture_log sees every process's log events.
   use ExUnit.Case, async: false
 
@@ -15,7 +15,7 @@ defmodule Web.MCP.BodyTest do
 
     headers
     |> Enum.reduce(conn, fn {k, v}, conn -> Plug.Conn.put_req_header(conn, k, v) end)
-    |> Web.MainRouter.call(nil)
+    |> Guardian.Web.MainRouter.call(nil)
   end
 
   defp rejected(body) do
@@ -111,7 +111,7 @@ defmodule Web.MCP.BodyTest do
           conn =
             Plug.Test.conn(:post, "/mcp?" <> query, "{}")
             |> Plug.Conn.put_req_header("content-type", "application/json")
-            |> Web.MainRouter.call(nil)
+            |> Guardian.Web.MainRouter.call(nil)
 
           send(self(), {:status, conn.status})
         end)

@@ -1,4 +1,4 @@
-defmodule Storage.Flattening do
+defmodule Guardian.Storage.Flattening do
   @moduledoc """
   Converts between row-oriented events and columnar representation.
   """

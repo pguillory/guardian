@@ -1,4 +1,4 @@
-defmodule FakeS3 do
+defmodule Guardian.FakeS3 do
   @moduledoc """
   A small S3-compatible server for rule store tests: ListObjectsV2 (with pagination),
   GET, PUT and DELETE of objects in one bucket, `If-Match` and `If-None-Match: *`, and
@@ -57,13 +57,13 @@ defmodule FakeS3 do
     :ok
   end
 
-  @doc "The `Rules.Store` for this server, with `prefix`."
+  @doc "The `Guardian.Rules.Store` for this server, with `prefix`."
   def store(s3, prefix \\ "") do
     id = s3.access_key_id
     secret = s3.secret_access_key
 
-    {Rules.Store.S3,
-     %Rules.Store.S3{
+    {Guardian.Rules.Store.S3,
+     %Guardian.Rules.Store.S3{
        endpoint: s3.endpoint,
        bucket: s3.bucket,
        region: "auto",

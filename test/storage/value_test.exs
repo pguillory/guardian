@@ -1,5 +1,5 @@
-defmodule Storage.ValueTest do
-  import Storage.Value
+defmodule Guardian.Storage.ValueTest do
+  import Guardian.Storage.Value
   use ExUnit.Case, async: true
 
   test "limits" do

@@ -1,5 +1,5 @@
 # Vendored with lib/query/distributed_stream.ex; see the note at the top of that file.
-defimpl Enumerable, for: Query.DistributedStream do
+defimpl Enumerable, for: Guardian.Query.DistributedStream do
   def count(_) do
     {:error, __MODULE__}
   end
@@ -13,7 +13,7 @@ defimpl Enumerable, for: Query.DistributedStream do
   end
 
   def reduce(distributed_stream, acc, fun) do
-    stream = Query.DistributedStream.fan_in(distributed_stream)
+    stream = Guardian.Query.DistributedStream.fan_in(distributed_stream)
     Enumerable.reduce(stream, acc, fun)
   end
 end

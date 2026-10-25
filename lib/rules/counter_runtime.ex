@@ -1,6 +1,6 @@
-defmodule Rules.CounterRuntime do
+defmodule Guardian.Rules.CounterRuntime do
   @moduledoc "Bucket expansion and combination for resolved TRACK/LOOKUP counter plans."
-  alias Counters.{Aggregate, KeyMachines, Machine}
+  alias Guardian.Counters.{Aggregate, KeyMachines, Machine}
 
   @counts [{"count", 0}, {"count", 1}]
 

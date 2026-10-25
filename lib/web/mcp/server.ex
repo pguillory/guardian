@@ -1,4 +1,4 @@
-defmodule Web.MCP.Server do
+defmodule Guardian.Web.MCP.Server do
   @moduledoc """
   MCP (Model Context Protocol) server for Guardian.
 
@@ -9,7 +9,7 @@ defmodule Web.MCP.Server do
   - `query` - Execute SQL queries, returns list of maps
   - `send_events` - Ingest events independently, returns ordered per-event results
   - `list_rules`, `read_rule`, `write_rule`, `delete_rule` - Manage ingest-time rules
-    (`Rules`)
+    (`Guardian.Rules`)
 
   ## Resources
 
@@ -181,7 +181,7 @@ defmodule Web.MCP.Server do
   @impl true
   def handle_tool_call("send_events", params, frame) do
     response =
-      case Web.Ingest.send_events(params) do
+      case Guardian.Web.Ingest.send_events(params) do
         {:ok, result} -> Response.tool() |> Response.json(result)
         {:error, message} -> Response.tool() |> Response.error(message)
         {:error, _status, message} -> Response.tool() |> Response.error(message)
@@ -191,29 +191,31 @@ defmodule Web.MCP.Server do
   end
 
   def handle_tool_call("list_rules", params, frame) do
-    reply(frame, Rules.list_rules(Map.get(params, :table)))
+    reply(frame, Guardian.Rules.list_rules(Map.get(params, :table)))
   end
 
   def handle_tool_call("read_rule", %{table: table, name: name}, frame) do
-    case Rules.read_rule(table, name) do
+    case Guardian.Rules.read_rule(table, name) do
       {:ok, source} -> reply(frame, {:ok, %{table: table, name: name, source: source}})
       error -> reply(frame, error)
     end
   end
 
   def handle_tool_call("write_rule", %{table: table, name: name, source: source}, frame) do
-    reply(frame, rule_write_result(Rules.write_rule(table, name, source)))
+    reply(frame, rule_write_result(Guardian.Rules.write_rule(table, name, source)))
   end
 
   def handle_tool_call("delete_rule", %{table: table, name: name}, frame) do
-    reply(frame, rule_write_result(Rules.delete_rule(table, name)))
+    reply(frame, rule_write_result(Guardian.Rules.delete_rule(table, name)))
   end
 
   def handle_tool_call("query", %{sql: sql}, frame) do
     try do
       # Every query is recorded in queries; parse failures also in query_parse_errors,
       # and reraised unchanged.
-      case Web.Query.execute(sql, fn -> Web.QueryParseErrors.mcp_caller(frame) end) do
+      case Guardian.Web.Query.execute(sql, fn ->
+             Guardian.Web.QueryParseErrors.mcp_caller(frame)
+           end) do
         {:ok, columns, rows} ->
           result =
             Enum.map(rows, fn row ->

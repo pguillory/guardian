@@ -1,9 +1,9 @@
-defmodule Query.Function.RandomTest do
-  use Query.EvaluationTestCase, async: true
-  alias Storage.Column
+defmodule Guardian.Query.Function.RandomTest do
+  use Guardian.Query.EvaluationTestCase, async: true
+  alias Guardian.Storage.Column
 
   test "random/0" do
-    [a, b] = Query.Evaluation.eval(snapshot([%{}, %{}]), "random()") |> Column.to_list()
+    [a, b] = Guardian.Query.Evaluation.eval(snapshot([%{}, %{}]), "random()") |> Column.to_list()
     assert is_float(a) and a >= 0.0 and a <= 1.0
     assert is_float(b) and b >= 0.0 and b <= 1.0
     assert a != b

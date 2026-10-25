@@ -1,4 +1,4 @@
-defmodule Counters.Aggregate do
+defmodule Guardian.Counters.Aggregate do
   @moduledoc """
   Pure, mergeable states for counter buckets, independent of query execution.
 
@@ -80,7 +80,7 @@ defmodule Counters.Aggregate do
   def merge({"sum", 1}, left, nil), do: left
 
   def merge({"sum", 1}, left, right) when is_integer(left) and is_integer(right) do
-    Query.Numeric.wrap(left + right)
+    Guardian.Query.Numeric.wrap(left + right)
   end
 
   def merge({"sum", 1}, left, right) do
@@ -93,11 +93,11 @@ defmodule Counters.Aggregate do
   def merge(operator, left, nil) when operator in @extremes, do: left
 
   def merge({"min", 1}, left, right) do
-    if Aggregation.Ordering.wins?(:min, left, right), do: left, else: right
+    if Guardian.Aggregation.Ordering.wins?(:min, left, right), do: left, else: right
   end
 
   def merge({"max", 1}, left, right) do
-    if Aggregation.Ordering.wins?(:max, left, right), do: left, else: right
+    if Guardian.Aggregation.Ordering.wins?(:max, left, right), do: left, else: right
   end
 
   def merge({"avg", 1}, {_sum, 0}, right), do: right
@@ -113,7 +113,9 @@ defmodule Counters.Aggregate do
 
   @doc "Resolves a merged window state to its storage-safe result."
   @spec resolve(operator(), term()) :: term()
-  def resolve(operator, state) when operator in @counts, do: Query.Numeric.int64_or_nil(state)
+  def resolve(operator, state) when operator in @counts,
+    do: Guardian.Query.Numeric.int64_or_nil(state)
+
   def resolve({"count_distinct", 1}, state), do: state |> Hypex.cardinality() |> round()
   def resolve(operator, :overflow) when operator in @numeric, do: nil
   def resolve({"sum", 1}, state), do: state

@@ -1,13 +1,13 @@
-defmodule Rules.Store.Local do
+defmodule Guardian.Rules.Store.Local do
   @moduledoc """
   Rule files in a local folder: `<dir>/<table>/<name>.gsql`, and the write lock at
   `<dir>/_write.lock`. ETags are content hashes. Writes go to a temporary file that is
   renamed into place; this node's writes to the folder are serialized, so conditional
-  puts are atomic here. Each node has its own folder, so `Rules.Server` refuses
+  puts are atomic here. Each node has its own folder, so `Guardian.Rules.Server` refuses
   writes while other nodes are connected.
   """
 
-  @behaviour Rules.Store
+  @behaviour Guardian.Rules.Store
 
   @enforce_keys [:dir]
   defstruct [:dir]
@@ -141,10 +141,10 @@ defmodule Rules.Store.Local do
     :global.trans({__MODULE__, dir}, fun, [node()])
   end
 
-  # Keys come from Rules.RuleSet.key/2 (validated table and file names) or are the
+  # Keys come from Guardian.Rules.RuleSet.key/2 (validated table and file names) or are the
   # lock; anything else would escape the folder.
   defp path(%__MODULE__{dir: dir}, key) do
-    if key == "_write.lock" or match?({:ok, _, _}, Rules.RuleSet.parse_key(key)) do
+    if key == "_write.lock" or match?({:ok, _, _}, Guardian.Rules.RuleSet.parse_key(key)) do
       Path.join(dir, key)
     else
       raise ArgumentError, "invalid rule store key"

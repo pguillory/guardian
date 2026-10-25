@@ -1,49 +1,49 @@
-defmodule AST.Parser do
-  alias AST.ParseError
-  alias AST.Tokenizer
+defmodule Guardian.AST.Parser do
+  alias Guardian.AST.ParseError
+  alias Guardian.AST.Tokenizer
 
-  alias AST.Node.Operators.AddOperator
-  alias AST.Node.Operators.AndOperator
-  alias AST.Node.Operators.BetweenOperator
-  alias AST.Node.Operators.ConcatOperator
-  alias AST.Node.Operators.DivideOperator
-  alias AST.Node.Operators.EqualOperator
-  alias AST.Node.Operators.GreaterThanOperator
-  alias AST.Node.Operators.GreaterThanOrEqualOperator
-  alias AST.Node.Operators.IlikeOperator
-  alias AST.Node.Operators.InOperator
-  alias AST.Node.Operators.IsNotOperator
-  alias AST.Node.Operators.IsOperator
-  alias AST.Node.Operators.LessThanOperator
-  alias AST.Node.Operators.LessThanOrEqualOperator
-  alias AST.Node.Operators.LikeOperator
-  alias AST.Node.Operators.ListLiteral
-  alias AST.Node.Operators.MultiplyOperator
-  alias AST.Node.Operators.NegativeOperator
-  alias AST.Node.Operators.NotEqualOperator
-  alias AST.Node.Operators.NotIlikeOperator
-  alias AST.Node.Operators.NotLikeOperator
-  alias AST.Node.Operators.NotOperator
-  alias AST.Node.Operators.NotRlikeOperator
-  alias AST.Node.Operators.NullSafeEqualOperator
-  alias AST.Node.Operators.OrOperator
-  alias AST.Node.Operators.RlikeOperator
-  alias AST.Node.Operators.SubtractOperator
+  alias Guardian.AST.Node.Operators.AddOperator
+  alias Guardian.AST.Node.Operators.AndOperator
+  alias Guardian.AST.Node.Operators.BetweenOperator
+  alias Guardian.AST.Node.Operators.ConcatOperator
+  alias Guardian.AST.Node.Operators.DivideOperator
+  alias Guardian.AST.Node.Operators.EqualOperator
+  alias Guardian.AST.Node.Operators.GreaterThanOperator
+  alias Guardian.AST.Node.Operators.GreaterThanOrEqualOperator
+  alias Guardian.AST.Node.Operators.IlikeOperator
+  alias Guardian.AST.Node.Operators.InOperator
+  alias Guardian.AST.Node.Operators.IsNotOperator
+  alias Guardian.AST.Node.Operators.IsOperator
+  alias Guardian.AST.Node.Operators.LessThanOperator
+  alias Guardian.AST.Node.Operators.LessThanOrEqualOperator
+  alias Guardian.AST.Node.Operators.LikeOperator
+  alias Guardian.AST.Node.Operators.ListLiteral
+  alias Guardian.AST.Node.Operators.MultiplyOperator
+  alias Guardian.AST.Node.Operators.NegativeOperator
+  alias Guardian.AST.Node.Operators.NotEqualOperator
+  alias Guardian.AST.Node.Operators.NotIlikeOperator
+  alias Guardian.AST.Node.Operators.NotLikeOperator
+  alias Guardian.AST.Node.Operators.NotOperator
+  alias Guardian.AST.Node.Operators.NotRlikeOperator
+  alias Guardian.AST.Node.Operators.NullSafeEqualOperator
+  alias Guardian.AST.Node.Operators.OrOperator
+  alias Guardian.AST.Node.Operators.RlikeOperator
+  alias Guardian.AST.Node.Operators.SubtractOperator
 
-  alias AST.Node.As
-  alias AST.Node.Ascending
-  alias AST.Node.Descending
-  alias AST.Node.Literal
+  alias Guardian.AST.Node.As
+  alias Guardian.AST.Node.Ascending
+  alias Guardian.AST.Node.Descending
+  alias Guardian.AST.Node.Literal
 
-  alias AST.Node.Statements.DescStatement
-  alias AST.Node.Statements.LetStatement
-  alias AST.Node.Statements.LookupStatement
-  alias AST.Node.Statements.NullStatement
-  alias AST.Node.Statements.SelectStatement
-  alias AST.Node.Statements.SetStatement
-  alias AST.Node.Statements.ShowTablesStatement
-  alias AST.Node.Statements.TrackStatement
-  alias AST.Node.Statements.UnsetStatement
+  alias Guardian.AST.Node.Statements.DescStatement
+  alias Guardian.AST.Node.Statements.LetStatement
+  alias Guardian.AST.Node.Statements.LookupStatement
+  alias Guardian.AST.Node.Statements.NullStatement
+  alias Guardian.AST.Node.Statements.SelectStatement
+  alias Guardian.AST.Node.Statements.SetStatement
+  alias Guardian.AST.Node.Statements.ShowTablesStatement
+  alias Guardian.AST.Node.Statements.TrackStatement
+  alias Guardian.AST.Node.Statements.UnsetStatement
 
   # Infix and postfix operators, tightest-binding tier first. An operator's syntax is its
   # node's `symbol/0`, the spelling `to_source/1` prints: each word is a keyword token,
@@ -128,10 +128,10 @@ defmodule AST.Parser do
 
   @doc """
   Parses a rule file: SET, UNSET, TRACK and LOOKUP statements separated by
-  semicolons, empty statements allowed. `Rules.RuleSet` validates dependencies and
+  semicolons, empty statements allowed. `Guardian.Rules.RuleSet` validates dependencies and
   binds TRACK/LOOKUP identities before compilation. Returns
   `[{statement, line}]`, `line` being the 1-based line the statement starts on.
-  Raises `AST.ParseError`.
+  Raises `Guardian.AST.ParseError`.
 
   The statement words (SET, UNSET, TRACK, LOOKUP and LAST) are recognized
   by position only, not as tokenizer keywords, so they stay usable as column and
@@ -238,7 +238,7 @@ defmodule AST.Parser do
             throw {:parse_error, "UNSET takes an object path without list boundaries", tokens}
 
           true ->
-            {%AST.Node.Identifier{name: name}, rest}
+            {%Guardian.AST.Node.Identifier{name: name}, rest}
         end
 
       _ ->
@@ -254,7 +254,7 @@ defmodule AST.Parser do
                  tokens}
         end
 
-        {%AST.Node.Identifier{name: name}, rest}
+        {%Guardian.AST.Node.Identifier{name: name}, rest}
 
       _ ->
         throw {:expected, label, tokens}
@@ -263,7 +263,7 @@ defmodule AST.Parser do
 
   defp parse_rule_aggregate!(tokens) do
     case maybe_parse_function_call(tokens) do
-      {%AST.Node.AggregateFunctionCall{}, _tokens} = result -> result
+      {%Guardian.AST.Node.AggregateFunctionCall{}, _tokens} = result -> result
       _ -> throw {:expected, "aggregate function call", tokens}
     end
   end
@@ -485,7 +485,7 @@ defmodule AST.Parser do
     %AndOperator{left: previous_where_expr, right: where_expr}
   end
 
-  defp continue_case_expression(tokens, %AST.Node.Case{} = expr) do
+  defp continue_case_expression(tokens, %Guardian.AST.Node.Case{} = expr) do
     case tokens do
       [{:keyword, "WHEN"} | tokens] ->
         {when_expr, tokens} = parse_expression!(tokens)
@@ -613,19 +613,19 @@ defmodule AST.Parser do
         {:punctuation, "*"},
         {:punctuation, ")"} | tokens,
       ] ->
-        expr = %AST.Node.AggregateFunctionCall{name: "count", args: []}
+        expr = %Guardian.AST.Node.AggregateFunctionCall{name: "count", args: []}
         {expr, tokens}
 
       [{:identifier, name}, {:punctuation, "("} | tokens]
-      when name in unquote(Aggregation.names()) ->
+      when name in unquote(Guardian.Aggregation.names()) ->
         {exprs, tokens} = parse_expression_list_and_closing_parenthesis!(tokens)
 
-        unless {name, length(exprs)} in Aggregation.names_and_arities() do
+        unless {name, length(exprs)} in Guardian.Aggregation.names_and_arities() do
           throw {:parse_error, "Wrong number of parameters for aggregate function #{name}",
                  tokens_at_function}
         end
 
-        expr = %AST.Node.AggregateFunctionCall{name: name, args: exprs}
+        expr = %Guardian.AST.Node.AggregateFunctionCall{name: name, args: exprs}
         {expr, tokens}
 
       [{:identifier, "jq"}, {:punctuation, "("} | _tokens] ->
@@ -641,19 +641,19 @@ defmodule AST.Parser do
         tokens = parse_punctuation!(tokens, ",")
         {arg3, tokens} = parse_expression!(tokens)
         tokens = parse_punctuation!(tokens, ")")
-        expr = %AST.Node.FunctionCall{name: "replace", args: [arg1, arg2, arg3]}
+        expr = %Guardian.AST.Node.FunctionCall{name: "replace", args: [arg1, arg2, arg3]}
         {expr, tokens}
 
       [{:identifier, name}, {:punctuation, "("} | tokens]
-      when name in unquote(Query.Function.names()) ->
+      when name in unquote(Guardian.Query.Function.names()) ->
         {exprs, tokens} = parse_expression_list_and_closing_parenthesis!(tokens)
 
-        unless {name, length(exprs)} in Query.Function.names_and_arities() do
+        unless {name, length(exprs)} in Guardian.Query.Function.names_and_arities() do
           throw {:parse_error, "Wrong number of parameters for function #{name}",
                  tokens_at_function}
         end
 
-        expr = %AST.Node.FunctionCall{name: name, args: exprs}
+        expr = %Guardian.AST.Node.FunctionCall{name: name, args: exprs}
         {expr, tokens}
 
       [{:identifier, name}, {:punctuation, "("} | _tokens] ->
@@ -685,15 +685,15 @@ defmodule AST.Parser do
       [{:identifier, name} | tokens] ->
         case String.downcase(name) do
           "current_date" ->
-            expr = %AST.Node.FunctionCall{name: "current_date", args: []}
+            expr = %Guardian.AST.Node.FunctionCall{name: "current_date", args: []}
             {expr, tokens}
 
           "current_timestamp" ->
-            expr = %AST.Node.FunctionCall{name: "current_timestamp", args: []}
+            expr = %Guardian.AST.Node.FunctionCall{name: "current_timestamp", args: []}
             {expr, tokens}
 
           _ ->
-            expr = %AST.Node.Identifier{name: name}
+            expr = %Guardian.AST.Node.Identifier{name: name}
             {expr, tokens}
         end
 
@@ -739,7 +739,7 @@ defmodule AST.Parser do
       [{:punctuation, "("} | tokens] ->
         {expr, tokens} = parse_expression!(tokens)
         tokens = parse_punctuation!(tokens, ")")
-        expr = %AST.Node.Parentheses{expr: expr}
+        expr = %Guardian.AST.Node.Parentheses{expr: expr}
         {expr, tokens}
 
       _ ->
@@ -771,7 +771,7 @@ defmodule AST.Parser do
       [{:keyword, "INTERVAL"} | tokens] ->
         {interval_value, tokens} = parse_mysql_interval_unit!(tokens)
 
-        expr = %AST.Node.FunctionCall{
+        expr = %Guardian.AST.Node.FunctionCall{
           name: "interval",
           args: [%Literal{value: interval_value}],
         }
@@ -816,7 +816,7 @@ defmodule AST.Parser do
   defp maybe_parse_splat(tokens) do
     case tokens do
       [{:punctuation, "*"} | tokens] ->
-        expr = %AST.Node.Splat{}
+        expr = %Guardian.AST.Node.Splat{}
         {expr, tokens}
 
       _ ->
@@ -827,12 +827,12 @@ defmodule AST.Parser do
   defp maybe_parse_case_expression(tokens) do
     case tokens do
       [{:keyword, "CASE"} | [{:keyword, "WHEN"} | _] = tokens] ->
-        case_expr = %AST.Node.Case{case_exprs: [], when_exprs: [], then_exprs: []}
+        case_expr = %Guardian.AST.Node.Case{case_exprs: [], when_exprs: [], then_exprs: []}
         continue_case_expression(tokens, case_expr)
 
       [{:keyword, "CASE"} | tokens] ->
         {expr, tokens} = parse_expression!(tokens)
-        case_expr = %AST.Node.Case{case_exprs: [expr], when_exprs: [], then_exprs: []}
+        case_expr = %Guardian.AST.Node.Case{case_exprs: [expr], when_exprs: [], then_exprs: []}
         continue_case_expression(tokens, case_expr)
 
       _ ->
@@ -917,13 +917,13 @@ defmodule AST.Parser do
   defp validate_regex!(expr, tokens) do
     case expr do
       %Literal{value: value} when is_binary(value) ->
-        case Query.Regex.compile(value) do
+        case Guardian.Query.Regex.compile(value) do
           {:ok, _} ->
             expr
 
           {:error, :too_many_groups} ->
             throw {:parse_error,
-                   "Regular expression has more than #{Query.Regex.max_groups()} " <>
+                   "Regular expression has more than #{Guardian.Query.Regex.max_groups()} " <>
                      "capturing groups; use (?:...) for groups you don't capture", tokens}
 
           {:error, _} ->

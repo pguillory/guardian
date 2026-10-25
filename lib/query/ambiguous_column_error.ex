@@ -1,4 +1,4 @@
-defmodule Query.AmbiguousColumnError do
+defmodule Guardian.Query.AmbiguousColumnError do
   @moduledoc """
   Raised when a column name in a query matches more than one stored column ignoring
   case.

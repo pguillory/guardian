@@ -1,4 +1,4 @@
-defmodule Query.Function.CosineSimilarity do
+defmodule Guardian.Query.Function.CosineSimilarity do
   def eval(vector1, vector2) when is_list(vector1) and is_list(vector2) do
     ab = SuperList.reduce(vector1, vector2, 0, &(&1 * &2 + &3))
     aa = SuperList.reduce(vector1, 0, &(&1 * &1 + &2))

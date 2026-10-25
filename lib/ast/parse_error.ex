@@ -1,4 +1,4 @@
-defmodule AST.ParseError do
+defmodule Guardian.AST.ParseError do
   @enforce_keys [:reason, :row, :col]
   defstruct __exception__: true, reason: nil, row: nil, col: nil
 

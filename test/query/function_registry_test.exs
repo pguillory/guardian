@@ -1,23 +1,23 @@
-defmodule Query.FunctionRegistryTest do
+defmodule Guardian.Query.FunctionRegistryTest do
   use ExUnit.Case, async: true
 
-  alias Storage.Column
+  alias Guardian.Storage.Column
 
   # Every registered name, including aliases that share a module, must evaluate both
   # over a segment and over a single row. `interval` is reached only through the
   # INTERVAL n UNIT syntax, which supplies a string argument.
   test "every registered function evaluates under each of its names" do
-    snapshot = Query.EvaluationTestCase.snapshot([%{"v" => 1}])
+    snapshot = Guardian.Query.EvaluationTestCase.snapshot([%{"v" => 1}])
 
-    for {name, arity} <- Query.Function.names_and_arities() do
+    for {name, arity} <- Guardian.Query.Function.names_and_arities() do
       arg = if name == "interval", do: "1h", else: nil
-      args = List.duplicate(%AST.Node.Literal{value: arg}, arity)
-      expr = %AST.Node.FunctionCall{name: name, args: args}
+      args = List.duplicate(%Guardian.AST.Node.Literal{value: arg}, arity)
+      expr = %Guardian.AST.Node.FunctionCall{name: name, args: args}
 
-      assert [_] = Query.Evaluation.eval(snapshot, expr) |> Column.to_list(),
+      assert [_] = Guardian.Query.Evaluation.eval(snapshot, expr) |> Column.to_list(),
              "#{name}/#{arity} failed over a segment"
 
-      Query.Evaluation.eval(%{"v" => 1}, expr)
+      Guardian.Query.Evaluation.eval(%{"v" => 1}, expr)
     end
   end
 
@@ -35,24 +35,24 @@ defmodule Query.FunctionRegistryTest do
     # separate read could fall on the other side of a second or day boundary.
     for {source, to_expected} <- [
           {"current_timestamp", & &1},
-          {"current_date", &Query.Function.Date.eval/1},
-          {"curdate()", &Query.Function.Date.eval/1},
+          {"current_date", &Guardian.Query.Function.Date.eval/1},
+          {"curdate()", &Guardian.Query.Function.Date.eval/1},
         ] do
-      before = to_expected.(Timestamp.now())
+      before = to_expected.(Guardian.Timestamp.now())
       value = eval(source)
-      after_ = to_expected.(Timestamp.now())
+      after_ = to_expected.(Guardian.Timestamp.now())
       assert before <= value and value <= after_, source
     end
   end
 
   test "pre-evaluation keeps time aliases dynamic" do
     for source <- ["current_date", "current_timestamp"] do
-      expr = AST.parse_expression(source)
-      assert Query.Evaluation.pre_eval(expr) == expr
+      expr = Guardian.AST.parse_expression(source)
+      assert Guardian.Query.Evaluation.pre_eval(expr) == expr
     end
   end
 
   defp eval(source) do
-    Query.Evaluation.eval(%{}, AST.parse_expression(source))
+    Guardian.Query.Evaluation.eval(%{}, Guardian.AST.parse_expression(source))
   end
 end

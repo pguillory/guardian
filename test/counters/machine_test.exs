@@ -1,6 +1,6 @@
-defmodule Counters.MachineTest do
+defmodule Guardian.Counters.MachineTest do
   use ExUnit.Case, async: true
-  alias Counters.{KeyMachines, Machine}
+  alias Guardian.Counters.{KeyMachines, Machine}
 
   test "nested rounds batch independent machines and preserve empty groups and result order" do
     parent = self()

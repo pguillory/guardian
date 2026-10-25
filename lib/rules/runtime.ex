@@ -1,10 +1,10 @@
-defmodule Rules.Runtime do
+defmodule Guardian.Rules.Runtime do
   @moduledoc """
   The dependency-level dispatcher called by compiled table modules, on one event's
   flattened row (dot-notation keys, as Storage stores it).
 
   - Reads: a field the row lacks is null. Names match ignoring case: an exact key wins,
-    otherwise the first case-insensitive match in byte order (`Rules.RowIndex`). Rules read
+    otherwise the first case-insensitive match in byte order (`Guardian.Rules.RowIndex`). Rules read
     the flattened row, so an object field has no value of its own.
   - `set/2` replaces the whole top-level field, removing every column under it in any
     case (`X`, `x.y`, `x..y`), then stores the value under the statement's spelling.
@@ -12,13 +12,13 @@ defmodule Rules.Runtime do
     beneath it.
   - WHERE applies a statement only when it evaluates to `true`.
 
-  SET/UNSET failures raise `Rules.Runtime.Failure` naming the file and line, and
+  SET/UNSET failures raise `Guardian.Rules.Runtime.Failure` naming the file and line, and
   the event is not stored. Counter failures supply their operator's missing result
   and continue. Exceptions are logged by kind only (`note_failure/3`), never a value.
   Generated modules execute resolved counter plans through this same dispatcher.
   """
 
-  alias Rules.RowIndex
+  alias Guardian.Rules.RowIndex
   require Logger
 
   defmodule Failure do
@@ -38,7 +38,7 @@ defmodule Rules.Runtime do
   def finish(%RowIndex{row: row}), do: row
 
   @doc false
-  def run(row, levels, %Rules.Event{} = event) do
+  def run(row, levels, %Guardian.Rules.Event{} = event) do
     levels
     |> Enum.reduce(start(row), &level(&2, &1, event))
     |> finish()
@@ -50,8 +50,8 @@ defmodule Rules.Runtime do
     {index, counters} =
       Enum.reduce(steps, {index, []}, fn step, {index, counters} ->
         case step do
-          %Rules.Step.Set{} -> {set(index, step), counters}
-          %Rules.Step.Unset{} -> {unset(index, step), counters}
+          %Guardian.Rules.Step.Set{} -> {set(index, step), counters}
+          %Guardian.Rules.Step.Unset{} -> {unset(index, step), counters}
           _ -> {index, [prepare_counter(index, step, event) | counters]}
         end
       end)
@@ -67,7 +67,7 @@ defmodule Rules.Runtime do
       {{step, _machines, definition}, results}, index ->
         value =
           counter_guard(step, definition, fn ->
-            Rules.CounterRuntime.combine(definition.operator, results)
+            Guardian.Rules.CounterRuntime.combine(definition.operator, results)
           end)
 
         RowIndex.put_field(index, step.field, value)
@@ -75,10 +75,10 @@ defmodule Rules.Runtime do
   end
 
   defp run_counters(counters, event) do
-    Counters.Machine.run_nested(Enum.map(counters, &elem(&1, 1)), event.counters)
+    Guardian.Counters.Machine.run_nested(Enum.map(counters, &elem(&1, 1)), event.counters)
   catch
     kind, reason ->
-      failure = Engine.failure_kind(kind, reason, __STACKTRACE__)
+      failure = Guardian.Engine.failure_kind(kind, reason, __STACKTRACE__)
 
       Enum.map(counters, fn {step, machines, definition} ->
         if definition != :skip and machines != [], do: note_failure(step.file, step.line, failure)
@@ -93,16 +93,21 @@ defmodule Rules.Runtime do
       context = context(index, step.reads)
 
       if applies?(context, step.where_expr) do
-        group = step.by_exprs |> Enum.map(&Query.Evaluation.eval(context, &1)) |> List.to_tuple()
+        group =
+          step.by_exprs
+          |> Enum.map(&Guardian.Query.Evaluation.eval(context, &1))
+          |> List.to_tuple()
 
         machines =
           case step do
-            %Rules.Step.Track{} ->
-              values = Enum.map(step.aggregate_expr.args, &Query.Evaluation.eval(context, &1))
-              Rules.CounterRuntime.expand_track(definition, group, values, event)
+            %Guardian.Rules.Step.Track{} ->
+              values =
+                Enum.map(step.aggregate_expr.args, &Guardian.Query.Evaluation.eval(context, &1))
 
-            %Rules.Step.Lookup{} ->
-              Rules.CounterRuntime.expand_lookup(definition, group, event)
+              Guardian.Rules.CounterRuntime.expand_track(definition, group, values, event)
+
+            %Guardian.Rules.Step.Lookup{} ->
+              Guardian.Rules.CounterRuntime.expand_lookup(definition, group, event)
           end
 
         {step, machines, definition}
@@ -111,7 +116,12 @@ defmodule Rules.Runtime do
       end
     catch
       kind, reason ->
-        note_failure(step.file, step.line, Engine.failure_kind(kind, reason, __STACKTRACE__))
+        note_failure(
+          step.file,
+          step.line,
+          Guardian.Engine.failure_kind(kind, reason, __STACKTRACE__)
+        )
+
         {step, [], definition}
     end
   end
@@ -120,14 +130,19 @@ defmodule Rules.Runtime do
     fun.()
   catch
     kind, reason ->
-      note_failure(step.file, step.line, Engine.failure_kind(kind, reason, __STACKTRACE__))
-      Rules.CounterRuntime.missing(definition.operator)
+      note_failure(
+        step.file,
+        step.line,
+        Guardian.Engine.failure_kind(kind, reason, __STACKTRACE__)
+      )
+
+      Guardian.Rules.CounterRuntime.missing(definition.operator)
   end
 
-  defp counter_definition(%Rules.Step.Track{} = step),
-    do: Rules.CounterDefinition.from_track(step)
+  defp counter_definition(%Guardian.Rules.Step.Track{} = step),
+    do: Guardian.Rules.CounterDefinition.from_track(step)
 
-  defp counter_definition(%Rules.Step.Lookup{target: target}), do: target
+  defp counter_definition(%Guardian.Rules.Step.Lookup{target: target}), do: target
 
   def set(index, step) do
     guard(step, fn ->
@@ -135,7 +150,7 @@ defmodule Rules.Runtime do
       context = context(index, step.reads)
 
       if applies?(context, step.where_expr) do
-        value = Query.Evaluation.eval(context, step.value_expr)
+        value = Guardian.Query.Evaluation.eval(context, step.value_expr)
         RowIndex.put_field(index, step.field, value)
       else
         index
@@ -161,7 +176,7 @@ defmodule Rules.Runtime do
   """
   def note_failure(file, line, kind) do
     now = System.monotonic_time(:millisecond)
-    table = Rules.Server.failure_log_table()
+    table = Guardian.Rules.Server.failure_log_table()
 
     last =
       case :ets.whereis(table) do
@@ -186,13 +201,15 @@ defmodule Rules.Runtime do
     fun.()
   catch
     kind, reason ->
-      failure_kind = Engine.failure_kind(kind, reason, __STACKTRACE__)
+      failure_kind = Guardian.Engine.failure_kind(kind, reason, __STACKTRACE__)
       note_failure(step.file, step.line, failure_kind)
       raise Failure, file: step.file, line: step.line, kind: failure_kind
   end
 
   defp applies?(_context, nil), do: true
-  defp applies?(context, where_expr), do: Query.Evaluation.eval(context, where_expr) == true
+
+  defp applies?(context, where_expr),
+    do: Guardian.Query.Evaluation.eval(context, where_expr) == true
 
   # The row, plus each name the statement reads that has no exact key, under that
   # name, from its case-insensitive match.

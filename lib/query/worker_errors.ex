@@ -1,4 +1,4 @@
-defmodule Query.WorkerErrors do
+defmodule Guardian.Query.WorkerErrors do
   @moduledoc """
   Carries exceptions from query workers back to the query.
 
@@ -15,7 +15,7 @@ defmodule Query.WorkerErrors do
   the stream before every worker finishes; errors in work the query no longer needs
   are then ignored.)
 
-  Reports are reduced to a `Query.Error` with a bounded message (`Query.Failure.caught/3`)
+  Reports are reduced to a `Guardian.Query.Error` with a bounded message (`Guardian.Query.Failure.caught/3`)
   before they leave the worker, so they stay small on the wire and carry no raw terms.
   """
 
@@ -42,7 +42,7 @@ defmodule Query.WorkerErrors do
       catch
         kind, reason ->
           Process.put({__MODULE__, collector}, true)
-          report(collector, Query.Failure.caught(kind, reason, __STACKTRACE__))
+          report(collector, Guardian.Query.Failure.caught(kind, reason, __STACKTRACE__))
           []
       end
     end

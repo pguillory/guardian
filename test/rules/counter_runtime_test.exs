@@ -1,16 +1,21 @@
-defmodule Rules.CounterRuntimeTest do
+defmodule Guardian.Rules.CounterRuntimeTest do
   use ExUnit.Case, async: false
-  import RulesTestHelper
-  alias Counters.{Aggregate, Store}
-  alias Rules.{CounterRuntime, Event, Runtime}
+  import Guardian.RulesTestHelper
+  alias Guardian.Counters.{Aggregate, Store}
+  alias Guardian.Rules.{CounterRuntime, Event, Runtime}
 
   setup do
     store = start_supervised!({Store, name: nil})
-    start_supervised!({Counters.Cluster, name: :rules_counter_runtime_test})
+    start_supervised!({Guardian.Counters.Cluster, name: :rules_counter_runtime_test})
     %{store: store}
   end
 
-  defp event(store, batch \\ Counters.Cluster.new_batch(), arrival \\ Event.arrival(), opts \\ []) do
+  defp event(
+         store,
+         batch \\ Guardian.Counters.Cluster.new_batch(),
+         arrival \\ Event.arrival(),
+         opts \\ []
+       ) do
     Event.start(
       arrival,
       batch,
@@ -26,7 +31,7 @@ defmodule Rules.CounterRuntimeTest do
   end
 
   defp plans(files) do
-    preparation = Rules.RuleSet.prepare(files)
+    preparation = Guardian.Rules.RuleSet.prepare(files)
     assert preparation.errors == []
     Map.new(preparation.tables, fn {table, {:ok, plan}} -> {table, plan} end)
   end
@@ -39,7 +44,10 @@ defmodule Rules.CounterRuntimeTest do
   defp run(plan, row, event), do: Runtime.run(row, plan.levels, event)
 
   defp definition(plan),
-    do: plan.steps |> Enum.find(&(&1.kind == :track)) |> Rules.CounterDefinition.from_track()
+    do:
+      plan.steps
+      |> Enum.find(&(&1.kind == :track))
+      |> Guardian.Rules.CounterDefinition.from_track()
 
   test "LOOKUP barrier, SET dependencies, deduplication and the 50th event", %{store: store} do
     table = unique_table("counter_barrier")
@@ -58,7 +66,7 @@ defmodule Rules.CounterRuntimeTest do
         "#{table}/copy.gsql" => "TRACK hits = count() BY group_key LAST '1h'",
       })[table]
 
-    batch = Counters.Cluster.new_batch()
+    batch = Guardian.Counters.Cluster.new_batch()
 
     for n <- 1..50 do
       row = run(plan, %{"ip" => "A", "secret" => "private"}, event(store, batch))
@@ -218,14 +226,14 @@ defmodule Rules.CounterRuntimeTest do
     assert CounterRuntime.lookup(
              definition,
              {},
-             event(store, Counters.Cluster.new_batch(), arrival)
+             event(store, Guardian.Counters.Cluster.new_batch(), arrival)
            ) == current - first + 1
 
     assert CounterRuntime.track(
              definition,
              {},
              [],
-             event(store, Counters.Cluster.new_batch(), arrival)
+             event(store, Guardian.Counters.Cluster.new_batch(), arrival)
            ) == current - first + 2
   end
 
@@ -237,7 +245,7 @@ defmodule Rules.CounterRuntimeTest do
              definition,
              {},
              [],
-             event(store, Counters.Cluster.new_batch(), arrival)
+             event(store, Guardian.Counters.Cluster.new_batch(), arrival)
            ) == 0
 
     assert {:ok, %{keys: 0}} = Store.stats(server: store)
@@ -455,7 +463,9 @@ defmodule Rules.CounterRuntimeTest do
         )
 
       # Below the 25 ms suspicion threshold, so cooldown cannot mask a retry.
-      context = event(store, Counters.Cluster.new_batch(), Event.arrival(), timeout_ms: 20)
+      context =
+        event(store, Guardian.Counters.Cluster.new_batch(), Event.arrival(), timeout_ms: 20)
+
       assert CounterRuntime.track(definition, {}, [5], context) == nil
       assert_receive :attempt
 
@@ -546,7 +556,7 @@ defmodule Rules.CounterRuntimeTest do
              definition,
              {},
              [],
-             event(store, Counters.Cluster.new_batch(), arrival)
+             event(store, Guardian.Counters.Cluster.new_batch(), arrival)
            ) == 1
 
     assert_receive {:ttl, first}
@@ -557,7 +567,7 @@ defmodule Rules.CounterRuntimeTest do
              definition,
              {},
              [],
-             event(store, Counters.Cluster.new_batch(), older)
+             event(store, Guardian.Counters.Cluster.new_batch(), older)
            ) == 1
 
     assert_receive {:ttl, second}
@@ -631,7 +641,7 @@ defmodule Rules.CounterRuntimeTest do
              definition,
              {},
              [5],
-             event(store, Counters.Cluster.new_batch(), arrival)
+             event(store, Guardian.Counters.Cluster.new_batch(), arrival)
            ) == nil
 
     assert_receive {:gets, _}
@@ -640,7 +650,7 @@ defmodule Rules.CounterRuntimeTest do
 
   test "healthy large batches refund the budget and include every event", %{store: store} do
     definition = definition(plan("TRACK hits = count() LAST '1h'"))
-    batch = Counters.Cluster.new_batch()
+    batch = Guardian.Counters.Cluster.new_batch()
 
     for n <- 1..300,
         do: assert(CounterRuntime.track(definition, {}, [], event(store, batch)) == n)
@@ -679,7 +689,7 @@ defmodule Rules.CounterRuntimeTest do
     plan =
       plan(Enum.map_join(1..40, ";", &"TRACK c#{&1} = count() LAST '1h'") <> "; UNSET secret")
 
-    batch = Counters.Cluster.new_batch()
+    batch = Guardian.Counters.Cluster.new_batch()
     started = System.monotonic_time(:millisecond)
 
     for _ <- 1..25 do
@@ -738,7 +748,7 @@ defmodule Rules.CounterRuntimeTest do
 
     ExUnit.CaptureLog.capture_log(fn ->
       assert [{:error, _}, {:ok, %{"ok" => true}}] =
-               Rules.run_with_metadata(table, [
+               Guardian.Rules.run_with_metadata(table, [
                  {%{"die" => true}, first},
                  {%{"ok" => true}, second},
                ])
@@ -764,7 +774,7 @@ defmodule Rules.CounterRuntimeTest do
     before = System.system_time(:millisecond)
 
     assert [{:ok, ^spoofed}, {:error, "event is not a JSON object"}, {:ok, %{}}] =
-             Engine.ingest_events(table, [spoofed, false, %{}])
+             Guardian.Engine.ingest_events(table, [spoofed, false, %{}])
 
     assert_receive {:metadata, _, ^spoofed, private}
     assert private.arrival_ms >= before
@@ -772,9 +782,9 @@ defmodule Rules.CounterRuntimeTest do
     assert is_reference(private.counters.batch)
     assert_receive {:metadata, _, %{}, second}
     assert second.counters.batch == private.counters.batch
-    assert MapSet.new(Storage.dump_table(table)) == MapSet.new([spoofed, %{}])
+    assert MapSet.new(Guardian.Storage.dump_table(table)) == MapSet.new([spoofed, %{}])
     # The convenience entry captures its own private arrival and batch context.
-    assert [{:ok, %{}}] = Rules.run(table, [%{}])
+    assert [{:ok, %{}}] = Guardian.Rules.run(table, [%{}])
     assert_receive {:metadata, _, %{}, direct}
     refute direct.counters.batch == private.counters.batch
   end

@@ -1,15 +1,15 @@
-defmodule Rules.Runner do
+defmodule Guardian.Rules.Runner do
   @moduledoc """
   Runs a table's rules on a batch of flattened rows, outside the calling process.
 
   The rules run in a short-lived worker with this node's query heap limit
-  (`Query.Limits.max_heap_mb/0`, reported without the error_logger report, so no
+  (`Guardian.Query.Limits.max_heap_mb/0`, reported without the error_logger report, so no
   crash report carries an event's values). It takes the rows in order and sends back
   each row's result as it finishes. Each row has `time_limit_ms/0` (1 s): if the
   worker exceeds it or its heap limit, or dies, that row fails and a new worker goes on
   with the next row. So every row gets its own outcome, in order.
 
-  The worker reads the table's compiled module once per row (`Rules.lookup/1`), so a
+  The worker reads the table's compiled module once per row (`Guardian.Rules.lookup/1`), so a
   reload between rows applies to the rows after it; each row sees one rule set.
   Arrival coordinates come from Engine before validation, outside caller row data.
   One failed-counter-wait budget lives outside replaceable workers; each event
@@ -24,12 +24,12 @@ defmodule Rules.Runner do
   def run(_table, []), do: []
 
   def run(table, rows) do
-    run_with_metadata(table, Enum.map(rows, &{&1, Rules.Event.arrival()}))
+    run_with_metadata(table, Enum.map(rows, &{&1, Guardian.Rules.Event.arrival()}))
   end
 
   @doc false
   def run_with_metadata(table, rows) do
-    batch = Counters.Cluster.new_batch()
+    batch = Guardian.Counters.Cluster.new_batch()
 
     rows
     |> Enum.with_index()
@@ -48,7 +48,7 @@ defmodule Rules.Runner do
         limit_heap()
 
         Enum.each(rows, fn {{row, arrival}, index} ->
-          event = Rules.Event.start(arrival, batch)
+          event = Guardian.Rules.Event.start(arrival, batch)
           send(caller, {ref, index, apply_rules(table, row, event)})
         end)
       end)
@@ -88,12 +88,12 @@ defmodule Rules.Runner do
   end
 
   defp over_limit(table, kind) do
-    Rules.Runtime.note_failure("#{table}/", "-", kind)
+    Guardian.Rules.Runtime.note_failure("#{table}/", "-", kind)
     {:error, "rules for #{table} exceeded their time or memory limit; the event was not stored"}
   end
 
   defp apply_rules(table, row, event) do
-    case Rules.lookup(table) do
+    case Guardian.Rules.lookup(table) do
       nil ->
         {:ok, row}
 
@@ -104,20 +104,20 @@ defmodule Rules.Runner do
         try do
           {:ok, module.apply(row, event)}
         rescue
-          e in Rules.Runtime.Failure -> {:error, Exception.message(e)}
+          e in Guardian.Rules.Runtime.Failure -> {:error, Exception.message(e)}
         catch
-          # Anything else (Rules.Runtime catches statement failures itself) is reported
+          # Anything else (Guardian.Rules.Runtime catches statement failures itself) is reported
           # by kind only: an uncaught raise here would put the row in a crash report.
           kind, reason ->
-            failure_kind = Engine.failure_kind(kind, reason, __STACKTRACE__)
-            Rules.Runtime.note_failure("#{table}/", "-", failure_kind)
+            failure_kind = Guardian.Engine.failure_kind(kind, reason, __STACKTRACE__)
+            Guardian.Rules.Runtime.note_failure("#{table}/", "-", failure_kind)
             {:error, "rules for #{table} failed (#{failure_kind}); the event was not stored"}
         end
     end
   end
 
   defp limit_heap do
-    case Query.Limits.max_heap_mb() do
+    case Guardian.Query.Limits.max_heap_mb() do
       mb when is_integer(mb) and mb > 0 ->
         Process.flag(:max_heap_size, %{
           size: div(mb * 1024 * 1024, :erlang.system_info(:wordsize)),

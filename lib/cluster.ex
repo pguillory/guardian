@@ -1,8 +1,8 @@
-defmodule Cluster do
+defmodule Guardian.Cluster do
   @moduledoc """
   Distributed query coordination across connected Guardian nodes.
 
-  Discovery is handled by `DNSCluster`, started by `Main` when
+  Discovery is handled by `DNSCluster`, started by `Guardian.Main` when
   `:guardian, :dns_cluster_query` is set (`DNS_CLUSTER_QUERY`; on Fly.io,
   `<app>.internal` by default). Every node
   keeps its own segments on local disk; queries fan out to the nodes connected at the
@@ -17,13 +17,13 @@ defmodule Cluster do
 
   Erlang distribution comes up before Guardian's applications, so a booting peer is
   connected while it still loads segments. Asking it for schemas or segments then
-  fails, so it is left out until `Storage.ready?/0` answers `true`, like a peer that
-  is not connected. A peer that fails or does
-  not answer within #{@ready_timeout} ms is left out as well.
+  fails, so it is left out until `Guardian.Storage.ready?/0` answers `true`, like a
+  peer that is not connected. A peer that fails or does not answer within
+  #{@ready_timeout} ms is left out as well.
   """
   def connected_nodes do
     peers = Node.list()
-    answers = :erpc.multicall(peers, Storage, :ready?, [], @ready_timeout)
+    answers = :erpc.multicall(peers, Guardian.Storage, :ready?, [], @ready_timeout)
     ready_peers = for {peer, {:ok, true}} <- Enum.zip(peers, answers), do: peer
     [Node.self() | ready_peers]
   end

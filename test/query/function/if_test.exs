@@ -1,5 +1,5 @@
-defmodule Query.Function.IfTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Query.Function.IfTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "if function" do
     assert eval("if(null, 1, 2)") === nil

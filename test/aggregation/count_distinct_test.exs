@@ -1,5 +1,5 @@
-defmodule Aggregation.CountDistinctTest do
-  use Query.EvaluationTestCase, async: true
+defmodule Guardian.Aggregation.CountDistinctTest do
+  use Guardian.Query.EvaluationTestCase, async: true
 
   test "count_distinct" do
     assert eval_aggregate("count_distinct(x)", []) == 0
