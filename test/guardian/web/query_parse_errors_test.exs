@@ -28,15 +28,8 @@ defmodule Guardian.Web.QueryParseErrorsTest do
 
     conn = Enum.reduce(headers, conn, fn {k, v}, conn -> Plug.Conn.put_req_header(conn, k, v) end)
 
-    try do
-      conn = Guardian.Web.MainRouter.call(conn, nil)
-      {conn.status, Jason.decode!(conn.resp_body)}
-    rescue
-      # Plug.ErrorHandler sends the 500 response and then reraises the error.
-      e in Plug.Conn.WrapperError ->
-        assert_received {_ref, {status, _headers, body}}
-        {status, Jason.decode!(body), e.reason}
-    end
+    conn = Guardian.Web.MainRouter.call(conn, nil)
+    {conn.status, Jason.decode!(conn.resp_body)}
   end
 
   defp parse_message(sql) do
@@ -52,7 +45,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
     test "a parse error returns the same 500 and records one row" do
       sql = bad_sql()
 
-      assert {500, %{"status" => 500}, %Guardian.AST.ParseError{}} =
+      assert {500, %{"status" => 500}} =
                http_query(sql, [{"user-agent", "test-agent/1"}, {"x-forwarded-for", "9.9.9.9"}])
 
       assert [row] = rows_for(sql)
@@ -88,7 +81,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       try do
         log =
           capture_log(fn ->
-            assert {500, %{"status" => 500}, %Guardian.AST.ParseError{}} = http_query(sql)
+            assert {500, %{"status" => 500}} = http_query(sql)
           end)
 
         assert log =~ "Failed to record a http query parse error: the recorder is not running"
@@ -106,7 +99,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
 
       try do
         {micros, result} = :timer.tc(fn -> http_query(sql) end)
-        assert {500, %{"status" => 500}, %Guardian.AST.ParseError{}} = result
+        assert {500, %{"status" => 500}} = result
         assert micros < 1_000_000
       after
         :ok = :sys.resume(pid)

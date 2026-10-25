@@ -310,7 +310,10 @@ defmodule Guardian.Rules.ServerTest do
     end
 
     def put(_config, _key, source, _condition) do
-      raise("cannot save #{source}")
+      # Fun frames are valid BEAM stack entries but are not MFA four-tuples.
+      # Their closure and arguments can both carry the rule source.
+      frame = {fn -> source end, [source], []}
+      :erlang.raise(:error, %RuntimeError{message: "cannot save #{source}"}, [frame])
     end
 
     defp clause(:never) do

@@ -59,6 +59,10 @@ synchronous, because MCP tool calls run inside Anubis's shared server process an
 stalled Storage write would block every MCP request. Bounds (16 KiB SQL, 1 KiB error,
 256-byte caller fields, 60 rows per machine per hour) are in that module.
 
+Keep application failures inside `Guardian.Web.JsonApi.call/2`, logging at most kind
+and a generated ID; never restore Plug.ErrorHandler's raw reraising or print errors.
+Pass Bandit transport/protocol errors through to its own cleanup and quiet logging.
+
 `Guardian.Web.Query.execute/3` also records every query, whatever its outcome, in the `queries`
 table through `Guardian.Web.QueryLog.record/4`, a cast to the `Guardian.Web.QueryLog` GenServer under the
 same never-synchronous rule. It catches raises, exits and throws and reraises them

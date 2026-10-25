@@ -25,8 +25,8 @@ Assets, roughly in order of value:
 2. Caller query text: by design kept for every query run over the JSON API or MCP,
    in `queries`, and for queries that fail to parse, in `query_parse_errors`, for the
    15-day retention period (and in any backup or volume
-   snapshot for as long as that is kept, section 7). Fragments of JSON API queries
-   also reach the server log through printed errors (section 8).
+   snapshot for as long as that is kept, section 7). The JSON API catches failures
+   without printing their query text; other crash reports remain a gap (section 8).
 3. The API key (`GUARDIAN_API_KEY`): the only credential for the HTTP and MCP
    interfaces.
 4. The Erlang cookie (`RELEASE_COOKIE`): grants full code execution on every node to
@@ -755,10 +755,23 @@ Where data goes:
    so neither the key nor any other header value.
 4. `system_stats` records VM metrics and counter process availability; no request data.
 5. stdout (on Fly, Fly's log stream) receives more caller data than the tables do:
-   - `Guardian.Web.JsonApi.handle_errors/2` prints every exception in full. Parse errors carry
-     SQL fragments. Body failures (malformed JSON 400, too large 413, wrong content type
+   - `Guardian.Web.JsonApi.call/2` catches JSON application failures, including wrapped
+     route failures, and returns the error response without reraising into Bandit.
+     For unwrapped failures before routing, HTTP/1 responses close the connection:
+     the original connection lacks the parser's updated body-reader state, so it
+     must not drain the body again. HTTP/2 completes or resets its own stream.
+     Generic failures log only their kind (`Guardian.Engine.failure_kind/3`) and a
+     server-generated random error ID through Logger at error level, never their
+     message, stack, SQL or event data. A failure after a response was sent logs the
+     same safe line without sending again, then raises a replacement exception
+     containing only that line and an empty stack so Bandit can close safely (it
+     may repeat the safe diagnostic). The bare 500 response is unchanged and
+     carries no ID. Body failures (malformed JSON 400, too large 413, wrong content type
      415), a `/query` body without a string `query` (400), and an undecodable query
      string (400) are answered without printing.
+     Bandit transport/protocol exceptions pass through unchanged to Bandit's own
+     status, cleanup and logging policy, so client disconnects and read timeouts
+     do not become generic application failures.
    - `Guardian.Engine` logs an ingestion crash by table, failure kind (`Guardian.Engine.failure_kind/3`)
      and stack trace with each call's arguments replaced by its arity, so neither the
      exception's message nor the event values passed to the failing function are
@@ -787,7 +800,9 @@ Where data goes:
      `handle_info/2` re-raise a failure as an error naming only its kind, with a
      stack of arities, because OTP adds the raw stack, arguments included, after
      `format_status/1`. `Guardian.Rules.Server.write/3` turns the call's exit into an error
-     without logging the exit reason, which carries the message. Proc_lib and
+     without logging the exit reason, which carries the message. Unknown stack-frame
+     shapes, including fun frames whose closure can hold rule source, become a fixed
+     redacted MFA frame rather than passing through unchanged. Proc_lib and
      supervisor reports (which include the message queue) are SASL reports, which
      Logger drops in this configuration. One gap, by design: with `:sys.log/2` on,
      `:sys.get_status/1` also returns OTP's raw debug log, unredacted, and the
@@ -836,7 +851,12 @@ Anubis does not log; rejected bodies are logged as size, reason, and a known met
 name only, never caller-chosen strings.
 
 The remaining stdout leaks above are accepted: they are bounded by error frequency
-and reach only operators. `IO.puts` in `Guardian.Web.JsonApi` bypasses the Logger level.
+and reach only operators. HTTP/Bandit failures outside the JSON boundary and MCP
+retain their existing logging behavior. Original caught JSON application failures no longer
+reach Bandit's exception log or exception telemetry. Plug's router dispatch telemetry
+still emits raw reasons, stacks and connection data before the JSON boundary catches
+them; privileged in-process telemetry handlers can read those. Guardian attaches no
+telemetry handlers. Installing one has the same trust as running code inside the VM.
 
 Failed authentication is not logged anywhere (4.2.4).
 
@@ -870,8 +890,9 @@ Open gaps named above, by boundary:
 15. B4: the image carries a build-time cookie, used by a single node (6.5.3).
 16. B5: secrets end up in any Erlang crash dump (7.2), the rule store's S3 secret
     included.
-17. B7: caller data reaches stdout in printed errors and crash reports, and the
-    `referer` header is stored verbatim (4.1.3, 8).
+17. B7: caller data can reach stdout in failures outside the JSON application
+    boundary and OTP crash reports, and the `referer` header is stored verbatim
+    (4.1.3, 8).
 18. B3: rules can slow a table's ingestion by up to a second per event; the rule
     write lock is a lease, not a fence; direct writers to the rule store bypass the
     API key (5.2.8).

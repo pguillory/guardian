@@ -282,7 +282,7 @@ defmodule Guardian.Storage.SegmentTest do
     end
 
     test "later appends keep the first row's timer" do
-      {:ok, segment} = start_link(max_age_ms: 100, max_age_owner: self())
+      {:ok, segment} = start_link(max_age_ms: 60_000, max_age_owner: self())
       :ok = segment_append(segment, %{"a" => 1})
       timer = :sys.get_state(segment).age_timer
       assert is_reference(timer)
@@ -290,7 +290,11 @@ defmodule Guardian.Storage.SegmentTest do
       :ok = segment_append(segment, %{"a" => 2})
       assert :sys.get_state(segment).age_timer == timer
 
+      # Test timer identity independently of scheduler delays between appends.
+      send(segment, :max_age)
       assert_receive {:segment_max_age, ^segment}, 1000
+      assert Process.read_timer(timer) == false
+      assert full(segment) == {:ok, true}
       assert get_row(segment, 0) == {:ok, %{"a" => 1}}
       assert get_row(segment, 1) == {:ok, %{"a" => 2}}
     end

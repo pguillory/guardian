@@ -237,18 +237,13 @@ defmodule Guardian.Web.JsonApiTest do
       refute inspect(rows) =~ @api_key
     end
 
-    # The status and `info` of an error response. The auth plug sends it and halts; for
-    # errors answered by handle_errors/2, Plug.ErrorHandler sends it and then reraises.
+    # Both authentication and the JSON failure boundary send a response and halt.
     defp error_response(path, body, headers) do
       conn = raw_post(path, body, headers)
       assert conn.halted
-      # Consume the response message Plug.Test sends, as the rescue below does.
+      # Consume the response message Plug.Test sends.
       assert_received {_ref, {_status, _headers, _body}}
       {conn.status, Jason.decode!(conn.resp_body)["info"]}
-    rescue
-      Plug.Conn.WrapperError ->
-        assert_received {_ref, {status, _headers, body}}
-        {status, Jason.decode!(body)["info"]}
     end
 
     test "with a key, body failures get 400, 413, or 415 with a fixed message" do
@@ -365,6 +360,186 @@ defmodule Guardian.Web.JsonApiTest do
       assert conn.status == 204
       assert Plug.Conn.get_resp_header(conn, "access-control-allow-origin") != []
     end
+  end
+
+  test "generic failures log only their kind and a generated ID, never values or stacks" do
+    marker = "JSON_FAILURE_SECRET_8264"
+    stack = [{__MODULE__, :failure, [marker], [file: String.to_charlist(marker), line: 7]}]
+
+    for {kind, reason, expected} <- [
+          {:error, %RuntimeError{message: marker}, "RuntimeError"},
+          {:exit, {:failed, marker}, "exit :failed"},
+          {:throw, %{secret: marker}, "throw"},
+        ] do
+      stdout =
+        ExUnit.CaptureIO.capture_io(fn ->
+          log =
+            ExUnit.CaptureLog.capture_log([level: :error], fn ->
+              conn =
+                Guardian.Web.JsonApi.handle_errors(
+                  Plug.Test.conn(:get, "/"),
+                  %{kind: kind, reason: reason, stack: stack}
+                )
+
+              assert conn.status == 500
+              assert Jason.decode!(conn.resp_body) == %{"status" => 500}
+            end)
+
+          assert log =~ ~r/JSON API failure kind=#{Regex.escape(expected)} id=[0-9a-f]{16}\b/
+          refute log =~ marker
+          refute log =~ "failure/"
+        end)
+
+      assert stdout == ""
+    end
+  end
+
+  test "a response already sent is preserved when the JSON boundary catches a failure" do
+    conn =
+      Plug.Test.conn(:get, "/status")
+      |> Plug.Conn.put_req_header("x-api-key", @api_key)
+      |> Plug.Conn.send_resp(202, "already sent")
+
+    log =
+      ExUnit.CaptureLog.capture_log([level: :error], fn ->
+        error = assert_raise RuntimeError, fn -> Guardian.Web.JsonApi.call(conn, []) end
+        assert error.message =~ "JSON API failure kind=Plug.Conn.AlreadySentError id="
+        assert_received {_ref, {202, _headers, "already sent"}}
+        refute_received {_ref, {_status, _headers, _body}}
+      end)
+
+    assert log =~ "JSON API failure kind=Plug.Conn.AlreadySentError id="
+  end
+
+  test "unwrapped body failures explicitly close HTTP/1 connections" do
+    conn =
+      Plug.Test.conn(:post, "/query", "{malformed")
+      |> Plug.Conn.put_req_header("x-api-key", @api_key)
+      |> Plug.Conn.put_req_header("content-type", "application/json")
+      |> Guardian.Web.JsonApi.call([])
+
+    assert conn.status == 400
+    assert Plug.Conn.get_resp_header(conn, "connection") == ["close"]
+  end
+
+  test "transport and protocol failures retain Bandit's handling before and inside routes" do
+    for authenticated? <- [false, true],
+        error <- [
+          %Bandit.TransportError{message: "client closed", error: :closed},
+          %Bandit.HTTPError{message: "read timed out", plug_status: :request_timeout},
+        ] do
+      conn = Plug.Test.conn(:get, "/status")
+
+      conn =
+        if authenticated?, do: Plug.Conn.put_req_header(conn, "x-api-key", @api_key), else: conn
+
+      conn = Plug.Conn.register_before_send(conn, fn _conn -> raise error end)
+
+      log =
+        ExUnit.CaptureLog.capture_log([level: :error], fn ->
+          caught = assert_raise error.__struct__, fn -> Guardian.Web.JsonApi.call(conn, []) end
+          assert caught == error
+        end)
+
+      refute log =~ "JSON API failure"
+    end
+  end
+
+  test "a split malformed body with Expect closes promptly on the real HTTP listener" do
+    {:ok, socket} =
+      :gen_tcp.connect({127, 0, 0, 1}, Guardian.Web.bound_port(), [:binary, active: false], 2000)
+
+    on_exit(fn -> :gen_tcp.close(socket) end)
+    body = "[" <> String.duplicate(" ", 70_000) <> "BODY_SECRET_9421"
+
+    log =
+      ExUnit.CaptureLog.capture_log([level: :error], fn ->
+        :ok =
+          :gen_tcp.send(socket, [
+            "POST /api/json/query HTTP/1.1\r\nHost: localhost\r\n",
+            "x-api-key: ",
+            @api_key,
+            "\r\nContent-Type: application/json\r\n",
+            "Content-Length: ",
+            Integer.to_string(byte_size(body)),
+            "\r\n",
+            "Expect: 100-continue\r\n\r\n",
+          ])
+
+        # The interim response proves Bandit consumed the headers before any body
+        # bytes arrived. The direct boundary test above separately pins our close
+        # header: Bandit also closes a stale adapter with an unhonored Expect flag.
+        assert receive_headers(socket, "") =~ "HTTP/1.1 100 Continue\r\n"
+        :ok = :gen_tcp.send(socket, body)
+        response = receive_until_closed(socket, "")
+        assert response =~ "HTTP/1.1 400 Bad Request"
+        assert response =~ "connection: close"
+        assert response =~ "malformed JSON body"
+        Logger.flush()
+      end)
+
+    refute log =~ "BODY_SECRET_9421"
+    refute log =~ "JSON API failure"
+  end
+
+  defp receive_headers(socket, acc) do
+    if String.ends_with?(acc, "\r\n\r\n") do
+      acc
+    else
+      assert {:ok, bytes} = :gen_tcp.recv(socket, 0, 5000)
+      receive_headers(socket, acc <> bytes)
+    end
+  end
+
+  defp receive_until_closed(socket, acc) do
+    case :gen_tcp.recv(socket, 0, 5000) do
+      {:ok, bytes} -> receive_until_closed(socket, acc <> bytes)
+      {:error, :closed} -> acc
+      other -> flunk("expected the HTTP connection to close, got #{inspect(other)}")
+    end
+  end
+
+  test "a parse failure stays inside the JSON boundary without printing SQL" do
+    marker = "json_sql_secret_#{System.unique_integer([:positive])}"
+
+    stdout =
+      ExUnit.CaptureIO.capture_io(fn ->
+        log =
+          ExUnit.CaptureLog.capture_log([level: :error], fn ->
+            assert json_post("/api/json/query",
+                     api_key: @api_key,
+                     query: "SELECT FROM #{marker}"
+                   ) == %{"status" => 500}
+          end)
+
+        assert log =~ "JSON API failure kind=Guardian.AST.ParseError id="
+        refute log =~ marker
+      end)
+
+    assert stdout == ""
+  end
+
+  test "the real HTTP listener logs no raw parse failure or Bandit exception" do
+    marker = "json_listener_secret_#{System.unique_integer([:positive])}"
+
+    log =
+      ExUnit.CaptureLog.capture_log([level: :error], fn ->
+        response =
+          Req.post!("http://127.0.0.1:#{Guardian.Web.bound_port()}/api/json/query",
+            headers: [{"x-api-key", @api_key}],
+            json: %{query: "SELECT FROM #{marker}"},
+            retry: false
+          )
+
+        assert response.status == 500
+        assert response.body == %{"status" => 500}
+        Logger.flush()
+      end)
+
+    assert log =~ ~r/JSON API failure kind=Guardian.AST.ParseError id=[0-9a-f]{16}\b/
+    refute log =~ marker
+    refute log =~ "Parse error on line"
+    refute log =~ "** ("
   end
 
   test "/api/json/query" do

@@ -73,7 +73,8 @@ Rules to keep:
    (`init/1` and each `handle_*`) behind `scrubbed/1`, and keep sources out of new
    state fields or messages unless `format_status/1` redacts them. Plans and bare
    typed steps are redacted before the generic struct case, including their AST
-   constants as well as canonical source.
+   constants as well as canonical source. Unknown stack-frame shapes must become a
+   fixed redacted frame, never pass through with their closures or argument values.
 6. Validation is whole-set and a write is refused only for errors it adds
    (`Guardian.Rules.RuleSet.new_errors/2`, ignoring lines), so broken sets stay repairable.
 7. Rules fail closed: a statement that raises, or an event over its time or heap

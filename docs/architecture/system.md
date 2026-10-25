@@ -1041,7 +1041,10 @@ means an anonymous client cannot make the server parse anything.
    `Guardian.Query.run/1` from the request process (which runs the query in its own process),
    and returns labels and rows, which `/query` sends as `{columns, rows}`. A wrong
    statement count or a `Guardian.Query.Error` from running comes back as an error message and
-   becomes 400; other exceptions become a bare 500 and are printed to stdout.
+   becomes 400; other exceptions become a bare 500 and log only the failure kind
+   and a generated error ID. The JSON router catches application failures before Bandit can
+   print their messages or stacks. Unwrapped failures before routing close HTTP/1
+   connections rather than draining a body whose reader state is no longer current.
 3. `Guardian.Web.Logger` writes a `web_requests` row before the handler and a `web_responses`
    row before the response is sent, for authenticated requests only. Both carry
    `auth_method`, `header` or `query`, from the key check.

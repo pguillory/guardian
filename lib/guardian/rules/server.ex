@@ -689,13 +689,23 @@ defmodule Guardian.Rules.Server do
     "term"
   end
 
-  defp redact_frame({module, function, args, location}) do
+  defp redact_frame({module, function, args, location})
+       when is_atom(module) and is_atom(function) and
+              (is_list(args) or (is_integer(args) and args >= 0)) and is_list(location) do
     arity = if is_list(args), do: length(args), else: args
-    {module, function, arity, Keyword.take(location, [:file, :line])}
+
+    location =
+      Enum.filter(location, fn
+        {:file, file} when is_list(file) -> Enum.all?(file, &is_integer/1)
+        {:line, line} when is_integer(line) and line >= 0 -> true
+        _ -> false
+      end)
+
+    {module, function, arity, location}
   end
 
-  defp redact_frame(frame) do
-    frame
+  defp redact_frame(_frame) do
+    {__MODULE__, :redacted, 0, []}
   end
 
   ## Logging

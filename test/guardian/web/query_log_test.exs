@@ -27,15 +27,8 @@ defmodule Guardian.Web.QueryLogTest do
 
     conn = Enum.reduce(headers, conn, fn {k, v}, conn -> Plug.Conn.put_req_header(conn, k, v) end)
 
-    try do
-      conn = Guardian.Web.MainRouter.call(conn, nil)
-      {conn.status, Jason.decode!(conn.resp_body)}
-    rescue
-      # Plug.ErrorHandler sends the 500 response and then reraises the error.
-      e in Plug.Conn.WrapperError ->
-        assert_received {_ref, {status, _headers, body}}
-        {status, Jason.decode!(body), e.reason}
-    end
+    conn = Guardian.Web.MainRouter.call(conn, nil)
+    {conn.status, Jason.decode!(conn.resp_body)}
   end
 
   defp mcp_query(sql) do
@@ -98,7 +91,10 @@ defmodule Guardian.Web.QueryLogTest do
 
     test "a parse error returns the same 500 and records kind parse" do
       sql = "SELECT FROM #{marker()} WHERE"
-      assert {500, %{"status" => 500}, %Guardian.AST.ParseError{} = error} = http_query(sql)
+      assert {500, %{"status" => 500}} = http_query(sql)
+
+      # Resolve independently: the JSON boundary no longer exposes the exception.
+      error = assert_raise Guardian.AST.ParseError, fn -> Guardian.Query.Resolver.resolve(sql) end
 
       assert [row] = rows_for(sql)
       assert row["error_kind"] == "parse"
@@ -110,7 +106,14 @@ defmodule Guardian.Web.QueryLogTest do
       Guardian.Engine.ingest_event(table, %{"a" => 1, "A" => 2})
       sql = "SELECT a FROM #{table}"
 
-      assert {500, %{"status" => 500}, error} = http_query(sql)
+      assert {500, %{"status" => 500}} = http_query(sql)
+
+      # Resolve independently to retain the exact recorded-message assertion.
+      error =
+        assert_raise Guardian.Query.AmbiguousColumnError, fn ->
+          Guardian.Query.Resolver.resolve(sql)
+        end
+
       assert [row] = rows_for(sql)
       assert row["error_kind"] == "internal"
       assert row["error"] == Exception.message(error)

@@ -5,6 +5,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Storage and ingestion
 
+- [ ] decode-path-hardening: define how malformed quoted paths should fail when
+      decoding stored column names; normal ingestion generates valid encoded paths
+      (`docs/changes/bugs-03.md`)
 - [x] ingest-idempotency: optional client keys suppress matching same-node batch
       retries with short-lived, bounded in-memory receipts; availability first
       (`docs/changes/ingest-idempotency.md`)
@@ -187,6 +190,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Interfaces and operations
 
+- [x] bugs-03: worktree-safe hook installation, conservative rules crash-frame
+      redaction, deterministic segment timer coverage, and JSON failure logging
+      without exception data (`docs/changes/bugs-03.md`)
 - [x] guardian-alias-readability: use local aliases in dense repeated module call sites
       (`docs/changes/guardian-namespace.md`)
 - [x] guardian-test-module-names: align legacy test declarations with their subsystem

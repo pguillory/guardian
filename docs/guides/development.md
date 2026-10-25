@@ -52,6 +52,14 @@ bin/install-git-hooks
 `mix deps.get` fetches the dev dependencies too, and the formatter needs them
 (`freedom_formatter` is a dev-only plugin), so run it without `--only`.
 `bin/install-git-hooks` links `bin/pre-commit` as the repository's pre-commit hook.
+It works from linked worktrees and honors a repository-local `core.hooksPath`,
+including relative paths. It refuses a hooks path configured outside the repository's
+local/worktree configuration, so it cannot replace a shared global hook. The link
+targets the main checkout's `bin/pre-commit` and checks whichever worktree is being
+committed. With the default or an absolute hooks path, it survives removal of the
+installing worktree; a relative hooksPath lives inside each worktree. Changes to the hook on
+a branch therefore need to be run directly to test that branch's version. A layout
+without an executable `bin/pre-commit` beside the common Git directory is refused.
 
 ## Checks
 

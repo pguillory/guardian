@@ -85,9 +85,11 @@ Guardian is also a producer of its own tables:
    which keeps the text of every query that failed to parse (up to 16 KiB each), for
    the retention period. Callers should not put secrets in query text. Since there is
    one key and one user, this stores a caller's data for the same principal, not for
-   someone else. These are meant to be the only places Guardian keeps query text;
-   today fragments of JSON API queries also reach the server log in printed error
-   messages.
+   someone else. These are meant to be the only places Guardian keeps query text.
+   Application failures caught inside the JSON API log at most their kind and a
+   server-generated error ID, without printing query text, exception messages, or
+   stack traces. Failures outside that boundary and OTP crash reports retain the
+   logging limits described in the security architecture.
    Production logs at info, so MCP messages (query text, event payloads) are not
    logged.
 3. Rotation: The key can change at any time without touching stored data; a node
