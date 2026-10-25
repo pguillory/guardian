@@ -3,7 +3,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
   import Guardian.RulesTestHelper
   alias Guardian.Aggregation
   alias Guardian.Counters.Store
-  alias Guardian.Rules.{CounterRuntime, Event, Runtime}
+  alias Guardian.Rules.{CounterRuntime, DependencyGraph, Event, Runtime}
 
   setup do
     store = start_supervised!({Store, name: nil})
@@ -56,7 +56,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
   end
 
   defp run(plan, row, event) do
-    Runtime.run(row, plan.levels, event)
+    Runtime.run(row, DependencyGraph.levels(plan.steps), event)
   end
 
   defp definition(plan) do
@@ -440,7 +440,9 @@ defmodule Guardian.Rules.CounterRuntimeTest do
       UNSET secret
       """)
 
-    assert Enum.map(plan.levels, fn level -> Enum.map(level, & &1.field) end) ==
+    levels = DependencyGraph.levels(plan.steps)
+
+    assert Enum.map(levels, fn level -> Enum.map(level, & &1.field) end) ==
              [
                ["normalized"],
                ["group_key"],

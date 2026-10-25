@@ -8,13 +8,13 @@ defmodule Guardian.Rules.Compiler do
   Unresolved candidates return `:unresolved_plan`; a LOOKUP without a bound target
   returns `:unbound_lookup`. `apply/1` creates a fresh event and batch context.
 
-  The module body comes only from the fixed template below: dependency levels of typed steps
-  are escaped once as literal data for `Guardian.Rules.Runtime.run/3`. Flat metadata
-  order is recovered from compile-time positions only when `plan/0` is called,
-  never during ingestion. No rule text becomes code. Expressions are evaluated
-  by the query engine's scalar evaluator; generating native code per expression
-  is a later optimization. AST literals hold regular expressions as pattern strings,
-  never compiled `:re` references.
+  The module body comes only from the fixed template below: the plan's dependency
+  levels, derived from its flat steps once at compile time, are escaped once as literal
+  data for `Guardian.Rules.Runtime.run/3`. Flat metadata order is recovered from
+  compile-time positions only when `plan/0` is called, never during ingestion. No rule
+  text becomes code. Expressions are evaluated by the query engine's scalar evaluator;
+  generating native code per expression is a later optimization. AST literals hold
+  regular expressions as pattern strings, never compiled `:re` references.
 
   Module names come from a fixed pool (`name/1`), so atoms stay bounded however often
   rules change; `Guardian.Rules.Publisher` owns the pool and never loads a name twice while
@@ -51,11 +51,13 @@ defmodule Guardian.Rules.Compiler do
   end
 
   defp compile_resolved(module, plan) do
-    # Resolution builds levels from these exact steps, but their flat orders can differ.
-    # Equal step terms can share a position without changing the recovered plan.
-    positions = plan.levels |> List.flatten() |> Enum.with_index() |> Map.new()
+    # The levels hold these exact steps, but their flattened order can differ from the
+    # flat metadata order. Equal step terms can share a position without changing the
+    # recovered plan.
+    levels = Guardian.Rules.DependencyGraph.levels(plan.steps)
+    positions = levels |> List.flatten() |> Enum.with_index() |> Map.new()
     step_order = Enum.map(plan.steps, &Map.fetch!(positions, &1))
-    metadata = %{plan | steps: [], levels: []}
+    metadata = %{plan | steps: []}
 
     body =
       quote do
@@ -69,13 +71,11 @@ defmodule Guardian.Rules.Compiler do
         end
 
         def plan do
-          execution_levels = levels()
-          steps = execution_levels |> List.flatten() |> List.to_tuple()
+          steps = levels() |> List.flatten() |> List.to_tuple()
 
           %{
             unquote(Macro.escape(metadata))
             | steps: Enum.map(unquote(step_order), &elem(steps, &1)),
-              levels: execution_levels,
           }
         end
 
@@ -89,7 +89,7 @@ defmodule Guardian.Rules.Compiler do
         end
 
         defp levels do
-          unquote(Macro.escape(plan.levels))
+          unquote(Macro.escape(levels))
         end
       end
 

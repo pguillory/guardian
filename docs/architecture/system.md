@@ -351,10 +351,11 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    come from a pool of 1,024 (`Guardian.Rules.Compiled.M0`...), so atoms are bounded.
    Compiler independently refuses unresolved candidates and LOOKUPs without bound
    targets.
-   Each generated module shares one escaped execution-level literal between
-   ingestion and `plan/0`. For activation, `plan/0` reconstructs the exact resolved
-   plan's flat metadata order using compile-time positions into those levels,
-   including canonical source and AST constants, never executable rule text.
+   A plan holds only its flat steps; Compiler derives the dependency levels from them
+   once at compile time. Each generated module shares one escaped execution-level
+   literal between ingestion and `plan/0`. For activation, `plan/0` reconstructs the
+   exact resolved plan's flat metadata order using compile-time positions into those
+   levels, including canonical source and AST constants, never executable rule text.
    Ingestion uses the prepared levels directly, without reconstruction.
 3. Publication: `Guardian.Rules.Publisher` owns activation, publication and the
    generated-module pool, synchronously inside Server's scrubbed callbacks. Server
@@ -536,7 +537,7 @@ the per-counter result lists. `Guardian.Counters.KeyMachines` supplies read, nat
 and gets/merge/CAS callbacks. Buckets combine oldest to newest, resolving once;
 any failed bucket defaults its whole statement. LOOKUP ancestors and LOOKUP levels
 drain before any TRACK level. Scalar work finishes before a level dispatches, and
-UNSETs remain last. Resolved plans retain both levels and flat metadata steps.
+UNSETs remain last.
 
 Each round groups operations by owner into one Store.batch pipeline per owner;
 owners run concurrently within the reservation budget. Pending owners wait for

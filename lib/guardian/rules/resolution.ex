@@ -59,7 +59,6 @@ defmodule Guardian.Rules.Resolution do
          %{
            plan
            | steps: steps,
-             levels: Guardian.Rules.DependencyGraph.levels(steps),
              hash: hash(plan.hash, steps),
              resolved?: true,
          }}

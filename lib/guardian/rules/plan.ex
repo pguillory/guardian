@@ -2,8 +2,9 @@ defmodule Guardian.Rules.Plan do
   @moduledoc """
   One table's validated rules in run order. Counter-aware preparation orders LOOKUPs
   and prerequisite SETs before the remaining SETs/TRACKs, with UNSETs last.
-  `steps` keeps deterministic flat metadata order; `levels` groups independent
-  steps for execution and is rebuilt after binding LOOKUP targets.
+  `steps`, in deterministic flat metadata order, is the plan's only step
+  representation. Execution levels are derived from it
+  (`Guardian.Rules.DependencyGraph.levels/1`) once, when Compiler builds the module.
 
   `hash` includes diagnostic locations and resolved LOOKUP definitions, so
   activation can recompile dependents when a target changes. Counter identities
@@ -13,5 +14,5 @@ defmodule Guardian.Rules.Plan do
   """
 
   @enforce_keys [:table, :steps, :hash]
-  defstruct [:table, :steps, :hash, levels: [], resolved?: false]
+  defstruct [:table, :steps, :hash, resolved?: false]
 end

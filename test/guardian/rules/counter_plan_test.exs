@@ -156,7 +156,7 @@ defmodule Guardian.Rules.CounterPlanTest do
     end
   end
 
-  test "compiled plans recover the resolved configurations in TRACKs, LOOKUPs and levels" do
+  test "compiled plans recover the resolved configurations in TRACKs and LOOKUPs" do
     source =
       Guardian.Aggregation.names_and_arities()
       |> Enum.with_index()
@@ -191,9 +191,6 @@ defmodule Guardian.Rules.CounterPlanTest do
       assert lookup.target == definition
 
       assert Enum.find(candidate.steps, &(&1.field == track.field)).definition == definition
-
-      assert Enum.find(List.flatten(recovered.levels), &(&1.field == track.field)) == track
-      assert Enum.find(List.flatten(recovered.levels), &(&1.field == lookup.field)) == lookup
 
       assert :erlang.term_to_binary(Guardian.Rules.CounterDefinition.hash_term(definition)) ==
                :erlang.term_to_binary(Map.delete(definition, :aggregation))
@@ -312,8 +309,12 @@ defmodule Guardian.Rules.CounterPlanTest do
 
     assert Enum.map(p.steps, & &1.field) == ["y", "b", "z", "a"]
 
-    assert Enum.map(p.levels, fn level -> Enum.map(level, & &1.field) end) ==
-             [["y", "z"], ["a", "b"]]
+    levels = Guardian.Rules.DependencyGraph.levels(p.steps)
+
+    assert Enum.map(levels, fn level -> Enum.map(level, & &1.field) end) == [
+             ["y", "z"],
+             ["a", "b"],
+           ]
   end
 
   test "identical TRACK copies deduplicate and conflicts use the shared namespace" do

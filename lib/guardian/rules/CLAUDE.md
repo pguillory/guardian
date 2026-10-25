@@ -18,7 +18,8 @@ Modules:
 - `Guardian.Rules.Step`: typed per-kind inputs and read derivation.
 - `Guardian.Rules.Validation`: scalar, counter aggregate, interval and FROM checks.
 - `Guardian.Rules.DependencyGraph`: deterministic flat ordering and dependency levels with
-  the explicit LOOKUP barrier. Resolved plans retain both; levels rebuild after binding.
+  the explicit LOOKUP barrier. Plans hold only the flat steps; Compiler derives the
+  levels from them once per compiled module.
 - `Guardian.Rules.Resolution`: immutable target definitions and fixed-point invalidity.
   Resolved plan hashes use deterministic ETF, so they match across VM starts.
 - `Guardian.Rules.CounterDefinition`: immutable target metadata, resolved shared
@@ -31,10 +32,10 @@ Modules:
   only from published modules; its state contains only free names and retired
   statuses, never plans, sources or diagnostics. Reclamation timers target Server.
 - `Guardian.Rules.Compiler`: a plan into a generated module from a fixed template, with the
-  execution levels as one shared escaped literal. Generated `plan/0` reconstructs
-  the exact resolved plan's flat order from compile-time positions for activation,
-  including after restart; reconstruction never runs during ingestion. Metadata
-  is bounded and reclaimed with the module pool.
+  execution levels, derived from the flat steps at compile time, as one shared escaped
+  literal. Generated `plan/0` reconstructs the exact resolved plan's flat order from
+  compile-time positions for activation, including after restart; reconstruction
+  never runs during ingestion. Metadata is bounded and reclaimed with the module pool.
   No rule text becomes code. Unresolved plans and unbound LOOKUPs cannot compile.
 - `Guardian.Rules.Runtime`: the dispatcher called by generated modules (reads, SET, UNSET,
   failures), threading a `Guardian.Rules.RowIndex` through dependency levels. Internal

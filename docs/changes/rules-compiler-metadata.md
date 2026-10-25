@@ -9,7 +9,8 @@ retention remain unchanged.
 Compiler previously embedded typed steps three times: in the recovered plan's flat
 steps, in that plan's execution levels, and separately in apply/2's levels.
 Resolved Plan values keep both representations, because flat metadata order can
-differ from the flattened execution order.
+differ from the flattened execution order. (Later superseded: Plan now holds only
+the flat steps, see `docs/changes/plan-canonical-steps.md`.)
 
 The generated module embeds execution levels once in a private literal
 accessor. apply/2 passes those prepared levels straight to Runtime.run/3. There

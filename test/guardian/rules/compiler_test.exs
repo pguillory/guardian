@@ -1,7 +1,7 @@
 defmodule Guardian.Rules.CompilerTest do
   use ExUnit.Case, async: true
 
-  alias Guardian.Rules.{Compiler, Event, RuleSet, Runtime}
+  alias Guardian.Rules.{Compiler, DependencyGraph, Event, RuleSet, Runtime}
 
   defp compile(module, files) do
     preparation = RuleSet.prepare(files)
@@ -44,11 +44,14 @@ defmodule Guardian.Rules.CompilerTest do
     assert Enum.map(plan.steps, & &1.field) ==
              ["normalized", "group_key", "prior", "y", "b", "z", "a", "secret"]
 
-    assert Enum.map(plan.levels, fn level -> Enum.map(level, & &1.field) end) ==
+    levels = DependencyGraph.levels(plan.steps)
+
+    assert Enum.map(levels, fn level -> Enum.map(level, & &1.field) end) ==
              [["normalized"], ["group_key"], ["prior"], ["y", "z"], ["a", "b"], ["secret"]]
 
-    refute List.flatten(plan.levels) == plan.steps
+    refute List.flatten(levels) == plan.steps
     assert_recovered(module, plan)
+    refute Map.has_key?(module.plan(), :levels)
   end
 
   test "both generated entry points execute prepared levels with scalar literals and final UNSETs" do
@@ -62,7 +65,8 @@ defmodule Guardian.Rules.CompilerTest do
         "t/z.gsql" => "SET z = upper(raw_z); UNSET password; UNSET raw_z WHERE y",
       })
 
-    refute List.flatten(plan.levels) == plan.steps
+    levels = DependencyGraph.levels(plan.steps)
+    refute List.flatten(levels) == plan.steps
     assert_recovered(module, plan)
     row = %{"message" => "secret", "raw_z" => "hello", "password" => "hide"}
     event = Event.new()
@@ -75,7 +79,7 @@ defmodule Guardian.Rules.CompilerTest do
       "z" => "HELLO",
     }
 
-    assert Runtime.run(row, plan.levels, event) == expected
+    assert Runtime.run(row, levels, event) == expected
     assert apply(module, :apply, [row, event]) == expected
     assert apply(module, :apply, [row]) == expected
   end
@@ -84,7 +88,7 @@ defmodule Guardian.Rules.CompilerTest do
     module = __MODULE__.EmptyProbe
     plan = compile(module, %{"t/a.gsql" => "-- no statements"})
     assert plan.steps == []
-    assert plan.levels == []
+    assert DependencyGraph.levels(plan.steps) == []
     assert_recovered(module, plan)
     row = %{"untouched" => 1}
     assert apply(module, :apply, [row]) == row
