@@ -17,19 +17,8 @@ defmodule Guardian.MixProject do
       releases: [
         guardian: [],
       ],
-      aliases: aliases(),
       # Scripts that tests run in child processes, not test files.
       test_ignore_filters: [&String.starts_with?(&1, "test/fixtures/")],
-    ]
-  end
-
-  defp aliases do
-    [
-      format: [
-        "format",
-        fn _ -> Mix.Task.reenable("format") end,
-        "format",
-      ],
     ]
   end
 

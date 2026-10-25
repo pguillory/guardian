@@ -65,8 +65,13 @@ MIX_ENV=test mix compile --warnings-as-errors
 mix test --warnings-as-errors
 ```
 
-Run `mix format` to fix formatting. Run the full suite after every change. The
-multi-node tests start peer nodes, which need `epmd`; the tests start it themselves
+Run `mix format` to fix formatting, including when passing explicit file paths or
+stdin (`mix format -`). The build-only `Guardian.Formatter` plugin in
+`.formatter.exs` applies FreedomFormatter twice per input to handle its
+[newly wrapped trailing-comma bug](https://github.com/marcandre/freedom_formatter/issues/9).
+This retains Guardian's existing style and makes one invocation pass the check.
+Run the full suite after every change. The multi-node tests start peer nodes,
+which need `epmd`; the tests start it themselves
 when it isn't running, and in a sandbox that blocks that, run `epmd -daemon` first.
 Tests need no external services (no PostgreSQL, Memcached or GeoIP files) and no API
 key of your own: they use their own fixed configuration. Tests tagged `:large`

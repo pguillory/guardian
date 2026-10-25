@@ -233,6 +233,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Tests
 
+- [x] formatter-convergence: one `mix format` invocation handles newly wrapped
+      trailing commas for explicit files and stdin without a Mix alias
+      (`docs/changes/formatter-convergence.md`)
 - [x] definition-block-style: use `do...end` for function and macro definitions,
       document the convention and enforce it through the normal test suite
       (`docs/changes/definition-block-style.md`)
