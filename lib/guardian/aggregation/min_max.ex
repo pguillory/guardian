@@ -5,6 +5,10 @@ defmodule Guardian.Aggregation.MinMax do
     nil
   end
 
+  def empty(_extreme) do
+    nil
+  end
+
   def start(_extreme, value) do
     value
   end

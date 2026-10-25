@@ -7,14 +7,18 @@ defmodule Guardian.Aggregation do
   Callers treat the aggregation as opaque and run it through `default/1`, `start/2`
   (or `start_row/3`), `merge/3` and `finish/2`, which call the module's callbacks,
   with the option as the first argument when there is one.
+
+  Counters opt in through `fetch_counter!/1`, using the same implementations with
+  explicit policy options. `empty/1` returns a mergeable counter state, whereas
+  `default/1` returns a query's final result for no rows.
   """
 
   @names_and_mods [
     {"all", 1, Guardian.Aggregation.All},
     {"arbitrary", 1, Guardian.Aggregation.Arbitrary},
     {"avg", 1, Guardian.Aggregation.Avg},
-    {"count", 0, Guardian.Aggregation.Count},
-    {"count", 1, Guardian.Aggregation.Count},
+    {"count", 0, {Guardian.Aggregation.Count, :query}},
+    {"count", 1, {Guardian.Aggregation.Count, :query}},
     {"count_distinct", 1, Guardian.Aggregation.CountDistinct},
     {"count_if", 1, Guardian.Aggregation.CountIf},
     {"max", 1, {Guardian.Aggregation.MinMax, :max}},
@@ -38,6 +42,21 @@ defmodule Guardian.Aggregation do
   @names names
   @names_and_arities SuperList.zip(names, arities)
   @name_to_aggregation SuperList.zip(names, mods) |> Map.new()
+
+  # Explicit counter opt-in: only these configurations have suitable mergeable
+  # states and the existing TRACK/LOOKUP semantics. Query registration alone does
+  # not make an aggregate available to counters.
+  @counter_aggregations [
+    {{"count", 0}, {Guardian.Aggregation.Count, :counter}},
+    {{"count", 1}, {Guardian.Aggregation.Count, :counter}},
+    {{"count_distinct", 1}, {Guardian.Aggregation.CountDistinct, {8, Hypex.Bitstring}}},
+    {{"sum", 1}, Guardian.Aggregation.Sum},
+    {{"min", 1}, {Guardian.Aggregation.MinMax, :min}},
+    {{"max", 1}, {Guardian.Aggregation.MinMax, :max}},
+    {{"avg", 1}, {Guardian.Aggregation.Avg, :counter}},
+  ]
+  @counter_operators Enum.map(@counter_aggregations, &elem(&1, 0))
+  @counter_by_operator Map.new(@counter_aggregations)
 
   @type t :: module | {module, term}
 
@@ -64,6 +83,30 @@ defmodule Guardian.Aggregation do
   def fetch!(name) do
     {:ok, aggregation} = fetch(name)
     aggregation
+  end
+
+  @doc "The explicitly supported counter names and exact arities, in declaration order."
+  def counter_operators do
+    @counter_operators
+  end
+
+  @doc "The shared aggregate configured for a counter operator."
+  @spec fetch_counter!({String.t(), non_neg_integer}) :: t
+  def fetch_counter!(operator) do
+    case Map.fetch(@counter_by_operator, operator) do
+      {:ok, aggregation} -> aggregation
+      :error -> raise ArgumentError, "unsupported counter aggregate or arity"
+    end
+  end
+
+  @doc "An empty mergeable state for an opted-in aggregate, unlike default's final result."
+  @spec empty(t) :: term
+  def empty({mod, option}) do
+    mod.empty(option)
+  end
+
+  def empty(mod) do
+    mod.empty()
   end
 
   @doc "The result for a group with no rows."
@@ -100,7 +143,7 @@ defmodule Guardian.Aggregation do
     []
   end
 
-  @doc "Combines two accumulators. Merge is associative."
+  @doc "Combines partial accumulators; floating-point rounding, overflow and wrapping mixed with floats can affect regrouping."
   @spec merge(t, term, term) :: term
   def merge({mod, option}, acc1, acc2) do
     mod.merge(option, acc1, acc2)

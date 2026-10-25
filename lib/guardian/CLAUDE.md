@@ -27,8 +27,9 @@ prefix. Keep the Mix application and its configuration under `:guardian`.
   bounds, including the per-process heap limit (`GUARDIAN_QUERY_MAX_HEAP_MB`) on the
   query process and its pipeline workers (`lib/guardian/query/CLAUDE.md`).
 - `Guardian.AST`: parses and traverses query syntax.
-- `Guardian.Aggregation`: query-time aggregation registry, and the functions that run an
-  aggregation (`default`, `start`, `start_row`, `merge`, `finish`).
+- `Guardian.Aggregation`: shared query/counter aggregation registry and execution
+  (`default`, `empty`, `start`, `start_row`, `merge`, `finish`). Query registration
+  alone does not opt an aggregate into counters.
 - `Guardian.Web`: JSON and MCP servers.
 - `Guardian.Cluster`: distributed query coordination and the DNS discovery child.
   `Guardian.Cluster.Metadata` fans schema lookups out to every connected node and merges the

@@ -3,6 +3,14 @@ defmodule Guardian.Aggregation.Avg do
     nil
   end
 
+  def empty(:counter) do
+    {0, 0}
+  end
+
+  def start(:counter, value) do
+    start(value)
+  end
+
   # Values that are not numbers (null, strings, booleans, lists) are skipped, as in
   # sum. The integer 0 keeps a sum of integers exact until finish/1 divides.
   def start(value) when is_number(value) do
@@ -30,6 +38,28 @@ defmodule Guardian.Aggregation.Avg do
     :error, :badarith -> :overflow
   end
 
+  # Counter buckets need an exact empty identity, including signed-zero bits and
+  # unchanged-write detection. Query merges keep their existing arithmetic policy.
+  def merge(:counter, :overflow, right) do
+    merge(:overflow, right)
+  end
+
+  def merge(:counter, left, :overflow) do
+    merge(left, :overflow)
+  end
+
+  def merge(:counter, {_sum, 0}, right) do
+    right
+  end
+
+  def merge(:counter, left, {_sum, 0}) do
+    left
+  end
+
+  def merge(:counter, left, right) do
+    merge(left, right)
+  end
+
   def finish(:overflow) do
     nil
   end
@@ -42,5 +72,9 @@ defmodule Guardian.Aggregation.Avg do
     sum / count
   catch
     :error, :badarith -> nil
+  end
+
+  def finish(:counter, state) do
+    finish(state)
   end
 end

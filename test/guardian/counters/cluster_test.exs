@@ -431,6 +431,54 @@ defmodule Guardian.Counters.ClusterTest do
     assert :erpc.call(peer, Store, :get, [key]) == {:ok, 5}
   end
 
+  test "shared aggregate states survive ETF, local ETS and peer ETS with further merges", %{
+    peer_node: peer,
+    store: store,
+  } do
+    alias Guardian.Counters.Aggregate
+
+    for operator <- Aggregate.operators() do
+      {_name, arity} = operator
+      empty = Aggregate.default(operator)
+      delta = Aggregate.create(operator, List.duplicate(-0.0, arity))
+
+      populated =
+        Enum.reduce([nil, 2, 3.5, "x", [1, nil]], empty, fn value, acc ->
+          Aggregate.merge(operator, acc, Aggregate.create(operator, List.duplicate(value, arity)))
+        end)
+
+      extra =
+        case operator do
+          {name, _} when name in ["sum", "avg"] -> [:overflow]
+          {"count", _} -> [Guardian.Query.Numeric.max_int() + 1]
+          _ -> []
+        end
+
+      for state <- [empty, populated, delta | extra],
+          {owner, server} <- [{node(), store}, {peer, Store}] do
+        encoded = :erlang.term_to_binary(state)
+        assert :erlang.term_to_binary(:erlang.binary_to_term(encoded, [:safe])) == encoded
+        key = key({System.unique_integer([:positive])})
+        opts = [server: server, timeout: 5_000]
+
+        assert :erpc.call(owner, Store, :cas, [key, :missing, state, 5_000, opts]) == :ok
+        assert {:ok, restored, token} = :erpc.call(owner, Store, :gets, [key, opts])
+        assert :erlang.term_to_binary(restored) == encoded
+        unchanged = :erpc.call(owner, Aggregate, :merge, [operator, restored, empty])
+        assert :erlang.term_to_binary(unchanged) == encoded
+        merged = :erpc.call(owner, Aggregate, :merge, [operator, restored, delta])
+        expected = Aggregate.merge(operator, state, delta)
+        assert :erlang.term_to_binary(merged) == :erlang.term_to_binary(expected)
+        assert :erpc.call(owner, Store, :cas, [key, token, merged, 5_000, opts]) == :ok
+        assert {:ok, reread} = :erpc.call(owner, Store, :get, [key, opts])
+        assert :erlang.term_to_binary(reread) == :erlang.term_to_binary(expected)
+
+        assert :erpc.call(owner, Aggregate, :resolve, [operator, reread]) ===
+                 Aggregate.resolve(operator, expected)
+      end
+    end
+  end
+
   test "booting and lost owners fail immediately without readiness or failover", %{store: store} do
     {peer, booting} = Guardian.TestCluster.start_peer(nil)
     on_exit(fn -> if Process.alive?(peer), do: :peer.stop(peer) end)

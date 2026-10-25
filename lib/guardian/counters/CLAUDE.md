@@ -95,8 +95,10 @@ budgets or deadlines skip them. Charge failed waits once per pipeline using its
 completion timestamp. Recompute anchored mutation TTLs at actual pipeline dispatch,
 including after waiting for a reservation. Keep no get_many in this execution path.
 
-`Guardian.Counters.Aggregate` is independent of store operations and query execution. Its
-fixed `{name, arity}` allowlist exposes create/merge/resolve/default. Every default
+`Guardian.Counters.Aggregate` is an adapter to the shared `Guardian.Aggregation`
+registry and per-aggregate modules, independent of store operations and query
+execution. Its fixed `{name, arity}` allowlist is derived from the registry's
+explicit counter configurations and exposes create/merge/resolve/default. Every default
 is an empty mergeable state: resolve it for zero (count and distinct) or nil
 (sum/min/max/avg). Counter sum's empty result is nil, unlike query sum's 0.0.
 Distinct uses Hypex precision 8 with fixed 256-byte bitstring registers; query
@@ -109,8 +111,11 @@ state winning ties, including the type of equal integer/float values.
 
 Bucket callers merge states, compare with the prior state using `===` to skip
 unchanged writes, then resolve once. Count values returned by native increments
-must also be resolved to apply int64 output bounds. Keep historical query
-aggregate sharing as separate follow-up work; rule execution belongs in Guardian.Rules.
-The numeric merge/resolve clauses mirror query aggregates; keep their overflow
-policy changes aligned until that sharing work is done. Counter rule execution
-lives in Rules, with at most three total CAS attempts for definite conflicts only.
+must also be resolved to apply int64 output bounds. The adapter has no operator
+arithmetic, Hypex or ordering logic: the existing aggregation modules own it all,
+with configured counter policies where needed. States are ordinary terms suitable
+for ETS/erpc. HLL registers are fixed size; min/max retain an input-sized value,
+and exact count/avg integer sizes grow logarithmically rather than having an
+absolute byte cap. Preserve Store's payload refusal and asynchronous memory target.
+Counter rule execution lives in Rules, with at most three total CAS attempts for
+definite conflicts only. See `docs/changes/shared-aggregates.md`.

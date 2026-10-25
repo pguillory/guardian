@@ -414,6 +414,21 @@ name and the SHA-256 of canonical TRACK source; LOOKUP plans bind target identit
 Edits start fresh, while moves/comments/whitespace retain state. Queries only read
 stored historical output fields. No later rule/storage failure rolls back updates.
 
+Counter aggregates share the existing `Guardian.Aggregation.*` implementations
+with queries. `Guardian.Aggregation` explicitly registers counter name/arity
+configurations; the `Guardian.Counters.Aggregate` adapter only validates argument
+arity and translates default/create/merge/resolve to empty/start/merge/finish.
+Empty mergeable states are distinct from query default results (notably sum's
+nil versus 0.0). Configurations preserve query HLL precision 14/Array versus counter
+precision 8/Bitstring (256 bytes), counter-only int64 count finishing, and average's
+counter-only empty-state shortcuts that retain signed-zero bits. All arithmetic,
+overflow and ordering logic lives in the shared modules. Query-only registrations
+do not enable counters. These states are plain terms safe to copy through ETS and
+distribution; no resources or ownership transfer are involved. HLL registers have
+fixed size; min/max retain one input of variable byte size, while count/avg exact
+integer sizes grow logarithmically with accumulated count/sum. State size is not
+an absolute byte constant; Store's payload checks and memory target still apply.
+
 One GenServer owns one public ETS set, with {encoded_key, value, expires_at,
 version} rows. Ordinary get/gets, create-if-missing, CAS and native increment run
 directly in callers and remote handlers. Deterministic ETF binary keys make CAS

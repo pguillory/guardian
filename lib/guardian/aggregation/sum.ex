@@ -3,6 +3,10 @@ defmodule Guardian.Aggregation.Sum do
     0.0
   end
 
+  def empty do
+    nil
+  end
+
   def start(value) when is_number(value) do
     value
   end

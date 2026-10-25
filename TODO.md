@@ -85,6 +85,12 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] counter-capacity-reclamation: direct atomic public-ETS operations with
       housekeeping-only expiry and sampled earliest-expiry eviction; the configured
       memory target is enforced asynchronously (`docs/changes/counter-store.md`)
+- [x] shared-aggregates: queries and counters use the same per-aggregate modules,
+      with explicit counter opt-in and preserved defaults, precision and numeric
+      policies (`docs/changes/shared-aggregates.md`)
+- [ ] resolved-counter-aggregations: retire the thin Guardian.Counters.Aggregate
+      adapter by resolving shared aggregate configurations in rule validation/plans
+      and carrying them through counter execution (code review follow-up)
 - [x] rules-open-questions: the failure and invalid-at-boot defaults are confirmed
       and their switches (`:rules_on_failure`, `:rules_invalid_at_boot`) removed
 - [x] rules-server-redaction: Guardian.Rules.Server's formatted status and crash reports

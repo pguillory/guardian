@@ -578,7 +578,8 @@ query ordering and right-biased ties, including the winning numeric type. Intege
 sum wrapping and absorbing float overflow match query aggregates. Floating-point
 rounding and cancellation, overflow, and mixed integer wrapping mean regrouping
 can change a numeric result. Query aggregates and their precision-14 distinct
-sketches are unchanged. Historical aggregate sharing remains deferred.
+sketches are unchanged. Historical aggregate sharing was subsequently completed
+in [shared-aggregates.md](shared-aggregates.md), preserving these contracts.
 
 Build a counter aggregate interface independent of query execution:
 `create(operator, values)`, `merge(operator, left, right)`,
@@ -598,7 +599,8 @@ allowlist: count/0, count/1, count_distinct/1, sum/1, min/1, max/1, avg/1.
 3. Test empty states, null/mixed values, merge identity and associativity within
    floating-point tolerance, partitioned merging, numeric overflow, avg weighting,
    HLL fixed precision/size and cardinality error, and unchanged-state detection.
-   Product spec impact: none until C4. Historical aggregate sharing is follow-up.
+   Product spec impact: none until C4. Historical aggregate sharing was follow-up,
+   since completed in [shared-aggregates.md](shared-aggregates.md).
 
 ### C4: rule integration and product behavior
 
@@ -846,9 +848,10 @@ as documented in the development guide. No deployments, WIP commits, amend, reba
 or force push.
 
 Deferred: persistent counters/recovery, backfill, stronger partition semantics,
-hot-key sharding, shared query aggregate implementations, cluster-wide idempotency,
+hot-key sharding, cluster-wide idempotency,
 and richer operators such as last-N lists. Record distinct follow-ups instead of
-expanding the four pieces.
+expanding the four pieces. Shared query aggregate implementations are completed
+in [shared-aggregates.md](shared-aggregates.md).
 
 ## Phase 1 product spec impact (completed)
 
