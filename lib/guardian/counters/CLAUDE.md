@@ -81,6 +81,12 @@ reservations, deadline enforcement and settlement. Its hot path uses atomics/ETS
 Transport has no process. Client delegates batch dispatch to Transport, which calls
 Budget before dispatch and after normalized pipeline completion. Settlement unwraps
 the pipeline once; successful stored values are never inspected for errors.
+`Guardian.Counters.Clock` owns the local monotonic microsecond coordinate that
+Context deadlines/timeouts, Budget reservations, settlement timestamps and
+cooldowns, and Transport dispatch deadlines share; read the clock and convert
+ms/us only through it. Store's
+`:deadline` stays monotonic ms (`to_store_ms/1`) and mutation TTLs stay on the
+Rules arrival milliseconds.
 
 1. Keep `new_batch/0` outside replaceable workers; its atomics handle holds 250 ms
    of failed-call allowance. `new_event(batch)` snapshots members and starts a

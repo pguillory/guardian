@@ -1,5 +1,6 @@
 defmodule Guardian.Counters.Context do
   @moduledoc "Private per-event counter deadlines, shared budget and routing snapshot."
+  alias Guardian.Counters.Clock
   @enforce_keys [:batch, :deadline, :timeout_us, :cooldown_table, :members, :store]
   defstruct [:batch, :deadline, :timeout_us, :cooldown_table, :members, :store]
 
@@ -32,12 +33,9 @@ defmodule Guardian.Counters.Context do
     # Start the event deadline before snapshotting membership.
     event_ms = event_ms()
 
-    deadline =
-      System.monotonic_time(:microsecond) +
-        min(event_ms, Keyword.get(opts, :event_timeout_ms, event_ms)) * 1_000
-
+    deadline = Clock.deadline(min(event_ms, Keyword.get(opts, :event_timeout_ms, event_ms)))
     operation_ms = operation_ms()
-    timeout_us = min(operation_ms, Keyword.get(opts, :timeout_ms, operation_ms)) * 1_000
+    timeout_us = Clock.from_ms(min(operation_ms, Keyword.get(opts, :timeout_ms, operation_ms)))
     cooldown_table = Keyword.get(opts, :cooldown_table, Guardian.Counters.Budget)
     members = Keyword.get_lazy(opts, :members, fn -> [node() | Node.list()] end)
 
