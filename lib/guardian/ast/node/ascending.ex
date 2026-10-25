@@ -4,7 +4,9 @@ defmodule Guardian.AST.Node.Ascending do
   @enforce_keys [:left]
   defstruct [:left]
 
-  def symbol, do: "ASC"
+  def symbol do
+    "ASC"
+  end
 
   def to_source(%__MODULE__{left: left}) do
     Guardian.AST.unparse(left) <> " " <> symbol()

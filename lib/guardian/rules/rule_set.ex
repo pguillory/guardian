@@ -22,13 +22,26 @@ defmodule Guardian.Rules.RuleSet do
   # rules for these would never run.
   @builtin_tables ~w[system_stats web_requests web_responses query_parse_errors queries]
 
-  def max_file_bytes, do: @max_file_bytes
-  def max_files, do: @max_files
-  def max_tables, do: @max_tables
-  def builtin_tables, do: @builtin_tables
+  def max_file_bytes do
+    @max_file_bytes
+  end
+
+  def max_files do
+    @max_files
+  end
+
+  def max_tables do
+    @max_tables
+  end
+
+  def builtin_tables do
+    @builtin_tables
+  end
 
   @doc "The store key of a rule file."
-  def key(table, name), do: "#{table}/#{name}.gsql"
+  def key(table, name) do
+    "#{table}/#{name}.gsql"
+  end
 
   @doc """
   Classifies a store key: `{:ok, table, name}` for a valid rule file path,
@@ -81,14 +94,17 @@ defmodule Guardian.Rules.RuleSet do
     byte_size(name) <= 64 and String.match?(name, ~r/\A[a-z0-9_][a-z0-9_-]*\z/)
   end
 
-  def valid_name?(_name), do: false
+  def valid_name?(_name) do
+    false
+  end
 
   @doc """
   Validates `files` (store key => source). Returns `%{tables: %{table => {:ok, plan}
   | {:error, errors}}, errors: errors}`. A table with any error has no plan.
   """
-  def validate(files) when is_map(files),
-    do: files |> prepare() |> Map.take([:tables, :errors])
+  def validate(files) when is_map(files) do
+    files |> prepare() |> Map.take([:tables, :errors])
+  end
 
   @doc """
   Prepares whole-set plans for validation and activation. `candidates`
@@ -143,7 +159,9 @@ defmodule Guardian.Rules.RuleSet do
   end
 
   @doc "An error's identity ignoring its line: file, kind and detail."
-  def error_key(error), do: {error.file, error.kind, error.detail}
+  def error_key(error) do
+    {error.file, error.kind, error.detail}
+  end
 
   @doc "The errors in `after_errors` that `before_errors` did not have."
   def new_errors(before_errors, after_errors) do

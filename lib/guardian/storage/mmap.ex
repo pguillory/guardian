@@ -23,7 +23,11 @@ defmodule Guardian.Storage.Mmap do
   end
 
   @doc "Mappings not yet unmapped, across the VM. For tests."
-  def live_mappings, do: exit(:nif_not_loaded)
+  def live_mappings do
+    exit(:nif_not_loaded)
+  end
 
-  defp nif_read(_filename), do: exit(:nif_not_loaded)
+  defp nif_read(_filename) do
+    exit(:nif_not_loaded)
+  end
 end

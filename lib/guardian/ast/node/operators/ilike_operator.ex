@@ -23,9 +23,16 @@ defmodule Guardian.AST.Node.Operators.IlikeOperator do
     end
   end
 
-  def eval(value, pattern), do: LikeOperator.eval(downcase(value), downcase(pattern))
+  def eval(value, pattern) do
+    LikeOperator.eval(downcase(value), downcase(pattern))
+  end
 
   @doc false
-  def downcase(value) when is_binary(value), do: String.downcase(value)
-  def downcase(value), do: value
+  def downcase(value) when is_binary(value) do
+    String.downcase(value)
+  end
+
+  def downcase(value) do
+    value
+  end
 end

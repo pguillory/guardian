@@ -188,7 +188,9 @@ defmodule Guardian.Storage.FlatteningTest do
       assert flatten(List.duplicate(1, 1_000_000)) == [{[[]], List.duplicate(1, 1_000_000)}]
     end
 
-    defp equivalence_value(0), do: Enum.random([nil, 1, "s", true])
+    defp equivalence_value(0) do
+      Enum.random([nil, 1, "s", true])
+    end
 
     defp equivalence_value(depth) do
       case :rand.uniform(4) do
@@ -238,7 +240,9 @@ defmodule Guardian.Storage.FlatteningTest do
       end)
     end
 
-    defp reference_flatten(scalar), do: [{[[]], scalar}]
+    defp reference_flatten(scalar) do
+      [{[[]], scalar}]
+    end
   end
 
   describe "from_events" do
@@ -809,9 +813,17 @@ defmodule Guardian.Storage.FlatteningTest do
     end
 
     # Generate a value from a spec
-    defp random_value_from_spec(:scalar), do: random_scalar()
-    defp random_value_from_spec(:scalar_list), do: random_scalar_list()
-    defp random_value_from_spec(:nested_scalar_list), do: random_nested_scalar_list(2)
+    defp random_value_from_spec(:scalar) do
+      random_scalar()
+    end
+
+    defp random_value_from_spec(:scalar_list) do
+      random_scalar_list()
+    end
+
+    defp random_value_from_spec(:nested_scalar_list) do
+      random_nested_scalar_list(2)
+    end
 
     defp random_value_from_spec({:flat_event, keys}) do
       Map.new(keys, fn key -> {key, random_flat_value()} end)

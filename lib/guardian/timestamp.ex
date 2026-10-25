@@ -74,5 +74,7 @@ defmodule Guardian.Timestamp do
     end
   end
 
-  defp parse(_), do: :error
+  defp parse(_) do
+    :error
+  end
 end

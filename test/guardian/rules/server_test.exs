@@ -281,17 +281,41 @@ defmodule Guardian.Rules.ServerTest do
     @moduledoc false
     # A store whose saves crash the rule server with the source in the exception:
     # in its message, or as the argument of a function clause that does not match.
-    def list(_config), do: {:ok, []}
-    def get(_config, _key, _etag), do: {:error, :not_found}
-    def delete(_config, _key), do: :ok
-    def describe(_config), do: "crashing store"
+    def list(_config) do
+      {:ok, []}
+    end
 
-    def put(_config, "_" <> _lock, _body, _condition), do: {:ok, "lock"}
-    def put(_config, "t/ok.gsql", _source, _condition), do: {:ok, "saved"}
-    def put(_config, "t/clause.gsql", source, _condition), do: clause(source)
-    def put(_config, _key, source, _condition), do: raise("cannot save #{source}")
+    def get(_config, _key, _etag) do
+      {:error, :not_found}
+    end
 
-    defp clause(:never), do: :ok
+    def delete(_config, _key) do
+      :ok
+    end
+
+    def describe(_config) do
+      "crashing store"
+    end
+
+    def put(_config, "_" <> _lock, _body, _condition) do
+      {:ok, "lock"}
+    end
+
+    def put(_config, "t/ok.gsql", _source, _condition) do
+      {:ok, "saved"}
+    end
+
+    def put(_config, "t/clause.gsql", source, _condition) do
+      clause(source)
+    end
+
+    def put(_config, _key, source, _condition) do
+      raise("cannot save #{source}")
+    end
+
+    defp clause(:never) do
+      :ok
+    end
   end
 
   test "a crash while writing never logs the source: not the message, state or reason" do

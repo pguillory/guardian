@@ -36,34 +36,66 @@ defmodule Guardian.Rules.Store do
   @callback delete(term(), String.t()) :: :ok | {:error, reason()}
   @callback describe(term()) :: String.t()
 
-  def list({mod, config}), do: mod.list(config)
+  def list({mod, config}) do
+    mod.list(config)
+  end
 
   @doc """
   Gets `key`. With `etag`, only that version: a different one is
   `{:error, :precondition_failed}`. `meta.age_ms` is how long ago the object was last
   modified, by the store's own clock.
   """
-  def get({mod, config}, key, etag \\ nil), do: mod.get(config, key, etag)
+  def get({mod, config}, key, etag \\ nil) do
+    mod.get(config, key, etag)
+  end
 
   @doc """
   Puts `key`: unconditionally (`:none`), only if it does not exist (`:absent`), or
   only if its current ETag is `etag`. Returns the new ETag.
   """
-  def put({mod, config}, key, body, condition), do: mod.put(config, key, body, condition)
+  def put({mod, config}, key, body, condition) do
+    mod.put(config, key, body, condition)
+  end
 
-  def delete({mod, config}, key), do: mod.delete(config, key)
+  def delete({mod, config}, key) do
+    mod.delete(config, key)
+  end
 
   @doc "A description of the store for logs: its kind and location, never a secret."
-  def describe({mod, config}), do: mod.describe(config)
+  def describe({mod, config}) do
+    mod.describe(config)
+  end
 
-  def local?({Guardian.Rules.Store.Local, _config}), do: true
-  def local?(_store), do: false
+  def local?({Guardian.Rules.Store.Local, _config}) do
+    true
+  end
+
+  def local?(_store) do
+    false
+  end
 
   @doc "A message for a failure reason, safe to log and to return to clients."
-  def reason_message(:not_found), do: "not found"
-  def reason_message(:precondition_failed), do: "changed concurrently"
-  def reason_message({:unreachable, kind}), do: "store unreachable (#{kind})"
-  def reason_message({:misconfigured, kind}), do: "store misconfigured (#{kind})"
-  def reason_message({:unknown, kind}), do: "outcome unknown (#{kind})"
-  def reason_message({:failed, kind}), do: "store request failed (#{kind})"
+  def reason_message(:not_found) do
+    "not found"
+  end
+
+  def reason_message(:precondition_failed) do
+    "changed concurrently"
+  end
+
+  def reason_message({:unreachable, kind}) do
+    "store unreachable (#{kind})"
+  end
+
+  def reason_message({:misconfigured, kind}) do
+    "store misconfigured (#{kind})"
+  end
+
+  def reason_message({:unknown, kind}) do
+    "outcome unknown (#{kind})"
+  end
+
+  def reason_message({:failed, kind}) do
+    "store request failed (#{kind})"
+  end
 end

@@ -18,7 +18,9 @@ defmodule Guardian.Web.MCP.SessionTest do
     |> Guardian.Web.MainRouter.call(nil)
   end
 
-  defp authed(headers), do: [{"x-api-key", @api_key} | headers]
+  defp authed(headers) do
+    [{"x-api-key", @api_key} | headers]
+  end
 
   defp initialize do
     conn =
@@ -274,7 +276,9 @@ defmodule Guardian.Web.MCP.SessionTest do
   # (DELETE). Other live sessions then got "Tool not found: query" until some client
   # re-initialized. Idle expiry never
   # wiped it; it is covered as the neighboring path.
-  defp assert_works_first(:query, session_id), do: assert_query_tool_works(session_id)
+  defp assert_works_first(:query, session_id) do
+    assert_query_tool_works(session_id)
+  end
 
   defp assert_works_first(:tools_list, session_id) do
     conn = tools_list(session_id)

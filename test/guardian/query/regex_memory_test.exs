@@ -14,7 +14,9 @@ defmodule Guardian.Query.RegexMemoryTest do
     end)
   end
 
-  defp set_limit(mb), do: Application.put_env(:guardian, :query_max_heap_mb, mb)
+  defp set_limit(mb) do
+    Application.put_env(:guardian, :query_max_heap_mb, mb)
+  end
 
   defp replace(subject, pattern, replacement) do
     {:ok, regex} = Guardian.Query.Regex.compile(pattern)

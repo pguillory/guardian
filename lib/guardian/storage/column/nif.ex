@@ -7,39 +7,143 @@ defmodule Guardian.Storage.Column.NIF do
     :ok = :erlang.load_nif(nif_path, 0)
   end
 
-  def max_string_size, do: exit(:nif_not_loaded)
-  def max_list_length, do: exit(:nif_not_loaded)
-  def max_list_depth, do: exit(:nif_not_loaded)
-  def new(_capacity), do: exit(:nif_not_loaded)
-  def pad(_column, _count), do: exit(:nif_not_loaded)
-  def append(_column, _value), do: exit(:nif_not_loaded)
-  def valid_value(_value), do: exit(:nif_not_loaded)
-  def pack(_column), do: exit(:nif_not_loaded)
-  def packed_size(_column), do: exit(:nif_not_loaded)
-  def allocated_size(_column), do: exit(:nif_not_loaded)
-  def live_columns, do: exit(:nif_not_loaded)
-  def get_value(_column, _offset), do: exit(:nif_not_loaded)
-  def from_list(_column), do: exit(:nif_not_loaded)
-  def to_list(_column), do: exit(:nif_not_loaded)
-  def count(_column), do: exit(:nif_not_loaded)
-  def null_count(_column), do: exit(:nif_not_loaded)
-  def false_count(_column), do: exit(:nif_not_loaded)
-  def true_count(_column), do: exit(:nif_not_loaded)
-  def int_count(_column), do: exit(:nif_not_loaded)
-  def float_count(_column), do: exit(:nif_not_loaded)
-  def string_count(_column), do: exit(:nif_not_loaded)
-  def metadata(_column), do: exit(:nif_not_loaded)
-  def filter(_column1, _column2), do: exit(:nif_not_loaded)
-  def add(_column1, _column2), do: exit(:nif_not_loaded)
-  def subtract(_column1, _column2), do: exit(:nif_not_loaded)
-  def multiply(_column1, _column2), do: exit(:nif_not_loaded)
-  def divide(_column1, _column2), do: exit(:nif_not_loaded)
-  def and_oper(_column1, _column2), do: exit(:nif_not_loaded)
-  def or_oper(_column1, _column2), do: exit(:nif_not_loaded)
-  def not_oper(_column1), do: exit(:nif_not_loaded)
-  def min_max_number(_column), do: exit(:nif_not_loaded)
-  def number_to_false(_column), do: exit(:nif_not_loaded)
-  def number_to_true(_column), do: exit(:nif_not_loaded)
-  def to_boolean(_column), do: exit(:nif_not_loaded)
-  def to_string(_column), do: exit(:nif_not_loaded)
+  def max_string_size do
+    exit(:nif_not_loaded)
+  end
+
+  def max_list_length do
+    exit(:nif_not_loaded)
+  end
+
+  def max_list_depth do
+    exit(:nif_not_loaded)
+  end
+
+  def new(_capacity) do
+    exit(:nif_not_loaded)
+  end
+
+  def pad(_column, _count) do
+    exit(:nif_not_loaded)
+  end
+
+  def append(_column, _value) do
+    exit(:nif_not_loaded)
+  end
+
+  def valid_value(_value) do
+    exit(:nif_not_loaded)
+  end
+
+  def pack(_column) do
+    exit(:nif_not_loaded)
+  end
+
+  def packed_size(_column) do
+    exit(:nif_not_loaded)
+  end
+
+  def allocated_size(_column) do
+    exit(:nif_not_loaded)
+  end
+
+  def live_columns do
+    exit(:nif_not_loaded)
+  end
+
+  def get_value(_column, _offset) do
+    exit(:nif_not_loaded)
+  end
+
+  def from_list(_column) do
+    exit(:nif_not_loaded)
+  end
+
+  def to_list(_column) do
+    exit(:nif_not_loaded)
+  end
+
+  def count(_column) do
+    exit(:nif_not_loaded)
+  end
+
+  def null_count(_column) do
+    exit(:nif_not_loaded)
+  end
+
+  def false_count(_column) do
+    exit(:nif_not_loaded)
+  end
+
+  def true_count(_column) do
+    exit(:nif_not_loaded)
+  end
+
+  def int_count(_column) do
+    exit(:nif_not_loaded)
+  end
+
+  def float_count(_column) do
+    exit(:nif_not_loaded)
+  end
+
+  def string_count(_column) do
+    exit(:nif_not_loaded)
+  end
+
+  def metadata(_column) do
+    exit(:nif_not_loaded)
+  end
+
+  def filter(_column1, _column2) do
+    exit(:nif_not_loaded)
+  end
+
+  def add(_column1, _column2) do
+    exit(:nif_not_loaded)
+  end
+
+  def subtract(_column1, _column2) do
+    exit(:nif_not_loaded)
+  end
+
+  def multiply(_column1, _column2) do
+    exit(:nif_not_loaded)
+  end
+
+  def divide(_column1, _column2) do
+    exit(:nif_not_loaded)
+  end
+
+  def and_oper(_column1, _column2) do
+    exit(:nif_not_loaded)
+  end
+
+  def or_oper(_column1, _column2) do
+    exit(:nif_not_loaded)
+  end
+
+  def not_oper(_column1) do
+    exit(:nif_not_loaded)
+  end
+
+  def min_max_number(_column) do
+    exit(:nif_not_loaded)
+  end
+
+  def number_to_false(_column) do
+    exit(:nif_not_loaded)
+  end
+
+  def number_to_true(_column) do
+    exit(:nif_not_loaded)
+  end
+
+  def to_boolean(_column) do
+    exit(:nif_not_loaded)
+  end
+
+  def to_string(_column) do
+    exit(:nif_not_loaded)
+  end
 end

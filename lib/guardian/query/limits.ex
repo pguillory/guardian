@@ -32,15 +32,20 @@ defmodule Guardian.Query.Limits do
   can still exhaust a machine's memory.
   """
 
-  def max_result_rows, do: Application.get_env(:guardian, :query_max_result_rows, 100_000)
+  def max_result_rows do
+    Application.get_env(:guardian, :query_max_result_rows, 100_000)
+  end
 
-  def max_result_bytes,
-    do: Application.get_env(:guardian, :query_max_result_bytes, 64 * 1024 * 1024)
+  def max_result_bytes do
+    Application.get_env(:guardian, :query_max_result_bytes, 64 * 1024 * 1024)
+  end
 
   @doc """
   The per-process heap limit in MiB (`:query_max_heap_mb`), or 0 when it is off.
   """
-  def max_heap_mb, do: Application.get_env(:guardian, :query_max_heap_mb, 256)
+  def max_heap_mb do
+    Application.get_env(:guardian, :query_max_heap_mb, 256)
+  end
 
   @doc """
   Puts this node's heap limit on the calling process: the first thing every query
@@ -73,7 +78,9 @@ defmodule Guardian.Query.Limits do
       "(GUARDIAN_QUERY_MAX_HEAP_MB); narrow the query with WHERE, LIMIT or fewer groups"
   end
 
-  def time_limit_ms, do: Application.get_env(:guardian, :query_time_limit_ms, 30_000)
+  def time_limit_ms do
+    Application.get_env(:guardian, :query_time_limit_ms, 30_000)
+  end
 
   @doc false
   def time_limit_message(limit_ms) do

@@ -62,8 +62,13 @@ defmodule Guardian.AST.StringEncoding do
     {:error, "Bad escaped character", byte_size(inner) - byte_size(escape)}
   end
 
-  defp decode(<<c, rest::binary>>, inner, acc), do: decode(rest, inner, <<acc::binary, c>>)
-  defp decode(<<>>, _inner, acc), do: {:ok, acc}
+  defp decode(<<c, rest::binary>>, inner, acc) do
+    decode(rest, inner, <<acc::binary, c>>)
+  end
+
+  defp decode(<<>>, _inner, acc) do
+    {:ok, acc}
+  end
 
   # A high surrogate must be followed by a \u low surrogate; together they are one
   # codepoint, as in JSON.
@@ -76,8 +81,13 @@ defmodule Guardian.AST.StringEncoding do
     end
   end
 
-  defp codepoint(low, _rest) when low in 0xDC00..0xDFFF, do: {:error, "Invalid UTF-16 codepoint"}
-  defp codepoint(unit, rest), do: {:ok, unit, rest}
+  defp codepoint(low, _rest) when low in 0xDC00..0xDFFF do
+    {:error, "Invalid UTF-16 codepoint"}
+  end
+
+  defp codepoint(unit, rest) do
+    {:ok, unit, rest}
+  end
 
   defguardp is_hex(c) when c in ?0..?9 or c in ?a..?f or c in ?A..?F
 
@@ -88,7 +98,9 @@ defmodule Guardian.AST.StringEncoding do
     {:ok, String.to_integer(hex, 16)}
   end
 
-  defp hex_unit(_hex), do: :error
+  defp hex_unit(_hex) do
+    :error
+  end
 
   @printable Guardian.AST.Unicode.codepoint("U+0020")..Guardian.AST.Unicode.codepoint("U+10FFFF")
 

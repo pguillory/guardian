@@ -245,7 +245,9 @@ If the operation can be done in C (recommended for performance):
 
 1. Add stub to `nif.ex`:
    ```elixir
-   def my_operation(_column), do: exit(:nif_not_loaded)
+   def my_operation(_column) do
+     exit(:nif_not_loaded)
+   end
    ```
 
 2. Implement in `/src/column.c` following existing patterns

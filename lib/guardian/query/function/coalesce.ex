@@ -45,15 +45,39 @@ defmodule Guardian.Query.Function.Coalesce do
     value
   end
 
-  def eval(nil, value), do: value
-  def eval(value, _), do: value
+  def eval(nil, value) do
+    value
+  end
 
-  def eval(nil, nil, value), do: value
-  def eval(nil, value, _), do: value
-  def eval(value, _, _), do: value
+  def eval(value, _) do
+    value
+  end
 
-  def eval(nil, nil, nil, value), do: value
-  def eval(nil, nil, value, _), do: value
-  def eval(nil, value, _, _), do: value
-  def eval(value, _, _, _), do: value
+  def eval(nil, nil, value) do
+    value
+  end
+
+  def eval(nil, value, _) do
+    value
+  end
+
+  def eval(value, _, _) do
+    value
+  end
+
+  def eval(nil, nil, nil, value) do
+    value
+  end
+
+  def eval(nil, nil, value, _) do
+    value
+  end
+
+  def eval(nil, value, _, _) do
+    value
+  end
+
+  def eval(value, _, _, _) do
+    value
+  end
 end

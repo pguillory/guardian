@@ -49,23 +49,46 @@ defmodule Guardian.Query.Function.Interval do
     end
   end
 
-  defp unit_seconds(?s), do: {:ok, @second}
-  defp unit_seconds(?m), do: {:ok, @minute}
-  defp unit_seconds(?h), do: {:ok, @hour}
-  defp unit_seconds(?d), do: {:ok, @day}
-  defp unit_seconds(?w), do: {:ok, @week}
-  defp unit_seconds(_), do: :error
+  defp unit_seconds(?s) do
+    {:ok, @second}
+  end
+
+  defp unit_seconds(?m) do
+    {:ok, @minute}
+  end
+
+  defp unit_seconds(?h) do
+    {:ok, @hour}
+  end
+
+  defp unit_seconds(?d) do
+    {:ok, @day}
+  end
+
+  defp unit_seconds(?w) do
+    {:ok, @week}
+  end
+
+  defp unit_seconds(_) do
+    :error
+  end
 
   # At most 19 digits after an optional sign, before Integer.parse can build more.
-  defp digits_within_limit?(<<sign, rest::binary>>) when sign in [?+, ?-],
-    do: digits_within_limit?(rest)
+  defp digits_within_limit?(<<sign, rest::binary>>) when sign in [?+, ?-] do
+    digits_within_limit?(rest)
+  end
 
-  defp digits_within_limit?(string), do: leading_digits(string, 0) <= 19
+  defp digits_within_limit?(string) do
+    leading_digits(string, 0) <= 19
+  end
 
-  defp leading_digits(<<digit, rest::binary>>, n) when digit in ?0..?9 and n <= 19,
-    do: leading_digits(rest, n + 1)
+  defp leading_digits(<<digit, rest::binary>>, n) when digit in ?0..?9 and n <= 19 do
+    leading_digits(rest, n + 1)
+  end
 
-  defp leading_digits(_string, n), do: n
+  defp leading_digits(_string, n) do
+    n
+  end
 
   @doc "Formats seconds as a duration that `to_seconds/1` parses, such as `\"2h30m\"`."
   def from_seconds(0) do

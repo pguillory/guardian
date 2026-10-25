@@ -7,8 +7,13 @@ defmodule Guardian.Aggregation.Ordering do
   Whether `key1` wins over `key2`: strictly less for `:min`, strictly greater for
   `:max`. A tie is false, so the second argument wins it.
   """
-  def wins?(:min, key1, key2), do: key1 < key2
-  def wins?(:max, key1, key2), do: key1 > key2
+  def wins?(:min, key1, key2) do
+    key1 < key2
+  end
+
+  def wins?(:max, key1, key2) do
+    key1 > key2
+  end
 
   @doc """
   Checks the `n` argument of a `_n` aggregation named `name`.

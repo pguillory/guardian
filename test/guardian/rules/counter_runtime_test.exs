@@ -36,7 +36,9 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     Map.new(preparation.tables, fn {table, {:ok, plan}} -> {table, plan} end)
   end
 
-  defp test_backend(store) when is_atom(store), do: store
+  defp test_backend(store) when is_atom(store) do
+    store
+  end
 
   defp test_backend(store) do
     case Process.info(store, :dictionary) do
@@ -52,13 +54,15 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     plans(%{"#{table}/r.gsql" => source}) |> Map.fetch!(table)
   end
 
-  defp run(plan, row, event), do: Runtime.run(row, plan.levels, event)
+  defp run(plan, row, event) do
+    Runtime.run(row, plan.levels, event)
+  end
 
-  defp definition(plan),
-    do:
-      plan.steps
-      |> Enum.find(&(&1.kind == :track))
-      |> Guardian.Rules.CounterDefinition.from_track()
+  defp definition(plan) do
+    plan.steps
+    |> Enum.find(&(&1.kind == :track))
+    |> Guardian.Rules.CounterDefinition.from_track()
+  end
 
   test "LOOKUP barrier, SET dependencies, deduplication and the 50th event", %{store: store} do
     table = unique_table("counter_barrier")
@@ -302,21 +306,30 @@ defmodule Guardian.Rules.CounterRuntimeTest do
 
   defmodule ProbeStore do
     use GenServer
-    def start_link(handler), do: GenServer.start_link(__MODULE__, handler)
-    def init(handler), do: {:ok, handler}
+
+    def start_link(handler) do
+      GenServer.start_link(__MODULE__, handler)
+    end
+
+    def init(handler) do
+      {:ok, handler}
+    end
 
     def handle_call(
           {:operation, _deadline, {:batch, operations}},
           _from,
           {:pipeline, handler} = state
-        ),
-        do: {:reply, handler.(operations), state}
+        ) do
+      {:reply, handler.(operations), state}
+    end
 
-    def handle_call({:operation, _deadline, {:batch, operations}}, _from, handler),
-      do: {:reply, {:ok, Enum.map(operations, handler)}, handler}
+    def handle_call({:operation, _deadline, {:batch, operations}}, _from, handler) do
+      {:reply, {:ok, Enum.map(operations, handler)}, handler}
+    end
 
-    def handle_call({:operation, _deadline, operation}, _from, handler),
-      do: {:reply, handler.(operation), handler}
+    def handle_call({:operation, _deadline, operation}, _from, handler) do
+      {:reply, handler.(operation), handler}
+    end
   end
 
   test "each dependency level batches every counter and bucket into the longest machine's rounds" do

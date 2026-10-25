@@ -333,7 +333,9 @@ defmodule Guardian.DeploymentTest do
       end
     end
 
-    defp signal(pid, name), do: {_, 0} = System.cmd("kill", ["-#{name}", pid])
+    defp signal(pid, name) do
+      {_, 0} = System.cmd("kill", ["-#{name}", pid])
+    end
 
     @connector_start "cloudflared start --no-autoupdate tunnel --metrics 127.0.0.1:20241 " <>
                        "--management-diagnostics=false --grace-period 10s run " <>

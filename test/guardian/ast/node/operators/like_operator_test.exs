@@ -117,8 +117,9 @@ defmodule Guardian.LikeOperatorTest do
     end
   end
 
-  defp random_string(length, chars),
-    do: Enum.map_join(1..length//1, fn _ -> Enum.random(chars) end)
+  defp random_string(length, chars) do
+    Enum.map_join(1..length//1, fn _ -> Enum.random(chars) end)
+  end
 
   test "redundant % wildcards" do
     assert eval("'quick brown fox' like '%%brown%%'") == true

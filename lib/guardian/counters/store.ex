@@ -31,19 +31,36 @@ defmodule Guardian.Counters.Store do
     end
   end
 
-  def get(key, opts \\ []), do: request({:get, key}, opts)
-  def gets(key, opts \\ []), do: request({:gets, key}, opts)
+  def get(key, opts \\ []) do
+    request({:get, key}, opts)
+  end
+
+  def gets(key, opts \\ []) do
+    request({:gets, key}, opts)
+  end
+
   @doc "Reads up to four keys in order, without a snapshot; individual reads may time out."
-  def get_many(keys, opts \\ []), do: request({:get_many, keys}, opts)
+  def get_many(keys, opts \\ []) do
+    request({:get_many, keys}, opts)
+  end
+
   @doc "Executes up to 4,000 operations in order, checking deadlines before each."
-  def batch(operations, opts \\ []), do: request({:batch, operations}, opts)
+  def batch(operations, opts \\ []) do
+    request({:batch, operations}, opts)
+  end
 
-  def cas(key, expected, value, ttl, opts \\ []),
-    do: request({:cas, key, expected, value, ttl}, opts)
+  def cas(key, expected, value, ttl, opts \\ []) do
+    request({:cas, key, expected, value, ttl}, opts)
+  end
 
-  def incr(key, delta, ttl, opts \\ []), do: request({:incr, key, delta, ttl}, opts)
+  def incr(key, delta, ttl, opts \\ []) do
+    request({:incr, key, delta, ttl}, opts)
+  end
+
   @doc "Approximate aggregate diagnostics under concurrent writes; scans resident rows."
-  def stats(opts \\ []), do: request(:stats, opts)
+  def stats(opts \\ []) do
+    request(:stats, opts)
+  end
 
   defp request(operation, opts) do
     timeout = Keyword.get(opts, :timeout, @default_timeout)
@@ -143,7 +160,10 @@ defmodule Guardian.Counters.Store do
   end
 
   @impl true
-  def handle_call(_, _, state), do: {:reply, {:error, :invalid_request}, state}
+  def handle_call(_, _, state) do
+    {:reply, {:error, :invalid_request}, state}
+  end
+
   @impl true
   def handle_info({:sweep, tag}, %{sweep_tag: tag} = state) do
     scrubbed(fn ->
@@ -168,14 +188,18 @@ defmodule Guardian.Counters.Store do
     end)
   end
 
-  def handle_info(_, state), do: {:noreply, state}
+  def handle_info(_, state) do
+    {:noreply, state}
+  end
 
   defp execute_request({:batch, operations}, state, deadline)
        when is_list(operations) and length(operations) <= @max_batch_operations do
     {:ok, Enum.map(operations, &execute_one(&1, state, deadline))}
   end
 
-  defp execute_request(operation, state, deadline), do: execute_one(operation, state, deadline)
+  defp execute_request(operation, state, deadline) do
+    execute_one(operation, state, deadline)
+  end
 
   defp execute_one(operation, state, deadline) do
     with :ok <- before_deadline(deadline) do
@@ -237,12 +261,19 @@ defmodule Guardian.Counters.Store do
     {:ok, %{keys: count, memory_bytes: bytes, memory_budget_bytes: state.budget}}
   end
 
-  defp execute(_, _, _, _), do: {:error, :invalid_request}
+  defp execute(_, _, _, _) do
+    {:error, :invalid_request}
+  end
 
   # Fully bound binary keys make select_replace/delete keyed operations, including
   # when the original opaque key contains maps or match-spec atoms.
-  defp encode(key), do: :erlang.term_to_binary(key, [:deterministic])
-  defp version, do: System.unique_integer([:positive, :monotonic])
+  defp encode(key) do
+    :erlang.term_to_binary(key, [:deterministic])
+  end
+
+  defp version do
+    System.unique_integer([:positive, :monotonic])
+  end
 
   defp compare_swap(state, key, :missing, value, expiry, now, deadline) do
     if :ets.insert_new(state.entries, {key, value, expiry, version()}) do
@@ -272,7 +303,9 @@ defmodule Guardian.Counters.Store do
     if count == 1, do: :ok, else: {:error, :conflict}
   end
 
-  defp compare_swap(_, _, _, _, _, _, _), do: {:error, :conflict}
+  defp compare_swap(_, _, _, _, _, _, _) do
+    {:error, :conflict}
+  end
 
   defp increment(state, key, delta, expiry, now, deadline, retry?) do
     next_version = version()
@@ -314,8 +347,9 @@ defmodule Guardian.Counters.Store do
     end
   end
 
-  defp delete_expired(table, key, now),
-    do: :ets.select_delete(table, [{{key, :_, :"$1", :_}, [{:"=<", :"$1", now}], [true]}])
+  defp delete_expired(table, key, now) do
+    :ets.select_delete(table, [{{key, :_, :"$1", :_}, [{:"=<", :"$1", now}], [true]}])
+  end
 
   defp fits(state, key, value) do
     if payload_bytes({key, value}) + @minimum_row_words * :erlang.system_info(:wordsize) >
@@ -374,17 +408,25 @@ defmodule Guardian.Counters.Store do
     {max(0, table_bytes(state.entries) - state.baseline_bytes) + payload, sample, count}
   end
 
-  defp table_bytes(table), do: :ets.info(table, :memory) * :erlang.system_info(:wordsize)
-  defp payload_bytes(term), do: :erlang.external_size(term) + retained_binary_bytes(term)
+  defp table_bytes(table) do
+    :ets.info(table, :memory) * :erlang.system_info(:wordsize)
+  end
 
-  defp retained_binary_bytes(term) when is_bitstring(term),
-    do: max(0, :binary.referenced_byte_size(term) - div(bit_size(term) + 7, 8))
+  defp payload_bytes(term) do
+    :erlang.external_size(term) + retained_binary_bytes(term)
+  end
 
-  defp retained_binary_bytes([head | tail]),
-    do: retained_binary_bytes(head) + retained_binary_bytes(tail)
+  defp retained_binary_bytes(term) when is_bitstring(term) do
+    max(0, :binary.referenced_byte_size(term) - div(bit_size(term) + 7, 8))
+  end
 
-  defp retained_binary_bytes(term) when is_tuple(term),
-    do: term |> Tuple.to_list() |> retained_binary_bytes()
+  defp retained_binary_bytes([head | tail]) do
+    retained_binary_bytes(head) + retained_binary_bytes(tail)
+  end
+
+  defp retained_binary_bytes(term) when is_tuple(term) do
+    term |> Tuple.to_list() |> retained_binary_bytes()
+  end
 
   defp retained_binary_bytes(term) when is_map(term) do
     :maps.fold(
@@ -401,7 +443,10 @@ defmodule Guardian.Counters.Store do
     retained_binary_bytes(environment)
   end
 
-  defp retained_binary_bytes(_), do: 0
+  defp retained_binary_bytes(_) do
+    0
+  end
+
   @impl true
   def format_status(status) do
     status

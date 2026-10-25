@@ -20,9 +20,17 @@ defmodule Guardian.Storage.Segment.Registration do
     end
   end
 
-  def segment_id(tuple(segment_id: segment_id)), do: segment_id
-  def segment(tuple(segment: segment)), do: segment
-  def table(tuple(table: table)), do: table
+  def segment_id(tuple(segment_id: segment_id)) do
+    segment_id
+  end
+
+  def segment(tuple(segment: segment)) do
+    segment
+  end
+
+  def table(tuple(table: table)) do
+    table
+  end
 
   # A manager's registry is its named ETS table of `tuple/1` registrations, keyed by
   # segment ID. The functions below are the registry operations every manager shares;

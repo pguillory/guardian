@@ -39,10 +39,13 @@ defmodule Guardian.Rules.CounterIngestTest do
     Jason.decode!(text)
   end
 
-  defp ingest(table, events), do: Guardian.Engine.ingest_events(table, events)
+  defp ingest(table, events) do
+    Guardian.Engine.ingest_events(table, events)
+  end
 
-  defp track(table),
-    do: Enum.find(Guardian.Rules.lookup(table).plan().steps, &(&1.kind == :track))
+  defp track(table) do
+    Enum.find(Guardian.Rules.lookup(table).plan().steps, &(&1.kind == :track))
+  end
 
   defp await_cooldown(owner) do
     Guardian.TestHelpers.eventually(fn ->

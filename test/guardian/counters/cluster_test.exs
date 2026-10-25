@@ -22,7 +22,9 @@ defmodule Guardian.Counters.ClusterTest do
     %{store: store}
   end
 
-  defp key(group \\ {}, bucket \\ 1), do: {{"events", "hits", "definition-hash"}, group, bucket}
+  defp key(group \\ {}, bucket \\ 1) do
+    {{"events", "hits", "definition-hash"}, group, bucket}
+  end
 
   defp event(store, opts \\ []) do
     CountersCluster.new_event(
@@ -34,7 +36,9 @@ defmodule Guardian.Counters.ClusterTest do
     )
   end
 
-  defp route({identity, group, _bucket}), do: {identity, group}
+  defp route({identity, group, _bucket}) do
+    {identity, group}
+  end
 
   defp owned_key(owner, members) do
     group =

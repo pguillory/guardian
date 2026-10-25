@@ -54,7 +54,9 @@ defmodule Guardian.Query.TemporariesTest do
     end
   end
 
-  defp table, do: "temporaries_#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
+  defp table do
+    "temporaries_#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
+  end
 
   describe "no Segment processes are left behind" do
     setup do

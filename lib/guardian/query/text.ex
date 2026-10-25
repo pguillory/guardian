@@ -26,7 +26,9 @@ defmodule Guardian.Query.Text do
   @max_bytes 64 * 1024
 
   @doc "The string cap in bytes."
-  def max_bytes, do: @max_bytes
+  def max_bytes do
+    @max_bytes
+  end
 
   @doc """
   Cuts `string` to at most `max_bytes` bytes without splitting a UTF-8 character.
@@ -69,7 +71,9 @@ defmodule Guardian.Query.Text do
   `string` cut to the cap. A string within it is returned as it is (no copy), so
   this is free for the common case.
   """
-  def cap(string) when byte_size(string) <= @max_bytes, do: string
+  def cap(string) when byte_size(string) <= @max_bytes do
+    string
+  end
 
   def cap(string) do
     {string, true} = truncate(string, @max_bytes)
@@ -80,7 +84,9 @@ defmodule Guardian.Query.Text do
   The string form of `value`, cut to at most `budget` bytes; nil for nil. Rendering
   stops once the budget is reached, so a huge list costs no more than the budget.
   """
-  def form(nil, _budget), do: nil
+  def form(nil, _budget) do
+    nil
+  end
 
   def form(value, budget) do
     {string, _cut?} = form_cut(value, budget)
@@ -92,12 +98,18 @@ defmodule Guardian.Query.Text do
   whether it was cut to fit. Code that joins forms stops at the first cut one, so
   bytes a cut freed (a split character dropped) never take a later piece.
   """
-  def form_cut(value, budget) when is_binary(value) and byte_size(value) <= budget,
-    do: {value, false}
+  def form_cut(value, budget) when is_binary(value) and byte_size(value) <= budget do
+    {value, false}
+  end
 
-  def form_cut(value, budget) when is_binary(value), do: truncate(value, budget)
+  def form_cut(value, budget) when is_binary(value) do
+    truncate(value, budget)
+  end
+
   # Every other value's form has at least one byte.
-  def form_cut(_value, budget) when budget <= 0, do: {"", true}
+  def form_cut(_value, budget) when budget <= 0 do
+    {"", true}
+  end
 
   def form_cut(value, budget) do
     # Rendering emits whole tokens and stops once past the budget, so a form that
@@ -107,16 +119,29 @@ defmodule Guardian.Query.Text do
   end
 
   # Returns {iodata, budget left}; stops (renders nothing more) once none is left.
-  defp render(_value, budget, _quoted?) when budget <= 0, do: {[], budget}
-  defp render(nil, budget, _quoted?), do: emit("null", budget)
-  defp render(true, budget, _quoted?), do: emit("true", budget)
-  defp render(false, budget, _quoted?), do: emit("false", budget)
+  defp render(_value, budget, _quoted?) when budget <= 0 do
+    {[], budget}
+  end
 
-  defp render(value, budget, _quoted?) when is_integer(value),
-    do: emit(Integer.to_string(value), budget)
+  defp render(nil, budget, _quoted?) do
+    emit("null", budget)
+  end
 
-  defp render(value, budget, _quoted?) when is_float(value),
-    do: emit(Float.to_string(value), budget)
+  defp render(true, budget, _quoted?) do
+    emit("true", budget)
+  end
+
+  defp render(false, budget, _quoted?) do
+    emit("false", budget)
+  end
+
+  defp render(value, budget, _quoted?) when is_integer(value) do
+    emit(Integer.to_string(value), budget)
+  end
+
+  defp render(value, budget, _quoted?) when is_float(value) do
+    emit(Float.to_string(value), budget)
+  end
 
   # A string is rendered one byte past the budget, so a character the budget splits
   # is seen as split and dropped by the final truncate/2.
@@ -138,10 +163,17 @@ defmodule Guardian.Query.Text do
   end
 
   # Not a storable value (a map, say): nothing a query can produce, but no raise.
-  defp render(_value, budget, _quoted?), do: {[], budget}
+  defp render(_value, budget, _quoted?) do
+    {[], budget}
+  end
 
-  defp render_items([], budget, acc), do: {Enum.reverse(acc), budget}
-  defp render_items(_items, budget, acc) when budget <= 0, do: {Enum.reverse(acc), budget}
+  defp render_items([], budget, acc) do
+    {Enum.reverse(acc), budget}
+  end
+
+  defp render_items(_items, budget, acc) when budget <= 0 do
+    {Enum.reverse(acc), budget}
+  end
 
   defp render_items([item | items], budget, acc) do
     {separator, budget} = if acc == [], do: {[], budget}, else: emit(",", budget)
@@ -149,7 +181,9 @@ defmodule Guardian.Query.Text do
     render_items(items, budget, [rendered, separator | acc])
   end
 
-  defp emit(iodata, budget), do: {iodata, budget - IO.iodata_length(iodata)}
+  defp emit(iodata, budget) do
+    {iodata, budget - IO.iodata_length(iodata)}
+  end
 
   defp escape(string) do
     for <<char::utf8 <- string>>, into: "" do

@@ -34,11 +34,21 @@ defmodule Guardian.Storage.Value do
     @max_key_size
   end
 
-  def valid_key?(key) when is_binary(key), do: byte_size(key) <= @max_key_size
-  def valid_key?(_key), do: false
+  def valid_key?(key) when is_binary(key) do
+    byte_size(key) <= @max_key_size
+  end
 
-  def valid?(value) when is_map(value), do: true
-  def valid?(value), do: Column.valid_value?(value)
+  def valid_key?(_key) do
+    false
+  end
+
+  def valid?(value) when is_map(value) do
+    true
+  end
+
+  def valid?(value) do
+    Column.valid_value?(value)
+  end
 
   def validate(value) do
     true = valid?(value)

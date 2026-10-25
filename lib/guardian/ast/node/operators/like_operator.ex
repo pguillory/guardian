@@ -8,7 +8,9 @@ defmodule Guardian.AST.Node.Operators.LikeOperator do
   # matches nothing (null). It bounds the state machine below to a few machine words.
   @max_pattern_items 1_000
 
-  def max_pattern_items, do: @max_pattern_items
+  def max_pattern_items do
+    @max_pattern_items
+  end
 
   defimpl Guardian.Query.Eval do
     def eval(%@for{left: left, right: right}, context) do
@@ -42,12 +44,16 @@ defmodule Guardian.AST.Node.Operators.LikeOperator do
     run(value, unit, compile(pattern, unit))
   end
 
-  def eval(_value, _pattern), do: nil
+  def eval(_value, _pattern) do
+    nil
+  end
 
   @doc false
   # For a constant pattern, compiled once: its UTF-8 form (nil if it isn't valid
   # UTF-8) and its byte form; each value then picks one.
-  def compile_constant(pattern), do: {compile(pattern, :utf8), compile(pattern, :byte)}
+  def compile_constant(pattern) do
+    {compile(pattern, :utf8), compile(pattern, :byte)}
+  end
 
   @doc false
   def match(value, {utf8, bytes}) when is_binary(value) do
@@ -56,15 +62,21 @@ defmodule Guardian.AST.Node.Operators.LikeOperator do
       else: run(value, :byte, bytes)
   end
 
-  def match(_value, _compiled), do: nil
+  def match(_value, _compiled) do
+    nil
+  end
 
-  defp unit(value, pattern),
-    do: if(String.valid?(value) and String.valid?(pattern), do: :utf8, else: :byte)
+  defp unit(value, pattern) do
+    if(String.valid?(value) and String.valid?(pattern), do: :utf8, else: :byte)
+  end
 
-  defp run(_value, _unit, nil), do: nil
+  defp run(_value, _unit, nil) do
+    nil
+  end
 
-  defp run(value, unit, {masks, any, loops, accept}),
-    do: run(value, unit, masks, any, loops, accept, 1)
+  defp run(value, unit, {masks, any, loops, accept}) do
+    run(value, unit, masks, any, loops, accept, 1)
+  end
 
   @doc false
   # `{masks, any, loops, accept}`, or nil for a non-string, a too-long pattern, or
@@ -75,17 +87,25 @@ defmodule Guardian.AST.Node.Operators.LikeOperator do
     if unit == :byte or String.valid?(pattern), do: compile(pattern, unit, 0, %{}, 0, 0)
   end
 
-  def compile(_pattern, _unit), do: nil
+  def compile(_pattern, _unit) do
+    nil
+  end
 
-  defp compile(_pattern, _unit, i, _masks, _any, _loops) when i > @max_pattern_items, do: nil
+  defp compile(_pattern, _unit, i, _masks, _any, _loops) when i > @max_pattern_items do
+    nil
+  end
 
-  defp compile(<<>>, _unit, i, masks, any, loops), do: {masks, any, loops, Bitwise.bsl(1, i)}
+  defp compile(<<>>, _unit, i, masks, any, loops) do
+    {masks, any, loops, Bitwise.bsl(1, i)}
+  end
 
-  defp compile(<<"%", rest::binary>>, unit, i, masks, any, loops),
-    do: compile(rest, unit, i, masks, any, Bitwise.bor(loops, Bitwise.bsl(1, i)))
+  defp compile(<<"%", rest::binary>>, unit, i, masks, any, loops) do
+    compile(rest, unit, i, masks, any, Bitwise.bor(loops, Bitwise.bsl(1, i)))
+  end
 
-  defp compile(<<"_", rest::binary>>, unit, i, masks, any, loops),
-    do: compile(rest, unit, i + 1, masks, Bitwise.bor(any, Bitwise.bsl(1, i + 1)), loops)
+  defp compile(<<"_", rest::binary>>, unit, i, masks, any, loops) do
+    compile(rest, unit, i + 1, masks, Bitwise.bor(any, Bitwise.bsl(1, i + 1)), loops)
+  end
 
   defp compile(pattern, unit, i, masks, any, loops) do
     {char, rest} = next(pattern, unit)
@@ -94,10 +114,13 @@ defmodule Guardian.AST.Node.Operators.LikeOperator do
     compile(rest, unit, i + 1, masks, any, loops)
   end
 
-  defp run(_value, _unit, _masks, _any, _loops, _accept, 0), do: false
+  defp run(_value, _unit, _masks, _any, _loops, _accept, 0) do
+    false
+  end
 
-  defp run(<<>>, _unit, _masks, _any, _loops, accept, states),
-    do: Bitwise.band(states, accept) != 0
+  defp run(<<>>, _unit, _masks, _any, _loops, accept, states) do
+    Bitwise.band(states, accept) != 0
+  end
 
   defp run(value, unit, masks, any, loops, accept, states) do
     {char, rest} = next(value, unit)
@@ -107,6 +130,11 @@ defmodule Guardian.AST.Node.Operators.LikeOperator do
     run(rest, unit, masks, any, loops, accept, states)
   end
 
-  defp next(<<char::utf8, rest::binary>>, :utf8), do: {char, rest}
-  defp next(<<byte, rest::binary>>, :byte), do: {byte, rest}
+  defp next(<<char::utf8, rest::binary>>, :utf8) do
+    {char, rest}
+  end
+
+  defp next(<<byte, rest::binary>>, :byte) do
+    {byte, rest}
+  end
 end

@@ -47,12 +47,21 @@ defmodule Guardian.Query.Failure do
 
   # A process killed outright: most likely by its heap limit (Guardian.Query.Limits), though
   # the reason cannot tell that apart from any other kill.
-  def from_exit(:killed),
-    do: %Guardian.Query.Error{message: Guardian.Query.Limits.heap_kill_message()}
+  def from_exit(:killed) do
+    %Guardian.Query.Error{message: Guardian.Query.Limits.heap_kill_message()}
+  end
 
-  def from_exit(:noconnection), do: disconnected()
-  def from_exit({:nodedown, _node}), do: disconnected()
-  def from_exit({:distributed_stream, {_edge, :noconnection}}), do: disconnected()
+  def from_exit(:noconnection) do
+    disconnected()
+  end
+
+  def from_exit({:nodedown, _node}) do
+    disconnected()
+  end
+
+  def from_exit({:distributed_stream, {_edge, :noconnection}}) do
+    disconnected()
+  end
 
   def from_exit({:distributed_stream, detail}) do
     %Guardian.Query.Error{message: "query failed: " <> distributed_stream_message(detail)}
@@ -74,8 +83,9 @@ defmodule Guardian.Query.Failure do
   The error for a query process that went down without sending its result.
   """
   @spec query_process_down(term()) :: %Guardian.Query.Error{}
-  def query_process_down(:killed),
-    do: %Guardian.Query.Error{message: Guardian.Query.Limits.heap_kill_message()}
+  def query_process_down(:killed) do
+    %Guardian.Query.Error{message: Guardian.Query.Limits.heap_kill_message()}
+  end
 
   def query_process_down(reason) do
     %Guardian.Query.Error{message: "query failed: " <> truncate(describe(reason))}
@@ -136,5 +146,7 @@ defmodule Guardian.Query.Failure do
   end
 
   # A bounded inspection: reasons can carry row values.
-  defp describe(term), do: inspect(term, limit: 10, printable_limit: 200)
+  defp describe(term) do
+    inspect(term, limit: 10, printable_limit: 200)
+  end
 end

@@ -5,13 +5,19 @@ defmodule Guardian.DistributedStreamTestStages do
   """
 
   @doc "A fan-out function sending everything to partition 1 on `node`."
-  def to(node), do: fn _ -> {node, 1} end
+  def to(node) do
+    fn _ -> {node, 1} end
+  end
 
   @doc "Builds about 3 MiB of heap (200,000 small tuples) and returns its length."
-  def grow_heap(_value), do: 1..200_000 |> Enum.map(&{&1, &1}) |> length()
+  def grow_heap(_value) do
+    1..200_000 |> Enum.map(&{&1, &1}) |> length()
+  end
 
   @doc "Pads each value to fill a 1,000-byte chunk on its own."
-  def big(value), do: {value, String.duplicate("x", 1_000)}
+  def big(value) do
+    {value, String.duplicate("x", 1_000)}
+  end
 
   @doc """
   A transform that pads values and, just before producing value number `k` (from 0),

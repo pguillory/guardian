@@ -25,21 +25,27 @@ defmodule Guardian.Rules.RowIndex do
   @empty {[], %{}}
 
   @doc "An index of `row`, built when first needed."
-  def new(row), do: %__MODULE__{row: row}
+  def new(row) do
+    %__MODULE__{row: row}
+  end
 
   @doc "The index with its read index built."
   def ensure(%__MODULE__{reads: nil, row: row} = index) do
     %__MODULE__{index | reads: row |> Map.keys() |> Enum.reduce(%{}, &add_read(&2, &1))}
   end
 
-  def ensure(index), do: index
+  def ensure(index) do
+    index
+  end
 
   defp ensure_trie(%__MODULE__{trie: nil, row: row} = index) do
     %__MODULE__{} = index = ensure(index)
     %__MODULE__{index | trie: row |> Map.keys() |> Enum.reduce(@empty, &insert(&2, path(&1), &1))}
   end
 
-  defp ensure_trie(index), do: index
+  defp ensure_trie(index) do
+    index
+  end
 
   @doc """
   The value read as `name` (lowercase, as identifiers are): the exact key's value,
@@ -115,7 +121,9 @@ defmodule Guardian.Rules.RowIndex do
   end
 
   # A node is {keys ending here, children by lowercase segment}.
-  defp insert({keys, children}, [], key), do: {[key | keys], children}
+  defp insert({keys, children}, [], key) do
+    {[key | keys], children}
+  end
 
   defp insert({keys, children}, [segment | rest], key) do
     child = Map.get(children, segment, @empty)

@@ -8,11 +8,11 @@ defmodule Guardian.AST.RuleParserTest do
   alias Guardian.AST.Node.Statements.UnsetStatement
   alias Guardian.AST.Parser
 
-  defp sources(source),
-    do:
-      source
-      |> Parser.parse_rules()
-      |> Enum.map(fn {s, line} -> {Guardian.AST.unparse(s), line} end)
+  defp sources(source) do
+    source
+    |> Parser.parse_rules()
+    |> Enum.map(fn {s, line} -> {Guardian.AST.unparse(s), line} end)
+  end
 
   test "parses SET and UNSET, with and without WHERE, and their lines" do
     source = """

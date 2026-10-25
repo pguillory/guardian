@@ -14,14 +14,18 @@ defmodule Guardian.Storage.MutableSegments do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  def segment_ids(table), do: Registration.segment_ids(__MODULE__, table)
+  def segment_ids(table) do
+    Registration.segment_ids(__MODULE__, table)
+  end
 
   def table_names do
     :ets.select(__MODULE__, Registration.match_spec(select: :table))
     |> Enum.uniq()
   end
 
-  def get_segment(segment_id), do: Registration.lookup(__MODULE__, segment_id)
+  def get_segment(segment_id) do
+    Registration.lookup(__MODULE__, segment_id)
+  end
 
   def delete_segment(segment_id) do
     GenServer.call(__MODULE__, {:delete_segment, segment_id})

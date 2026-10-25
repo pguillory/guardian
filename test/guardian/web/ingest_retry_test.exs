@@ -3,7 +3,9 @@ defmodule Guardian.Web.IngestRetryTest do
 
   @api_key Application.compile_env!(:guardian, :api_key)
 
-  defp table, do: "ingest_retry_#{System.unique_integer([:positive])}"
+  defp table do
+    "ingest_retry_#{System.unique_integer([:positive])}"
+  end
 
   defp post(params) do
     conn =

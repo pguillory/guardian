@@ -12,8 +12,9 @@ defmodule Guardian.Rules.CounterRuntime do
     definition |> expand_track(group, values, event) |> run(definition.operator, event)
   end
 
-  def expand_lookup(definition, group, event),
-    do: Enum.map(keys(definition, group, event), &KeyMachines.read/1)
+  def expand_lookup(definition, group, event) do
+    Enum.map(keys(definition, group, event), &KeyMachines.read/1)
+  end
 
   def expand_track(definition, group, values, event) do
     operator = definition.operator
@@ -49,7 +50,9 @@ defmodule Guardian.Rules.CounterRuntime do
     end
   end
 
-  def missing(operator), do: Aggregate.resolve(operator, Aggregate.default(operator))
+  def missing(operator) do
+    Aggregate.resolve(operator, Aggregate.default(operator))
+  end
 
   defp run(machines, operator, event) do
     [results] = Machine.run_nested([machines], event.counters)

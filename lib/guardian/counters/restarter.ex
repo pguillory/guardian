@@ -69,7 +69,9 @@ defmodule Guardian.Counters.Restarter do
     {:noreply, %{state | next_delay: state.initial_delay, healthy_timer: nil}}
   end
 
-  def handle_info(_message, state), do: {:noreply, state}
+  def handle_info(_message, state) do
+    {:noreply, state}
+  end
 
   @impl true
   def terminate(_reason, state) do
@@ -116,18 +118,32 @@ defmodule Guardian.Counters.Restarter do
     _, _ -> {:error, :start_failed}
   end
 
-  defp invalid_options?(:invalid_options), do: true
+  defp invalid_options?(:invalid_options) do
+    true
+  end
 
-  defp invalid_options?({:shutdown, {:failed_to_start_child, _id, reason}}),
-    do: invalid_options?(reason)
+  defp invalid_options?({:shutdown, {:failed_to_start_child, _id, reason}}) do
+    invalid_options?(reason)
+  end
 
-  defp invalid_options?(_), do: false
+  defp invalid_options?(_) do
+    false
+  end
 
   # Arbitrary exit/startup reasons can contain event values or configuration.
-  defp reason_kind(reason) when reason in [:normal, :shutdown, :killed, :noproc],
-    do: reason
+  defp reason_kind(reason) when reason in [:normal, :shutdown, :killed, :noproc] do
+    reason
+  end
 
-  defp reason_kind({:shutdown, {:failed_to_start_child, _, _}}), do: :start_or_process_failure
-  defp reason_kind({:shutdown, _}), do: :shutdown
-  defp reason_kind(_), do: :start_or_process_failure
+  defp reason_kind({:shutdown, {:failed_to_start_child, _, _}}) do
+    :start_or_process_failure
+  end
+
+  defp reason_kind({:shutdown, _}) do
+    :shutdown
+  end
+
+  defp reason_kind(_) do
+    :start_or_process_failure
+  end
 end

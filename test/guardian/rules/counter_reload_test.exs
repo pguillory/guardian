@@ -25,8 +25,13 @@ defmodule Guardian.Rules.CounterReloadTest do
     row
   end
 
-  defp target(module), do: Enum.find(module.plan().steps, &(&1.kind == :lookup)).target
-  defp identity(module), do: Enum.find(module.plan().steps, &(&1.kind == :track)).identity
+  defp target(module) do
+    Enum.find(module.plan().steps, &(&1.kind == :lookup)).target
+  end
+
+  defp identity(module) do
+    Enum.find(module.plan().steps, &(&1.kind == :track)).identity
+  end
 
   test "valid edits switch target and dependent identities; in-flight old modules keep old state",
        %{s3: s3} do

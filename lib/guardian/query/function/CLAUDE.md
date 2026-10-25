@@ -88,13 +88,17 @@ defmodule Guardian.Query.Function.Substr do
     String.slice(value, start - 1, byte_size(value))
   end
 
-  def eval(_, _), do: nil
+  def eval(_, _) do
+    nil
+  end
 
   def eval(value, start, count) when ... do
     String.slice(value, start - 1, count)
   end
 
-  def eval(_, _, _), do: nil
+  def eval(_, _, _) do
+    nil
+  end
 end
 ```
 
@@ -310,16 +314,23 @@ Functions should handle type mismatches gracefully:
 
 - Return `nil` for unexpected types (don't raise errors)
 - Use guard clauses to check types: `when is_binary(value)`
-- Provide fallback clause: `def eval(_), do: nil`
+- Provide a fallback clause with a `do...end` block returning `nil`.
 
 Examples:
 ```elixir
 # Good - graceful handling
-def eval(value) when is_number(value), do: abs(value)
-def eval(_), do: nil
+def eval(value) when is_number(value) do
+  abs(value)
+end
+
+def eval(_) do
+  nil
+end
 
 # Bad - will crash on wrong type
-def eval(value), do: abs(value)
+def eval(value) do
+  abs(value)
+end
 ```
 
 ## Performance Considerations

@@ -49,10 +49,13 @@ defmodule Guardian.Rules.Validation do
     end
   end
 
-  defp counter_errors(_step), do: []
+  defp counter_errors(_step) do
+    []
+  end
 
-  def error(step, kind, detail, message),
-    do: error(step.file, step.line, kind, detail, message, step.table)
+  def error(step, kind, detail, message) do
+    error(step.file, step.line, kind, detail, message, step.table)
+  end
 
   def error(file, line, kind, detail, message, table) do
     location = if line, do: "#{file} line #{line}", else: file

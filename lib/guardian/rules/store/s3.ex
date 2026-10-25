@@ -27,11 +27,13 @@ defmodule Guardian.Rules.Store.S3 do
   @write_deadline 20_000
 
   # Tests shorten these through app env.
-  defp receive_timeout,
-    do: Application.get_env(:guardian, :rules_s3_receive_timeout_ms, @receive_timeout)
+  defp receive_timeout do
+    Application.get_env(:guardian, :rules_s3_receive_timeout_ms, @receive_timeout)
+  end
 
-  defp write_deadline,
-    do: Application.get_env(:guardian, :rules_s3_write_deadline_ms, @write_deadline)
+  defp write_deadline do
+    Application.get_env(:guardian, :rules_s3_write_deadline_ms, @write_deadline)
+  end
 
   defimpl Inspect do
     def inspect(config, _opts) do
@@ -40,7 +42,9 @@ defmodule Guardian.Rules.Store.S3 do
   end
 
   @impl true
-  def describe(config), do: "S3 bucket #{config.bucket} at #{config.endpoint}"
+  def describe(config) do
+    "S3 bucket #{config.bucket} at #{config.endpoint}"
+  end
 
   @doc false
   def sigv4_options(credentials, region) do
@@ -59,9 +63,13 @@ defmodule Guardian.Rules.Store.S3 do
   # refused rather than followed forever.
   @max_list_pages 20
 
-  def list(config), do: safely(fn -> list_pages(config, nil, [], @max_list_pages) end, :read)
+  def list(config) do
+    safely(fn -> list_pages(config, nil, [], @max_list_pages) end, :read)
+  end
 
-  defp list_pages(_config, _token, _acc, 0), do: {:error, {:failed, "too many objects"}}
+  defp list_pages(_config, _token, _acc, 0) do
+    {:error, {:failed, "too many objects"}}
+  end
 
   defp list_pages(config, token, acc, pages_left) do
     params =
@@ -177,23 +185,51 @@ defmodule Guardian.Rules.Store.S3 do
     if method == :get, do: {:unreachable, kind}, else: {:unknown, kind}
   end
 
-  defp transport_kind(reason) when is_atom(reason), do: Atom.to_string(reason)
-  defp transport_kind({kind, _}) when is_atom(kind), do: Atom.to_string(kind)
-  defp transport_kind(_reason), do: "transport error"
+  defp transport_kind(reason) when is_atom(reason) do
+    Atom.to_string(reason)
+  end
 
-  defp status_reason(404, :get), do: :not_found
-  defp status_reason(status, _) when status in [409, 412], do: :precondition_failed
+  defp transport_kind({kind, _}) when is_atom(kind) do
+    Atom.to_string(kind)
+  end
 
-  defp status_reason(status, _) when status in [400, 401, 403, 404],
-    do: {:misconfigured, "HTTP #{status}"}
+  defp transport_kind(_reason) do
+    "transport error"
+  end
+
+  defp status_reason(404, :get) do
+    :not_found
+  end
+
+  defp status_reason(status, _) when status in [409, 412] do
+    :precondition_failed
+  end
+
+  defp status_reason(status, _) when status in [400, 401, 403, 404] do
+    {:misconfigured, "HTTP #{status}"}
+  end
 
   # Rate limited: the store refused the request without processing it, so a read can
   # be retried and a write's outcome is known (nothing saved).
-  defp status_reason(429, :write), do: {:failed, "HTTP 429"}
-  defp status_reason(429, _), do: {:unreachable, "HTTP 429"}
-  defp status_reason(status, :write) when status >= 500, do: {:unknown, "HTTP #{status}"}
-  defp status_reason(status, _) when status >= 500, do: {:unreachable, "HTTP #{status}"}
-  defp status_reason(status, _), do: {:failed, "HTTP #{status}"}
+  defp status_reason(429, :write) do
+    {:failed, "HTTP 429"}
+  end
+
+  defp status_reason(429, _) do
+    {:unreachable, "HTTP 429"}
+  end
+
+  defp status_reason(status, :write) when status >= 500 do
+    {:unknown, "HTTP #{status}"}
+  end
+
+  defp status_reason(status, _) when status >= 500 do
+    {:unreachable, "HTTP #{status}"}
+  end
+
+  defp status_reason(status, _) do
+    {:failed, "HTTP #{status}"}
+  end
 
   # Catches everything, so no request, response or exception leaves this module.
   defp safely(fun, operation) do
@@ -215,7 +251,9 @@ defmodule Guardian.Rules.Store.S3 do
     end
   end
 
-  defp bucket_path(config), do: "/" <> URI.encode(config.bucket, &URI.char_unreserved?/1)
+  defp bucket_path(config) do
+    "/" <> URI.encode(config.bucket, &URI.char_unreserved?/1)
+  end
 
   defp object_path(config, key) do
     encoded =
@@ -226,7 +264,9 @@ defmodule Guardian.Rules.Store.S3 do
     bucket_path(config) <> "/" <> encoded
   end
 
-  defp quote_etag(etag), do: ~s("#{etag}")
+  defp quote_etag(etag) do
+    ~s("#{etag}")
+  end
 
   defp response_etag(response) do
     case Req.Response.get_header(response, "etag") do

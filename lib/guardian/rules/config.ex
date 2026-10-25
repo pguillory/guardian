@@ -102,7 +102,9 @@ defmodule Guardian.Rules.Config do
 
   # Only the plain loopback forms: `localhost`, 127.0.0.0/8 and ::1. Not a name that
   # merely starts with them, and not an IPv4-mapped IPv6 address.
-  defp loopback?("localhost"), do: true
+  defp loopback?("localhost") do
+    true
+  end
 
   defp loopback?(host) do
     case :inet.parse_strict_address(String.to_charlist(host)) do
@@ -112,7 +114,15 @@ defmodule Guardian.Rules.Config do
     end
   end
 
-  defp blank_to_nil(nil), do: nil
-  defp blank_to_nil(""), do: nil
-  defp blank_to_nil(value), do: value
+  defp blank_to_nil(nil) do
+    nil
+  end
+
+  defp blank_to_nil("") do
+    nil
+  end
+
+  defp blank_to_nil(value) do
+    value
+  end
 end

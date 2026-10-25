@@ -20,7 +20,9 @@ defmodule Guardian.TestHelpers do
   Resolves and runs SQL text that holds exactly one executable statement and returns
   its rows. Unlike `Guardian.Query.execute/2`, a `Guardian.Query.Error` raises.
   """
-  def run_sql(sql), do: Guardian.Query.run(resolve_sql(sql))
+  def run_sql(sql) do
+    Guardian.Query.run(resolve_sql(sql))
+  end
 
   @doc """
   Calls `fun` every 10 ms until it returns a truthy value, and fails the test if none
@@ -50,7 +52,9 @@ defmodule Guardian.TestHelpers do
   released NIF resource: before each check it collects garbage in every process. It
   checks 51 times, 20 ms apart, and fails the test if the condition never holds.
   """
-  def eventually_after_gc(fun), do: poll_after_gc(fun, 50)
+  def eventually_after_gc(fun) do
+    poll_after_gc(fun, 50)
+  end
 
   defp poll_after_gc(fun, attempts) do
     Enum.each(Process.list(), &:erlang.garbage_collect/1)
@@ -142,11 +146,21 @@ defmodule Guardian.TestHelpers do
 
   # Read locally without :erpc, so polls on this node keep the cadence of a plain
   # Process call.
-  defp process_list(node) when node == node(), do: Process.list()
-  defp process_list(node), do: :erpc.call(node, Process, :list, [])
+  defp process_list(node) when node == node() do
+    Process.list()
+  end
 
-  defp process_info(node, pid, item) when node == node(), do: Process.info(pid, item)
-  defp process_info(node, pid, item), do: :erpc.call(node, Process, :info, [pid, item])
+  defp process_list(node) do
+    :erpc.call(node, Process, :list, [])
+  end
+
+  defp process_info(node, pid, item) when node == node() do
+    Process.info(pid, item)
+  end
+
+  defp process_info(node, pid, item) do
+    :erpc.call(node, Process, :info, [pid, item])
+  end
 
   @doc """
   Waits up to `timeout_ms` until no process on `node` but those in `except` runs code

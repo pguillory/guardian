@@ -20,7 +20,9 @@ defmodule Guardian.AST.Node.BinaryOperator do
       @enforce_keys [:left, :right]
       defstruct [:left, :right]
 
-      def symbol, do: unquote(symbol)
+      def symbol do
+        unquote(symbol)
+      end
 
       def to_source(%__MODULE__{left: left, right: right}) do
         Guardian.AST.unparse(left) <> unquote(separator) <> Guardian.AST.unparse(right)

@@ -18,10 +18,14 @@ defmodule Guardian.Rules.Runner do
   Outcomes: `{:ok, row}`, or `{:error, message}` for a row that must not be stored.
   """
 
-  def time_limit_ms, do: Application.get_env(:guardian, :rules_time_limit_ms, 1_000)
+  def time_limit_ms do
+    Application.get_env(:guardian, :rules_time_limit_ms, 1_000)
+  end
 
   @spec run(String.t(), [map()]) :: [{:ok, map()} | {:error, String.t()}]
-  def run(_table, []), do: []
+  def run(_table, []) do
+    []
+  end
 
   def run(table, rows) do
     run_with_metadata(table, Enum.map(rows, &{&1, Guardian.Rules.Event.arrival()}))
@@ -37,7 +41,9 @@ defmodule Guardian.Rules.Runner do
     |> Enum.reverse()
   end
 
-  defp run_from([], _table, acc, _batch), do: acc
+  defp run_from([], _table, acc, _batch) do
+    acc
+  end
 
   defp run_from(rows, table, acc, batch) do
     caller = self()

@@ -32,6 +32,11 @@ defmodule Guardian.AST.Node.Statements.TrackStatement do
   end
 
   @doc false
-  def by_source([]), do: ""
-  def by_source(exprs), do: " BY " <> Enum.map_join(exprs, ", ", &Guardian.AST.unparse/1)
+  def by_source([]) do
+    ""
+  end
+
+  def by_source(exprs) do
+    " BY " <> Enum.map_join(exprs, ", ", &Guardian.AST.unparse/1)
+  end
 end

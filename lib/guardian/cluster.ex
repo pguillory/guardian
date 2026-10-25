@@ -79,12 +79,29 @@ defmodule Guardian.Cluster do
 
   # Loopback and unspecified addresses, including IPv4-mapped IPv6 forms: none of them
   # names a node that other machines can reach.
-  defp loopback?({127, _, _, _}), do: true
-  defp loopback?({0, 0, 0, 0}), do: true
-  defp loopback?({0, 0, 0, 0, 0, 0, 0, 1}), do: true
-  defp loopback?({0, 0, 0, 0, 0, 0, 0, 0}), do: true
-  defp loopback?({0, 0, 0, 0, 0, 0xFFFF, a, _b}) when a in 0x7F00..0x7FFF, do: true
-  defp loopback?(_address), do: false
+  defp loopback?({127, _, _, _}) do
+    true
+  end
+
+  defp loopback?({0, 0, 0, 0}) do
+    true
+  end
+
+  defp loopback?({0, 0, 0, 0, 0, 0, 0, 1}) do
+    true
+  end
+
+  defp loopback?({0, 0, 0, 0, 0, 0, 0, 0}) do
+    true
+  end
+
+  defp loopback?({0, 0, 0, 0, 0, 0xFFFF, a, _b}) when a in 0x7F00..0x7FFF do
+    true
+  end
+
+  defp loopback?(_address) do
+    false
+  end
 
   defp raise_node_name(node_name, problem) do
     raise ArgumentError,

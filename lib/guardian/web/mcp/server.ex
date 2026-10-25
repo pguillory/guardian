@@ -238,10 +238,13 @@ defmodule Guardian.Web.MCP.Server do
     end
   end
 
-  defp reply(frame, {:ok, result}), do: {:reply, Response.tool() |> Response.json(result), frame}
+  defp reply(frame, {:ok, result}) do
+    {:reply, Response.tool() |> Response.json(result), frame}
+  end
 
-  defp reply(frame, {:error, message}),
-    do: {:reply, Response.tool() |> Response.error(message), frame}
+  defp reply(frame, {:error, message}) do
+    {:reply, Response.tool() |> Response.error(message), frame}
+  end
 
   defp rule_write_result({:ok, %{errors: errors, unconfirmed: unconfirmed}}) do
     {:ok,
@@ -252,9 +255,15 @@ defmodule Guardian.Web.MCP.Server do
      }}
   end
 
-  defp rule_write_result({:error, {:rejected, messages}}),
-    do: {:error, "rejected; nothing was saved:\n" <> Enum.join(messages, "\n")}
+  defp rule_write_result({:error, {:rejected, messages}}) do
+    {:error, "rejected; nothing was saved:\n" <> Enum.join(messages, "\n")}
+  end
 
-  defp rule_write_result({:error, {:unknown, message}}), do: {:error, message}
-  defp rule_write_result({:error, message}), do: {:error, message}
+  defp rule_write_result({:error, {:unknown, message}}) do
+    {:error, message}
+  end
+
+  defp rule_write_result({:error, message}) do
+    {:error, message}
+  end
 end

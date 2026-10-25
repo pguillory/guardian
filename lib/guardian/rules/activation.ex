@@ -15,8 +15,9 @@ defmodule Guardian.Rules.Activation do
 
   def select(preparation, previous \\ %{})
 
-  def select(preparation, previous) when map_size(previous) == 0,
-    do: %{tables: preparation.tables, retained: MapSet.new()}
+  def select(preparation, previous) when map_size(previous) == 0 do
+    %{tables: preparation.tables, retained: MapSet.new()}
+  end
 
   def select(preparation, previous) do
     edges = dependencies(preparation.candidates, previous)

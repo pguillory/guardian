@@ -500,7 +500,10 @@ defmodule Guardian.Counters.StoreTest do
   end
 
   defp assert_eventually(assertion, left \\ 100)
-  defp assert_eventually(assertion, 0), do: assertion.()
+
+  defp assert_eventually(assertion, 0) do
+    assertion.()
+  end
 
   defp assert_eventually(assertion, left) do
     assertion.()

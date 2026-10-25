@@ -110,15 +110,25 @@ defmodule Guardian.Rules.Step do
     %{step | reads: reads(inputs(step))}
   end
 
-  def inputs(%Guardian.Rules.Step.Set{} = step), do: [step.value_expr, step.where_expr]
-  def inputs(%Guardian.Rules.Step.Unset{} = step), do: [step.where_expr]
+  def inputs(%Guardian.Rules.Step.Set{} = step) do
+    [step.value_expr, step.where_expr]
+  end
 
-  def inputs(%Guardian.Rules.Step.Track{} = step),
-    do: step.aggregate_expr.args ++ step.by_exprs ++ [step.where_expr]
+  def inputs(%Guardian.Rules.Step.Unset{} = step) do
+    [step.where_expr]
+  end
 
-  def inputs(%Guardian.Rules.Step.Lookup{} = step), do: step.by_exprs ++ [step.where_expr]
+  def inputs(%Guardian.Rules.Step.Track{} = step) do
+    step.aggregate_expr.args ++ step.by_exprs ++ [step.where_expr]
+  end
 
-  defp digest(source), do: :crypto.hash(:sha256, source) |> Base.encode16(case: :lower)
+  def inputs(%Guardian.Rules.Step.Lookup{} = step) do
+    step.by_exprs ++ [step.where_expr]
+  end
+
+  defp digest(source) do
+    :crypto.hash(:sha256, source) |> Base.encode16(case: :lower)
+  end
 
   # Field names the inputs read, in first-read order.
   defp reads(exprs) do

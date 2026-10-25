@@ -116,7 +116,9 @@ defmodule Guardian.Web.MCP.Router do
     |> send_json_error(405, error)
   end
 
-  defp reject_get(conn, _opts), do: conn
+  defp reject_get(conn, _opts) do
+    conn
+  end
 
   # Reads and validates a POST body before Anubis sees it. Anubis 0.16 logs the whole
   # body of a message it cannot decode, at error level, which would put a malformed
@@ -151,7 +153,9 @@ defmodule Guardian.Web.MCP.Router do
     end
   end
 
-  defp decode_body(conn, _opts), do: conn
+  defp decode_body(conn, _opts) do
+    conn
+  end
 
   defp decode_message(body) do
     case Jason.decode(body) do
@@ -184,9 +188,17 @@ defmodule Guardian.Web.MCP.Router do
     _kind, _reason -> :error
   end
 
-  defp known_method(%{"method" => method}) when method in @known_methods, do: method
-  defp known_method(%{"method" => _}), do: "other"
-  defp known_method(_message), do: nil
+  defp known_method(%{"method" => method}) when method in @known_methods do
+    method
+  end
+
+  defp known_method(%{"method" => _}) do
+    "other"
+  end
+
+  defp known_method(_message) do
+    nil
+  end
 
   defp log_rejected(reason, size, method) do
     method = if method, do: " method=#{method}", else: ""

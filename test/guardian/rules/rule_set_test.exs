@@ -3,8 +3,9 @@ defmodule Guardian.Rules.RuleSetTest do
 
   alias Guardian.Rules.RuleSet
 
-  defp messages(files),
-    do: files |> RuleSet.validate() |> Map.fetch!(:errors) |> Enum.map(& &1.message)
+  defp messages(files) do
+    files |> RuleSet.validate() |> Map.fetch!(:errors) |> Enum.map(& &1.message)
+  end
 
   defp steps(files, table) do
     {:ok, plan} = RuleSet.validate(files).tables[table]

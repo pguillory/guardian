@@ -59,8 +59,13 @@ defmodule Guardian.Web.Logger do
     end)
   end
 
-  defp auth_method_name(nil), do: nil
-  defp auth_method_name(method) when is_atom(method), do: Atom.to_string(method)
+  defp auth_method_name(nil) do
+    nil
+  end
+
+  defp auth_method_name(method) when is_atom(method) do
+    Atom.to_string(method)
+  end
 
   # A request must not fail because its log event could not be written (Storage
   # restarting, a header value that cannot be stored), so a failure is logged by kind

@@ -7,7 +7,9 @@ defmodule Guardian.Web.QueryLogTest do
 
   @api_key Application.compile_env!(:guardian, :api_key)
 
-  defp marker, do: "marker_#{System.unique_integer([:positive])}"
+  defp marker do
+    "marker_#{System.unique_integer([:positive])}"
+  end
 
   defp rows_for(sql, server \\ QueryLog) do
     :ok = QueryLog.sync(server)

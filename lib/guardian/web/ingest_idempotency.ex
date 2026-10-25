@@ -67,7 +67,9 @@ defmodule Guardian.Web.IngestIdempotency do
     {:ok, result}
   end
 
-  defp call(nil, _message), do: :unavailable
+  defp call(nil, _message) do
+    :unavailable
+  end
 
   defp call(pid, message) do
     GenServer.call(pid, message, @call_timeout)
@@ -235,5 +237,7 @@ defmodule Guardian.Web.IngestIdempotency do
     %{state | entries: Map.delete(state.entries, identity), completed: completed}
   end
 
-  defp schedule_sweep, do: Process.send_after(self(), :sweep, 1_000)
+  defp schedule_sweep do
+    Process.send_after(self(), :sweep, 1_000)
+  end
 end

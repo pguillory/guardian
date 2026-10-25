@@ -26,9 +26,17 @@ defmodule Guardian.Web.QueryParseErrors do
   # before they reach the mailbox.
   @max_queue 100
 
-  def table, do: @table
-  def max_sql_bytes, do: @max_sql_bytes
-  def max_caller_field_bytes, do: @max_caller_field_bytes
+  def table do
+    @table
+  end
+
+  def max_sql_bytes do
+    @max_sql_bytes
+  end
+
+  def max_caller_field_bytes do
+    @max_caller_field_bytes
+  end
 
   def start_link(opts \\ []) do
     {name, opts} = Keyword.pop(opts, :name, __MODULE__)
@@ -70,7 +78,9 @@ defmodule Guardian.Web.QueryParseErrors do
   @doc """
   Waits until the recorder has handled everything sent to it before this call.
   """
-  def sync(server \\ __MODULE__), do: GenServer.call(server, :sync)
+  def sync(server \\ __MODULE__) do
+    GenServer.call(server, :sync)
+  end
 
   @doc false
   def row(sql, error, caller) do
@@ -102,7 +112,9 @@ defmodule Guardian.Web.QueryParseErrors do
     value
   end
 
-  defp bound_caller_field(_value), do: nil
+  defp bound_caller_field(_value) do
+    nil
+  end
 
   @doc """
   Caller fields from a Plug connection (the JSON API).
@@ -150,7 +162,9 @@ defmodule Guardian.Web.QueryParseErrors do
     end
   end
 
-  defp format_ip(_), do: nil
+  defp format_ip(_) do
+    nil
+  end
 
   # `detail` is a fixed description or a failure kind, never caller data.
   defp log_failure(interface, detail) do
@@ -203,7 +217,9 @@ defmodule Guardian.Web.QueryParseErrors do
   end
 
   @impl true
-  def handle_call(:sync, _from, state), do: {:reply, :ok, state}
+  def handle_call(:sync, _from, state) do
+    {:reply, :ok, state}
+  end
 
   defp write(writer, row) do
     case writer.(@table, row) do

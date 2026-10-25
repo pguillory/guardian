@@ -3,7 +3,9 @@ defmodule Guardian.Aggregation.MinMaxFamilyTest do
   # keys wins, null skipping, and Erlang term order across types.
   use Guardian.Query.EvaluationTestCase, async: true
 
-  defp values(xs), do: Enum.map(xs, &[x: &1])
+  defp values(xs) do
+    Enum.map(xs, &[x: &1])
+  end
 
   # 1 and 1.0 compare equal, so === shows which row won the tie: the earlier row.
   test "of equal keys, the earlier row wins" do

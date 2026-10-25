@@ -24,9 +24,13 @@ defmodule Guardian.Storage.PersistedSegments do
     GenServer.cast(__MODULE__, :ping)
   end
 
-  def segment_ids(table), do: Registration.segment_ids(__MODULE__, table)
+  def segment_ids(table) do
+    Registration.segment_ids(__MODULE__, table)
+  end
 
-  def get_segment(segment_id), do: Registration.lookup(__MODULE__, segment_id)
+  def get_segment(segment_id) do
+    Registration.lookup(__MODULE__, segment_id)
+  end
 
   def delete_segment(segment_id) do
     GenServer.call(__MODULE__, {:delete_segment, segment_id})

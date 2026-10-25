@@ -74,9 +74,13 @@ defmodule Guardian.Rules.Server do
   @reload_timeout_ms 10_000
   @failure_log_table Guardian.Rules.FailureLog
 
-  def failure_log_table, do: @failure_log_table
+  def failure_log_table do
+    @failure_log_table
+  end
 
-  def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
 
   # Callers include MCP tool calls, which run in Anubis's one shared process, so an
   # exit (a timeout, or the server restarting) becomes an error here.
@@ -91,13 +95,19 @@ defmodule Guardian.Rules.Server do
       {:error, "the rule server is unavailable; retry"}
   end
 
-  def reload, do: GenServer.call(__MODULE__, :reload, @reload_timeout_ms)
+  def reload do
+    GenServer.call(__MODULE__, :reload, @reload_timeout_ms)
+  end
 
   @doc false
-  def poll_ms, do: Application.get_env(:guardian, :rules_poll_ms, 60_000)
+  def poll_ms do
+    Application.get_env(:guardian, :rules_poll_ms, 60_000)
+  end
 
   @impl true
-  def init(opts), do: scrubbed(fn -> start(opts) end)
+  def init(opts) do
+    scrubbed(fn -> start(opts) end)
+  end
 
   defp start(_opts) do
     if :ets.whereis(@failure_log_table) == :undefined do
@@ -192,10 +202,14 @@ defmodule Guardian.Rules.Server do
   # Every callback runs through scrubbed/1, so a crash report never shows a rule
   # source from an exception or a stack frame's arguments.
   @impl true
-  def handle_call(request, from, state), do: scrubbed(fn -> call(request, from, state) end)
+  def handle_call(request, from, state) do
+    scrubbed(fn -> call(request, from, state) end)
+  end
 
   @impl true
-  def handle_info(message, state), do: scrubbed(fn -> info(message, state) end)
+  def handle_info(message, state) do
+    scrubbed(fn -> info(message, state) end)
+  end
 
   defp call(:reload, _from, state) do
     case reload_state(state) do
@@ -273,10 +287,14 @@ defmodule Guardian.Rules.Server do
     end
   end
 
-  defp sources(files), do: Map.new(files, fn {key, file} -> {key, file.source} end)
+  defp sources(files) do
+    Map.new(files, fn {key, file} -> {key, file.source} end)
+  end
 
   # Whole-set preparation is shared by every admission path.
-  defp prepare(sources), do: RuleSet.prepare(sources)
+  defp prepare(sources) do
+    RuleSet.prepare(sources)
+  end
 
   defp reload_state(state) do
     case read_set(state) do
@@ -295,7 +313,9 @@ defmodule Guardian.Rules.Server do
     end
   end
 
-  defp etags(files), do: Map.new(files, fn {key, file} -> {key, file.etag} end)
+  defp etags(files) do
+    Map.new(files, fn {key, file} -> {key, file.etag} end)
+  end
 
   ## Writing
 
@@ -522,7 +542,9 @@ defmodule Guardian.Rules.Server do
     |> Enum.sort_by(&{&1.file, &1.line || 0, &1.kind})
   end
 
-  defp compile_all(state, [], compiled), do: {:ok, compiled, state.free}
+  defp compile_all(state, [], compiled) do
+    {:ok, compiled, state.free}
+  end
 
   defp compile_all(%{free: []} = state, [_ | _], compiled) do
     discard(compiled)
@@ -589,18 +611,27 @@ defmodule Guardian.Rules.Server do
   ## Status and crash reports
 
   @impl true
-  def format_status(status), do: Map.new(status, fn {key, value} -> {key, redact(value)} end)
+  def format_status(status) do
+    Map.new(status, fn {key, value} -> {key, redact(value)} end)
+  end
 
   # However nested, in the state, the message, or the debug log (whose entries hold
   # past states and messages): a write request's source, and each file's source.
-  defp redact({:write, table, name, source}) when is_binary(source),
-    do: {:write, table, name, :redacted}
+  defp redact({:write, table, name, source}) when is_binary(source) do
+    {:write, table, name, :redacted}
+  end
 
-  defp redact(tuple) when is_tuple(tuple),
-    do: tuple |> Tuple.to_list() |> Enum.map(&redact/1) |> List.to_tuple()
+  defp redact(tuple) when is_tuple(tuple) do
+    tuple |> Tuple.to_list() |> Enum.map(&redact/1) |> List.to_tuple()
+  end
 
-  defp redact([head | tail]), do: [redact(head) | redact(tail)]
-  defp redact(%Guardian.Rules.Plan{} = plan), do: Map.take(plan, [:table, :hash, :resolved?])
+  defp redact([head | tail]) do
+    [redact(head) | redact(tail)]
+  end
+
+  defp redact(%Guardian.Rules.Plan{} = plan) do
+    Map.take(plan, [:table, :hash, :resolved?])
+  end
 
   defp redact(%step{})
        when step in [
@@ -608,13 +639,25 @@ defmodule Guardian.Rules.Server do
               Guardian.Rules.Step.Unset,
               Guardian.Rules.Step.Track,
               Guardian.Rules.Step.Lookup,
-            ],
-       do: :redacted
+            ] do
+    :redacted
+  end
 
-  defp redact(%_{} = struct), do: struct
-  defp redact(%{etag: _, source: _} = file), do: Map.take(file, [:etag])
-  defp redact(map) when is_map(map), do: Map.new(map, fn {k, v} -> {k, redact(v)} end)
-  defp redact(term), do: term
+  defp redact(%_{} = struct) do
+    struct
+  end
+
+  defp redact(%{etag: _, source: _} = file) do
+    Map.take(file, [:etag])
+  end
+
+  defp redact(map) when is_map(map) do
+    Map.new(map, fn {k, v} -> {k, redact(v)} end)
+  end
+
+  defp redact(term) do
+    term
+  end
 
   # Re-raises anything a callback raises, throws or exits with as an error naming only
   # its kind, with a stack of arities and locations: the exception's message and
@@ -628,27 +671,41 @@ defmodule Guardian.Rules.Server do
       :erlang.raise(:error, %RuntimeError{message: message}, stack)
   end
 
-  defp reason_kind(%{__exception__: true, __struct__: module}), do: inspect(module)
-  defp reason_kind(atom) when is_atom(atom), do: inspect(atom)
+  defp reason_kind(%{__exception__: true, __struct__: module}) do
+    inspect(module)
+  end
+
+  defp reason_kind(atom) when is_atom(atom) do
+    inspect(atom)
+  end
 
   defp reason_kind(tuple)
-       when is_tuple(tuple) and tuple_size(tuple) > 0 and is_atom(elem(tuple, 0)),
-       do: inspect(elem(tuple, 0))
+       when is_tuple(tuple) and tuple_size(tuple) > 0 and is_atom(elem(tuple, 0)) do
+    inspect(elem(tuple, 0))
+  end
 
-  defp reason_kind(_reason), do: "term"
+  defp reason_kind(_reason) do
+    "term"
+  end
 
   defp redact_frame({module, function, args, location}) do
     arity = if is_list(args), do: length(args), else: args
     {module, function, arity, Keyword.take(location, [:file, :line])}
   end
 
-  defp redact_frame(frame), do: frame
+  defp redact_frame(frame) do
+    frame
+  end
 
   ## Logging
 
-  defp schedule_poll, do: Process.send_after(self(), :poll, poll_ms())
+  defp schedule_poll do
+    Process.send_after(self(), :poll, poll_ms())
+  end
 
-  defp log_errors([]), do: :ok
+  defp log_errors([]) do
+    :ok
+  end
 
   # By file, line and kind only: a message can quote rule text (the token a parse
   # error got, say), and rules can hold secrets. The rule tools return the messages.
@@ -659,8 +716,13 @@ defmodule Guardian.Rules.Server do
     )
   end
 
-  defp error_location(%{file: file, line: nil, kind: kind}), do: "#{file} (#{kind})"
-  defp error_location(%{file: file, line: line, kind: kind}), do: "#{file} line #{line} (#{kind})"
+  defp error_location(%{file: file, line: nil, kind: kind}) do
+    "#{file} (#{kind})"
+  end
+
+  defp error_location(%{file: file, line: line, kind: kind}) do
+    "#{file} line #{line} (#{kind})"
+  end
 
   defp log_poll_failure(state, message) do
     now = System.monotonic_time(:millisecond)

@@ -28,15 +28,23 @@ defmodule Guardian.Rules do
   end
 
   @doc false
-  def published, do: :persistent_term.get(@tables_key, nil)
+  def published do
+    :persistent_term.get(@tables_key, nil)
+  end
 
   @doc false
-  def publish(tables), do: :persistent_term.put(@tables_key, tables)
+  def publish(tables) do
+    :persistent_term.put(@tables_key, tables)
+  end
 
   @doc false
-  def put_store(store), do: :persistent_term.put(@store_key, store)
+  def put_store(store) do
+    :persistent_term.put(@store_key, store)
+  end
 
-  defp store, do: :persistent_term.get(@store_key)
+  defp store do
+    :persistent_term.get(@store_key)
+  end
 
   defdelegate run(table, rows), to: Guardian.Rules.Runner
 
@@ -82,11 +90,17 @@ defmodule Guardian.Rules do
   result}` when saved, `{:error, {:rejected, messages}}`, `{:error, {:unknown,
   message}}` when it may have been saved, or `{:error, message}`.
   """
-  def write_rule(table, name, source), do: Guardian.Rules.Server.write(table, name, source)
+  def write_rule(table, name, source) do
+    Guardian.Rules.Server.write(table, name, source)
+  end
 
   @doc "Deletes a rule file; outcomes as for `write_rule/3`."
-  def delete_rule(table, name), do: Guardian.Rules.Server.write(table, name, :delete)
+  def delete_rule(table, name) do
+    Guardian.Rules.Server.write(table, name, :delete)
+  end
 
   @doc "Re-reads the store and publishes any change. Returns `:ok` or `{:error, message}`."
-  def reload, do: Guardian.Rules.Server.reload()
+  def reload do
+    Guardian.Rules.Server.reload()
+  end
 end

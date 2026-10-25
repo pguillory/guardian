@@ -34,7 +34,9 @@ defmodule Guardian.QueryTest do
   # require QueryTestHelper
   use ExUnit.Case, async: false
 
-  defp run(source), do: run_sql(source)
+  defp run(source) do
+    run_sql(source)
+  end
 
   # test_query(
   #   "select v",

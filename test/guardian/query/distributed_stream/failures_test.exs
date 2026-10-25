@@ -9,8 +9,13 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
   import Guardian.Query.DistributedStream
 
   # Two partitions on this node, by value.
-  defp by_parity(value) when is_integer(value), do: {node(), rem(value, 2) + 1}
-  defp by_parity(_value), do: {node(), 1}
+  defp by_parity(value) when is_integer(value) do
+    {node(), rem(value, 2) + 1}
+  end
+
+  defp by_parity(_value) do
+    {node(), 1}
+  end
 
   # Runs `fun` (which builds and enumerates a pipeline) as the consumer in a fresh
   # process and returns {:ok, result}, {:exit, reason} when it exits and the exit is
@@ -85,7 +90,9 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
   end
 
   # Values large enough that each fills a 1,000-byte chunk on its own.
-  defp big(i), do: {i, String.duplicate("x", 1_000)}
+  defp big(i) do
+    {i, String.duplicate("x", 1_000)}
+  end
 
   test "a multi-stage pipeline returns every row once" do
     assert {:ok, rows} =

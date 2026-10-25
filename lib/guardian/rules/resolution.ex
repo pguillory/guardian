@@ -5,7 +5,9 @@ defmodule Guardian.Rules.Resolution do
   identities, never target plan hashes, allow reciprocal table references.
   """
 
-  def resolve(candidates), do: resolve(candidates, candidates)
+  def resolve(candidates) do
+    resolve(candidates, candidates)
+  end
 
   defp resolve(candidates, current) do
     definitions =
@@ -34,8 +36,9 @@ defmodule Guardian.Rules.Resolution do
       else: resolve(candidates, next)
   end
 
-  defp invalid_tables(tables),
-    do: for({table, {:error, _}} <- tables, into: MapSet.new(), do: table)
+  defp invalid_tables(tables) do
+    for({table, {:error, _}} <- tables, into: MapSet.new(), do: table)
+  end
 
   defp bind(plan, definitions) do
     {steps, errors} =

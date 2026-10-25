@@ -3,7 +3,9 @@ defmodule Guardian.ConfigTest do
 
   @config Path.expand("../../../config/config.exs", __DIR__)
 
-  defp read(env), do: Config.Reader.read!(@config, env: env, target: :host)
+  defp read(env) do
+    Config.Reader.read!(@config, env: env, target: :host)
+  end
 
   # At debug, Anubis logs every MCP message (query SQL, send_events payloads) to the
   # server log, which on Fly is outside Guardian's retention.

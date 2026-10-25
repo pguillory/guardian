@@ -16,10 +16,21 @@ defmodule Guardian.Rules.CounterPlanTest do
     Map.new(preparation.tables, fn {table, {:ok, plan}} -> {table, plan} end)
   end
 
-  defp errors(source), do: RuleSet.prepare(%{"t/a.gsql" => source}).errors
-  defp kinds(source), do: Enum.map(errors(source), & &1.kind)
-  defp sources(plan), do: Enum.map(plan.steps, & &1.source)
-  defp target(plan), do: Enum.find(plan.steps, &(&1.kind == :lookup)).target
+  defp errors(source) do
+    RuleSet.prepare(%{"t/a.gsql" => source}).errors
+  end
+
+  defp kinds(source) do
+    Enum.map(errors(source), & &1.kind)
+  end
+
+  defp sources(plan) do
+    Enum.map(plan.steps, & &1.source)
+  end
+
+  defp target(plan) do
+    Enum.find(plan.steps, &(&1.kind == :lookup)).target
+  end
 
   test "local candidates cannot compile, including SET-only and forged unbound LOOKUP plans" do
     for files <- [

@@ -20,7 +20,9 @@ defmodule Guardian.Query.HeapLimitTest do
     end)
   end
 
-  defp set_limit(mb), do: Application.put_env(:guardian, :query_max_heap_mb, mb)
+  defp set_limit(mb) do
+    Application.put_env(:guardian, :query_max_heap_mb, mb)
+  end
 
   # Runs a pipeline as a trapping consumer, like the query process, in a fresh process.
   defp consume(fun) do

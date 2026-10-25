@@ -40,44 +40,108 @@ defmodule Guardian.Counters.Aggregate do
 
   @doc "The supported operator names and exact arities."
   @spec operators() :: [operator()]
-  def operators, do: @operators
+  def operators do
+    @operators
+  end
 
   @doc "An empty mergeable state, rather than an already resolved result."
   @spec default(operator()) :: term()
-  def default(operator) when operator in @counts, do: 0
+  def default(operator) when operator in @counts do
+    0
+  end
+
   # Hypex merges bitstrings bytewise; keep precision 8 (one register per byte).
-  def default({"count_distinct", 1}), do: Hypex.new(8, Hypex.Bitstring)
-  def default({"sum", 1}), do: nil
-  def default(operator) when operator in @extremes, do: nil
-  def default({"avg", 1}), do: {0, 0}
-  def default(_operator), do: invalid!()
+  def default({"count_distinct", 1}) do
+    Hypex.new(8, Hypex.Bitstring)
+  end
+
+  def default({"sum", 1}) do
+    nil
+  end
+
+  def default(operator) when operator in @extremes do
+    nil
+  end
+
+  def default({"avg", 1}) do
+    {0, 0}
+  end
+
+  def default(_operator) do
+    invalid!()
+  end
 
   @doc "A state from one event's argument values; null inputs are skipped."
   @spec create(operator(), [term()]) :: term()
-  def create({"count", 0}, []), do: 1
-  def create({"count", 1}, [nil]), do: 0
-  def create({"count", 1}, [_value]), do: 1
-  def create({"count_distinct", 1} = operator, [nil]), do: default(operator)
+  def create({"count", 0}, []) do
+    1
+  end
+
+  def create({"count", 1}, [nil]) do
+    0
+  end
+
+  def create({"count", 1}, [_value]) do
+    1
+  end
+
+  def create({"count_distinct", 1} = operator, [nil]) do
+    default(operator)
+  end
 
   def create({"count_distinct", 1} = operator, [value]) do
     Hypex.update(default(operator), value)
   end
 
-  def create({"sum", 1}, [value]) when is_number(value), do: value
-  def create({"sum", 1}, [_value]), do: nil
-  def create(operator, [value]) when operator in @extremes, do: value
-  def create({"avg", 1}, [value]) when is_number(value), do: {value, 1}
-  def create({"avg", 1}, [_value]), do: {0, 0}
-  def create(_operator, _values), do: invalid!()
+  def create({"sum", 1}, [value]) when is_number(value) do
+    value
+  end
+
+  def create({"sum", 1}, [_value]) do
+    nil
+  end
+
+  def create(operator, [value]) when operator in @extremes do
+    value
+  end
+
+  def create({"avg", 1}, [value]) when is_number(value) do
+    {value, 1}
+  end
+
+  def create({"avg", 1}, [_value]) do
+    {0, 0}
+  end
+
+  def create(_operator, _values) do
+    invalid!()
+  end
 
   @doc "Combines states for the same operator; the empty state is an identity."
   @spec merge(operator(), term(), term()) :: term()
-  def merge(operator, left, right) when operator in @counts, do: left + right
-  def merge({"count_distinct", 1}, left, right), do: Hypex.merge(left, right)
-  def merge(operator, :overflow, _right) when operator in @numeric, do: :overflow
-  def merge(operator, _left, :overflow) when operator in @numeric, do: :overflow
-  def merge({"sum", 1}, nil, right), do: right
-  def merge({"sum", 1}, left, nil), do: left
+  def merge(operator, left, right) when operator in @counts do
+    left + right
+  end
+
+  def merge({"count_distinct", 1}, left, right) do
+    Hypex.merge(left, right)
+  end
+
+  def merge(operator, :overflow, _right) when operator in @numeric do
+    :overflow
+  end
+
+  def merge(operator, _left, :overflow) when operator in @numeric do
+    :overflow
+  end
+
+  def merge({"sum", 1}, nil, right) do
+    right
+  end
+
+  def merge({"sum", 1}, left, nil) do
+    left
+  end
 
   def merge({"sum", 1}, left, right) when is_integer(left) and is_integer(right) do
     Guardian.Query.Numeric.wrap(left + right)
@@ -89,8 +153,13 @@ defmodule Guardian.Counters.Aggregate do
     :error, :badarith -> :overflow
   end
 
-  def merge(operator, nil, right) when operator in @extremes, do: right
-  def merge(operator, left, nil) when operator in @extremes, do: left
+  def merge(operator, nil, right) when operator in @extremes do
+    right
+  end
+
+  def merge(operator, left, nil) when operator in @extremes do
+    left
+  end
 
   def merge({"min", 1}, left, right) do
     if Guardian.Aggregation.Ordering.wins?(:min, left, right), do: left, else: right
@@ -100,8 +169,13 @@ defmodule Guardian.Counters.Aggregate do
     if Guardian.Aggregation.Ordering.wins?(:max, left, right), do: left, else: right
   end
 
-  def merge({"avg", 1}, {_sum, 0}, right), do: right
-  def merge({"avg", 1}, left, {_sum, 0}), do: left
+  def merge({"avg", 1}, {_sum, 0}, right) do
+    right
+  end
+
+  def merge({"avg", 1}, left, {_sum, 0}) do
+    left
+  end
 
   def merge({"avg", 1}, {left_sum, left_count}, {right_sum, right_count}) do
     {left_sum + right_sum, left_count + right_count}
@@ -109,18 +183,35 @@ defmodule Guardian.Counters.Aggregate do
     :error, :badarith -> :overflow
   end
 
-  def merge(_operator, _left, _right), do: invalid!()
+  def merge(_operator, _left, _right) do
+    invalid!()
+  end
 
   @doc "Resolves a merged window state to its storage-safe result."
   @spec resolve(operator(), term()) :: term()
-  def resolve(operator, state) when operator in @counts,
-    do: Guardian.Query.Numeric.int64_or_nil(state)
+  def resolve(operator, state) when operator in @counts do
+    Guardian.Query.Numeric.int64_or_nil(state)
+  end
 
-  def resolve({"count_distinct", 1}, state), do: state |> Hypex.cardinality() |> round()
-  def resolve(operator, :overflow) when operator in @numeric, do: nil
-  def resolve({"sum", 1}, state), do: state
-  def resolve(operator, state) when operator in @extremes, do: state
-  def resolve({"avg", 1}, {_sum, 0}), do: nil
+  def resolve({"count_distinct", 1}, state) do
+    state |> Hypex.cardinality() |> round()
+  end
+
+  def resolve(operator, :overflow) when operator in @numeric do
+    nil
+  end
+
+  def resolve({"sum", 1}, state) do
+    state
+  end
+
+  def resolve(operator, state) when operator in @extremes do
+    state
+  end
+
+  def resolve({"avg", 1}, {_sum, 0}) do
+    nil
+  end
 
   def resolve({"avg", 1}, {sum, count}) do
     sum / count
@@ -128,7 +219,11 @@ defmodule Guardian.Counters.Aggregate do
     :error, :badarith -> nil
   end
 
-  def resolve(_operator, _state), do: invalid!()
+  def resolve(_operator, _state) do
+    invalid!()
+  end
 
-  defp invalid!, do: raise(ArgumentError, "unsupported counter aggregate or arity")
+  defp invalid! do
+    raise(ArgumentError, "unsupported counter aggregate or arity")
+  end
 end

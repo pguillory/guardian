@@ -121,5 +121,7 @@ defmodule Guardian.Web.Auth do
 
   # Plug decodes `?api_key[]=x` to a list and `?api_key[a]=x` to a map. Neither is a
   # key; reject it like a wrong one rather than crashing (and printing it).
-  def authorize_api_key(_api_key), do: {:error, :unauthorized}
+  def authorize_api_key(_api_key) do
+    {:error, :unauthorized}
+  end
 end

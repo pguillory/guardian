@@ -20,5 +20,16 @@ at every commit, and how to run Guardian locally.
 - Add a test with every behavior change, and run the full suite before sending a
   change.
 
+## Elixir style
+
+Always write function and macro definitions with `do...end` blocks, including
+`def`, `defp`, `defmacro`, `defmacrop`, and `defn`-style variants. Do not use the
+keyword body form (`def example(value), do: value`), even for a single expression.
+Keyword-form `if`, `case`, and `unless` expressions are fine.
+
+The normal test suite checks this rule in `lib/`, `libtest/`, and `test/`, including
+definitions inside quoted code. Declarations without bodies and `defdelegate` are
+unaffected.
+
 By contributing, you agree that your contributions are licensed under the MIT license
 of this repository.

@@ -37,9 +37,17 @@ defmodule Guardian.Web.QueryLog do
   @backlog_drops 1
   @backlog_warned 2
 
-  def table, do: @table
-  def max_sql_bytes, do: @max_sql_bytes
-  def max_error_bytes, do: @max_error_bytes
+  def table do
+    @table
+  end
+
+  def max_sql_bytes do
+    @max_sql_bytes
+  end
+
+  def max_error_bytes do
+    @max_error_bytes
+  end
 
   def start_link(opts \\ []) do
     name = Keyword.get(opts, :name, __MODULE__)
@@ -91,7 +99,9 @@ defmodule Guardian.Web.QueryLog do
   @doc """
   Waits until the recorder has handled everything sent to it before this call.
   """
-  def sync(server \\ __MODULE__), do: GenServer.call(server, :sync)
+  def sync(server \\ __MODULE__) do
+    GenServer.call(server, :sync)
+  end
 
   @doc false
   def row(sql, outcome, info) do
@@ -181,5 +191,7 @@ defmodule Guardian.Web.QueryLog do
   end
 
   @impl true
-  def handle_call(:sync, _from, state), do: {:reply, :ok, state}
+  def handle_call(:sync, _from, state) do
+    {:reply, :ok, state}
+  end
 end

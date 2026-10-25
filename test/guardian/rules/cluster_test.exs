@@ -26,8 +26,9 @@ defmodule Guardian.Rules.ClusterTest do
     s3
   end
 
-  defp peer_ingest(peer_node, table, events),
-    do: :erpc.call(peer_node, Guardian.Engine, :ingest_events, [table, events])
+  defp peer_ingest(peer_node, table, events) do
+    :erpc.call(peer_node, Guardian.Engine, :ingest_events, [table, events])
+  end
 
   test "a write reloads every node", %{peer_node: peer_node} do
     s3_cluster(peer_node)

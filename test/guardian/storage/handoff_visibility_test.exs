@@ -257,7 +257,9 @@ defmodule Guardian.Storage.HandoffVisibilityTest do
     :ok = MutableSegments.segment_is_full(table, segment)
   end
 
-  defp transfer(:full, _registration), do: persist_pending()
+  defp transfer(:full, _registration) do
+    persist_pending()
+  end
 
   defp transfer(:persisted, registration) do
     :sys.replace_state(PersistedSegments, fn state ->

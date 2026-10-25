@@ -5,7 +5,9 @@ defmodule Guardian.Storage.Flattening do
 
   defstruct columns: %{}, count: 0
 
-  def new, do: %__MODULE__{}
+  def new do
+    %__MODULE__{}
+  end
 
   def from_events(events) do
     Enum.reduce(events, new(), fn event, segment ->
@@ -83,19 +85,43 @@ defmodule Guardian.Storage.Flattening do
     [{[[]], scalar}]
   end
 
-  defp prepend_nils(list, 0), do: list
-  defp prepend_nils(list, n) when n > 0, do: prepend_nils([nil | list], n - 1)
+  defp prepend_nils(list, 0) do
+    list
+  end
+
+  defp prepend_nils(list, n) when n > 0 do
+    prepend_nils([nil | list], n - 1)
+  end
 
   # Pads or truncates a list to target length
-  def pad(_, 0, _value), do: []
-  def pad([], n, value), do: List.duplicate(value, n)
-  def pad([head | rest], n, value), do: [head | pad(rest, n - 1, value)]
+  def pad(_, 0, _value) do
+    []
+  end
+
+  def pad([], n, value) do
+    List.duplicate(value, n)
+  end
+
+  def pad([head | rest], n, value) do
+    [head | pad(rest, n - 1, value)]
+  end
 
   # Zips two lists and maps over pairs, padding shorter list with nils
-  def zip_map([], [], _fun), do: []
-  def zip_map([a | as], [], fun), do: [fun.(a, nil) | zip_map(as, [], fun)]
-  def zip_map([], [b | bs], fun), do: [fun.(nil, b) | zip_map([], bs, fun)]
-  def zip_map([a | as], [b | bs], fun), do: [fun.(a, b) | zip_map(as, bs, fun)]
+  def zip_map([], [], _fun) do
+    []
+  end
+
+  def zip_map([a | as], [], fun) do
+    [fun.(a, nil) | zip_map(as, [], fun)]
+  end
+
+  def zip_map([], [b | bs], fun) do
+    [fun.(nil, b) | zip_map([], bs, fun)]
+  end
+
+  def zip_map([a | as], [b | bs], fun) do
+    [fun.(a, b) | zip_map(as, bs, fun)]
+  end
 
   def map_update(map, key, default, func) when is_function(func, 1) do
     value = Map.get(map, key, default)
@@ -107,12 +133,25 @@ defmodule Guardian.Storage.Flattening do
   # Keys containing dots or quotes, and empty keys, are quoted:
   # [["a", "b.c"]] -> "a.\"b.c\"". Inside quotes a backslash or quote is escaped
   # with a backslash, so a key ending in a backslash can't swallow the closing quote.
-  def encode_path([[key]]), do: encode_key(key)
-  def encode_path([[key | keys] | rest]), do: encode_key(key) <> "." <> encode_path([keys | rest])
-  def encode_path([[] | rest]), do: "." <> encode_path(rest)
+  def encode_path([[key]]) do
+    encode_key(key)
+  end
 
-  defp encode_key(""), do: "\"\""
-  defp encode_key(key) when is_atom(key), do: encode_key(Atom.to_string(key))
+  def encode_path([[key | keys] | rest]) do
+    encode_key(key) <> "." <> encode_path([keys | rest])
+  end
+
+  def encode_path([[] | rest]) do
+    "." <> encode_path(rest)
+  end
+
+  defp encode_key("") do
+    "\"\""
+  end
+
+  defp encode_key(key) when is_atom(key) do
+    encode_key(Atom.to_string(key))
+  end
 
   defp encode_key(key) do
     if String.contains?(key, ".") or String.contains?(key, "\"") do
@@ -160,9 +199,17 @@ defmodule Guardian.Storage.Flattening do
   # Parse a quoted key until closing quote. A backslash escapes a backslash or a
   # quote; before any other character it is itself (names stored before backslashes
   # were escaped).
-  defp parse_quoted_key("\\\\" <> rest, acc), do: parse_quoted_key(rest, acc <> "\\")
-  defp parse_quoted_key("\\\"" <> rest, acc), do: parse_quoted_key(rest, acc <> "\"")
-  defp parse_quoted_key("\"" <> rest, acc), do: {acc, rest}
+  defp parse_quoted_key("\\\\" <> rest, acc) do
+    parse_quoted_key(rest, acc <> "\\")
+  end
+
+  defp parse_quoted_key("\\\"" <> rest, acc) do
+    parse_quoted_key(rest, acc <> "\"")
+  end
+
+  defp parse_quoted_key("\"" <> rest, acc) do
+    {acc, rest}
+  end
 
   defp parse_quoted_key(<<char::utf8, rest::binary>>, acc) do
     parse_quoted_key(rest, acc <> <<char::utf8>>)

@@ -22,7 +22,9 @@ defmodule Guardian.CounterPipelineProbe do
   @moduledoc false
   use GenServer
 
-  def start_link(observer), do: GenServer.start_link(__MODULE__, observer, name: __MODULE__)
+  def start_link(observer) do
+    GenServer.start_link(__MODULE__, observer, name: __MODULE__)
+  end
 
   def start(observer) do
     caller = self()
@@ -37,7 +39,9 @@ defmodule Guardian.CounterPipelineProbe do
     end
   end
 
-  def init(observer), do: {:ok, observer}
+  def init(observer) do
+    {:ok, observer}
+  end
 
   def handle_call({:operation, _deadline, {:batch, ops}}, _from, observer) do
     send(observer, {:pipeline, node(), self(), ops})
@@ -54,5 +58,7 @@ defmodule Guardian.CounterPipelineProbe do
     end
   end
 
-  def handle_info(:release, observer), do: {:noreply, observer}
+  def handle_info(:release, observer) do
+    {:noreply, observer}
+  end
 end

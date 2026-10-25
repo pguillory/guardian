@@ -18,19 +18,29 @@ defmodule Guardian.Storage.SegmentOwnerExitsTest do
   @managers [Schema, LoadedSegments, FullSegments, PersistedSegments, MutableSegments]
   @registries [MutableSegments, FullSegments, PersistedSegments, LoadedSegments]
 
-  defp table, do: "owner_exits_#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
+  defp table do
+    "owner_exits_#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
+  end
 
   # A table whose segment filenames exceed the filesystem's 255-byte name limit, so its
   # full segments stay in FullSegments (the persister logs them and retries).
-  defp unstorable_table, do: table() <> String.duplicate("f", 230)
+  defp unstorable_table do
+    table() <> String.duplicate("f", 230)
+  end
 
   # Every stored value of `v` in the table, sorted, so a lost or duplicated row shows.
-  defp values(table), do: run_sql("select v from #{table}") |> Enum.map(&hd/1) |> Enum.sort()
+  defp values(table) do
+    run_sql("select v from #{table}") |> Enum.map(&hd/1) |> Enum.sort()
+  end
 
-  defp managers, do: Map.new([Guardian.Storage | @managers], &{&1, Process.whereis(&1)})
+  defp managers do
+    Map.new([Guardian.Storage | @managers], &{&1, Process.whereis(&1)})
+  end
 
   # Lets each manager handle every message already in its mailbox.
-  defp sync, do: Enum.each(@managers, &:sys.get_state/1)
+  defp sync do
+    Enum.each(@managers, &:sys.get_state/1)
+  end
 
   # Kills a process and returns once it is gone.
   defp kill(pid, reason) do

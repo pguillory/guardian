@@ -21,7 +21,9 @@ defmodule Guardian.Rules.Store.Local do
   end
 
   @impl true
-  def describe(%__MODULE__{dir: dir}), do: "local folder #{dir}"
+  def describe(%__MODULE__{dir: dir}) do
+    "local folder #{dir}"
+  end
 
   @impl true
   def list(%__MODULE__{dir: dir}) do
@@ -151,6 +153,7 @@ defmodule Guardian.Rules.Store.Local do
     end
   end
 
-  defp etag(body),
-    do: :crypto.hash(:sha256, body) |> Base.encode16(case: :lower) |> binary_part(0, 32)
+  defp etag(body) do
+    :crypto.hash(:sha256, body) |> Base.encode16(case: :lower) |> binary_part(0, 32)
+  end
 end

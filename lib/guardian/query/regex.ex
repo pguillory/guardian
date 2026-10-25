@@ -39,7 +39,9 @@ defmodule Guardian.Query.Regex do
   ]
 
   @doc "The most capturing groups a pattern may have."
-  def max_groups, do: @max_groups
+  def max_groups do
+    @max_groups
+  end
 
   @doc """
   Compiles `pattern`. Returns `{:error, :too_many_groups}` for a pattern with more
@@ -55,7 +57,9 @@ defmodule Guardian.Query.Regex do
   # A compiled pattern is `{:re_pattern, group_count, unicode, use_crlf, program}`.
   # The format is undocumented but has not changed in many OTP releases; a change
   # fails here, loudly, rather than lifting the cap.
-  defp group_count({:re_pattern, count, _, _, _}) when is_integer(count), do: count
+  defp group_count({:re_pattern, count, _, _, _}) when is_integer(count) do
+    count
+  end
 
   @doc """
   Whether `regex` matches anywhere in `subject`; nil for non-UTF-8 input and when the
@@ -210,7 +214,9 @@ defmodule Guardian.Query.Regex do
 
   # A UTF-8 character boundary: the end of the subject, or any byte that is not a
   # continuation byte (0b10xxxxxx).
-  defp boundary?(subject, offset) when offset == byte_size(subject), do: true
+  defp boundary?(subject, offset) when offset == byte_size(subject) do
+    true
+  end
 
   defp boundary?(subject, offset) do
     Bitwise.band(:binary.at(subject, offset), 0xC0) != 0x80
@@ -236,8 +242,9 @@ defmodule Guardian.Query.Regex do
     end
   end
 
-  defp append(acc, piece) when byte_size(acc) + byte_size(piece) <= @max_bytes,
-    do: {acc <> piece, false}
+  defp append(acc, piece) when byte_size(acc) + byte_size(piece) <= @max_bytes do
+    {acc <> piece, false}
+  end
 
   defp append(acc, piece) do
     {piece, true} = Guardian.Query.Text.truncate(piece, @max_bytes - byte_size(acc))

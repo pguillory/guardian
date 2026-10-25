@@ -28,6 +28,11 @@ defmodule Guardian.Aggregation.MinMaxN do
     if Guardian.Storage.Value.valid?(values), do: values, else: nil
   end
 
-  defp name(:min), do: "min_n"
-  defp name(:max), do: "max_n"
+  defp name(:min) do
+    "min_n"
+  end
+
+  defp name(:max) do
+    "max_n"
+  end
 end

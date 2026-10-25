@@ -100,8 +100,13 @@ defmodule Guardian.Engine do
     inspect(module)
   end
 
-  def failure_kind(:exit, reason, _stacktrace), do: "exit " <> Guardian.Storage.exit_kind(reason)
-  def failure_kind(:throw, _value, _stacktrace), do: "throw"
+  def failure_kind(:exit, reason, _stacktrace) do
+    "exit " <> Guardian.Storage.exit_kind(reason)
+  end
+
+  def failure_kind(:throw, _value, _stacktrace) do
+    "throw"
+  end
 
   defp ingest_result(table, event) when is_map(event) do
     case prepare_event(table, event) do
@@ -116,7 +121,9 @@ defmodule Guardian.Engine do
     end
   end
 
-  defp ingest_result(_table, _event), do: {:error, "event is not a JSON object"}
+  defp ingest_result(_table, _event) do
+    {:error, "event is not a JSON object"}
+  end
 
   # Rules run on every event's validated row, in a worker (Guardian.Rules.Runner), after which
   # the values they produced are validated the same way and the row is stored. The
@@ -169,7 +176,9 @@ defmodule Guardian.Engine do
       :error
   end
 
-  defp finish_with_rules(_table, _event, _valid_row, _invalid_row, {:error, _} = error), do: error
+  defp finish_with_rules(_table, _event, _valid_row, _invalid_row, {:error, _} = error) do
+    error
+  end
 
   defp finish_with_rules(table, event, valid_row, invalid_row, {:ok, row}) do
     reported =
@@ -246,7 +255,9 @@ defmodule Guardian.Engine do
   # about 190 bytes could never be persisted. 64 leaves ample room.
   @max_table_name_bytes 64
 
-  def max_table_name_bytes, do: @max_table_name_bytes
+  def max_table_name_bytes do
+    @max_table_name_bytes
+  end
 
   @doc """
   Returns true when `table` can be addressed by SQL and is safe to use in a segment
@@ -257,7 +268,9 @@ defmodule Guardian.Engine do
       String.match?(table, ~r/\A[a-z_][a-z0-9_]*\z/) and table not in @reserved_table_names
   end
 
-  def valid_table_name?(_table), do: false
+  def valid_table_name?(_table) do
+    false
+  end
 
   defp validate_table!(table) do
     unless valid_table_name?(table) do
@@ -373,11 +386,19 @@ defmodule Guardian.Engine do
     end)
   end
 
-  defp stringify_keys(list) when is_list(list), do: Enum.map(list, &stringify_keys/1)
-  defp stringify_keys(value), do: value
+  defp stringify_keys(list) when is_list(list) do
+    Enum.map(list, &stringify_keys/1)
+  end
 
-  defp merge_values(%{} = map1, %{} = map2),
-    do: Map.merge(map1, map2, fn _key, v1, v2 -> merge_values(v1, v2) end)
+  defp stringify_keys(value) do
+    value
+  end
 
-  defp merge_values(_value1, value2), do: value2
+  defp merge_values(%{} = map1, %{} = map2) do
+    Map.merge(map1, map2, fn _key, v1, v2 -> merge_values(v1, v2) end)
+  end
+
+  defp merge_values(_value1, value2) do
+    value2
+  end
 end

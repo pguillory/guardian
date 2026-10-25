@@ -90,9 +90,17 @@ defmodule Guardian.Storage.Segment do
   end
 
   @doc "Whether a segment's exit reason is a deliberate stop rather than a crash."
-  def normal_exit?(reason) when reason in [:normal, :shutdown], do: true
-  def normal_exit?({:shutdown, _}), do: true
-  def normal_exit?(_reason), do: false
+  def normal_exit?(reason) when reason in [:normal, :shutdown] do
+    true
+  end
+
+  def normal_exit?({:shutdown, _}) do
+    true
+  end
+
+  def normal_exit?(_reason) do
+    false
+  end
 
   @doc """
   A description of a segment's exit reason that is safe to log. A crash reason can
@@ -100,11 +108,25 @@ defmodule Guardian.Storage.Segment do
   is named: the atom, or the exception's module. A `GenServer.call` exit is named by
   the reason it carries. Code outside Storage uses `Guardian.Storage.exit_kind/1`.
   """
-  def exit_kind({reason, {GenServer, :call, _}}), do: exit_kind(reason)
-  def exit_kind(reason) when is_atom(reason), do: inspect(reason)
-  def exit_kind({%module{}, stack}) when is_list(stack), do: inspect(module)
-  def exit_kind({kind, _}) when is_atom(kind), do: inspect(kind)
-  def exit_kind(_reason), do: "an abnormal exit"
+  def exit_kind({reason, {GenServer, :call, _}}) do
+    exit_kind(reason)
+  end
+
+  def exit_kind(reason) when is_atom(reason) do
+    inspect(reason)
+  end
+
+  def exit_kind({%module{}, stack}) when is_list(stack) do
+    inspect(module)
+  end
+
+  def exit_kind({kind, _}) when is_atom(kind) do
+    inspect(kind)
+  end
+
+  def exit_kind(_reason) do
+    "an abnormal exit"
+  end
 
   # Reads (count, full, keys, schema, get_column, get_row, get_value) are monitored
   # calls with no timeout by default, so a slow segment is waited for, and a segment
@@ -123,33 +145,51 @@ defmodule Guardian.Storage.Segment do
   @storage_read_timeout 5_000
 
   @doc "How long Storage's own processes wait on a segment read: 5 s."
-  def storage_read_timeout, do: @storage_read_timeout
+  def storage_read_timeout do
+    @storage_read_timeout
+  end
 
   @doc """
   Exits for a failed read with `{:segment_unavailable, kind}`, naming only the
   reason's kind (`exit_kind/1`) so the exit carries none of the segment's rows.
   """
   @spec exit_unavailable(term()) :: no_return()
-  def exit_unavailable(reason), do: exit({:segment_unavailable, exit_kind(reason)})
+  def exit_unavailable(reason) do
+    exit({:segment_unavailable, exit_kind(reason)})
+  end
 
   @doc "`count/2` for Storage's own processes: 5 s, and exits on failure."
-  def count!(segment), do: ok!(count(segment, @storage_read_timeout))
+  def count!(segment) do
+    ok!(count(segment, @storage_read_timeout))
+  end
 
   @doc "`full/2` for Storage's own processes: 5 s, and exits on failure."
-  def full!(segment), do: ok!(full(segment, @storage_read_timeout))
+  def full!(segment) do
+    ok!(full(segment, @storage_read_timeout))
+  end
 
   @doc "`keys/2` for Storage's own processes: 5 s, and exits on failure."
-  def keys!(segment), do: ok!(keys(segment, @storage_read_timeout))
+  def keys!(segment) do
+    ok!(keys(segment, @storage_read_timeout))
+  end
 
   @doc "`schema/2` for Storage's own processes: 5 s, and exits on failure."
-  def schema!(segment), do: ok!(schema(segment, @storage_read_timeout))
+  def schema!(segment) do
+    ok!(schema(segment, @storage_read_timeout))
+  end
 
   @doc "`get_column/3` for Storage's own processes: 5 s, and exits on failure."
-  def get_column!(segment, key), do: ok!(get_column(segment, key, @storage_read_timeout))
+  def get_column!(segment, key) do
+    ok!(get_column(segment, key, @storage_read_timeout))
+  end
 
-  defp ok!({:ok, value}), do: value
+  defp ok!({:ok, value}) do
+    value
+  end
 
-  defp ok!({:error, {:segment_unavailable, reason}}), do: exit_unavailable(reason)
+  defp ok!({:error, {:segment_unavailable, reason}}) do
+    exit_unavailable(reason)
+  end
 
   @spec count(pid(), timeout()) :: {:ok, non_neg_integer()} | read_error()
   def count(segment, timeout \\ :infinity) do
@@ -225,7 +265,9 @@ defmodule Guardian.Storage.Segment do
   # exit on failure: a segment that is gone exits at once, one that dies mid-call exits
   # with its reason, and one stuck past 5 s exits with `:timeout`. GenServer.call
   # monitors the segment and drops a reply that arrives after the timeout.
-  defp write_call(segment, message), do: GenServer.call(segment, message, 5_000)
+  defp write_call(segment, message) do
+    GenServer.call(segment, message, 5_000)
+  end
 
   def freeze(segment) do
     write_call(segment, :freeze)
@@ -502,7 +544,9 @@ defmodule Guardian.Storage.Segment do
     %{state | age_timer: Process.send_after(self(), :max_age, max_age_ms)}
   end
 
-  defp start_age_timer(state), do: state
+  defp start_age_timer(state) do
+    state
+  end
 
   # The packed snapshot of the mutable column `key`, padded to the row count.
   defp snapshot(state, key) do
@@ -569,6 +613,11 @@ defmodule Guardian.Storage.Segment do
     state.total_value_bytes + map_size(state.columns) * Column.nil_column_size(state.count)
   end
 
-  defp over_budget?(%{max_bytes: :infinity}), do: false
-  defp over_budget?(state), do: packed_bytes(state) >= state.max_bytes
+  defp over_budget?(%{max_bytes: :infinity}) do
+    false
+  end
+
+  defp over_budget?(state) do
+    packed_bytes(state) >= state.max_bytes
+  end
 end

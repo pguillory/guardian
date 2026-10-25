@@ -208,7 +208,9 @@ defmodule Guardian.Query.TotalityTest do
       raised
   end
 
-  defp substitute(%Identifier{name: name}, name, value), do: %Literal{value: value}
+  defp substitute(%Identifier{name: name}, name, value) do
+    %Literal{value: value}
+  end
 
   defp substitute(%_{} = node, name, value) do
     node
@@ -218,21 +220,36 @@ defmodule Guardian.Query.TotalityTest do
     end)
   end
 
-  defp substitute(list, name, value) when is_list(list),
-    do: Enum.map(list, &substitute(&1, name, value))
+  defp substitute(list, name, value) when is_list(list) do
+    Enum.map(list, &substitute(&1, name, value))
+  end
 
-  defp substitute(other, _name, _value), do: other
+  defp substitute(other, _name, _value) do
+    other
+  end
 
-  defp storable?(value) when is_integer(value), do: int64?(value)
-  defp storable?(value), do: Guardian.Storage.Value.valid?(value)
+  defp storable?(value) when is_integer(value) do
+    int64?(value)
+  end
 
-  defp brief(term), do: inspect(term, limit: 5, printable_limit: 40)
+  defp storable?(value) do
+    Guardian.Storage.Value.valid?(value)
+  end
+
+  defp brief(term) do
+    inspect(term, limit: 5, printable_limit: 40)
+  end
 
   # Equal and the same type, so 1 and 1.0 differ (0.0 and -0.0 don't).
-  defp same?(a, b) when is_float(a) and is_float(b), do: a == b
+  defp same?(a, b) when is_float(a) and is_float(b) do
+    a == b
+  end
 
-  defp same?(a, b) when is_list(a) and is_list(b),
-    do: length(a) == length(b) and Enum.all?(Enum.zip(a, b), fn {x, y} -> same?(x, y) end)
+  defp same?(a, b) when is_list(a) and is_list(b) do
+    length(a) == length(b) and Enum.all?(Enum.zip(a, b), fn {x, y} -> same?(x, y) end)
+  end
 
-  defp same?(a, b), do: a === b
+  defp same?(a, b) do
+    a === b
+  end
 end

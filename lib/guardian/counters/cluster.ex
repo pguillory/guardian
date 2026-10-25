@@ -19,8 +19,9 @@ defmodule Guardian.Counters.Cluster do
   @minimum_us 10_000
   @cooldown_us 1_000_000
 
-  def start_link(opts \\ []),
-    do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+  end
 
   def new_batch do
     batch = :atomics.new(1, [])
@@ -40,15 +41,25 @@ defmodule Guardian.Counters.Cluster do
     }
   end
 
-  def get(key, event), do: request({:get, key}, [key], event)
-  def gets(key, event), do: request({:gets, key}, [key], event)
-  def get_many(keys, event), do: request({:get_many, keys}, keys, event)
+  def get(key, event) do
+    request({:get, key}, [key], event)
+  end
 
-  def cas(key, token, value, ttl_ms, event),
-    do: request({:cas, key, token, value, ttl_ms}, [key], event)
+  def gets(key, event) do
+    request({:gets, key}, [key], event)
+  end
 
-  def incr(key, delta, ttl_ms, event),
-    do: request({:incr, key, delta, ttl_ms}, [key], event)
+  def get_many(keys, event) do
+    request({:get_many, keys}, keys, event)
+  end
+
+  def cas(key, token, value, ttl_ms, event) do
+    request({:cas, key, token, value, ttl_ms}, [key], event)
+  end
+
+  def incr(key, delta, ttl_ms, event) do
+    request({:incr, key, delta, ttl_ms}, [key], event)
+  end
 
   @doc "Runs indexed operations in concurrent owner pipelines within the shared budgets."
   def batch(operations, event) when is_map(operations) do
@@ -122,7 +133,9 @@ defmodule Guardian.Counters.Cluster do
     end
   end
 
-  defp dispatch([], running, results, _event), do: {[], running, results}
+  defp dispatch([], running, results, _event) do
+    {[], running, results}
+  end
 
   defp dispatch(pending, running, results, event) do
     try do
@@ -187,13 +200,17 @@ defmodule Guardian.Counters.Cluster do
     {Enum.reverse(ready), results}
   end
 
-  defp prepare_operation({:incr, key, delta, {:expires, expiry}}),
-    do: mutation(expiry, fn ttl -> {:incr, key, delta, ttl} end)
+  defp prepare_operation({:incr, key, delta, {:expires, expiry}}) do
+    mutation(expiry, fn ttl -> {:incr, key, delta, ttl} end)
+  end
 
-  defp prepare_operation({:cas, key, token, value, {:expires, expiry}}),
-    do: mutation(expiry, fn ttl -> {:cas, key, token, value, ttl} end)
+  defp prepare_operation({:cas, key, token, value, {:expires, expiry}}) do
+    mutation(expiry, fn ttl -> {:cas, key, token, value, ttl} end)
+  end
 
-  defp prepare_operation(op), do: {:ok, op}
+  defp prepare_operation(op) do
+    {:ok, op}
+  end
 
   defp mutation(expiry, build) do
     ttl = expiry - System.monotonic_time(:millisecond)
@@ -218,20 +235,41 @@ defmodule Guardian.Counters.Cluster do
   end
 
   defp normalize_pipeline({:ok, responses}, count)
-       when is_list(responses) and length(responses) == count,
-       do: {:ok, Enum.map(responses, &normalize_response/1)}
+       when is_list(responses) and length(responses) == count do
+    {:ok, Enum.map(responses, &normalize_response/1)}
+  end
 
-  defp normalize_pipeline({:error, reason} = error, _count) when is_atom(reason), do: error
-  defp normalize_pipeline(_, _count), do: {:error, :invalid_response}
+  defp normalize_pipeline({:error, reason} = error, _count) when is_atom(reason) do
+    error
+  end
 
-  defp normalize_response(response) when response in [:ok, :not_found], do: response
-  defp normalize_response({:ok, _} = response), do: response
-  defp normalize_response({:ok, _, _} = response), do: response
-  defp normalize_response({:error, reason} = response) when is_atom(reason), do: response
-  defp normalize_response(_), do: {:error, :invalid_response}
+  defp normalize_pipeline(_, _count) do
+    {:error, :invalid_response}
+  end
 
-  defp put_results(results, operations, error),
-    do: Enum.reduce(operations, results, fn {id, _}, acc -> Map.put(acc, id, error) end)
+  defp normalize_response(response) when response in [:ok, :not_found] do
+    response
+  end
+
+  defp normalize_response({:ok, _} = response) do
+    response
+  end
+
+  defp normalize_response({:ok, _, _} = response) do
+    response
+  end
+
+  defp normalize_response({:error, reason} = response) when is_atom(reason) do
+    response
+  end
+
+  defp normalize_response(_) do
+    {:error, :invalid_response}
+  end
+
+  defp put_results(results, operations, error) do
+    Enum.reduce(operations, results, fn {id, _}, acc -> Map.put(acc, id, error) end)
+  end
 
   @doc "Rendezvous owner of {identity, group}; membership order never matters."
   def owner(routing_key, members) when is_list(members) and members != [] do
@@ -277,7 +315,9 @@ defmodule Guardian.Counters.Cluster do
     end
   end
 
-  defp routing_key(_), do: {:error, :invalid_request}
+  defp routing_key(_) do
+    {:error, :invalid_request}
+  end
 
   defp call(operation, owner, event) do
     started = now()
@@ -300,7 +340,9 @@ defmodule Guardian.Counters.Cluster do
     if suspect?(result, reserved), do: suspect(event.cooldown_table, owner)
   end
 
-  defp reserve(_batch, allowance) when allowance < @minimum_us, do: :exhausted
+  defp reserve(_batch, allowance) when allowance < @minimum_us do
+    :exhausted
+  end
 
   defp reserve(batch, allowance) do
     remaining = :atomics.get(batch, 1)
@@ -415,7 +457,9 @@ defmodule Guardian.Counters.Cluster do
     local_operation(operation, store, duration_ms, now() + duration_ms * 1_000)
   end
 
-  def remote_operation(_, _, _), do: {:error, :invalid_request}
+  def remote_operation(_, _, _) do
+    {:error, :invalid_request}
+  end
 
   defp local_operation(operation, store, timeout, deadline) do
     # Internal backend injection supports transport probes. Distributed peers are
@@ -441,17 +485,37 @@ defmodule Guardian.Counters.Cluster do
     _, _ -> {:error, :unavailable}
   end
 
-  defp failed?({:error, :conflict}), do: false
-  defp failed?({:pipeline, results}), do: Enum.any?(results, &failed?/1)
-  defp failed?({:error, _}), do: true
-  defp failed?(_), do: false
-  defp suspect?({:error, :timeout}, allowance), do: allowance >= 25_000
-  defp suspect?({:error, :unavailable}, _), do: true
+  defp failed?({:error, :conflict}) do
+    false
+  end
 
-  defp suspect?({:pipeline, results}, allowance),
-    do: Enum.any?(results, &suspect?(&1, allowance))
+  defp failed?({:pipeline, results}) do
+    Enum.any?(results, &failed?/1)
+  end
 
-  defp suspect?(_, _), do: false
+  defp failed?({:error, _}) do
+    true
+  end
+
+  defp failed?(_) do
+    false
+  end
+
+  defp suspect?({:error, :timeout}, allowance) do
+    allowance >= 25_000
+  end
+
+  defp suspect?({:error, :unavailable}, _) do
+    true
+  end
+
+  defp suspect?({:pipeline, results}, allowance) do
+    Enum.any?(results, &suspect?(&1, allowance))
+  end
+
+  defp suspect?(_, _) do
+    false
+  end
 
   defp available?(table, owner) do
     case :ets.lookup(table, owner) do
@@ -491,7 +555,9 @@ defmodule Guardian.Counters.Cluster do
     {:noreply, table}
   end
 
-  def handle_info(_, table), do: {:noreply, table}
+  def handle_info(_, table) do
+    {:noreply, table}
+  end
 
   defp cleanup(table) do
     members = [node() | Node.list()]
@@ -502,24 +568,47 @@ defmodule Guardian.Counters.Cluster do
   end
 
   @impl true
-  def format_status(status),
-    do:
-      status
-      |> Map.put(:state, :redacted)
-      |> Map.put(:message, :redacted)
-      |> Map.put(:log, [])
-      |> Map.put(:reason, :redacted)
+  def format_status(status) do
+    status
+    |> Map.put(:state, :redacted)
+    |> Map.put(:message, :redacted)
+    |> Map.put(:log, [])
+    |> Map.put(:reason, :redacted)
+  end
 
   # Explicit encoding is independent of ETF/OTP versions. Float bit patterns keep
   # integers, floats, and signed zero distinct. No input is converted to an atom.
-  defp encode(nil), do: "n"
-  defp encode(false), do: "f"
-  defp encode(true), do: "t"
-  defp encode(value) when is_integer(value), do: sized("i", Integer.to_string(value))
-  defp encode(value) when is_float(value), do: <<"d", value::float-64>>
-  defp encode(value) when is_binary(value), do: sized("b", value)
-  defp encode(value) when is_tuple(value), do: sequence("u", Tuple.to_list(value))
-  defp encode(value) when is_list(value), do: sequence("l", value)
+  defp encode(nil) do
+    "n"
+  end
+
+  defp encode(false) do
+    "f"
+  end
+
+  defp encode(true) do
+    "t"
+  end
+
+  defp encode(value) when is_integer(value) do
+    sized("i", Integer.to_string(value))
+  end
+
+  defp encode(value) when is_float(value) do
+    <<"d", value::float-64>>
+  end
+
+  defp encode(value) when is_binary(value) do
+    sized("b", value)
+  end
+
+  defp encode(value) when is_tuple(value) do
+    sequence("u", Tuple.to_list(value))
+  end
+
+  defp encode(value) when is_list(value) do
+    sequence("l", value)
+  end
 
   defp encode(value) when is_map(value) do
     pairs =
@@ -528,12 +617,21 @@ defmodule Guardian.Counters.Cluster do
     sequence("m", pairs)
   end
 
-  defp sequence(tag, values),
-    do: [tag, <<length(values)::unsigned-64>>, Enum.map(values, &encode/1)]
+  defp sequence(tag, values) do
+    [tag, <<length(values)::unsigned-64>>, Enum.map(values, &encode/1)]
+  end
 
-  defp sized(tag, value), do: [tag, <<byte_size(value)::unsigned-64>>, value]
-  defp now, do: System.monotonic_time(:microsecond)
-  defp remaining_ms(deadline), do: max(0, div(deadline - now(), 1_000))
+  defp sized(tag, value) do
+    [tag, <<byte_size(value)::unsigned-64>>, value]
+  end
+
+  defp now do
+    System.monotonic_time(:microsecond)
+  end
+
+  defp remaining_ms(deadline) do
+    max(0, div(deadline - now(), 1_000))
+  end
 
   defp flush(reply) do
     receive do

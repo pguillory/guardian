@@ -27,14 +27,19 @@ defmodule Guardian.Rules.Lock do
 
   defstruct [:store, :etag, :deadline]
 
-  def key, do: @key
+  def key do
+    @key
+  end
 
   # Tests shorten the lease (and the margin with it) through app env.
-  defp lease_ms, do: Application.get_env(:guardian, :rules_lock_lease_ms, @lease_ms)
+  defp lease_ms do
+    Application.get_env(:guardian, :rules_lock_lease_ms, @lease_ms)
+  end
 
   @doc "How much of the lease must be left before the one write a holder makes."
-  def save_margin_ms,
-    do: Application.get_env(:guardian, :rules_save_margin_ms, @save_margin_ms)
+  def save_margin_ms do
+    Application.get_env(:guardian, :rules_save_margin_ms, @save_margin_ms)
+  end
 
   @doc "Acquires the lock for `holder` (a description). `{:ok, lock}` or `{:error, reason}`."
   def acquire(store, holder, timeout_ms \\ @acquire_timeout_ms) do
@@ -88,7 +93,9 @@ defmodule Guardian.Rules.Lock do
   end
 
   @doc "Milliseconds left on the lease, by this node's monotonic clock."
-  def remaining_ms(%__MODULE__{deadline: deadline}), do: deadline - now()
+  def remaining_ms(%__MODULE__{deadline: deadline}) do
+    deadline - now()
+  end
 
   @doc "Releases the lock if this holder still has it."
   def release(%__MODULE__{store: store, etag: etag}) do
@@ -110,5 +117,7 @@ defmodule Guardian.Rules.Lock do
     match?({:ok, %{"state" => "released"}}, Jason.decode(body))
   end
 
-  defp now, do: System.monotonic_time(:millisecond)
+  defp now do
+    System.monotonic_time(:millisecond)
+  end
 end

@@ -19,11 +19,19 @@ defmodule Guardian.Query.Function.ToString do
   # A column of only strings and nulls is its own result, which the NIF returns at
   # once; any other column is rendered value by value. A constant always goes to
   # map_or_nif, which evaluates it once with eval/1.
-  defp identity?(%Guardian.Query.Constant{}), do: true
+  defp identity?(%Guardian.Query.Constant{}) do
+    true
+  end
 
-  defp identity?(column),
-    do: Column.null_count(column) + Column.string_count(column) == Column.count(column)
+  defp identity?(column) do
+    Column.null_count(column) + Column.string_count(column) == Column.count(column)
+  end
 
-  def eval(string) when is_binary(string), do: string
-  def eval(value), do: Guardian.Query.Text.form(value, Guardian.Query.Text.max_bytes())
+  def eval(string) when is_binary(string) do
+    string
+  end
+
+  def eval(value) do
+    Guardian.Query.Text.form(value, Guardian.Query.Text.max_bytes())
+  end
 end

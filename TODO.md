@@ -212,6 +212,10 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Tests
 
+- [x] definition-block-style: use `do...end` for function and macro definitions,
+      document the convention and enforce it through the normal test suite
+      (`docs/changes/definition-block-style.md`)
+
 - [x] elixir-120-compatibility: compile Guardian with warnings as errors and run the
       full suite on Elixir 1.19 and 1.20 without changing runtime pins
       (`docs/changes/elixir-120-compatibility.md`)

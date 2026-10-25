@@ -377,8 +377,13 @@ defmodule Guardian.Query.DistributedStream do
   end
 
   # A router whose consumer exited normally still has to stop.
-  defp consumer_exited(:normal), do: {:shutdown, :consumer_exited}
-  defp consumer_exited(reason), do: reason
+  defp consumer_exited(:normal) do
+    {:shutdown, :consumer_exited}
+  end
+
+  defp consumer_exited(reason) do
+    reason
+  end
 
   # A router exits normally only after every one of its workers did.
   defp maybe_finish_route(router) do
@@ -571,10 +576,13 @@ defmodule Guardian.Query.DistributedStream do
   # A worker's input cleanup runs whether the input ended, the transform stopped
   # reading, or gathering failed. It only records the first case: failing here would
   # replace a gather failure's reason.
-  defp record_drained(%{finished: true, id: id}),
-    do: Process.put({__MODULE__, :drained, id}, true)
+  defp record_drained(%{finished: true, id: id}) do
+    Process.put({__MODULE__, :drained, id}, true)
+  end
 
-  defp record_drained(_receiver), do: :ok
+  defp record_drained(_receiver) do
+    :ok
+  end
 
   # Returns `{values, receiver}`, `{:halt, receiver}` once every expected marker has
   # arrived, or `{:error, reason, receiver}` for the caller to fail with. `linked` is

@@ -39,7 +39,9 @@ defmodule Guardian.Rules.DependencyGraph do
     end)
   end
 
-  defp levels([], deps, acc), do: {Enum.reverse(acc), deps}
+  defp levels([], deps, acc) do
+    {Enum.reverse(acc), deps}
+  end
 
   defp levels(pending, deps, acc) do
     {ready, waiting} = Enum.split_with(pending, &(MapSet.size(Map.fetch!(deps, &1.field)) == 0))
@@ -89,9 +91,13 @@ defmodule Guardian.Rules.DependencyGraph do
   end
 
   @doc "The top-level field of a field name or path."
-  def top_level(name), do: name |> String.split(".", parts: 2) |> hd()
+  def top_level(name) do
+    name |> String.split(".", parts: 2) |> hd()
+  end
 
-  defp order([], _deps, acc), do: {:ok, Enum.reverse(acc)}
+  defp order([], _deps, acc) do
+    {:ok, Enum.reverse(acc)}
+  end
 
   defp order(pending, deps, acc) do
     case Enum.find(pending, &(MapSet.size(Map.fetch!(deps, &1.field)) == 0)) do

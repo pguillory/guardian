@@ -20,8 +20,13 @@ defmodule Guardian.Aggregation.Moments do
 
   # A float overflow while merging makes the state :overflow, which absorbs every
   # later merge and finishes as null (Guardian.Query.Numeric).
-  def merge(_kind, :overflow, _acc2), do: :overflow
-  def merge(_kind, _acc1, :overflow), do: :overflow
+  def merge(_kind, :overflow, _acc2) do
+    :overflow
+  end
+
+  def merge(_kind, _acc1, :overflow) do
+    :overflow
+  end
 
   def merge(_kind, {0, _, _}, acc2) do
     acc2
@@ -41,7 +46,9 @@ defmodule Guardian.Aggregation.Moments do
     :error, :badarith -> :overflow
   end
 
-  def finish(_kind, :overflow), do: nil
+  def finish(_kind, :overflow) do
+    nil
+  end
 
   def finish(:var_pop, {count, _mean, m2}) when count > 0 do
     m2 / count

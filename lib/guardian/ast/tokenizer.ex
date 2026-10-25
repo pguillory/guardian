@@ -128,7 +128,9 @@ defmodule Guardian.AST.Tokenizer do
     rows |> Enum.reverse() |> List.to_tuple()
   end
 
-  defp count_newlines(text), do: length(:binary.matches(text, "\n"))
+  defp count_newlines(text) do
+    length(:binary.matches(text, "\n"))
+  end
 
   # The source text of the first remaining token, as written, or nil at end of input.
   def next_raw_token(_source, []) do
@@ -205,7 +207,9 @@ defmodule Guardian.AST.Tokenizer do
   end
 
   # `offset` is the byte offset in the source of the token at the head of the list.
-  defp evaluate([], _offset, acc), do: {:ok, Enum.reverse(acc)}
+  defp evaluate([], _offset, acc) do
+    {:ok, Enum.reverse(acc)}
+  end
 
   defp evaluate([{type, raw_token} | raw_tokens], offset, acc) do
     next_offset = offset + byte_size(raw_token)
@@ -217,9 +221,17 @@ defmodule Guardian.AST.Tokenizer do
     end
   end
 
-  defp evaluate_token(:null, _raw_token), do: {:ok, {:null, nil}}
-  defp evaluate_token(false, _raw_token), do: {:ok, {false, false}}
-  defp evaluate_token(true, _raw_token), do: {:ok, {true, true}}
+  defp evaluate_token(:null, _raw_token) do
+    {:ok, {:null, nil}}
+  end
+
+  defp evaluate_token(false, _raw_token) do
+    {:ok, {false, false}}
+  end
+
+  defp evaluate_token(true, _raw_token) do
+    {:ok, {true, true}}
+  end
 
   defp evaluate_token(:integer, raw_token) do
     case evaluate_integer(raw_token) do
@@ -241,13 +253,21 @@ defmodule Guardian.AST.Tokenizer do
     end
   end
 
-  defp evaluate_token(:keyword, raw_token), do: {:ok, {:keyword, String.upcase(raw_token)}}
+  defp evaluate_token(:keyword, raw_token) do
+    {:ok, {:keyword, String.upcase(raw_token)}}
+  end
 
-  defp evaluate_token(:identifier, raw_token),
-    do: {:ok, {:identifier, String.downcase(raw_token)}}
+  defp evaluate_token(:identifier, raw_token) do
+    {:ok, {:identifier, String.downcase(raw_token)}}
+  end
 
-  defp evaluate_token(:punctuation, raw_token), do: {:ok, {:punctuation, raw_token}}
-  defp evaluate_token(type, _raw_token) when type in [:comment, :whitespace], do: :skip
+  defp evaluate_token(:punctuation, raw_token) do
+    {:ok, {:punctuation, raw_token}}
+  end
+
+  defp evaluate_token(type, _raw_token) when type in [:comment, :whitespace] do
+    :skip
+  end
 
   # Integer literals are unsigned (minus is an operator) and must fit in int64, so they
   # run from 0 to 9223372036854775807; the smallest int64 is `-9223372036854775807 - 1`.
@@ -269,8 +289,13 @@ defmodule Guardian.AST.Tokenizer do
     end
   end
 
-  defp skip_leading_zeros(<<?0, rest::binary>>), do: skip_leading_zeros(rest)
-  defp skip_leading_zeros(source), do: source
+  defp skip_leading_zeros(<<?0, rest::binary>>) do
+    skip_leading_zeros(rest)
+  end
+
+  defp skip_leading_zeros(source) do
+    source
+  end
 
   # `1.` is the float 1.0 and `1e5` the float 100000.0, as in standard SQL.
   # String.to_float needs digits on both sides of a dot, so the mantissa is completed
@@ -297,7 +322,9 @@ defmodule Guardian.AST.Tokenizer do
 
   # `rest` is what remains of `full_source` to scan. Errors carry the byte offset in
   # `full_source` where they are reported.
-  defp scan(<<>>, _full_source, acc), do: {:ok, Enum.reverse(acc)}
+  defp scan(<<>>, _full_source, acc) do
+    {:ok, Enum.reverse(acc)}
+  end
 
   defp scan(rest, full_source, acc) do
     case next_token(rest) do
@@ -342,13 +369,26 @@ defmodule Guardian.AST.Tokenizer do
     end
   end
 
-  defp skip_whitespace(<<c, rest::binary>>) when c in @whitespace, do: skip_whitespace(rest)
-  defp skip_whitespace(source), do: source
+  defp skip_whitespace(<<c, rest::binary>>) when c in @whitespace do
+    skip_whitespace(rest)
+  end
+
+  defp skip_whitespace(source) do
+    source
+  end
 
   # A comment runs to the end of the line, newline included.
-  defp skip_comment(<<?\n, rest::binary>>), do: rest
-  defp skip_comment(<<_, rest::binary>>), do: skip_comment(rest)
-  defp skip_comment(<<>>), do: <<>>
+  defp skip_comment(<<?\n, rest::binary>>) do
+    rest
+  end
+
+  defp skip_comment(<<_, rest::binary>>) do
+    skip_comment(rest)
+  end
+
+  defp skip_comment(<<>>) do
+    <<>>
+  end
 
   defp integer(source) do
     case source do
@@ -395,10 +435,17 @@ defmodule Guardian.AST.Tokenizer do
     end
   end
 
-  defp exponent(_source), do: :error
+  defp exponent(_source) do
+    :error
+  end
 
-  defp skip_digits(<<c, rest::binary>>) when c in @digits, do: skip_digits(rest)
-  defp skip_digits(source), do: source
+  defp skip_digits(<<c, rest::binary>>) when c in @digits do
+    skip_digits(rest)
+  end
+
+  defp skip_digits(source) do
+    source
+  end
 
   # A dotted path such as `user.name` or `users..name` is one identifier token, spelled
   # exactly like the stored column name for that nested field. Each run of N dots marks
@@ -435,8 +482,13 @@ defmodule Guardian.AST.Tokenizer do
     {:ok, type, source}
   end
 
-  defp skip_dots(<<?., rest::binary>>), do: skip_dots(rest)
-  defp skip_dots(source), do: source
+  defp skip_dots(<<?., rest::binary>>) do
+    skip_dots(rest)
+  end
+
+  defp skip_dots(source) do
+    source
+  end
 
   # A backslash escapes the next byte, so `\'` and `\\` never end the literal.
   # Guardian.AST.StringEncoding decides whether the escape is valid.

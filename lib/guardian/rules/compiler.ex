@@ -20,13 +20,18 @@ defmodule Guardian.Rules.Compiler do
 
   @pool_size 1_024
 
-  def pool_size, do: @pool_size
+  def pool_size do
+    @pool_size
+  end
 
   @doc "The module name of pool slot `n`."
-  def name(n) when n in 0..(@pool_size - 1)//1,
-    do: Module.concat(Guardian.Rules.Compiled, "M#{n}")
+  def name(n) when n in 0..(@pool_size - 1)//1 do
+    Module.concat(Guardian.Rules.Compiled, "M#{n}")
+  end
 
-  def names, do: Enum.map(0..(@pool_size - 1), &name/1)
+  def names do
+    Enum.map(0..(@pool_size - 1), &name/1)
+  end
 
   @doc "Compiles and loads `plan` as `module`. Returns `:ok` or `{:error, kind}`."
   def compile(module, %Guardian.Rules.Plan{} = plan) do
@@ -46,12 +51,22 @@ defmodule Guardian.Rules.Compiler do
     body =
       quote do
         @moduledoc false
-        def table, do: unquote(plan.table)
-        def hash, do: unquote(plan.hash)
-        def plan, do: unquote(Macro.escape(plan))
+        def table do
+          unquote(plan.table)
+        end
+
+        def hash do
+          unquote(plan.hash)
+        end
+
+        def plan do
+          unquote(Macro.escape(plan))
+        end
 
         # Qualify the local call: unqualified apply/2 resolves to Kernel.apply/2.
-        def apply(row), do: __MODULE__.apply(row, Guardian.Rules.Event.new())
+        def apply(row) do
+          __MODULE__.apply(row, Guardian.Rules.Event.new())
+        end
 
         def apply(row, event) do
           Guardian.Rules.Runtime.run(row, unquote(Macro.escape(plan.levels)), event)

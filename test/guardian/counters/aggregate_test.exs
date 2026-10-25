@@ -278,8 +278,13 @@ defmodule Guardian.Counters.AggregateTest do
     assert {Hypex.Array, 14, _} = Guardian.Aggregation.CountDistinct.start(nil)
   end
 
-  defp create({"count", 0} = operator, _value), do: Aggregate.create(operator, [])
-  defp create(operator, value), do: Aggregate.create(operator, [value])
+  defp create({"count", 0} = operator, _value) do
+    Aggregate.create(operator, [])
+  end
+
+  defp create(operator, value) do
+    Aggregate.create(operator, [value])
+  end
 
   defp state(operator, values) do
     Enum.reduce(values, Aggregate.default(operator), fn value, prior ->
@@ -287,11 +292,15 @@ defmodule Guardian.Counters.AggregateTest do
     end)
   end
 
-  defp result(operator, values), do: Aggregate.resolve(operator, state(operator, values))
+  defp result(operator, values) do
+    Aggregate.resolve(operator, state(operator, values))
+  end
 
   defp assert_result_equal(left, right) when is_float(left) and is_float(right) do
     assert_in_delta left, right, 1.0e-12
   end
 
-  defp assert_result_equal(left, right), do: assert(left === right)
+  defp assert_result_equal(left, right) do
+    assert(left === right)
+  end
 end

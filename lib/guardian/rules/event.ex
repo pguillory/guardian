@@ -14,5 +14,7 @@ defmodule Guardian.Rules.Event do
     %{arrival | counters: Guardian.Counters.Cluster.new_event(batch, opts)}
   end
 
-  def new, do: start(arrival(), Guardian.Counters.Cluster.new_batch())
+  def new do
+    start(arrival(), Guardian.Counters.Cluster.new_batch())
+  end
 end

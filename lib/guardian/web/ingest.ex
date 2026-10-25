@@ -50,21 +50,41 @@ defmodule Guardian.Web.Ingest do
     end
   end
 
-  defp validate_ingest_request(_params), do: {:error, "arguments must be an object"}
+  defp validate_ingest_request(_params) do
+    {:error, "arguments must be an object"}
+  end
 
-  defp valid_return_keys?(nil), do: true
-  defp valid_return_keys?(keys) when is_list(keys), do: Enum.all?(keys, &is_binary/1)
-  defp valid_return_keys?(_keys), do: false
+  defp valid_return_keys?(nil) do
+    true
+  end
 
-  defp valid_idempotency_key?(nil), do: true
+  defp valid_return_keys?(keys) when is_list(keys) do
+    Enum.all?(keys, &is_binary/1)
+  end
 
-  defp valid_idempotency_key?(key) when is_binary(key),
-    do: byte_size(key) in 1..128 and String.valid?(key)
+  defp valid_return_keys?(_keys) do
+    false
+  end
 
-  defp valid_idempotency_key?(_key), do: false
+  defp valid_idempotency_key?(nil) do
+    true
+  end
+
+  defp valid_idempotency_key?(key) when is_binary(key) do
+    byte_size(key) in 1..128 and String.valid?(key)
+  end
+
+  defp valid_idempotency_key?(_key) do
+    false
+  end
 
   # Every requested key is in the result, null when the event lacks it, so a client can
   # always read the fields it asked for (such as one a rule sets only sometimes).
-  defp filter_keys(event, nil), do: event
-  defp filter_keys(event, keys), do: Map.new(keys, &{&1, Map.get(event, &1)})
+  defp filter_keys(event, nil) do
+    event
+  end
+
+  defp filter_keys(event, keys) do
+    Map.new(keys, &{&1, Map.get(event, &1)})
+  end
 end

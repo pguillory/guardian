@@ -13,12 +13,17 @@ defmodule Guardian.AST.Node.Operators.ConcatOperator do
   end
 
   @doc false
-  def operands(expr), do: operands(expr, [])
+  def operands(expr) do
+    operands(expr, [])
+  end
 
-  defp operands(%__MODULE__{left: left, right: right}, acc),
-    do: operands(left, operands(right, acc))
+  defp operands(%__MODULE__{left: left, right: right}, acc) do
+    operands(left, operands(right, acc))
+  end
 
-  defp operands(expr, acc), do: [expr | acc]
+  defp operands(expr, acc) do
+    [expr | acc]
+  end
 
   def eval(left, right) do
     Guardian.Query.Function.Concat.eval(left, right)

@@ -72,9 +72,17 @@ defmodule Guardian.FakeS3 do
      }}
   end
 
-  def fault(%{agent: agent}, faults), do: Agent.update(agent, &%{&1 | faults: List.wrap(faults)})
-  def requests(%{agent: agent}), do: Agent.get(agent, &Enum.reverse(&1.requests))
-  def objects(%{agent: agent}), do: Agent.get(agent, & &1.objects)
+  def fault(%{agent: agent}, faults) do
+    Agent.update(agent, &%{&1 | faults: List.wrap(faults)})
+  end
+
+  def requests(%{agent: agent}) do
+    Agent.get(agent, &Enum.reverse(&1.requests))
+  end
+
+  def objects(%{agent: agent}) do
+    Agent.get(agent, & &1.objects)
+  end
 
   def put_object(%{agent: agent}, key, body) do
     Agent.update(agent, fn state -> put_in(state.objects[key], object(body)) end)
@@ -96,7 +104,9 @@ defmodule Guardian.FakeS3 do
   end
 
   @impl true
-  def init(agent), do: agent
+  def init(agent) do
+    agent
+  end
 
   @impl true
   def call(conn, agent) do
@@ -290,7 +300,9 @@ defmodule Guardian.FakeS3 do
     end
   end
 
-  defp canonical_query(""), do: ""
+  defp canonical_query("") do
+    ""
+  end
 
   defp canonical_query(query) do
     query
@@ -308,9 +320,17 @@ defmodule Guardian.FakeS3 do
     |> Enum.map_join("&", fn {name, value} -> "#{name}=#{value}" end)
   end
 
-  defp encode(text), do: URI.encode(text, &URI.char_unreserved?/1)
-  defp hmac(key, data), do: :crypto.mac(:hmac, :sha256, key, data)
-  defp hex(binary), do: Base.encode16(binary, case: :lower)
+  defp encode(text) do
+    URI.encode(text, &URI.char_unreserved?/1)
+  end
+
+  defp hmac(key, data) do
+    :crypto.mac(:hmac, :sha256, key, data)
+  end
+
+  defp hex(binary) do
+    Base.encode16(binary, case: :lower)
+  end
 
   @months ~w[Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec]
   @days ~w[Mon Tue Wed Thu Fri Sat Sun]

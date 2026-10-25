@@ -291,11 +291,13 @@ defmodule Guardian.Query.ColumnOrConstant do
   Whether a column or constant holds at least one value of `type` at its top level
   (`:string` or `:integer`), from its metadata.
   """
-  def holds?(column_or_constant, :string),
-    do: match?([Metadata.tuple(string_count: n) | _] when n > 0, metadata(column_or_constant))
+  def holds?(column_or_constant, :string) do
+    match?([Metadata.tuple(string_count: n) | _] when n > 0, metadata(column_or_constant))
+  end
 
-  def holds?(column_or_constant, :integer),
-    do: match?([Metadata.tuple(int_count: n) | _] when n > 0, metadata(column_or_constant))
+  def holds?(column_or_constant, :integer) do
+    match?([Metadata.tuple(int_count: n) | _] when n > 0, metadata(column_or_constant))
+  end
 
   def map_or_nif(%Constant{} = constant1, map_func, nif_func)
       when is_function(map_func, 1) and is_function(nif_func, 1) do

@@ -16,8 +16,13 @@ defmodule Guardian.Aggregation.Avg do
   # An integer sum stays exact (a bignum of a few words at most, for any real count).
   # A float overflow makes the state :overflow, which absorbs every later merge and
   # finishes as null (Guardian.Query.Numeric).
-  def merge(:overflow, _acc2), do: :overflow
-  def merge(_acc1, :overflow), do: :overflow
+  def merge(:overflow, _acc2) do
+    :overflow
+  end
+
+  def merge(_acc1, :overflow) do
+    :overflow
+  end
 
   def merge({sum1, count1}, {sum2, count2}) do
     {sum1 + sum2, count1 + count2}
@@ -25,7 +30,9 @@ defmodule Guardian.Aggregation.Avg do
     :error, :badarith -> :overflow
   end
 
-  def finish(:overflow), do: nil
+  def finish(:overflow) do
+    nil
+  end
 
   def finish({_sum, 0}) do
     nil

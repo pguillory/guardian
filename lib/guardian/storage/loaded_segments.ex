@@ -27,14 +27,20 @@ defmodule Guardian.Storage.LoadedSegments do
     GenServer.call(__MODULE__, {:ensure_loaded, table, segment_id}, :infinity)
   end
 
-  def segment_ids(table), do: Registration.segment_ids(__MODULE__, table)
+  def segment_ids(table) do
+    Registration.segment_ids(__MODULE__, table)
+  end
 
-  def get_segment(segment_id), do: Registration.lookup(__MODULE__, segment_id)
+  def get_segment(segment_id) do
+    Registration.lookup(__MODULE__, segment_id)
+  end
 
   @doc """
   The IDs of every loaded segment.
   """
-  def all_segment_ids, do: Registration.all_segment_ids(__MODULE__)
+  def all_segment_ids do
+    Registration.all_segment_ids(__MODULE__)
+  end
 
   @doc """
   Deletes a segment's file and unloads it. Also deletes the file of a skipped
@@ -143,7 +149,9 @@ defmodule Guardian.Storage.LoadedSegments do
   # Unregisters a loaded segment and stops its process. Stopping it releases the
   # mapped file and lets Guardian.Storage.Schema subtract the segment's metadata. The segment
   # may already be dead; its EXIT then arrives later and finds no registration.
-  defp unload_segment(registration), do: Registration.retire(__MODULE__, registration)
+  defp unload_segment(registration) do
+    Registration.retire(__MODULE__, registration)
+  end
 
   # Matches by PID, so a late EXIT from a segment that was unloaded, or from an old
   # process whose ID has since been reloaded, finds nothing. The file is still on disk
@@ -256,9 +264,17 @@ defmodule Guardian.Storage.LoadedSegments do
 
   # What a skipped entry remembers: the file's size, mtime, and inode for a content
   # failure, or the failure itself for one that is retried every time.
-  defp fingerprint({:mmap, _posix} = reason, _stat), do: {:retry, reason}
-  defp fingerprint(reason, {:error, _} = _stat), do: {:retry, reason}
-  defp fingerprint(_reason, stat), do: stat
+  defp fingerprint({:mmap, _posix} = reason, _stat) do
+    {:retry, reason}
+  end
+
+  defp fingerprint(reason, {:error, _} = _stat) do
+    {:retry, reason}
+  end
+
+  defp fingerprint(_reason, stat) do
+    stat
+  end
 
   defp file_stat(filename) do
     case File.stat(filename) do
@@ -267,8 +283,13 @@ defmodule Guardian.Storage.LoadedSegments do
     end
   end
 
-  defp describe_stat({size, _mtime, _inode}), do: "#{size} bytes"
-  defp describe_stat({:error, reason}), do: "stat failed: #{inspect(reason)}"
+  defp describe_stat({size, _mtime, _inode}) do
+    "#{size} bytes"
+  end
+
+  defp describe_stat({:error, reason}) do
+    "stat failed: #{inspect(reason)}"
+  end
 
   defp warn_about_unparseable_segment_files(filenames) do
     case SegmentFile.unparseable(filenames) do

@@ -69,5 +69,7 @@ defmodule Guardian.RulesTestHelper do
     end)
   end
 
-  def unique_table(prefix), do: "#{prefix}_#{System.unique_integer([:positive])}"
+  def unique_table(prefix) do
+    "#{prefix}_#{System.unique_integer([:positive])}"
+  end
 end

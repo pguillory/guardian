@@ -18,8 +18,9 @@ defmodule Guardian.Web.IngestIdempotencyTest do
     Idempotency.run("events", key, {[], nil}, ingest, server)
   end
 
-  defp receipt(failed \\ 0),
-    do: {:ok, %{status: 200, duplicate: true, failed_events: failed}}
+  defp receipt(failed \\ 0) do
+    {:ok, %{status: 200, duplicate: true, failed_events: failed}}
+  end
 
   test "receipts retain failed outcomes but no event payloads", %{server: server} do
     payload = "private-event-payload"

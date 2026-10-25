@@ -25,6 +25,11 @@ defmodule Guardian.AST.Node.Statements.LookupStatement do
     traverse_fields(expr, [:field, :counter, :from_table, :by_exprs, :where_expr], acc, pre, post)
   end
 
-  defp from_source(nil), do: ""
-  defp from_source(table), do: " FROM " <> Guardian.AST.unparse(table)
+  defp from_source(nil) do
+    ""
+  end
+
+  defp from_source(table) do
+    " FROM " <> Guardian.AST.unparse(table)
+  end
 end

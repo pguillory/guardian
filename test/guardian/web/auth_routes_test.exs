@@ -16,7 +16,9 @@ defmodule Guardian.Web.AuthRoutesTest do
 
   # {description, query string, x-api-key headers in order, expected outcome}, with
   # query keys allowed.
-  defp cases(true), do: cases()
+  defp cases(true) do
+    cases()
+  end
 
   # With query keys refused, a query-parameter key counts as no key at all.
   defp cases(false) do

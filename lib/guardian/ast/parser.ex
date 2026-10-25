@@ -268,13 +268,21 @@ defmodule Guardian.AST.Parser do
     end
   end
 
-  defp maybe_parse_rule_by([{:keyword, "BY"} | tokens]), do: parse_expression_list!(tokens)
-  defp maybe_parse_rule_by(tokens), do: {[], tokens}
+  defp maybe_parse_rule_by([{:keyword, "BY"} | tokens]) do
+    parse_expression_list!(tokens)
+  end
 
-  defp maybe_parse_rule_from([{:keyword, "FROM"} | tokens]),
-    do: parse_rule_name!(tokens, "table name")
+  defp maybe_parse_rule_by(tokens) do
+    {[], tokens}
+  end
 
-  defp maybe_parse_rule_from(tokens), do: {nil, tokens}
+  defp maybe_parse_rule_from([{:keyword, "FROM"} | tokens]) do
+    parse_rule_name!(tokens, "table name")
+  end
+
+  defp maybe_parse_rule_from(tokens) do
+    {nil, tokens}
+  end
 
   defp parse_rule_last!([{:identifier, "last"} | tokens]) do
     case tokens do
@@ -283,7 +291,9 @@ defmodule Guardian.AST.Parser do
     end
   end
 
-  defp parse_rule_last!(tokens), do: throw({:expected, "LAST clause", tokens})
+  defp parse_rule_last!(tokens) do
+    throw({:expected, "LAST clause", tokens})
+  end
 
   defp maybe_parse_rule_where(tokens) do
     case tokens do
@@ -479,7 +489,9 @@ defmodule Guardian.AST.Parser do
     end
   end
 
-  defp amend_where_expr(nil, where_expr), do: where_expr
+  defp amend_where_expr(nil, where_expr) do
+    where_expr
+  end
 
   defp amend_where_expr(previous_where_expr, where_expr) do
     %AndOperator{left: previous_where_expr, right: where_expr}

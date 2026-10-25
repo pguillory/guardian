@@ -7,7 +7,9 @@ defmodule Guardian.Query.SegmentReaderContractTest do
 
   alias Guardian.Storage.Segment
 
-  defp table, do: "reader_contract_#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
+  defp table do
+    "reader_contract_#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
+  end
 
   # Three full segments plus a partial one.
   defp fill(table, rows \\ 3 * 16_384 + 100) do
@@ -20,7 +22,9 @@ defmodule Guardian.Query.SegmentReaderContractTest do
   end
 
   # Full segments only (index 0 to 2), loaded; see Guardian.TestHelpers.loaded_segment/2.
-  defp segment(table, index), do: loaded_segment(table, index)
+  defp segment(table, index) do
+    loaded_segment(table, index)
+  end
 
   defp assert_no_query_processes_left do
     await_no_processes_running(

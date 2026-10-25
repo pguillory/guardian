@@ -68,13 +68,23 @@ defmodule Guardian.Aggregation do
 
   @doc "The result for a group with no rows."
   @spec default(t) :: term
-  def default({mod, option}), do: mod.default(option)
-  def default(mod), do: mod.default()
+  def default({mod, option}) do
+    mod.default(option)
+  end
+
+  def default(mod) do
+    mod.default()
+  end
 
   @doc "An accumulator for one row, from the aggregation's argument values."
   @spec start(t, [term]) :: term
-  def start({mod, option}, values), do: apply(mod, :start, [option | values])
-  def start(mod, values), do: apply(mod, :start, values)
+  def start({mod, option}, values) do
+    apply(mod, :start, [option | values])
+  end
+
+  def start(mod, values) do
+    apply(mod, :start, values)
+  end
 
   @doc """
   Accumulators for one row, one per aggregation. `row` holds every aggregation's
@@ -92,11 +102,21 @@ defmodule Guardian.Aggregation do
 
   @doc "Combines two accumulators. Merge is associative."
   @spec merge(t, term, term) :: term
-  def merge({mod, option}, acc1, acc2), do: mod.merge(option, acc1, acc2)
-  def merge(mod, acc1, acc2), do: mod.merge(acc1, acc2)
+  def merge({mod, option}, acc1, acc2) do
+    mod.merge(option, acc1, acc2)
+  end
+
+  def merge(mod, acc1, acc2) do
+    mod.merge(acc1, acc2)
+  end
 
   @doc "The result from a group's accumulator."
   @spec finish(t, term) :: term
-  def finish({mod, option}, acc), do: mod.finish(option, acc)
-  def finish(mod, acc), do: mod.finish(acc)
+  def finish({mod, option}, acc) do
+    mod.finish(option, acc)
+  end
+
+  def finish(mod, acc) do
+    mod.finish(acc)
+  end
 end

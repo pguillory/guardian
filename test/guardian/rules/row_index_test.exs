@@ -54,7 +54,9 @@ defmodule Guardian.Rules.RowIndexTest do
       end
     end
 
-    defp random_value(0), do: Enum.random([1, "s", nil, [1, 2]])
+    defp random_value(0) do
+      Enum.random([1, "s", nil, [1, 2]])
+    end
 
     defp random_value(depth) do
       case Enum.random(1..4) do
@@ -109,7 +111,9 @@ defmodule Guardian.Rules.RowIndexTest do
       {micros / 1_000_000, Guardian.Rules.Runtime.finish(state)}
     end
 
-    defp step(state, step), do: apply(Guardian.Rules.Runtime, step.kind, [state, step])
+    defp step(state, step) do
+      apply(Guardian.Rules.Runtime, step.kind, [state, step])
+    end
 
     test "1,000 statements on an event with 100,000 columns" do
       row = Map.new(1..100_000, &{"c#{&1}", &1})

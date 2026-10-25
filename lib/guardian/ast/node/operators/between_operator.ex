@@ -8,7 +8,9 @@ defmodule Guardian.AST.Node.Operators.BetweenOperator do
   @enforce_keys [:left, :min_expr, :max_expr]
   defstruct [:left, :min_expr, :max_expr]
 
-  def symbol, do: "BETWEEN"
+  def symbol do
+    "BETWEEN"
+  end
 
   def to_source(%__MODULE__{left: left, min_expr: min_expr, max_expr: max_expr}) do
     "#{Guardian.AST.unparse(left)} #{symbol()} #{Guardian.AST.unparse(min_expr)} AND #{Guardian.AST.unparse(max_expr)}"

@@ -3,12 +3,29 @@ defmodule Guardian.CounterStoreProbe do
   use GenServer
 
   # Mailbox transport doubles stay outside the production ETS Store.
-  def get(key, opts), do: request({:get, key}, opts)
-  def gets(key, opts), do: request({:gets, key}, opts)
-  def get_many(keys, opts), do: request({:get_many, keys}, opts)
-  def incr(key, delta, ttl, opts), do: request({:incr, key, delta, ttl}, opts)
-  def cas(key, token, value, ttl, opts), do: request({:cas, key, token, value, ttl}, opts)
-  def batch(operations, opts), do: request({:batch, operations}, opts)
+  def get(key, opts) do
+    request({:get, key}, opts)
+  end
+
+  def gets(key, opts) do
+    request({:gets, key}, opts)
+  end
+
+  def get_many(keys, opts) do
+    request({:get_many, keys}, opts)
+  end
+
+  def incr(key, delta, ttl, opts) do
+    request({:incr, key, delta, ttl}, opts)
+  end
+
+  def cas(key, token, value, ttl, opts) do
+    request({:cas, key, token, value, ttl}, opts)
+  end
+
+  def batch(operations, opts) do
+    request({:batch, operations}, opts)
+  end
 
   defp request(operation, opts) do
     GenServer.call(opts[:server], {:operation, opts[:deadline], operation}, opts[:timeout])
@@ -51,7 +68,12 @@ defmodule Guardian.CounterStoreProbe do
   end
 
   @impl true
-  def init(:gate), do: {:ok, :gate}
+  def init(:gate) do
+    {:ok, :gate}
+  end
+
   @impl true
-  def handle_call(:clock, _, state), do: {:reply, :ok, state}
+  def handle_call(:clock, _, state) do
+    {:reply, :ok, state}
+  end
 end

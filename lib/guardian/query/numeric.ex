@@ -19,14 +19,21 @@ defmodule Guardian.Query.Numeric do
   @min -0x8000000000000000
   @max 0x7FFFFFFFFFFFFFFF
 
-  def min_int, do: @min
-  def max_int, do: @max
+  def min_int do
+    @min
+  end
+
+  def max_int do
+    @max
+  end
 
   @doc "Whether `value` is an integer within int64."
   defguard int64?(value) when is_integer(value) and value >= @min and value <= @max
 
   @doc "`value` wrapped into int64, two's complement."
-  def wrap(value) when int64?(value), do: value
+  def wrap(value) when int64?(value) do
+    value
+  end
 
   def wrap(value) when is_integer(value) do
     low = band(value, 0xFFFFFFFFFFFFFFFF)
@@ -34,6 +41,11 @@ defmodule Guardian.Query.Numeric do
   end
 
   @doc "`value` if it is an integer within int64, else null."
-  def int64_or_nil(value) when int64?(value), do: value
-  def int64_or_nil(_value), do: nil
+  def int64_or_nil(value) when int64?(value) do
+    value
+  end
+
+  def int64_or_nil(_value) do
+    nil
+  end
 end

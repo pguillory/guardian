@@ -329,7 +329,9 @@ defmodule Guardian.SegmentTest do
   end
 
   describe "byte budget" do
-    defp packed_bytes(segment), do: packed_bytes_of_state(:sys.get_state(segment))
+    defp packed_bytes(segment) do
+      packed_bytes_of_state(:sys.get_state(segment))
+    end
 
     # What the budget counts: every column's packed size once padded to the row count.
     defp packed_bytes_of_state(state) do

@@ -32,10 +32,14 @@ defmodule Guardian.Rules.Runtime do
   end
 
   @doc "The row index the dispatcher threads through dependency levels."
-  def start(row), do: RowIndex.new(row)
+  def start(row) do
+    RowIndex.new(row)
+  end
 
   @doc "The row once every statement has run."
-  def finish(%RowIndex{row: row}), do: row
+  def finish(%RowIndex{row: row}) do
+    row
+  end
 
   @doc false
   def run(row, levels, %Guardian.Rules.Event{} = event) do
@@ -139,10 +143,13 @@ defmodule Guardian.Rules.Runtime do
       Guardian.Rules.CounterRuntime.missing(definition.operator)
   end
 
-  defp counter_definition(%Guardian.Rules.Step.Track{} = step),
-    do: Guardian.Rules.CounterDefinition.from_track(step)
+  defp counter_definition(%Guardian.Rules.Step.Track{} = step) do
+    Guardian.Rules.CounterDefinition.from_track(step)
+  end
 
-  defp counter_definition(%Guardian.Rules.Step.Lookup{target: target}), do: target
+  defp counter_definition(%Guardian.Rules.Step.Lookup{target: target}) do
+    target
+  end
 
   def set(index, step) do
     guard(step, fn ->
@@ -206,10 +213,13 @@ defmodule Guardian.Rules.Runtime do
       raise Failure, file: step.file, line: step.line, kind: failure_kind
   end
 
-  defp applies?(_context, nil), do: true
+  defp applies?(_context, nil) do
+    true
+  end
 
-  defp applies?(context, where_expr),
-    do: Guardian.Query.Evaluation.eval(context, where_expr) == true
+  defp applies?(context, where_expr) do
+    Guardian.Query.Evaluation.eval(context, where_expr) == true
+  end
 
   # The row, plus each name the statement reads that has no exact key, under that
   # name, from its case-insensitive match.

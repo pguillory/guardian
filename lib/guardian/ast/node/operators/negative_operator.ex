@@ -21,7 +21,9 @@ defmodule Guardian.AST.Node.Operators.NegativeOperator do
     traverse_fields(expr, [:right], acc, pre, post)
   end
 
-  def eval(value) when is_integer(value), do: Guardian.Query.Numeric.wrap(-value)
+  def eval(value) when is_integer(value) do
+    Guardian.Query.Numeric.wrap(-value)
+  end
 
   def eval(value) when is_float(value) do
     -value

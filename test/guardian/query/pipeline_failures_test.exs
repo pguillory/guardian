@@ -4,7 +4,9 @@ defmodule Guardian.Query.PipelineFailuresTest do
   use ExUnit.Case, async: false
   import Guardian.TestHelpers
 
-  defp table, do: "pipeline_failures_#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
+  defp table do
+    "pipeline_failures_#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
+  end
 
   # Three full segments plus a partial one.
   defp fill(table, rows \\ 3 * 16_384 + 100) do
@@ -17,7 +19,9 @@ defmodule Guardian.Query.PipelineFailuresTest do
   end
 
   # A full segment, loaded; see Guardian.TestHelpers.loaded_segment/2.
-  defp segment(table, index \\ 1), do: loaded_segment(table, index)
+  defp segment(table, index \\ 1) do
+    loaded_segment(table, index)
+  end
 
   defp assert_no_query_processes_left do
     await_no_processes_running(
@@ -27,8 +31,9 @@ defmodule Guardian.Query.PipelineFailuresTest do
   end
 
   # Query workers blocked reading a segment (only one query runs at a time here).
-  defp blocked_readers,
-    do: processes_running_all([Guardian.Query.Executor, Guardian.Storage.Segment])
+  defp blocked_readers do
+    processes_running_all([Guardian.Query.Executor, Guardian.Storage.Segment])
+  end
 
   # Polls until `fun` returns a nonempty list, and returns it.
   defp await_nonempty(fun, deadline \\ System.monotonic_time(:millisecond) + 5_000) do

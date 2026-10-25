@@ -3,7 +3,9 @@ defmodule Guardian.Aggregation.TopNTest do
   # null ordering keys in min_by and max_by.
   use Guardian.Query.EvaluationTestCase, async: true
 
-  defp values(xs), do: Enum.map(xs, &[x: &1])
+  defp values(xs) do
+    Enum.map(xs, &[x: &1])
+  end
 
   test "n = 0 gives an empty list" do
     assert eval_aggregate("min_n(x, 0)", values([1, 2, 3])) == []

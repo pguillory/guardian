@@ -2,7 +2,9 @@ defmodule Guardian.Rules.IngestTest do
   use ExUnit.Case, async: false
   import Guardian.RulesTestHelper
 
-  defp ingest(table, events), do: Guardian.Engine.ingest_events(table, events)
+  defp ingest(table, events) do
+    Guardian.Engine.ingest_events(table, events)
+  end
 
   test "SET computes fields before storage; the reported event and stored row include them" do
     table = unique_table("rules_set")
@@ -175,16 +177,26 @@ defmodule Guardian.Rules.IngestTest do
   end
 
   defmodule SlowRules do
-    def apply(row, _event), do: apply(row)
+    def apply(row, _event) do
+      apply(row)
+    end
 
     def apply(%{"sleep" => ms} = row) do
       Process.sleep(ms)
       row
     end
 
-    def apply(%{"big" => n} = row), do: Map.put(row, "list", Enum.to_list(1..n))
-    def apply(%{"raise" => secret}), do: raise("boom #{secret}")
-    def apply(row), do: Map.put(row, "ran", true)
+    def apply(%{"big" => n} = row) do
+      Map.put(row, "list", Enum.to_list(1..n))
+    end
+
+    def apply(%{"raise" => secret}) do
+      raise("boom #{secret}")
+    end
+
+    def apply(row) do
+      Map.put(row, "ran", true)
+    end
   end
 
   test "an event over its time or heap limit fails alone; outcomes stay in order" do

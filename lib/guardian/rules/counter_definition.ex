@@ -12,11 +12,18 @@ defmodule Guardian.Rules.CounterDefinition do
     end
   end
 
-  def window_ms(_value), do: nil
+  def window_ms(_value) do
+    nil
+  end
 
   @doc "Three buckets per window, rounded up to whole milliseconds."
-  def bucket_ms(nil), do: nil
-  def bucket_ms(window_ms), do: div(window_ms + 2, 3)
+  def bucket_ms(nil) do
+    nil
+  end
+
+  def bucket_ms(window_ms) do
+    div(window_ms + 2, 3)
+  end
 
   def from_track(%Guardian.Rules.Step.Track{} = step) do
     %__MODULE__{

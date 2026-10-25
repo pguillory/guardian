@@ -88,13 +88,17 @@ defmodule Guardian.Storage do
     Supervisor.init(children, strategy: :rest_for_one)
   end
 
-  defp child_spec_for(PersistedSegments),
-    do: Supervisor.child_spec(PersistedSegments, shutdown: @persisted_segments_shutdown_ms)
+  defp child_spec_for(PersistedSegments) do
+    Supervisor.child_spec(PersistedSegments, shutdown: @persisted_segments_shutdown_ms)
+  end
 
-  defp child_spec_for(MutableSegments),
-    do: Supervisor.child_spec(MutableSegments, shutdown: @mutable_segments_shutdown_ms)
+  defp child_spec_for(MutableSegments) do
+    Supervisor.child_spec(MutableSegments, shutdown: @mutable_segments_shutdown_ms)
+  end
 
-  defp child_spec_for(module), do: module
+  defp child_spec_for(module) do
+    module
+  end
 
   @doc """
   Whether every Storage process is running and finished starting. False while Storage

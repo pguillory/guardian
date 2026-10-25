@@ -20,6 +20,11 @@ defmodule Guardian.AST.Node.Statements.SetStatement do
   end
 
   @doc false
-  def where_source(nil), do: ""
-  def where_source(where_expr), do: " WHERE " <> Guardian.AST.unparse(where_expr)
+  def where_source(nil) do
+    ""
+  end
+
+  def where_source(where_expr) do
+    " WHERE " <> Guardian.AST.unparse(where_expr)
+  end
 end

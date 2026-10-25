@@ -26,8 +26,13 @@ defmodule Guardian.Aggregation.Sum do
   # Integers wrap to int64 like `+`. A float overflow makes the sum :overflow, which
   # absorbs every later merge and finishes as null (Guardian.Query.Numeric): an overflowed
   # partial sum must not look like an empty one.
-  def merge(:overflow, _value2), do: :overflow
-  def merge(_value1, :overflow), do: :overflow
+  def merge(:overflow, _value2) do
+    :overflow
+  end
+
+  def merge(_value1, :overflow) do
+    :overflow
+  end
 
   def merge(value1, value2) when is_integer(value1) and is_integer(value2) do
     Guardian.Query.Numeric.wrap(value1 + value2)
@@ -39,7 +44,9 @@ defmodule Guardian.Aggregation.Sum do
     :error, :badarith -> :overflow
   end
 
-  def finish(:overflow), do: nil
+  def finish(:overflow) do
+    nil
+  end
 
   def finish(value) do
     value
