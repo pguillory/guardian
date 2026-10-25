@@ -760,7 +760,7 @@ Where data goes:
      For unwrapped failures before routing, HTTP/1 responses close the connection:
      the original connection lacks the parser's updated body-reader state, so it
      must not drain the body again. HTTP/2 completes or resets its own stream.
-     Generic failures log only their kind (`Guardian.Engine.failure_kind/3`) and a
+     Generic failures log only their kind (`Guardian.Failure.kind/3`) and a
      server-generated random error ID through Logger at error level, never their
      message, stack, SQL or event data. A failure after a response was sent logs the
      same safe line without sending again, then raises a replacement exception
@@ -772,10 +772,15 @@ Where data goes:
      Bandit transport/protocol exceptions pass through unchanged to Bandit's own
      status, cleanup and logging policy, so client disconnects and read timeouts
      do not become generic application failures.
-   - `Guardian.Engine` logs an ingestion crash by table, failure kind (`Guardian.Engine.failure_kind/3`)
+   - `Guardian.Engine` logs an ingestion crash by table, failure kind (`Guardian.Failure.kind/3`)
      and stack trace with each call's arguments replaced by its arity, so neither the
      exception's message nor the event values passed to the failing function are
-     printed.
+     printed. Engine, Rules.Server and Counters.Store share
+     `Guardian.Failure.stacktrace/1`: only MFA arities and typed file/line metadata
+     survive, and unsupported frames (including fun closures) become a fixed
+     redacted frame. Failure labels retain their existing caught-error, raw
+     callback-reason and Storage-exit vocabularies; logging and reraising remain
+     the caller's responsibility.
    - A `web_requests`, `web_responses`, `system_stats`, `query_parse_errors` or
      `queries` write
      that fails is logged with the table and the failure's kind only (an exception

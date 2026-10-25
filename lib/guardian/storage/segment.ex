@@ -108,25 +108,7 @@ defmodule Guardian.Storage.Segment do
   is named: the atom, or the exception's module. A `GenServer.call` exit is named by
   the reason it carries. Code outside Storage uses `Guardian.Storage.exit_kind/1`.
   """
-  def exit_kind({reason, {GenServer, :call, _}}) do
-    exit_kind(reason)
-  end
-
-  def exit_kind(reason) when is_atom(reason) do
-    inspect(reason)
-  end
-
-  def exit_kind({%module{}, stack}) when is_list(stack) do
-    inspect(module)
-  end
-
-  def exit_kind({kind, _}) when is_atom(kind) do
-    inspect(kind)
-  end
-
-  def exit_kind(_reason) do
-    "an abnormal exit"
-  end
+  defdelegate exit_kind(reason), to: Guardian.Failure
 
   # Reads (count, full, keys, schema, get_column, get_row, get_value) are monitored
   # calls with no timeout by default, so a slow segment is waited for, and a segment

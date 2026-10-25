@@ -37,7 +37,7 @@ prefix. Keep the Mix application and its configuration under `:guardian`.
   `Guardian.Cluster.Metadata` fans schema lookups out to every connected node and merges the
   results.
 - `Guardian.SystemStats`: the runtime child that records VM metrics (below).
-- Leaf helpers (`Guardian.Build`, `Guardian.SegmentID`, `Guardian.SortedSet`,
+- Leaf helpers (`Guardian.Build`, `Guardian.Failure`, `Guardian.SegmentID`, `Guardian.SortedSet`,
   `Guardian.Timestamp`, `Guardian.Utils`) live directly in this directory; their rules
   are in "Leaf utilities" below.
 
@@ -68,13 +68,17 @@ to the file's directory. Run the full suite afterward.
 
 ## Leaf utilities
 
-Utilities are leaf helpers: build information (`Guardian.Build`), segment IDs
+Utilities are leaf helpers: build information (`Guardian.Build`), safe failure
+labels and stack redaction (`Guardian.Failure`), segment IDs
 (`Guardian.SegmentID`), `Guardian.SortedSet`, timestamps (`Guardian.Timestamp`), and
 `Guardian.Utils` (hostname, ETS streaming). They call no other Guardian subsystem
 (Engine, Storage, Query, AST, Web, Cluster); keep it that way, and put a helper with
 a single user next to that user instead.
 
 - `Guardian.SegmentID` creates sortable 32-byte hex identifiers containing a timestamp.
+- `Guardian.Failure` owns value-free diagnostic classification and stack redaction.
+  Callers keep their logging and catch/reraise policies; caller-facing query
+  messages belong to `Guardian.Query.Failure` instead.
 - `Guardian.Timestamp.now/0` is UTC, formatted `YYYY-MM-DD HH:MM:SS`.
   `Guardian.Timestamp.from_string/1` and `to_seconds/1` accept only that exact UTC
   format: no `T`, `Z`, fractional seconds or numeric offsets. They validate calendar

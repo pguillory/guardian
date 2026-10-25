@@ -16,7 +16,7 @@ defmodule Guardian.Engine do
   - `ingest_event/2` - Insert a single event
   - `ingest_events/2` - Insert events independently, returning ordered outcomes
   - `log_event/2`, `try_log_event/2` - Write Guardian's own events (built-in tables)
-  - `failure_kind/3` - Name a caught failure by kind only, for log lines
+  - `failure_kind/3` - Compatibility delegate to `Guardian.Failure.kind/3`
 
   ## Validation
 
@@ -84,29 +84,17 @@ defmodule Guardian.Engine do
   def try_log_event(table, event) do
     {:ok, log_event(table, event)}
   catch
-    kind, reason -> {:error, failure_kind(kind, reason, __STACKTRACE__)}
+    kind, reason -> {:error, Guardian.Failure.kind(kind, reason, __STACKTRACE__)}
   end
 
   @doc """
   Names a caught failure by its kind only, the way `try_log_event/2` reports one: the
-  exception module for an error, `"exit "` and the exit's reason kind for an exit
-  (`Guardian.Storage.exit_kind/1`), or `"throw"`. Never the reason's contents or a message, so
-  it is safe to log. Shared by the writers of built-in tables that catch their own
-  failures.
+  exception module for an error, `"exit "` and the exit's reason kind for an exit,
+  or `"throw"`. Kept as a compatibility delegate; diagnostic callers use the
+  subsystem-independent `Guardian.Failure.kind/3`.
   """
   @spec failure_kind(:error | :exit | :throw, term(), Exception.stacktrace()) :: String.t()
-  def failure_kind(:error, reason, stacktrace) do
-    %module{} = Exception.normalize(:error, reason, stacktrace)
-    inspect(module)
-  end
-
-  def failure_kind(:exit, reason, _stacktrace) do
-    "exit " <> Guardian.Storage.exit_kind(reason)
-  end
-
-  def failure_kind(:throw, _value, _stacktrace) do
-    "throw"
-  end
+  defdelegate failure_kind(kind, reason, stacktrace), to: Guardian.Failure, as: :kind
 
   defp ingest_result(table, event) when is_map(event) do
     case prepare_event(table, event) do
@@ -230,22 +218,9 @@ defmodule Guardian.Engine do
   # the stack trace: both can carry event values.
   defp log_ingest_failure(table, kind, reason, stack) do
     Logger.error(
-      "Event ingestion failed for #{table}: #{failure_kind(kind, reason, stack)}\n" <>
-        Exception.format_stacktrace(without_arguments(stack))
+      "Event ingestion failed for #{table}: #{Guardian.Failure.kind(kind, reason, stack)}\n" <>
+        Exception.format_stacktrace(Guardian.Failure.stacktrace(stack))
     )
-  end
-
-  defp without_arguments(stack) do
-    Enum.map(stack, fn
-      {module, function, args, location} when is_list(args) ->
-        {module, function, length(args), Keyword.take(location, [:file, :line])}
-
-      {module, function, arity, location} ->
-        {module, function, arity, Keyword.take(location, [:file, :line])}
-
-      _frame ->
-        {__MODULE__, :redacted, 0, []}
-    end)
   end
 
   # Identifiers that SQL cannot use as a plain table reference: tokenizer keywords and

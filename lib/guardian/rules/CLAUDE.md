@@ -75,6 +75,8 @@ Rules to keep:
    typed steps are redacted before the generic struct case, including their AST
    constants as well as canonical source. Unknown stack-frame shapes must become a
    fixed redacted frame, never pass through with their closures or argument values.
+   Use `Guardian.Failure` for shared stack redaction and value-free failure labels;
+   Server retains its raw-reason labels and callback catch/reraise policy.
 6. Validation is whole-set and a write is refused only for errors it adds
    (`Guardian.Rules.RuleSet.new_errors/2`, ignoring lines), so broken sets stay repairable.
 7. Rules fail closed: a statement that raises, or an event over its time or heap

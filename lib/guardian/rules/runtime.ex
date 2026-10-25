@@ -82,7 +82,7 @@ defmodule Guardian.Rules.Runtime do
     Guardian.Counters.Machine.run_nested(Enum.map(counters, &elem(&1, 1)), event.counters)
   catch
     kind, reason ->
-      failure = Guardian.Engine.failure_kind(kind, reason, __STACKTRACE__)
+      failure = Guardian.Failure.kind(kind, reason, __STACKTRACE__)
 
       Enum.map(counters, fn {step, machines, definition} ->
         if definition != :skip and machines != [], do: note_failure(step.file, step.line, failure)
@@ -123,7 +123,7 @@ defmodule Guardian.Rules.Runtime do
         note_failure(
           step.file,
           step.line,
-          Guardian.Engine.failure_kind(kind, reason, __STACKTRACE__)
+          Guardian.Failure.kind(kind, reason, __STACKTRACE__)
         )
 
         {step, [], definition}
@@ -137,7 +137,7 @@ defmodule Guardian.Rules.Runtime do
       note_failure(
         step.file,
         step.line,
-        Guardian.Engine.failure_kind(kind, reason, __STACKTRACE__)
+        Guardian.Failure.kind(kind, reason, __STACKTRACE__)
       )
 
       Guardian.Rules.CounterRuntime.missing(definition.aggregation)
@@ -208,7 +208,7 @@ defmodule Guardian.Rules.Runtime do
     fun.()
   catch
     kind, reason ->
-      failure_kind = Guardian.Engine.failure_kind(kind, reason, __STACKTRACE__)
+      failure_kind = Guardian.Failure.kind(kind, reason, __STACKTRACE__)
       note_failure(step.file, step.line, failure_kind)
       raise Failure, file: step.file, line: step.line, kind: failure_kind
   end

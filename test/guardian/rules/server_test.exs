@@ -346,6 +346,7 @@ defmodule Guardian.Rules.ServerTest do
       assert log =~ "Guardian.Rules.Server"
       assert log =~ "details redacted"
       assert log =~ ":redacted"
+      if name == "raise", do: assert(log =~ "Guardian.Failure.redacted/0")
       refute log =~ marker
       refute log =~ saved
     end

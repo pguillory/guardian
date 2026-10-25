@@ -115,7 +115,7 @@ defmodule Guardian.Rules.Runner do
           # Anything else (Guardian.Rules.Runtime catches statement failures itself) is reported
           # by kind only: an uncaught raise here would put the row in a crash report.
           kind, reason ->
-            failure_kind = Guardian.Engine.failure_kind(kind, reason, __STACKTRACE__)
+            failure_kind = Guardian.Failure.kind(kind, reason, __STACKTRACE__)
             Guardian.Rules.Runtime.note_failure("#{table}/", "-", failure_kind)
             {:error, "rules for #{table} failed (#{failure_kind}); the event was not stored"}
         end

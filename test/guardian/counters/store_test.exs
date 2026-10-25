@@ -464,7 +464,13 @@ defmodule Guardian.Counters.StoreTest do
       start_store(clock,
         name: :counter_store_crash_test,
         clock: fn ->
-          if :atomics.get(fail, 1) == 1, do: raise("PRIVATE-CLOCK")
+          if :atomics.get(fail, 1) == 1 do
+            marker = "PRIVATE-CLOCK"
+            frame = {fn -> marker end, [marker], []}
+            {:current_stacktrace, stack} = Process.info(self(), :current_stacktrace)
+            :erlang.raise(:error, %RuntimeError{message: marker}, [frame | stack])
+          end
+
           :atomics.get(clock, 1)
         end
       )
@@ -479,6 +485,9 @@ defmodule Guardian.Counters.StoreTest do
         send(server, :sweep)
         assert_receive {:DOWN, ^monitor, :process, ^server, reason}
         refute inspect(reason) =~ "PRIVATE"
+        {%RuntimeError{}, stack} = reason
+        assert {Guardian.Failure, :redacted, 0, []} in stack
+        assert Enum.any?(stack, &match?({__MODULE__, _, arity, _} when is_integer(arity), &1))
         :atomics.put(fail, 1, 0)
 
         assert_eventually(fn ->
@@ -489,6 +498,7 @@ defmodule Guardian.Counters.StoreTest do
       end)
 
     assert log =~ ":redacted"
+    assert log =~ "Guardian.Failure.redacted/0"
     refute log =~ "PRIVATE"
   end
 

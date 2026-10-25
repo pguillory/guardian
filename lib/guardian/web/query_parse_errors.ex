@@ -71,7 +71,7 @@ defmodule Guardian.Web.QueryParseErrors do
     :ok
   catch
     kind, reason ->
-      log_failure(nil, Guardian.Engine.failure_kind(kind, reason, __STACKTRACE__))
+      log_failure(nil, Guardian.Failure.kind(kind, reason, __STACKTRACE__))
       :ok
   end
 

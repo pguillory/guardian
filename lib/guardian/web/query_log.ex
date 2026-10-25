@@ -92,7 +92,7 @@ defmodule Guardian.Web.QueryLog do
     :ok
   catch
     kind, reason ->
-      log_failure(Guardian.Engine.failure_kind(kind, reason, __STACKTRACE__))
+      log_failure(Guardian.Failure.kind(kind, reason, __STACKTRACE__))
       :ok
   end
 

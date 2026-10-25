@@ -449,19 +449,7 @@ defmodule Guardian.Counters.Store do
     fun.()
   catch
     _, _ ->
-      stack =
-        Enum.map(__STACKTRACE__, fn
-          {module, function, args, location} ->
-            {module, function, if(is_list(args), do: length(args), else: args),
-             Keyword.take(location, [:file, :line])}
-
-          {_function, args, location} ->
-            {:erlang, :apply, if(is_list(args), do: length(args), else: args),
-             Keyword.take(location, [:file, :line])}
-
-          _ ->
-            {:erlang, :apply, 0, []}
-        end)
+      stack = Guardian.Failure.stacktrace(__STACKTRACE__)
 
       :erlang.raise(
         :error,

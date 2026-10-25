@@ -208,7 +208,7 @@ defmodule Guardian.EngineTest do
       end)
 
     assert log =~ "Event ingestion failed for #{table}: RuntimeError"
-    assert log =~ "Guardian.Engine.redacted/0"
+    assert log =~ "Guardian.Failure.redacted/0"
     refute log =~ marker
     assert Guardian.Storage.dump_table(table) == [%{"value" => 2}]
   end

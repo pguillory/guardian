@@ -212,6 +212,12 @@ which returns a failure as `{:error, kind}`, so a write that fails (Storage rest
 say) is skipped and logged by kind instead of crashing SystemStats, failing the
 request, or crashing the recorder.
 
+`Guardian.Failure` is the leaf helper for value-free diagnostic labels and stack
+redaction, shared by Engine, Rules, Counters.Store and Web. It depends only on the
+standard library; callers keep their own messages and catch/reraise policies.
+The Engine and Storage classification entry points remain delegates. Query
+errors returned to callers are described separately by `Guardian.Query.Failure`.
+
 Client idempotency keys are checked only at `Guardian.Web.Ingest`, shared by HTTP and MCP.
 The supervised `Guardian.Web.IngestIdempotency` coordinator starts before Web and never runs
 ingestion itself. Its GenServer atomically claims `{table, key}` and monitors the

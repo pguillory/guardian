@@ -329,7 +329,7 @@ defmodule Guardian.Web.JsonApi do
 
   defp log_error(kind, reason, stack) do
     id = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
-    failure = Guardian.Engine.failure_kind(kind, reason, stack)
+    failure = Guardian.Failure.kind(kind, reason, stack)
     message = "JSON API failure kind=#{failure} id=#{id}"
     Logger.error(message)
     message

@@ -77,7 +77,7 @@ defmodule Guardian.Web.Query do
   end
 
   defp describe_failure(kind, reason, stacktrace) do
-    {:error, "internal", Guardian.Engine.failure_kind(kind, reason, stacktrace)}
+    {:error, "internal", Guardian.Failure.kind(kind, reason, stacktrace)}
   end
 
   # `Exception.message/1` can itself raise (a broken `message/1`); the outcome is still

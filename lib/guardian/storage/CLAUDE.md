@@ -47,7 +47,8 @@ Each manager owns its segments' exits. All four link their segments and trap exi
 removes only the registration holding that PID, never one found by ID alone, because a
 late EXIT can follow a handoff, a retirement, or a reload of the same ID; one that
 matches nothing is ignored. Log an exit reason only through `Segment.exit_kind/1`
-(`Guardian.Storage.exit_kind/1` outside Storage), which names its kind: a crash reason can
+(`Guardian.Storage.exit_kind/1` outside Storage), which delegates to the leaf
+`Guardian.Failure.exit_kind/1` and names its kind: a crash reason can
 carry rows. Managers stop a segment only with
 `Segment.retire/1` (or `Registration.retire/2`, which also unregisters it), which
 returns once the process is gone even if it already died or dies concurrently; a bare

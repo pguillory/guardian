@@ -667,45 +667,10 @@ defmodule Guardian.Rules.Server do
     fun.()
   catch
     kind, reason ->
-      stack = Enum.map(__STACKTRACE__, &redact_frame/1)
-      message = "Guardian.Rules.Server crashed: #{kind} #{reason_kind(reason)} (details redacted)"
+      stack = Guardian.Failure.stacktrace(__STACKTRACE__)
+      label = Guardian.Failure.reason_kind(reason)
+      message = "Guardian.Rules.Server crashed: #{kind} #{label} (details redacted)"
       :erlang.raise(:error, %RuntimeError{message: message}, stack)
-  end
-
-  defp reason_kind(%{__exception__: true, __struct__: module}) do
-    inspect(module)
-  end
-
-  defp reason_kind(atom) when is_atom(atom) do
-    inspect(atom)
-  end
-
-  defp reason_kind(tuple)
-       when is_tuple(tuple) and tuple_size(tuple) > 0 and is_atom(elem(tuple, 0)) do
-    inspect(elem(tuple, 0))
-  end
-
-  defp reason_kind(_reason) do
-    "term"
-  end
-
-  defp redact_frame({module, function, args, location})
-       when is_atom(module) and is_atom(function) and
-              (is_list(args) or (is_integer(args) and args >= 0)) and is_list(location) do
-    arity = if is_list(args), do: length(args), else: args
-
-    location =
-      Enum.filter(location, fn
-        {:file, file} when is_list(file) -> Enum.all?(file, &is_integer/1)
-        {:line, line} when is_integer(line) and line >= 0 -> true
-        _ -> false
-      end)
-
-    {module, function, arity, location}
-  end
-
-  defp redact_frame(_frame) do
-    {__MODULE__, :redacted, 0, []}
   end
 
   ## Logging

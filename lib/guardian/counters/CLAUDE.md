@@ -51,7 +51,8 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    The internal {backend_module, server} Client store option supports transport
    probes in libtest; production defaults to Store with no mailbox fallback.
 6. Return fixed errors; no key/value/exception logging. Housekeeping callback
-   failures scrub stacks and reset the store. Status redacts state/messages/logs.
+   failures scrub stacks through `Guardian.Failure.stacktrace/1` and reset the
+   store. Status redacts state/messages/logs.
    Tests use a private injectable expiry clock, while deadlines use real time;
    fault injection pauses callers through a libtest clock gate, not the housekeeper.
 
