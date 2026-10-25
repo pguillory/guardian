@@ -13,8 +13,10 @@ Guardian source now lives under `lib/guardian/`, matching module names. Leaf
 utilities live directly there, and `Guardian.Storage.Segment.Registration` lives
 under `storage/segment/`. Multi-module files remain whole, including typed rule
 steps, generated protocol implementations, and the vendored DistributedStream
-Enumerable implementation. Its license and instructions move with it. The small
-utilities guide is folded into `lib/guardian/CLAUDE.md`, beside its leaf modules.
+Enumerable implementation; `one-module-per-file.md` later split the typed rule
+steps into one file each. The vendored implementation's license and
+instructions move with it. The small utilities guide is folded into
+`lib/guardian/CLAUDE.md`, beside its leaf modules.
 
 Tests mirror their subjects under `test/guardian/`, preserving existing subsystem
 grouping and module declarations. Compiled test helpers live in

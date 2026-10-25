@@ -77,8 +77,9 @@ The namespace transition requires a full release restart, with no disk migration
 
 Source paths follow module names under `lib/guardian/`; tests mirror their subjects
 under `test/guardian/`, and compiled test helpers follow module names under
-`libtest/guardian/`. Keep multi-module files together, and keep the shared test
-bootstrap and fixtures at `test/test_helper.exs` and `test/fixtures/`.
+`libtest/guardian/`. Each `lib/` and `libtest/` file defines one module
+(CONTRIBUTING.md). Keep the shared test bootstrap and fixtures at
+`test/test_helper.exs` and `test/fixtures/`.
 
 Summary; the full description is `docs/architecture/system.md`.
 

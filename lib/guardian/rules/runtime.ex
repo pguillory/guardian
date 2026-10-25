@@ -19,17 +19,8 @@ defmodule Guardian.Rules.Runtime do
   """
 
   alias Guardian.Rules.RowIndex
+  alias Guardian.Rules.Runtime.Failure
   require Logger
-
-  defmodule Failure do
-    @moduledoc "A rule statement raised. Carries only its location and the failure's kind."
-    defexception [:file, :line, :kind]
-
-    @impl true
-    def message(%__MODULE__{} = e) do
-      "rule #{e.file} line #{e.line} failed (#{e.kind}); the event was not stored"
-    end
-  end
 
   @doc "The row index the dispatcher threads through dependency levels."
   def start(row) do

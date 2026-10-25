@@ -3,6 +3,7 @@ defmodule Guardian.DefinitionStyleTest do
 
   @root Path.expand("../..", __DIR__)
   @definitions [:def, :defp, :defmacro, :defmacrop, :defn, :defnp, :deftransform, :deftransformp]
+  @module_definitions [:defmodule, :defprotocol]
 
   test "source definitions use do...end blocks" do
     paths =
@@ -63,6 +64,69 @@ defmodule Guardian.DefinitionStyleTest do
     assert keyword_definitions(source) == []
   end
 
+  test "compiled source files define one module each" do
+    paths =
+      @root
+      |> Path.join("{lib,libtest}/**/*.ex")
+      |> Path.wildcard()
+
+    assert Path.join(@root, "lib/guardian/rules/step.ex") in paths,
+           "Source scan must include lib/"
+
+    assert Path.join(@root, "libtest/guardian/counter_client_helper.ex") in paths,
+           "Source scan must include libtest/"
+
+    violations =
+      for path <- paths,
+          lines = path |> File.read!() |> module_definitions(path),
+          length(lines) > 1 do
+        "#{Path.relative_to(path, @root)}: lines #{Enum.join(lines, ", ")}"
+      end
+
+    assert violations == [],
+           "Define one module or protocol per file:\n" <> Enum.join(violations, "\n")
+  end
+
+  test "counts nested modules and protocols but not implementations or quoted modules" do
+    source = ~S"""
+    # defmodule Commented do end
+    defprotocol Sample.Protocol do
+      def call(value)
+    end
+
+    defmodule Sample do
+      @moduledoc "defmodule String do end"
+
+      defmodule Nested do
+        defstruct []
+      end
+
+      defimpl Inspect do
+        defmodule HiddenInImpl do
+        end
+
+        def inspect(_value, _opts) do
+          "#Sample<>"
+        end
+      end
+
+      quote do
+        defmodule Generated do
+        end
+      end
+    end
+
+    defimpl String.Chars, for: Sample do
+      def to_string(_value) do
+        "sample"
+      end
+    end
+    """
+
+    assert module_definitions(source) == [2, 6, 9, 14]
+    assert module_definitions("defmodule Sample do\nend") == [1]
+  end
+
   defp keyword_definitions(source, file \\ "nofile") do
     ast = Code.string_to_quoted!(source, token_metadata: true, file: file)
 
@@ -81,5 +145,26 @@ defmodule Guardian.DefinitionStyleTest do
       end)
 
     Enum.reverse(violations)
+  end
+
+  # Lines of defmodule and defprotocol calls at any depth, outside quoted code.
+  # defimpl blocks live with their protocol or struct and do not count, but their
+  # bodies are still scanned.
+  defp module_definitions(source, file \\ "nofile") do
+    ast = Code.string_to_quoted!(source, file: file)
+
+    {_ast, lines} =
+      Macro.prewalk(ast, [], fn
+        {:quote, _meta, _args}, lines ->
+          {:quoted, lines}
+
+        {kind, meta, [_name, _body]} = node, lines when kind in @module_definitions ->
+          {node, [meta[:line] | lines]}
+
+        node, lines ->
+          {node, lines}
+      end)
+
+    Enum.reverse(lines)
   end
 end

@@ -32,5 +32,18 @@ The normal test suite checks this rule in `lib/`, `libtest/`, and `test/`, inclu
 definitions inside quoted code. Declarations without bodies and `defdelegate` are
 unaffected.
 
+Define one module per file under `lib/` and `libtest/`, at the path matching its
+name, including exceptions and structs that belong to another module
+(`Guardian.Rules.Runtime.Failure` lives in `lib/guardian/rules/runtime/failure.ex`).
+A `defimpl` stays in the file of the protocol or struct it implements; the vendored
+DistributedStream `Enumerable` implementation keeps its own file. The same scan test
+checks that each file defines at most one module, counting nested `defmodule` and
+`defprotocol` but not quoted code or `defimpl`.
+Test files may still define small support modules inline.
+
+Generic mechanisms belong in generic layers, not inside a feature module (for example,
+an object-store lock would be a generic lock-on-a-key in the S3/R2 client, not part of
+Rules).
+
 By contributing, you agree that your contributions are licensed under the MIT license
 of this repository.
