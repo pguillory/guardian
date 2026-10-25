@@ -2,7 +2,6 @@ defmodule Guardian.Storage.FullSegments do
   # Internal to Storage; see lib/guardian/storage/CLAUDE.md, "Public boundary".
   @moduledoc false
 
-  alias Guardian.Storage.Segment
   alias Guardian.Storage.Segment.Registration
   require Logger
   require Registration
@@ -80,7 +79,7 @@ defmodule Guardian.Storage.FullSegments do
       # here, so a segment that dies in between is on disk after all.
       Logger.error(
         "Full segment #{segment_id} of table #{inspect(table)} exited " <>
-          "(#{Segment.exit_kind(reason)}); its rows are lost unless it was just persisted"
+          "(#{Guardian.Failure.exit_kind(reason)}); its rows are lost unless it was just persisted"
       )
     end)
 

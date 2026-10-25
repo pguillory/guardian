@@ -18,8 +18,15 @@ defmodule Guardian.Web.IngestIdempotency do
   end
 
   @doc """
-  Runs `ingest` once for a new key, or returns a compact receipt/conflict.
+  Runs `ingest` once for a new key, or reports what an earlier run with the key left.
   `request` is the validated `{events, return_keys}`, used only to compute a digest.
+  `ingest` returns `{value, failed_events}`; the receipt keeps only the count.
+
+  Returns `{:ran, value}` when this call ran `ingest` (a new claim, or without
+  protection when the coordinator is full or unavailable), `{:duplicate,
+  failed_events}` for a completed matching run, or `{:conflict, reason}` with
+  `:changed` (different request), `:pending` (still in flight) or `:uncertain`
+  (outcome unknown). Mapping outcomes to a response belongs to the caller.
   """
   def run(table, key, request, ingest, server \\ __MODULE__) do
     digest = :crypto.hash(:sha256, :erlang.term_to_iovec(request, [:deterministic]))
@@ -31,16 +38,10 @@ defmodule Guardian.Web.IngestIdempotency do
         ingest_claimed(pid, token, ingest)
 
       {:done, failed_events} ->
-        {:ok, %{status: 200, duplicate: true, failed_events: failed_events}}
+        {:duplicate, failed_events}
 
-      :conflict ->
-        {:error, 409, "idempotency_key was already used with different events or return_keys"}
-
-      :pending ->
-        {:error, 409, "idempotency_key is still in flight; retry the same request promptly"}
-
-      :uncertain ->
-        {:error, 409, "idempotency_key outcome is unknown; events may have been stored"}
+      status when status in [:changed, :pending, :uncertain] ->
+        {:conflict, status}
 
       reason when reason in [:full, :unavailable] ->
         # A timed-out call may still claim later. Signals from this caller to this
@@ -48,23 +49,23 @@ defmodule Guardian.Web.IngestIdempotency do
         # send it to the registered name, which may now name a restarted server.
         if pid, do: GenServer.cast(pid, {:cancel, token, self()})
         Logger.info("Ingest idempotency protection unavailable; ingesting without a receipt")
-        {:ok, ingest.()}
+        {value, _failed_events} = ingest.()
+        {:ran, value}
     end
   end
 
   defp ingest_claimed(pid, token, ingest) do
-    result =
+    {value, failed_events} =
       try do
-        ingest.()
+        {_value, _failed_events} = ingest.()
       catch
         kind, reason ->
           _ = call(pid, {:finish, token, :uncertain})
           :erlang.raise(kind, reason, __STACKTRACE__)
       end
 
-    failed_events = Enum.count(result.results, &(!&1.success))
     _ = call(pid, {:finish, token, {:done, failed_events}})
-    {:ok, result}
+    {:ran, value}
   end
 
   defp call(nil, _message) do
@@ -129,7 +130,7 @@ defmodule Guardian.Web.IngestIdempotency do
         end
 
       %{digest: other} when other != digest ->
-        {:reply, :conflict, state}
+        {:reply, :changed, state}
 
       %{status: status} ->
         {:reply, status, state}

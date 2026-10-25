@@ -38,8 +38,13 @@ defmodule Guardian.Web.IngestRetryTest do
           Map.put(params, "events", [%{"value" => 2}]),
           Map.put(params, "return_keys", []),
         ] do
-      assert {409, %{"status" => 409, "info" => info}} = post(changed)
-      assert info =~ "different events or return_keys"
+      assert post(changed) ==
+               {409,
+                %{
+                  "status" => 409,
+                  "info" =>
+                    "idempotency_key was already used with different events or return_keys",
+                }}
     end
 
     assert Guardian.Storage.dump_table(table) == params["events"]
@@ -133,11 +138,23 @@ defmodule Guardian.Web.IngestRetryTest do
     server = Guardian.Web.IngestIdempotency
     assert GenServer.call(server, {:claim, {table, key}, digest, token}) == :claimed
     params = %{"table" => table, "events" => events, "idempotency_key" => key}
-    assert {409, %{"info" => message}} = post(params)
-    assert message =~ "in flight"
+
+    assert post(params) ==
+             {409,
+              %{
+                "status" => 409,
+                "info" => "idempotency_key is still in flight; retry the same request promptly",
+              }}
+
     assert GenServer.call(server, {:finish, token, :uncertain}) == :ok
-    assert {409, %{"info" => message}} = post(params)
-    assert message =~ "may have been stored"
+
+    assert post(params) ==
+             {409,
+              %{
+                "status" => 409,
+                "info" => "idempotency_key outcome is unknown; events may have been stored",
+              }}
+
     assert Guardian.Storage.dump_table(table) == []
   end
 

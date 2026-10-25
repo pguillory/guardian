@@ -14,28 +14,23 @@ defmodule Guardian.Web.IngestIdempotencyTest do
     start_supervised!({Idempotency, Keyword.put(opts, :name, name)}, id: name)
   end
 
-  defp run(server, key, ingest \\ fn -> %{status: 200, results: []} end) do
+  # The coordinator treats the ingest value as opaque and keeps only the failed count.
+  defp run(server, key, ingest \\ fn -> {:ingested, 0} end) do
     Idempotency.run("events", key, {[], nil}, ingest, server)
   end
 
   defp receipt(failed \\ 0) do
-    {:ok, %{status: 200, duplicate: true, failed_events: failed}}
+    {:duplicate, failed}
   end
 
   test "receipts retain failed outcomes but no event payloads", %{server: server} do
     payload = "private-event-payload"
     key = "private-retry-key"
 
-    result = %{
-      status: 200,
-      results: [
-        %{success: true, event: %{"secret" => payload}},
-        %{success: false, error: payload},
-      ],
-    }
+    result = {:private, payload}
 
-    assert run(server, key, fn -> result end) == {:ok, result}
-    assert run(server, key, fn -> flunk("duplicate ran ingestion") end) == receipt(1)
+    assert run(server, key, fn -> {result, 3} end) == {:ran, result}
+    assert run(server, key, fn -> flunk("duplicate ran ingestion") end) == receipt(3)
     assert :sys.get_state(server).monitors == %{}
     refute :erlang.term_to_binary(:sys.get_state(server)) =~ payload
     refute inspect(:sys.get_status(server)) =~ key
@@ -51,7 +46,7 @@ defmodule Guardian.Web.IngestIdempotencyTest do
         result =
           run(server, "same", fn ->
             send(test_pid, :ingesting)
-            receive do: (:finish -> %{status: 200, results: []})
+            receive do: (:finish -> {:ingested, 0})
           end)
 
         send(test_pid, {:original, result})
@@ -60,7 +55,7 @@ defmodule Guardian.Web.IngestIdempotencyTest do
     on_exit(fn -> Process.exit(owner, :kill) end)
     assert_receive :ingesting
 
-    assert {:error, 409, changed} =
+    assert {:conflict, :changed} =
              Idempotency.run(
                "events",
                "same",
@@ -69,8 +64,6 @@ defmodule Guardian.Web.IngestIdempotencyTest do
                server
              )
 
-    assert changed =~ "different events"
-
     for _ <- 1..12 do
       spawn(fn ->
         send(test_pid, {:duplicate, run(server, "same", fn -> flunk("duplicate") end)})
@@ -78,13 +71,12 @@ defmodule Guardian.Web.IngestIdempotencyTest do
     end
 
     for _ <- 1..12 do
-      assert_receive {:duplicate, {:error, 409, message}}
-      assert message =~ "in flight"
+      assert_receive {:duplicate, {:conflict, :pending}}
     end
 
-    assert run(server, "unrelated") == {:ok, %{status: 200, results: []}}
+    assert run(server, "unrelated") == {:ran, :ingested}
     send(owner, :finish)
-    assert_receive {:original, {:ok, %{status: 200, results: []}}}
+    assert_receive {:original, {:ran, :ingested}}
     assert_receive {:DOWN, ^owner_ref, :process, ^owner, :normal}
     assert run(server, "same") == receipt()
   end
@@ -95,8 +87,7 @@ defmodule Guardian.Web.IngestIdempotencyTest do
     key = binary_part(body, 100, 128)
     assert :binary.referenced_byte_size(key) > byte_size(key)
 
-    assert {:ok, _} =
-             Idempotency.run(table, key, {[], nil}, fn -> %{status: 200, results: []} end, server)
+    assert {:ran, _} = Idempotency.run(table, key, {[], nil}, fn -> {:ingested, 0} end, server)
 
     [{kept_table, kept_key}] = Map.keys(:sys.get_state(server).entries)
     assert :binary.referenced_byte_size(kept_table) == byte_size(kept_table)
@@ -113,7 +104,7 @@ defmodule Guardian.Web.IngestIdempotencyTest do
       spawn(fn ->
         run(server, "slow", fn ->
           send(test_pid, :ingesting)
-          receive do: (:finish -> %{status: 200, results: []})
+          receive do: (:finish -> {:ingested, 0})
         end)
 
         send(test_pid, :finished)
@@ -122,20 +113,20 @@ defmodule Guardian.Web.IngestIdempotencyTest do
     on_exit(fn -> Process.exit(owner, :kill) end)
     assert_receive :ingesting
     :atomics.put(clock, 1, 20_000)
-    assert {:error, 409, _} = run(server, "slow")
+    assert run(server, "slow") == {:conflict, :pending}
     send(owner, :finish)
     assert_receive :finished
     :atomics.put(clock, 1, 29_999)
     assert run(server, "slow") == receipt()
     :atomics.put(clock, 1, 30_000)
-    assert run(server, "slow") == {:ok, %{status: 200, results: []}}
+    assert run(server, "slow") == {:ran, :ingested}
   end
 
   test "periodic sweep drops expired entries even without another ingest", %{
     server: server,
     clock: clock,
   } do
-    assert {:ok, _} = run(server, "expires")
+    assert {:ran, _} = run(server, "expires")
     :atomics.put(clock, 1, 10_000)
     send(server, :sweep)
     assert :sys.get_state(server).entries == %{}
@@ -144,14 +135,14 @@ defmodule Guardian.Web.IngestIdempotencyTest do
 
   test "capacity evicts the oldest completed entry", %{clock: clock} do
     server = start_server(max_entries: 2, clock: fn -> :atomics.get(clock, 1) end)
-    assert {:ok, _} = run(server, "oldest")
+    assert {:ran, _} = run(server, "oldest")
     :atomics.put(clock, 1, 1)
-    assert {:ok, _} = run(server, "newer")
-    assert {:ok, _} = run(server, "newest")
+    assert {:ran, _} = run(server, "newer")
+    assert {:ran, _} = run(server, "newest")
     assert run(server, "newer") == receipt()
     assert run(server, "newest") == receipt()
     refute Map.has_key?(:sys.get_state(server).entries, {"events", "oldest"})
-    assert {:ok, %{results: []}} = run(server, "oldest")
+    assert {:ran, :ingested} = run(server, "oldest")
     assert map_size(:sys.get_state(server).entries) == 2
   end
 
@@ -162,11 +153,10 @@ defmodule Guardian.Web.IngestIdempotencyTest do
     assert GenServer.call(server, {:claim, {"events", "pending"}, digest, token}) == :claimed
 
     for _ <- 1..2 do
-      assert run(server, "unprotected") == {:ok, %{status: 200, results: []}}
+      assert run(server, "unprotected", fn -> {:unprotected, 2} end) == {:ran, :unprotected}
     end
 
-    assert {:error, 409, message} = run(server, "pending")
-    assert message =~ "in flight"
+    assert run(server, "pending") == {:conflict, :pending}
     assert map_size(:sys.get_state(server).entries) == 1
   end
 
@@ -186,10 +176,9 @@ defmodule Guardian.Web.IngestIdempotencyTest do
     assert_receive {:DOWN, ^owner_ref, :process, ^owner, :killed}
     # This test's DOWN does not order the coordinator's DOWN; wait for its transition.
     wait_until_uncertain(server)
-    assert {:error, 409, message} = run(server, "killed")
-    assert message =~ "may have been stored"
+    assert run(server, "killed") == {:conflict, :uncertain}
     :atomics.put(clock, 1, 10_000)
-    assert {:ok, %{results: []}} = run(server, "killed")
+    assert {:ran, :ingested} = run(server, "killed")
   end
 
   defp wait_until_uncertain(server, attempts \\ 100) do
@@ -215,8 +204,7 @@ defmodule Guardian.Web.IngestIdempotencyTest do
         _kind, _reason -> :ok
       end
 
-      assert {:error, 409, message} = run(server, key)
-      assert message =~ "unknown"
+      assert run(server, key) == {:conflict, :uncertain}
     end
 
     assert Process.alive?(self())
@@ -249,35 +237,35 @@ defmodule Guardian.Web.IngestIdempotencyTest do
   test "unavailable coordinator fails open and a restart forgets keys" do
     name = :"idempotency_restart_#{System.unique_integer([:positive])}"
     pid = start_supervised!({Idempotency, name: name}, id: name)
-    assert {:ok, %{results: []}} = run(name, "restart")
+    assert {:ran, :ingested} = run(name, "restart")
     assert run(name, "restart") == receipt()
     stop_supervised!(name)
-    assert run(name, "restart") == {:ok, %{status: 200, results: []}}
+    assert run(name, "restart") == {:ran, :ingested}
     refute Process.alive?(pid)
     start_supervised!({Idempotency, name: name}, id: name)
-    assert {:ok, %{results: []}} = run(name, "restart")
+    assert {:ran, :ingested} = run(name, "restart")
   end
 
   test "a timed-out claim is cancelled after resume even when its caller lives", %{server: server} do
     :ok = :sys.suspend(server)
 
     try do
-      assert run(server, "late") == {:ok, %{status: 200, results: []}}
+      assert run(server, "late") == {:ran, :ingested}
     after
       :ok = :sys.resume(server)
     end
 
     assert :sys.get_state(server).entries == %{}
     assert :sys.get_state(server).monitors == %{}
-    assert {:ok, %{results: []}} = run(server, "late")
+    assert {:ran, :ingested} = run(server, "late")
   end
 
   test "a timed-out completion still returns the original response", %{server: server} do
     try do
       assert run(server, "finish_late", fn ->
                :ok = :sys.suspend(server)
-               %{status: 200, results: []}
-             end) == {:ok, %{status: 200, results: []}}
+               {:ingested, 0}
+             end) == {:ran, :ingested}
     after
       :ok = :sys.resume(server)
     end

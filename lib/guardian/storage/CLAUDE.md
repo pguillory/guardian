@@ -46,9 +46,8 @@ because the first Loaded lookup may precede a handoff.
 Each manager owns its segments' exits. All four link their segments and trap exits. An `{:EXIT, pid, reason}`
 removes only the registration holding that PID, never one found by ID alone, because a
 late EXIT can follow a handoff, a retirement, or a reload of the same ID; one that
-matches nothing is ignored. Log an exit reason only through `Segment.exit_kind/1`
-(`Guardian.Storage.exit_kind/1` outside Storage), which delegates to the leaf
-`Guardian.Failure.exit_kind/1` and names its kind: a crash reason can
+matches nothing is ignored. Log an exit reason only through the leaf
+`Guardian.Failure.exit_kind/1`, which names its kind: a crash reason can
 carry rows. Managers stop a segment only with
 `Segment.retire/1` (or `Registration.retire/2`, which also unregisters it), which
 returns once the process is gone even if it already died or dies concurrently; a bare
@@ -84,7 +83,7 @@ so a hung segment can't block them and exit with only the reason's kind.
 `Segment.storage_read_timeout/0` and `Segment.exit_unavailable/1`. The writers
 (`freeze`, `pack`, `store`, `put_column`, `update_count`) are plain 5 s
 `GenServer.call`s that exit on failure; `GenServer.call` drops a reply that arrives
-after its timeout. Log the reason only through `Segment.exit_kind/1`.
+after its timeout. Log the reason only through `Guardian.Failure.exit_kind/1`.
 
 `Guardian.Storage.segment_row_count/1` and `Guardian.Storage.get_column/2` resolve the ID on every call.
 If the process they resolved stopped normally (`:normal`, `:shutdown`,

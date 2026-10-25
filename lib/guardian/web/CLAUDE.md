@@ -48,6 +48,10 @@ pending claim. Catch every ingestion failure to mark uncertainty before reraisin
 since callers can be reused HTTP processes or Anubis's long-lived MCP server.
 Cancel timed-out claims on the exact pid with their caller-generated token.
 Restarts, expiry, eviction, fail-open operation and other nodes lose protection.
+`IngestIdempotency.run/5` returns plain outcomes (`{:ran, value}`, `{:duplicate,
+failed_events}`, `{:conflict, :changed | :pending | :uncertain}`) and treats the
+ingest value as opaque; `Guardian.Web.Ingest` owns the receipt body, the 409 status
+and the conflict messages.
 
 JSON `/query` and the MCP `query` tool both run SQL through `Guardian.Web.Query.execute/3`,
 which wraps `Guardian.Query.execute/2` (resolve, require one statement, label columns from the

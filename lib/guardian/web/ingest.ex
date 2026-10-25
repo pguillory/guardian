@@ -8,13 +8,36 @@ defmodule Guardian.Web.Ingest do
       ingest_fun = fn -> ingest(table, events, return_keys) end
 
       if key == nil do
-        {:ok, ingest_fun.()}
+        {result, _failed_events} = ingest_fun.()
+        {:ok, result}
       else
         Guardian.Web.IngestIdempotency.run(table, key, {events, return_keys}, ingest_fun)
+        |> idempotent_reply()
       end
     end
   end
 
+  defp idempotent_reply({:ran, result}) do
+    {:ok, result}
+  end
+
+  defp idempotent_reply({:duplicate, failed_events}) do
+    {:ok, %{status: 200, duplicate: true, failed_events: failed_events}}
+  end
+
+  defp idempotent_reply({:conflict, :changed}) do
+    {:error, 409, "idempotency_key was already used with different events or return_keys"}
+  end
+
+  defp idempotent_reply({:conflict, :pending}) do
+    {:error, 409, "idempotency_key is still in flight; retry the same request promptly"}
+  end
+
+  defp idempotent_reply({:conflict, :uncertain}) do
+    {:error, 409, "idempotency_key outcome is unknown; events may have been stored"}
+  end
+
+  # Returns the response and its failed-event count, which a receipt keeps.
   defp ingest(table, events, return_keys) do
     results =
       Guardian.Engine.ingest_events(table, events)
@@ -23,7 +46,7 @@ defmodule Guardian.Web.Ingest do
         {:error, message} -> %{success: false, error: message}
       end)
 
-    %{status: 200, results: results}
+    {%{status: 200, results: results}, Enum.count(results, &(!&1.success))}
   end
 
   defp validate_ingest_request(params) when is_map(params) do

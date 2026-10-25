@@ -231,7 +231,7 @@ defmodule Guardian.Storage.MutableSegments do
     |> Enum.each(fn Registration.tuple(segment_id: segment_id, table: table) ->
       Logger.error(
         "Dropping dead mutable segment #{segment_id} of table #{inspect(table)} " <>
-          "(#{Segment.exit_kind(reason)}); its rows are lost"
+          "(#{Guardian.Failure.exit_kind(reason)}); its rows are lost"
       )
     end)
   end

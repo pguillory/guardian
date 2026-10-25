@@ -12,7 +12,6 @@ defmodule Guardian.FailureTest do
           {{:badmatch, "PRIVATE"}, "MatchError"},
         ] do
       assert Failure.kind(:error, reason, stack) == expected
-      assert Guardian.Engine.failure_kind(:error, reason, stack) == expected
     end
 
     assert Failure.kind(:exit, {:timeout, {GenServer, :call, ["PRIVATE"]}}, stack) ==
@@ -25,18 +24,21 @@ defmodule Guardian.FailureTest do
     for {reason, expected} <- [
           {:normal, ":normal"},
           {:killed, ":killed"},
+          {:timeout, ":timeout"},
           {{:shutdown, "PRIVATE"}, ":shutdown"},
           {{%ArgumentError{message: "PRIVATE"}, []}, "ArgumentError"},
           {{{:badmatch, "PRIVATE"}, []}, "an abnormal exit"},
           {%{"PRIVATE" => self()}, "an abnormal exit"},
         ] do
       assert Failure.exit_kind(reason) == expected
-      assert Guardian.Storage.exit_kind(reason) == expected
 
       wrapped = {reason, {GenServer, :call, ["PRIVATE"]}}
       assert Failure.exit_kind(wrapped) == expected
       assert Failure.exit_kind({wrapped, {GenServer, :call, ["PRIVATE"]}}) == expected
     end
+
+    crash = {%ArgumentError{message: "PRIVATE"}, [{__MODULE__, :fun, ["PRIVATE"], []}]}
+    assert Failure.exit_kind({crash, {GenServer, :call, ["PRIVATE"]}}) == "ArgumentError"
   end
 
   test "raw callback reason labels stay distinct from normalized caught errors" do

@@ -102,14 +102,6 @@ defmodule Guardian.Storage.Segment do
     false
   end
 
-  @doc """
-  A description of a segment's exit reason that is safe to log. A crash reason can
-  carry the segment's rows (an exception's arguments, a stack trace), so only its kind
-  is named: the atom, or the exception's module. A `GenServer.call` exit is named by
-  the reason it carries. Code outside Storage uses `Guardian.Storage.exit_kind/1`.
-  """
-  defdelegate exit_kind(reason), to: Guardian.Failure
-
   # Reads (count, full, keys, schema, get_column, get_row, get_value) are monitored
   # calls with no timeout by default, so a slow segment is waited for, and a segment
   # that is gone or dies mid-call (including a remote one whose node disconnects)
@@ -121,9 +113,9 @@ defmodule Guardian.Storage.Segment do
   @type read_error :: {:error, {:segment_unavailable, term()}}
 
   # The bang readers are for Storage's own processes: they wait at most 5 s, and a
-  # failed read exits with only the reason's kind (`exit_kind/1`), because the crash
-  # report must not carry the segment's rows. `Guardian.Storage.schema/1` uses the same budget
-  # and exit.
+  # failed read exits with only the reason's kind (`Guardian.Failure.exit_kind/1`),
+  # because the crash report must not carry the segment's rows.
+  # `Guardian.Storage.schema/1` uses the same budget and exit.
   @storage_read_timeout 5_000
 
   @doc "How long Storage's own processes wait on a segment read: 5 s."
@@ -133,11 +125,12 @@ defmodule Guardian.Storage.Segment do
 
   @doc """
   Exits for a failed read with `{:segment_unavailable, kind}`, naming only the
-  reason's kind (`exit_kind/1`) so the exit carries none of the segment's rows.
+  reason's kind (`Guardian.Failure.exit_kind/1`) so the exit carries none of the
+  segment's rows.
   """
   @spec exit_unavailable(term()) :: no_return()
   def exit_unavailable(reason) do
-    exit({:segment_unavailable, exit_kind(reason)})
+    exit({:segment_unavailable, Guardian.Failure.exit_kind(reason)})
   end
 
   @doc "`count/2` for Storage's own processes: 5 s, and exits on failure."

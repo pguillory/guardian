@@ -23,7 +23,9 @@ FunctionClauseError before the fix.
 The separate refactor moves classification and stack redaction into the leaf
 `Guardian.Failure` module. It calls no Guardian subsystem. Rules and Web diagnostic
 callers use it directly; `Guardian.Engine.failure_kind/3` and the Storage/Segment
-`exit_kind/1` entry points retain compatibility delegates.
+`exit_kind/1` entry points retain compatibility delegates. (A later change,
+`docs/changes/ingest-outcome-mapping.md`, removed those delegates; callers use
+`Guardian.Failure` directly.)
 
 The helper keeps three existing classification policies distinct: caught failures
 normalize errors to exception modules, Storage exits unwrap GenServer calls, and

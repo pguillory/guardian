@@ -16,7 +16,6 @@ defmodule Guardian.Engine do
   - `ingest_event/2` - Insert a single event
   - `ingest_events/2` - Insert events independently, returning ordered outcomes
   - `log_event/2`, `try_log_event/2` - Write Guardian's own events (built-in tables)
-  - `failure_kind/3` - Compatibility delegate to `Guardian.Failure.kind/3`
 
   ## Validation
 
@@ -86,15 +85,6 @@ defmodule Guardian.Engine do
   catch
     kind, reason -> {:error, Guardian.Failure.kind(kind, reason, __STACKTRACE__)}
   end
-
-  @doc """
-  Names a caught failure by its kind only, the way `try_log_event/2` reports one: the
-  exception module for an error, `"exit "` and the exit's reason kind for an exit,
-  or `"throw"`. Kept as a compatibility delegate; diagnostic callers use the
-  subsystem-independent `Guardian.Failure.kind/3`.
-  """
-  @spec failure_kind(:error | :exit | :throw, term(), Exception.stacktrace()) :: String.t()
-  defdelegate failure_kind(kind, reason, stacktrace), to: Guardian.Failure, as: :kind
 
   defp ingest_result(table, event) when is_map(event) do
     case prepare_event(table, event) do

@@ -205,7 +205,7 @@ defmodule Guardian.Query.Evaluation do
   defp segment_unavailable!(name, reason) do
     raise Error,
       message:
-        "segment #{name} became unavailable during the query (#{Storage.exit_kind(reason)})"
+        "segment #{name} became unavailable during the query (#{Guardian.Failure.exit_kind(reason)})"
   end
 
   def context_count(%SegmentSnapshot{count: count}) do

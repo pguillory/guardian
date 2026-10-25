@@ -103,7 +103,7 @@ defmodule Guardian.Storage.PersistedSegments do
       unless Segment.normal_exit?(reason) do
         Logger.error(
           "Persisted segment #{segment_id} of table #{inspect(table)} exited " <>
-            "(#{Segment.exit_kind(reason)}); it is served from its file"
+            "(#{Guardian.Failure.exit_kind(reason)}); it is served from its file"
         )
       end
     end)
@@ -204,7 +204,7 @@ defmodule Guardian.Storage.PersistedSegments do
   catch
     # Only the exit's kind: a segment that crashed mid-call exits with a reason that
     # can carry its rows, and this error is logged.
-    :exit, reason -> {:error, {:exit, Segment.exit_kind(reason)}}
+    :exit, reason -> {:error, {:exit, Guardian.Failure.exit_kind(reason)}}
   end
 
   defp unstorable(state, segment_id, table, reason) do

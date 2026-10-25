@@ -37,7 +37,7 @@ fail to parse, capped at 60 an hour.
      limit), or `internal` (anything else raised: an ambiguous column, a machine
      failing the schema lookup, an unexpected exception).
    - `error`: the error message cut to 1 KiB (for an exit or throw, only its kind,
-     as `Guardian.Engine.failure_kind/3` names it); null on success.
+     as `Guardian.Failure.kind/3` names it); null on success.
    - `dropped_before`: rows this machine dropped (backlog full, or a write that
      failed) since its previous recorded row; normally 0.
 3. Recording never changes or fails a response, and never makes the caller wait on

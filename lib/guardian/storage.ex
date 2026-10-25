@@ -24,7 +24,6 @@ defmodule Guardian.Storage do
   - `segment_ids/1` - The IDs of a table's segments on this node
   - `segment_row_count/1`, `get_column/2` - Read a segment by ID
   - `schema/1`, `table_names/0`, `merge_schemas/2` - Inferred schemas
-  - `exit_kind/1` - Name an unavailable segment's reason without its contents
   - `delete_table/1`, `delete_segment/1` - Delete segments
   - `table_row_count/1`, `dump_table/1` - Expensive whole-table reads (tests)
   - `ready?/0`, `data_dir/0`, `segment_dir/0`
@@ -183,7 +182,7 @@ defmodule Guardian.Storage do
   without a timeout (a query's time limit bounds it). Returns
   `{:error, {:segment_unavailable, reason}}` if no segment has this ID (`reason` is
   `:not_found`: deleted or expired) or the segment stops during the read (its exit
-  reason; name it only with `exit_kind/1`).
+  reason; name it only with `Guardian.Failure.exit_kind/1`).
   """
   @spec segment_row_count(String.t()) ::
           {:ok, non_neg_integer()} | {:error, {:segment_unavailable, term()}}
@@ -333,13 +332,6 @@ defmodule Guardian.Storage do
   counts. Guardian.Cluster.Metadata merges the schemas of several machines with it.
   """
   defdelegate merge_schemas(schema1, schema2), to: Schema
-
-  @doc """
-  A description of an exit reason that is safe to log or show: only its kind (the atom,
-  or the exception's module), because a segment's crash reason can carry its rows. A
-  `GenServer.call` exit `{reason, {GenServer, :call, _}}` is named by its `reason`.
-  """
-  defdelegate exit_kind(reason), to: Segment
 
   def table_names do
     {:ok, persisted_tables} = Schema.get_tables()

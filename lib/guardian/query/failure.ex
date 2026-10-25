@@ -125,7 +125,7 @@ defmodule Guardian.Query.Failure do
 
   defp distributed_stream_message({edge, reason})
        when edge in [:sender_down, :receiver_down, :router_down] do
-    "a query worker stopped before all its rows were passed on (#{Guardian.Storage.exit_kind(reason)})"
+    "a query worker stopped before all its rows were passed on (#{Guardian.Failure.exit_kind(reason)})"
   end
 
   defp distributed_stream_message(:worker_finished_early) do

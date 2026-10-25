@@ -194,7 +194,7 @@ Elixir), and `count_distinct` uses `hypex`, a HyperLogLog written in Elixir.
 ```text
 POST /api/json/send_events or MCP send_events
   -> Guardian.Web.Ingest.send_events/1           request validation, result shaping
-       -> Guardian.Web.IngestIdempotency.run/4   optional keyed claim/receipt around Engine
+       -> Guardian.Web.IngestIdempotency.run/5   optional keyed claim/receipt around Engine
   -> Guardian.Engine.ingest_events/2             table name check, then each event on its own
        -> Guardian.Storage.Flattening.flatten_event/1
        -> drop invalid values and over-long keys
@@ -215,11 +215,14 @@ request, or crashing the recorder.
 `Guardian.Failure` is the leaf helper for value-free diagnostic labels and stack
 redaction, shared by Engine, Rules, Counters.Store and Web. It depends only on the
 standard library; callers keep their own messages and catch/reraise policies.
-The Engine and Storage classification entry points remain delegates. Query
+Storage and Query name segment exit reasons with it directly too. Query
 errors returned to callers are described separately by `Guardian.Query.Failure`.
 
 Client idempotency keys are checked only at `Guardian.Web.Ingest`, shared by HTTP and MCP.
-The supervised `Guardian.Web.IngestIdempotency` coordinator starts before Web and never runs
+The coordinator returns plain outcomes (ran, duplicate with its failed-event count,
+or a changed/pending/uncertain conflict); `Guardian.Web.Ingest` maps them to the
+receipt body and HTTP 409/MCP tool-error messages. The supervised
+`Guardian.Web.IngestIdempotency` coordinator starts before Web and never runs
 ingestion itself. Its GenServer atomically claims `{table, key}` and monitors the
 caller; that caller runs Engine and synchronously records a compact completion
 before returning. Token and owner checks prevent stale completion/cancellation.
@@ -1496,7 +1499,8 @@ About 150 test files cover:
    column release, and a segment column race run in a child VM
    (`test/fixtures/segment_column_race.exs`).
 3. Interfaces: the JSON API through `Plug.Test` connections against the real router
-   stack, and the MCP endpoint end to end through a real MCP client (`Guardian.MCPTestClient`
+   stack (`Guardian.JsonApiTestClient.query/2` in `libtest/guardian/` posts a query),
+   and the MCP endpoint end to end through a real MCP client (`Guardian.MCPTestClient`
    in `libtest/guardian/`, an Anubis client started by `Guardian.MCPTestClient.start/0`) against the
    test listener on an OS-chosen port, including sessions, the 404 and 405 rules, and
    authentication with query keys allowed and refused (`Guardian.QueryApiKeys` in `libtest/guardian/`

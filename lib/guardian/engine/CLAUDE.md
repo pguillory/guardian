@@ -40,7 +40,7 @@ external service dependencies. HTTP `/api/json/send_events` and MCP
 through `Guardian.Engine.log_event/2` and `Guardian.Engine.try_log_event/2`: `Guardian.SystemStats`, request
 logging and query parse errors use `try_log_event/2` and log only its failure kind;
 `Guardian.Web.QueryParseErrors` also names its own caught failures with
-`Guardian.Failure.kind/3` (`Engine.failure_kind/3` remains a compatibility delegate).
+`Guardian.Failure.kind/3`.
 An ingestion crash is logged the same way, by its kind and
 a stack trace without arguments; never log an exception's message or a stack trace
 with arguments here, since both can carry event values. Stack redaction uses

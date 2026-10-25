@@ -310,18 +310,7 @@ defmodule Guardian.Storage.SegmentOwnerExitsTest do
     end
   end
 
-  test "exit reasons are described by kind only" do
-    assert Segment.exit_kind(:normal) == ":normal"
-    assert Segment.exit_kind({:shutdown, :whatever}) == ":shutdown"
-    assert Segment.exit_kind(:killed) == ":killed"
-    assert Segment.exit_kind({%ArgumentError{message: "row data"}, []}) == "ArgumentError"
-    assert Segment.exit_kind({{:badmatch, "row data"}, []}) == "an abnormal exit"
-    assert Segment.exit_kind({:timeout, {GenServer, :call, ["row data"]}}) == ":timeout"
-
-    crash = {%ArgumentError{message: "row data"}, [{Mod, :fun, ["row data"], []}]}
-    assert Segment.exit_kind({crash, {GenServer, :call, ["row data"]}}) == "ArgumentError"
-    assert Segment.exit_kind({{:shutdown, "row data"}, {GenServer, :call, []}}) == ":shutdown"
-    assert Guardian.Storage.exit_kind({crash, {GenServer, :call, []}}) == "ArgumentError"
+  test "normal exits are told apart from crashes" do
     assert Segment.normal_exit?(:normal)
     assert Segment.normal_exit?(:shutdown)
     assert Segment.normal_exit?({:shutdown, :x})

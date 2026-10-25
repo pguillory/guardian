@@ -161,7 +161,7 @@ defmodule Guardian.Storage.LoadedSegments do
     |> Enum.each(fn Registration.tuple(segment_id: segment_id, table: table) ->
       Logger.error(
         "Loaded segment #{segment_id} of table #{inspect(table)} exited " <>
-          "(#{Segment.exit_kind(reason)}); " <>
+          "(#{Guardian.Failure.exit_kind(reason)}); " <>
           "the next scan reloads its file"
       )
     end)

@@ -3,9 +3,8 @@ defmodule Guardian.Web.QueryParseErrorsTest do
 
   import ExUnit.CaptureLog
 
+  alias Guardian.JsonApiTestClient
   alias Guardian.Web.QueryParseErrors
-
-  @api_key Application.compile_env!(:guardian, :api_key)
 
   # Malformed SQL unique to one test, so rows can be told apart in the shared table.
   defp bad_sql do
@@ -18,18 +17,6 @@ defmodule Guardian.Web.QueryParseErrorsTest do
     QueryParseErrors.table()
     |> Guardian.Storage.dump_table()
     |> Enum.filter(&(&1["sql"] == sql))
-  end
-
-  defp http_query(sql, headers \\ []) do
-    conn =
-      Plug.Test.conn(:post, "https://localhost/api/json/query", Jason.encode!(%{query: sql}))
-      |> Plug.Conn.put_req_header("content-type", "application/json")
-      |> Plug.Conn.put_req_header("x-api-key", @api_key)
-
-    conn = Enum.reduce(headers, conn, fn {k, v}, conn -> Plug.Conn.put_req_header(conn, k, v) end)
-
-    conn = Guardian.Web.MainRouter.call(conn, nil)
-    {conn.status, Jason.decode!(conn.resp_body)}
   end
 
   defp parse_message(sql) do
@@ -46,7 +33,10 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       sql = bad_sql()
 
       assert {500, %{"status" => 500}} =
-               http_query(sql, [{"user-agent", "test-agent/1"}, {"x-forwarded-for", "9.9.9.9"}])
+               JsonApiTestClient.query(sql, [
+                 {"user-agent", "test-agent/1"},
+                 {"x-forwarded-for", "9.9.9.9"},
+               ])
 
       assert [row] = rows_for(sql)
       assert row["interface"] == "http"
@@ -66,8 +56,8 @@ defmodule Guardian.Web.QueryParseErrorsTest do
     test "valid queries and statement-count rejections record nothing" do
       marker = "valid_#{System.unique_integer([:positive])}_end"
 
-      assert {200, _} = http_query("SELECT 1 FROM #{marker}")
-      assert {400, _} = http_query("SELECT 1 FROM #{marker}; SELECT 2")
+      assert {200, _} = JsonApiTestClient.query("SELECT 1 FROM #{marker}")
+      assert {400, _} = JsonApiTestClient.query("SELECT 1 FROM #{marker}; SELECT 2")
       :ok = QueryParseErrors.sync()
 
       rows = Guardian.Storage.dump_table(QueryParseErrors.table())
@@ -81,7 +71,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       try do
         log =
           capture_log(fn ->
-            assert {500, %{"status" => 500}} = http_query(sql)
+            assert {500, %{"status" => 500}} = JsonApiTestClient.query(sql)
           end)
 
         assert log =~ "Failed to record a http query parse error: the recorder is not running"
@@ -98,7 +88,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       :ok = :sys.suspend(pid)
 
       try do
-        {micros, result} = :timer.tc(fn -> http_query(sql) end)
+        {micros, result} = :timer.tc(fn -> JsonApiTestClient.query(sql) end)
         assert {500, %{"status" => 500}} = result
         assert micros < 1_000_000
       after
@@ -110,13 +100,13 @@ defmodule Guardian.Web.QueryParseErrorsTest do
 
     test "the table is queryable like other built-in tables" do
       sql = bad_sql()
-      http_query(sql)
+      JsonApiTestClient.query(sql)
       :ok = QueryParseErrors.sync()
 
-      assert {200, %{"rows" => tables}} = http_query("SHOW TABLES")
+      assert {200, %{"rows" => tables}} = JsonApiTestClient.query("SHOW TABLES")
       assert ["query_parse_errors"] in tables
 
-      assert {200, %{"rows" => keys}} = http_query("DESC query_parse_errors")
+      assert {200, %{"rows" => keys}} = JsonApiTestClient.query("DESC query_parse_errors")
 
       for key <-
             ~w(timestamp hostname interface remote_ip sql sql_bytes sql_truncated error dropped_before) do
@@ -124,7 +114,9 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       end
 
       assert {200, %{"rows" => [["http", ^sql]]}} =
-               http_query("SELECT interface, sql FROM query_parse_errors WHERE sql = '#{sql}'")
+               JsonApiTestClient.query(
+                 "SELECT interface, sql FROM query_parse_errors WHERE sql = '#{sql}'"
+               )
     end
 
     test "a failure while building the row is logged by kind only and returns :ok" do
