@@ -4,6 +4,21 @@ defmodule Guardian.Counters.MachineTest do
 
   @sum Guardian.Aggregation.fetch!("sum")
 
+  test "a new machine requires a non-nil operation" do
+    # Exercise invalid input at runtime without a compile-time type warning.
+    assert_raise FunctionClauseError, fn ->
+      apply(Machine, :new, [nil, nil, fn _, _, _ -> {:done, :ok} end])
+    end
+  end
+
+  test "a nil next operation raises instead of silently finishing" do
+    broken = Machine.new({:get, :k}, :state, fn _, _, state -> {:next, nil, state} end)
+
+    assert_raise ArgumentError, "next operation must not be nil", fn ->
+      Machine.advance(broken, :ok)
+    end
+  end
+
   test "advance holds the next operation or finishes with a result" do
     expiry = System.monotonic_time(:millisecond) + 5_000
     machine = KeyMachines.merge(@sum, :k, 2, expiry)

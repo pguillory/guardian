@@ -182,6 +182,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       to `Guardian.Counters.Execution` in the counters layer; Rules.Runtime prepares
       statements and writes results; Execution owns owner dispatch order; client
       tests run through the real round loop (`docs/changes/counter-execution-layer.md`)
+- [x] counter-machine-nil-operation: reject nil initial and next operations instead
+      of silently treating a malformed callback transition as completion
+      (`docs/changes/counter-machine-nil-operation.md`)
 - [x] counter-definition-layer: the counter definition and arrival coordinates
       move into Counters (`Counters.Definition`, `Counters.Arrival`); Execution
       takes ops, an Arrival and a Counters.Context and names no Rules module;

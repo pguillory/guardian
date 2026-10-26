@@ -134,8 +134,11 @@ monotonic arrival milliseconds (`Guardian.Counters.Arrival`).
 
 `Guardian.Counters.Machine` is one key's state machine: a pending operation or a
 finished result, advanced by a response callback (a raising callback finishes with
-`:invalid_state`). `Guardian.Counters.Execution` runs every pending machine of a
-level together per round (below). `Guardian.Counters.KeyMachines` implements
+`:invalid_state`). Nil is reserved for a finished machine's operation: initial
+operations must be non-nil, and a callback returning `{:next, nil, state}` raises
+as a programming error (`docs/changes/counter-machine-nil-operation.md`).
+`Guardian.Counters.Execution` runs every pending machine of a level together per
+round (below). `Guardian.Counters.KeyMachines` implements
 read, incr and gets/merge/CAS response callbacks; these three always finish, in at
 most six rounds, while an arbitrary callback passed to `Machine.new/3` carries no
 such guarantee. Machine errors remain errors:
@@ -170,9 +173,7 @@ transit can still delay physical expiry at the owner. Execution's inputs are
 counters-layer values: ops carrying `Guardian.Counters.Definition`s, the event's
 `Guardian.Counters.Arrival` and its `Guardian.Counters.Context`. No code in this
 directory references a Rules module; Rules builds these inputs
-(`docs/changes/counter-definition-layer.md`). A nil operation reads as a finished
-machine; key machines
-never hold one.
+(`docs/changes/counter-definition-layer.md`).
 
 TRACK steps and bound LOOKUPs carry immutable `Guardian.Counters.Definition`s:
 identity, operator, window and bucket sizes (three buckets per window, from

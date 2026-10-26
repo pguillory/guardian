@@ -46,8 +46,7 @@ defmodule Guardian.Counters.ClientTest do
   # each operation a machine that finishes with its response; keyed like the
   # operations map, which sets the input order. Using the real round loop (the
   # module above Client) avoids re-implementing its routing, grouping and scatter.
-  # A nil operation would read as an already-finished machine, so tests route nil
-  # directly.
+  # Machine.new/3 rejects a nil operation, so tests route nil directly.
   defp batch(operations, context) do
     {ids, ops} = Enum.unzip(operations)
 
