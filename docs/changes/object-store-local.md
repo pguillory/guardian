@@ -113,7 +113,8 @@ gains the refusal of a rule folder containing the data folder.
 ## Not in this change
 
 - `Guardian.Rules.Store` then holds only the lock key, lease, save margin and
-  `local?/1`; folding it into `Guardian.Rules.Server` is a possible follow-up.
+  `local?/1`; folding it into `Guardian.Rules.Server` and moving the sharing
+  capability to ObjectStore are completed in [rules-store-fold.md](rules-store-fold.md).
 - Exposing `Guardian.ObjectStore.S3`'s 20 s write deadline so the 80 s save margin's
   dependency on it is checked in code, completed in
   [`s3-write-deadline-check.md`](s3-write-deadline-check.md).

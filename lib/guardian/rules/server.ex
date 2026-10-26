@@ -26,12 +26,13 @@ defmodule Guardian.Rules.Server do
   ## Writes
 
   Under the store's write lock (a `Guardian.ObjectStore.Lock` on
-  `Guardian.Rules.Store.lock_key/0`): read the whole set from the store,
+  `lock_key/0`): read the whole set from the store,
   apply the change, reject it if it adds an error the stored set did not have
-  (`Guardian.Rules.RuleSet.new_errors/2`), check the lease has `Guardian.Rules.Store.save_margin_ms/0`
+  (`Guardian.Rules.RuleSet.new_errors/2`), check the lease has `save_margin_ms/0`
   left, save the one file (conditional on the ETag read, or on absence), release,
   publish here, then ask every connected node to reload (up to 10 s). With a local
   folder and other nodes connected, writes are refused: each node has its own folder.
+  Store sharing is declared by `Guardian.ObjectStore.shared?/1`.
 
   Outcomes: `{:ok, %{errors: remaining messages, unconfirmed: nodes}}`,
   `{:error, {:rejected, messages}}`, `{:error, {:unknown, message}}` (the save may have
@@ -69,11 +70,32 @@ defmodule Guardian.Rules.Server do
   alias Guardian.Rules
   alias Guardian.Rules.Publisher
   alias Guardian.Rules.RuleSet
-  alias Guardian.Rules.Store
 
   @boot_retry_ms 60_000
   @reload_timeout_ms 10_000
   @failure_log_table Guardian.Rules.FailureLog
+  @lock_key "_write.lock"
+  @lock_lease_ms 120_000
+  # Well over Guardian.ObjectStore.S3.write_deadline_ms/0 for the one S3 write a
+  # holder makes, including time before the write starts. ServerTest checks that
+  # dependency against the defaults; reconsider this margin when the deadline grows.
+  @save_margin_ms 80_000
+
+  @doc false
+  def lock_key do
+    @lock_key
+  end
+
+  # Tests shorten the lease and the margin through app env.
+  @doc false
+  def lock_lease_ms do
+    Application.get_env(:guardian, :rules_lock_lease_ms, @lock_lease_ms)
+  end
+
+  @doc false
+  def save_margin_ms do
+    Application.get_env(:guardian, :rules_save_margin_ms, @save_margin_ms)
+  end
 
   def failure_log_table do
     @failure_log_table
@@ -316,15 +338,13 @@ defmodule Guardian.Rules.Server do
       is_binary(source) and byte_size(source) > RuleSet.max_file_bytes() ->
         {{:error, {:rejected, ["#{key}: is over #{RuleSet.max_file_bytes()} bytes"]}}, state}
 
-      Store.local?(state.store) and Node.list() != [] ->
+      not ObjectStore.shared?(state.store) and Node.list() != [] ->
         {{:error,
           "rules are in a local folder, which each node has its own copy of; " <>
             "a cluster needs an S3 rule store"}, state}
 
       true ->
-        case Lock.acquire(state.store, Store.lock_key(), "#{node()}",
-               lease_ms: Store.lock_lease_ms()
-             ) do
+        case Lock.acquire(state.store, lock_key(), "#{node()}", lease_ms: lock_lease_ms()) do
           {:ok, lock} ->
             locked_write(state, lock, key, source)
 
@@ -365,7 +385,7 @@ defmodule Guardian.Rules.Server do
             release(lock)
             {{:error, {:rejected, Enum.map(new_errors, & &1.message)}}, state}
 
-          Lock.remaining_ms(lock) < Store.save_margin_ms() ->
+          Lock.remaining_ms(lock) < save_margin_ms() ->
             release(lock)
             {{:error, "the write lock's lease ran short; retry"}, state}
 

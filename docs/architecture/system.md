@@ -406,9 +406,12 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    from the store, refuse the change if it adds an error, check 80 s of lease remain,
    save the one file conditionally (20 s deadline), release, publish locally, and ask
    every connected node to reload (10 s). An unknown save outcome leaves the lock to
-   expire. With a local folder and peers connected, writes are refused. A local
-   folder writes each rule or lock file through `Guardian.AtomicFile.write/2`, as
-   segments are written (section 4.3): a crash never leaves a torn file, but a power
+   expire. Server owns the rule lock key, lease and save margin. Store capabilities
+   come from the generic `Guardian.ObjectStore.shared?/1` callback (optional, default
+   true): S3 is shared, Local is not. With a local folder and peers connected,
+   writes are refused. A local folder writes each rule or lock file through
+   `Guardian.AtomicFile.write/2`, as segments are written (section 4.3): a crash never
+   leaves a torn file, but a power
    loss can roll a recent write back to the previous version, or to no file for a
    new key (no directory fsync), and a crash mid-write can leave an ignored
    `{key}.{n}.tmp` file.

@@ -52,6 +52,12 @@ defmodule Guardian.ObjectStore.Local do
     "local folder #{dir}"
   end
 
+  # Conditional writes coordinate only this node, as described above.
+  @impl true
+  def shared?(_config) do
+    false
+  end
+
   @impl true
   def list(%__MODULE__{dir: dir, max_entries: max_entries}) do
     case File.stat(dir) do

@@ -99,6 +99,11 @@ defmodule Guardian.ObjectStore.S3 do
     "S3 bucket #{config.bucket} at #{config.endpoint}"
   end
 
+  @impl true
+  def shared?(_config) do
+    true
+  end
+
   @doc false
   def sigv4_options(credentials, region) do
     {access_key_id, secret_access_key} = credentials.()

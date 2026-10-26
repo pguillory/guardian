@@ -2,6 +2,14 @@ defmodule Guardian.ObjectStoreTest do
   use ExUnit.Case, async: false
   alias Guardian.ObjectStore
 
+  defmodule ConfigurableStore do
+    @moduledoc false
+
+    def shared?(config) do
+      config.shared?
+    end
+  end
+
   setup do
     s3 = Guardian.FakeS3.start(page_size: 2)
     on_exit(fn -> Guardian.FakeS3.stop(s3) end)
@@ -9,6 +17,17 @@ defmodule Guardian.ObjectStoreTest do
     on_exit(fn -> File.rm_rf!(dir) end)
     {:ok, local} = Guardian.ObjectStore.Local.new(dir)
     %{s3: s3, stores: [local: local, s3: Guardian.FakeS3.store(s3, "guardian/")]}
+  end
+
+  test "stores declare whether conditional writes coordinate across nodes", %{stores: stores} do
+    refute ObjectStore.shared?(stores[:local])
+    assert ObjectStore.shared?(stores[:s3])
+    refute ObjectStore.shared?({ConfigurableStore, %{shared?: false}})
+    assert ObjectStore.shared?({ConfigurableStore, %{shared?: true}})
+  end
+
+  test "a store without the optional callback is assumed shared" do
+    assert ObjectStore.shared?({__MODULE__, :unused})
   end
 
   test "list, get, conditional put and delete behave the same on both stores", %{

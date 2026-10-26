@@ -37,6 +37,9 @@ defmodule Guardian.ObjectStore do
               {:ok, String.t()} | {:error, reason()}
   @callback delete(term(), String.t()) :: :ok | {:error, reason()}
   @callback describe(term()) :: String.t()
+  @callback shared?(term()) :: boolean()
+
+  @optional_callbacks shared?: 1
 
   def list({mod, config}) do
     mod.list(config)
@@ -66,6 +69,18 @@ defmodule Guardian.ObjectStore do
   @doc "A description of the store for logs: its kind and location, never a secret."
   def describe({mod, config}) do
     mod.describe(config)
+  end
+
+  @doc """
+  Whether nodes using this store share objects and coordinate conditional writes.
+
+  Implementations may declare this capability through the optional `shared?/1`
+  callback. Without it, a store is assumed shared for compatibility with existing
+  implementations. This describes the store's guarantees, without probing it.
+  """
+  def shared?({mod, config}) do
+    Code.ensure_loaded!(mod)
+    if function_exported?(mod, :shared?, 1), do: mod.shared?(config), else: true
   end
 
   @doc "A message for a failure reason, safe to log and to return to clients."

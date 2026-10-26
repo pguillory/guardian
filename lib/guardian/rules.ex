@@ -11,9 +11,9 @@ defmodule Guardian.Rules do
 
   The pieces: `Guardian.Rules.RuleSet` parses and validates a whole set, `Guardian.Rules.Compiler`
   turns a table's plan into a module, `Guardian.Rules.Runtime` is what that module calls,
-  `Guardian.Rules.Store` is the rule store's policy (its files are read and written
-  through `Guardian.ObjectStore`, and its write lock is a `Guardian.ObjectStore.Lock`), and
-  `Guardian.Rules.Server` loads, reloads, polls and writes; its synchronous
+  and `Guardian.Rules.Server` loads, reloads, polls and writes, owning the rule store's
+  lock policy (files are read and written through `Guardian.ObjectStore`, and the
+  write lock is a `Guardian.ObjectStore.Lock`); its synchronous
   `Guardian.Rules.Publisher` owns activation, publication and the module pool. See
   `docs/architecture/system.md` ("Rules") and `lib/guardian/rules/CLAUDE.md`.
   """

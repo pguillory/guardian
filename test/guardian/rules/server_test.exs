@@ -2,6 +2,16 @@ defmodule Guardian.Rules.ServerTest do
   use ExUnit.Case, async: false
   import Guardian.RulesTestHelper
 
+  test "the default save margin exceeds the S3 write deadline" do
+    # TestEnv records prior values (or absence) and restores them on exit. Delete
+    # these throwaway placeholders immediately so the defaults apply.
+    Guardian.TestEnv.put(rules_save_margin_ms: 1, object_store_s3_write_deadline_ms: 1)
+    Application.delete_env(:guardian, :rules_save_margin_ms)
+    Application.delete_env(:guardian, :object_store_s3_write_deadline_ms)
+
+    assert Guardian.Rules.Server.save_margin_ms() > Guardian.ObjectStore.S3.write_deadline_ms()
+  end
+
   defp s3_server(app_env \\ []) do
     s3 = Guardian.FakeS3.start()
     on_exit(fn -> Guardian.FakeS3.stop(s3) end)
@@ -298,14 +308,14 @@ defmodule Guardian.Rules.ServerTest do
                s3 |> Guardian.FakeS3.requests() |> Enum.drop(before + 4)
 
       assert String.ends_with?(rule_path, "/#{table}/#{name}.gsql")
-      assert String.ends_with?(lock_path, "/" <> Guardian.Rules.Store.lock_key())
+      assert String.ends_with?(lock_path, "/" <> Guardian.Rules.Server.lock_key())
     end
 
     assert Guardian.FakeS3.objects(s3) |> Map.keys() |> Enum.reject(&(&1 =~ "lock")) == [
              "#{table}/a.gsql",
            ]
 
-    {:ok, body, _meta} = Guardian.ObjectStore.get(store, Guardian.Rules.Store.lock_key())
+    {:ok, body, _meta} = Guardian.ObjectStore.get(store, Guardian.Rules.Server.lock_key())
     assert Jason.decode!(body)["state"] == "released"
     assert Guardian.Rules.lookup(table) == module
     assert {:ok, _} = Guardian.Rules.write_rule(table, "b", "SET y = 2")
@@ -682,7 +692,7 @@ defmodule Guardian.Rules.ServerTest do
       assert message =~ "may have been saved"
     end)
 
-    {:ok, body, _meta} = Guardian.ObjectStore.get(store, Guardian.Rules.Store.lock_key())
+    {:ok, body, _meta} = Guardian.ObjectStore.get(store, Guardian.Rules.Server.lock_key())
     assert Jason.decode!(body)["state"] == "held"
   end
 
@@ -719,7 +729,7 @@ defmodule Guardian.Rules.ServerTest do
     {_s3, store} = s3_server()
 
     {:ok, _lock} =
-      Guardian.ObjectStore.Lock.acquire(store, Guardian.Rules.Store.lock_key(), "someone else")
+      Guardian.ObjectStore.Lock.acquire(store, Guardian.Rules.Server.lock_key(), "someone else")
 
     assert Guardian.Rules.write_rule(unique_table("rules_busy"), "a", "SET x = 1") ==
              {:error, "another rule write is in progress; retry"}

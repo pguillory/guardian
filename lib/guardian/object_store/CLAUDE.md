@@ -6,8 +6,11 @@ lease lock built on it. Its design is in `docs/changes/object-store-lock.md`.
 Modules:
 
 - `Guardian.ObjectStore`: the behaviour (`list`, `get`, `put` with `:none`, `:absent`
-  or `{:etag, etag}`, `delete`, `describe`), the functions that call a
-  `{module, config}` store, the failure reasons and `reason_message/1`.
+  or `{:etag, etag}`, `delete`, `describe`, optional `shared?`), the functions that
+  call a `{module, config}` store, the failure reasons and `reason_message/1`.
+  `shared?/1` reports whether nodes share objects and coordinate conditional writes;
+  absent callbacks default to true for existing custom implementations. Local
+  returns false, S3 true; callers decide what to permit with that capability.
 - `Guardian.ObjectStore.S3`: the S3-compatible implementation (Req with SigV4, R2 or
   any S3 API), prefix-scoped and with a bounded listing (`max_list_pages`), and the
   endpoint and prefix checks (`check_endpoint/1`, `check_prefix/1`) whoever builds a

@@ -3,6 +3,42 @@ defmodule Guardian.Rules.ClusterTest do
   use ExUnit.Case, async: false
   import Guardian.RulesTestHelper
 
+  # Existing custom stores need not implement the optional shared?/1 callback.
+  defmodule LegacyStore do
+    @moduledoc false
+    @behaviour Guardian.ObjectStore
+    @impl true
+    defdelegate list(config), to: Guardian.ObjectStore.S3
+    @impl true
+    defdelegate get(config, key, etag), to: Guardian.ObjectStore.S3
+    @impl true
+    defdelegate put(config, key, body, condition), to: Guardian.ObjectStore.S3
+    @impl true
+    defdelegate delete(config, key), to: Guardian.ObjectStore.S3
+    @impl true
+    defdelegate describe(config), to: Guardian.ObjectStore.S3
+  end
+
+  defmodule UnsharedStore do
+    @moduledoc false
+    @behaviour Guardian.ObjectStore
+    @impl true
+    defdelegate list(config), to: Guardian.ObjectStore.Local
+    @impl true
+    defdelegate get(config, key, etag), to: Guardian.ObjectStore.Local
+    @impl true
+    defdelegate put(config, key, body, condition), to: Guardian.ObjectStore.Local
+    @impl true
+    defdelegate delete(config, key), to: Guardian.ObjectStore.Local
+    @impl true
+    defdelegate describe(config), to: Guardian.ObjectStore.Local
+
+    @impl true
+    def shared?(_config) do
+      false
+    end
+  end
+
   setup do
     started_distribution = Guardian.TestCluster.ensure_distributed()
     data_root = Guardian.TestCluster.data_root()
@@ -28,6 +64,14 @@ defmodule Guardian.Rules.ClusterTest do
 
   defp peer_ingest(peer_node, table, events) do
     :erpc.call(peer_node, Guardian.Engine, :ingest_events, [table, events])
+  end
+
+  test "capability dispatch loads a store before checking its callback", %{peer_node: peer_node} do
+    assert :erpc.call(peer_node, :code, :is_loaded, [Guardian.ObjectStore.Local]) == false
+
+    refute :erpc.call(peer_node, Guardian.ObjectStore, :shared?, [
+             {Guardian.ObjectStore.Local, nil},
+           ])
   end
 
   test "a write reloads every node", %{peer_node: peer_node} do
@@ -86,6 +130,37 @@ defmodule Guardian.Rules.ClusterTest do
     assert {:error, message} =
              Guardian.Rules.write_rule(unique_table("rules_local"), "a", "SET x = 1")
 
-    assert message =~ "a cluster needs an S3 rule store"
+    assert message ==
+             "rules are in a local folder, which each node has its own copy of; " <>
+               "a cluster needs an S3 rule store"
+  end
+
+  test "a custom unshared store refuses writes while other nodes are connected" do
+    dir = Path.join(System.tmp_dir!(), "rules_custom_#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf!(dir) end)
+    {:ok, {_module, config}} = Guardian.ObjectStore.Local.new(dir)
+    store = {UnsharedStore, config}
+    {:ok, _} = restart_server(store)
+
+    assert {:error, message} =
+             Guardian.Rules.write_rule(unique_table("rules_custom"), "a", "SET x = 1")
+
+    assert message ==
+             "rules are in a local folder, which each node has its own copy of; " <>
+               "a cluster needs an S3 rule store"
+
+    assert Guardian.ObjectStore.list(store) == {:ok, []}
+  end
+
+  test "a custom store without the optional callback still accepts clustered writes" do
+    s3 = Guardian.FakeS3.start()
+    on_exit(fn -> Guardian.FakeS3.stop(s3) end)
+    {_module, config} = Guardian.FakeS3.store(s3)
+    store = {LegacyStore, config}
+    {:ok, _} = restart_server(store)
+    table = unique_table("rules_legacy")
+
+    assert {:ok, _} = Guardian.Rules.write_rule(table, "a", "SET x = 1")
+    assert Guardian.Rules.read_rule(table, "a") == {:ok, "SET x = 1"}
   end
 end

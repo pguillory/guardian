@@ -60,14 +60,15 @@ Modules:
   touches rather than a pass over every column. Its tests check it against the old
   scan, reimplemented in the test.
 - `Guardian.Rules.Runner`: runs a batch in a worker under the heap limit, 1 s per event.
-- `Guardian.Rules.Store`: the rule store's policy (the lock key, lease and save
-  margin). The store itself is a `Guardian.ObjectStore` (`lib/guardian/object_store/CLAUDE.md`):
-  `Guardian.ObjectStore.S3`, or the folder store `Guardian.ObjectStore.Local`. Both list
-  every object; the rule layout (`Guardian.Rules.RuleSet.parse_key/1`) is applied by
-  Server and `Guardian.Rules.list_rules/1`. The write lock is a `Guardian.ObjectStore.Lock`.
 - `Guardian.Rules.Config`: chooses the store from the environment.
 - `Guardian.Rules.Server`: process, startup load, reload, poll, locked writes and
-  admission. Holds Publisher's pool value and forwards reclamation messages.
+  admission. Owns rule lock policy (key, lease and save margin). The store is a
+  `Guardian.ObjectStore` (`lib/guardian/object_store/CLAUDE.md`): S3 or a local folder.
+  Both list every object; Server and `Guardian.Rules.list_rules/1` apply the rule
+  layout (`Guardian.Rules.RuleSet.parse_key/1`). The write lock is a
+  `Guardian.ObjectStore.Lock`; stores declaring `ObjectStore.shared?/1` false refuse
+  writes with peers connected. Holds Publisher's pool value and forwards reclamation
+  messages.
 
 ## Rules to keep
 

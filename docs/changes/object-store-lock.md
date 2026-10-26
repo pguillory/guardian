@@ -2,6 +2,10 @@
 
 Status: complete.
 
+Subsequent cleanup: [rules-store-fold.md](rules-store-fold.md) moves store sharing
+to the optional `Guardian.ObjectStore.shared?/1` capability and folds the remaining
+rule lock policy into Server. The layout below records the original extraction.
+
 The rule write lock (`Guardian.Rules.Lock`, the `_write.lock` lease) and the S3 client
 (`Guardian.Rules.Store.S3`: SigV4 requests, listing, ETag and date handling, status
 mapping) are generic object-store mechanisms living inside the Rules feature. Per
