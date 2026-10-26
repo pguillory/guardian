@@ -13,41 +13,22 @@ description gains the receipt exception. No event format changes.
 
 ## Design
 
-`idempotency_key` is an optional JSON body or MCP tool argument, null or a UTF-8
-string of 1–128 bytes. Its scope is one table on one node. A SHA-256 digest of
-deterministically encoded events and return_keys detects changed requests. Omitted
-and null return_keys are equivalent; number types and list order must match.
+The completed public contract lives in [spec section 5, item 9](../product/spec.md#5-ingestion):
+key scope and request matching, receipt/conflict behavior, retention, capacity and
+best-effort limits. [The API reference](../reference/api.md#retrying-a-batch) keeps
+the request/receipt examples and retry guidance. The coordinator mechanism is in
+the [ingest architecture](../architecture/system.md#3-ingest-path), and its mandatory
+lifecycle and privacy rules are in [Web instructions](../../lib/guardian/web/CLAUDE.md).
 
-The first request returns the existing ordered per-event results. For ten seconds
-after processing completes, a matching retry receives
-`{"status":200,"duplicate":true,"failed_events":0}` without running rules or
-writing again. The receipt has no results array. Mixed and all-failed batches also
-get receipts, with their failed-event count, so retries cannot repeat successful
-or uncertain writes. Retry only the failed subset under a new key, respecting
-uncertain storage outcomes.
+The design chose compact receipts instead of caching whole replies to bound memory
+without retaining event payloads. Remembering mixed and failed batches prevents a
+lost response from replaying successful or uncertain writes. Unknown-outcome
+tombstones preserve that distinction when processing aborts. Explicit failure
+handling supplements monitoring because HTTP/MCP callers can survive a failed call.
 
-Changed requests and in-flight duplicates get HTTP 409 or MCP tool errors. On an
-unexpected failure, keep an uncertain tombstone for ten seconds and report that
-events may have been stored. In-flight claims do not expire while the caller is
-alive; process monitoring backs up an explicit catch/reraise transition to uncertain.
-MCP's existing shared-server serialization remains: a tool call may queue or time
-out before it reaches this check. Retry promptly after pending conflicts.
-
-A supervised coordinator before Web keeps at most 10,000 entries across tables:
-bounded copies of table/key strings, digest, tokens, monitors, expiry and a failure
-count, never event payloads or replies. A completion expiry queue supports expiry
-and oldest-completed eviction. Entries expire on access and in a periodic sweep.
-At capacity evict completed entries first, including uncertain tombstones; never
-evict pending entries. If all entries are pending, or the coordinator is unavailable
-or slow, ingest normally without protection and log a fixed info message. No valid
-ingest is refused because deduplication is unavailable. Calls have a short timeout;
-cancel timed-out claims by token on the exact coordinator process, so a late claim
-cannot strand a slot owned by a long-lived caller. Completion failures never hide
-the original response.
-
-This is best-effort protection: expiry, eviction, fail-open operation, a coordinator
-restart, or a retry reaching another node can allow duplicates. There is no
-replication or exactly-once guarantee. Cluster owner routing is follow-up work.
+Node-local, ephemeral metadata keeps retry protection independent of peer health
+and durable storage. Failing open preserves ingestion availability when protection
+is unavailable. Cluster owner routing remains separate follow-up work.
 
 ## Validation
 

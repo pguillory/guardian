@@ -29,25 +29,27 @@ HTTP invalid requests return 400 with an `info` message; MCP returns a tool erro
 Absent or null return_keys returns all event keys; a list of strings gives successful
 events exactly those keys, null for any the event lacks. Events are reported after
 the table's SET/UNSET/TRACK/LOOKUP rules, so return_keys is how a client reads a
-computed decision or counter result. Counter failures default and continue; final
-UNSETs still run, while SET/UNSET failures reject the event. Valid requests return
+computed decision or counter result. Rule failure handling follows the
+[product contract](../../../docs/product/spec.md#51-rules). Valid requests return
 200 with ordered `results`, each `{success: true, event: ...}` or
 `{success: false, error: ...}`. Events are independent: a failure does not stop the
 rest, and uncertain storage failures say the event may have been stored.
 
-Optional `idempotency_key` (null or 1–128 UTF-8 bytes) wraps Engine in
-`Guardian.Web.IngestIdempotency`: per-table, node-local claims, ten-second completed receipts,
-10,000 total entries. Completed retries return `{status: 200, duplicate: true,
-failed_events: N}` without results, including mixed/all-failed batches. Changed
-contents, in-flight duplicates and unknown outcomes return HTTP 409/MCP tool errors.
-The digest includes events and return_keys; absent/null return_keys are equivalent.
-Capacity evicts oldest completed entries first; all-pending capacity, coordinator
-failure or a 100 ms call timeout fail open with an info log that contains no client
-data. Keep payloads and full replies out of coordinator state. Never expire a live
-pending claim. Catch every ingestion failure to mark uncertainty before reraising,
-since callers can be reused HTTP processes or Anubis's long-lived MCP server.
-Cancel timed-out claims on the exact pid with their caller-generated token.
-Restarts, expiry, eviction, fail-open operation and other nodes lose protection.
+Optional `idempotency_key` wraps Engine in `Guardian.Web.IngestIdempotency`.
+The [public contract](../../../docs/product/spec.md#5-ingestion) (item 9) defines
+matching, receipts, conflicts, capacity and protection limits;
+[the API reference](../../../docs/reference/api.md#retrying-a-batch) shows client use.
+The [ingest architecture](../../../docs/architecture/system.md#3-ingest-path)
+describes claims, digests, monitors and expiry. Implementation rules to keep:
+
+- Keep payloads and full replies out of coordinator state.
+- Never expire or evict a live pending claim. Catch every ingestion failure to mark
+  uncertainty before reraising, since callers can be reused HTTP processes or
+  Anubis's long-lived MCP server.
+- Bound coordinator calls to 100 ms. Cancel timed-out claims on the exact pid with
+  their caller-generated token. Unavailable claims fail open with a fixed info log
+  containing no client data; completion failures never hide the original response.
+
 `IngestIdempotency.run/5` returns plain outcomes (`{:ran, value}`, `{:duplicate,
 failed_events}`, `{:conflict, :changed | :pending | :uncertain}`) and treats the
 ingest value as opaque; `Guardian.Web.Ingest` owns the receipt body, the 409 status

@@ -29,4 +29,13 @@ defmodule Guardian.AtomicFileTest do
     assert {:error, :badarg} = AtomicFile.write(filename, [:not_iodata])
     assert File.ls!(dir) == []
   end
+
+  test "temp_file? matches exactly the temp names write creates" do
+    assert AtomicFile.temp_file?("a.gsql.123.tmp")
+    assert AtomicFile.temp_file?("_write.lock.1.tmp")
+
+    for name <- ~w[a.tmp a.0.tmp a.01.tmp a.x.tmp a.1.tmp.bak tmp a.gsql] do
+      refute AtomicFile.temp_file?(name), name
+    end
+  end
 end

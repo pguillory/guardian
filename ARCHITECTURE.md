@@ -8,6 +8,8 @@ so there is one place for each topic.
    retention), query engine (parsing, planning, distributed execution, regular expressions),
    the JSON and MCP interfaces, clustering, configuration, deployment, testing, and
    known limits.
+   The [column reference](docs/architecture/storage-columns.md) describes native
+   column APIs, metadata and usage patterns.
 2. [docs/architecture/security.md](docs/architecture/security.md): trust boundaries,
    the invariants each relies on, and the gaps.
 3. [docs/product/overview.md](docs/product/overview.md) and

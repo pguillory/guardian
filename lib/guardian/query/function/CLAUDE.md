@@ -1,444 +1,71 @@
-# Query Functions Directory
-
-This directory contains individual function implementations for Guardian's SQL-like query language. Each file implements one function (or a related set of arities for one function).
-
-## Purpose
-
-Guardian's query language supports SQL-like functions (e.g., `abs()`, `concat()`, `email_domain()`). Each function is implemented as a separate module in this directory. A module provides scalar evaluation (`eval/N`, one value per argument), and optionally its own columnar evaluation (`eval2/2`, whole columns at once).
-
-## Architecture
-
-### Function Registration
-
-Functions are NOT auto-discovered. Each function must be manually registered in the parent file `lib/guardian/query/function.ex`:
-
-```elixir
-@names_and_mods [
-  {"abs", 1, Guardian.Query.Function.Abs},
-  {"email_domain", 1, Guardian.Query.Function.EmailDomain},
-  # ... etc
-]
-```
-
-The registration tuple is: `{function_name, arity, module}`
-
-When several names share a module (aliases such as `curdate` for `Date`), a module's
-own `eval2/2` must match on arguments only, never on `name:`, or the alias raises
-`FunctionClauseError`. Modules without their own `eval2/2` cannot hit this. `Guardian.Query.FunctionRegistryTest` evaluates every registered name.
-
-### Function Dispatch
-
-When a query is evaluated:
-
-1. Parser creates `%Guardian.AST.Node.FunctionCall{name: "abs", args: [expr]}`
-2. The `Guardian.Query.Eval` protocol dispatches to `Guardian.AST.Node.FunctionCall`'s implementation
-3. That looks the module up by name and arity with
-   `Guardian.Query.Function.name_and_arity_to_mod/2`; an unregistered name and arity evaluates
-   to nulls
-4. If the module defines `eval2/2`, that evaluates the call. Otherwise the default
-   applies: each argument is evaluated in order and `eval/N` is mapped over the
-   columns with `ColumnOrConstant.map` (arity 1 to 4), or, for a zero-argument call,
-   called once per row with `ColumnOrConstant.generate`
-
-### What a Module Defines
-
-1. `eval(value)` or `eval(value1, value2)` etc - Scalar evaluation
-   - Takes: individual scalar values (one per argument)
-   - Returns: result value or `nil` on error/invalid input
-   - Pure function that performs the actual operation
-   - Should handle type errors gracefully (return `nil`)
-   - A module without its own `eval2/2` needs one `eval/N` per registered arity
-
-2. `eval2(context, %Guardian.AST.Node.FunctionCall{})` - Columnar evaluation (optional)
-   - Define it only when the default per-row evaluation is not enough: short
-     circuits (`if`, `coalesce`), compiling a literal argument once (`replace`), a
-     NIF fast path (`to_boolean`, `to_string` with `NativeDispatch.evaluate`),
-     rewrites (`concat`), or a constant (`pi`)
-   - Takes: evaluation context (SegmentSnapshot or event map) and function call AST
-   - Returns: `%Column{}` or `%Constant{}` (from `Guardian.Query.ColumnOrConstant`)
-   - Evaluates arguments using `Guardian.Query.Eval.eval/2`
-   - When defined, it handles every arity the module is registered for
-
-## Function Patterns
-
-### Pattern 1: Simple Function (the default)
-
-Most functions are only their `eval/N`; the default evaluation maps it over the
-argument columns:
-
-```elixir
-defmodule Guardian.Query.Function.Abs do
-  def eval(value) when is_number(value) do
-    abs(value)
-  end
-
-  def eval(_) do
-    nil
-  end
-end
-```
-
-### Pattern 2: Several Arities
-
-Define one `eval/N` per registered arity:
-
-```elixir
-defmodule Guardian.Query.Function.Substr do
-  def eval(value, start) when is_binary(value) and is_integer(start) and start >= 1 do
-    String.slice(value, start - 1, byte_size(value))
-  end
-
-  def eval(_, _) do
-    nil
-  end
-
-  def eval(value, start, count) when ... do
-    String.slice(value, start - 1, count)
-  end
-
-  def eval(_, _, _) do
-    nil
-  end
-end
-```
-
-### Pattern 3: Constant Function (No Arguments)
-
-A zero-argument function without `eval2/2` calls `eval/0` once per row (Pattern 4).
-A deterministic one should define `eval2/2` and return one `Constant` instead:
-
-```elixir
-defmodule Guardian.Query.Function.Pi do
-  alias Guardian.Query.Constant
-  alias Guardian.Query.Evaluation
-
-  def eval2(context, %Guardian.AST.Node.FunctionCall{args: []}) do
-    Constant.duplicate(__MODULE__.eval(), Evaluation.context_count(context))
-  end
-
-  def eval do
-    :math.pi()
-  end
-end
-```
-
-### Pattern 4: Non-Deterministic Function
-
-For functions that need a different value per row (random, UUIDs), the default
-evaluation calls `eval/0` once per row, so `eval/0` is all they need. Also add them to
-`Guardian.Query.Evaluation.@non_deterministic_functions` (see Performance Considerations):
-
-```elixir
-defmodule Guardian.Query.Function.GenerateUUID do
-  def eval do
-    UUID.uuid4()
-  end
-end
-```
-
-### Pattern 5: Variable Arity (One Call Over Every Argument)
-
-For functions that accept many arities, evaluate every argument and combine each row's
-values in one call with `ColumnOrConstant.map_n/2`. Don't fold through nested
-two-argument calls: a function that builds a capped string must see the whole join to
-stop at its first cut (`Guardian.Query.Text.form_cut/2`).
-
-```elixir
-defmodule Guardian.Query.Function.Concat do
-  def eval2(context, %Guardian.AST.Node.FunctionCall{args: exprs}) do
-    exprs
-    |> Enum.map(&Guardian.Query.Eval.eval(&1, context))
-    |> ColumnOrConstant.map_n(&join/1)
-  end
-end
-```
-
-### Pattern 6: Short-Circuit Optimization
-
-For conditional functions, check column metadata to avoid unnecessary evaluation:
-
-```elixir
-defmodule Guardian.Query.Function.If do
-  alias Guardian.Query.ColumnOrConstant
-  alias Guardian.Storage.Column.Metadata
-  require Metadata
-
-  def eval2(context, %Guardian.AST.Node.FunctionCall{args: [expr1, expr2, expr3]}) do
-    column1 = Guardian.Query.Eval.eval(expr1, context)
-
-    case ColumnOrConstant.metadata(column1) do
-      # All true - only evaluate then branch
-      [Metadata.tuple(true_count: count, count: count) | _] ->
-        Guardian.Query.Eval.eval(expr2, context)
-
-      # All false - only evaluate else branch
-      [Metadata.tuple(false_count: count, count: count) | _] ->
-        Guardian.Query.Eval.eval(expr3, context)
-
-      # Mixed - evaluate both and select
-      [Metadata.tuple() | _] ->
-        column2 = Guardian.Query.Eval.eval(expr2, context)
-        column3 = Guardian.Query.Eval.eval(expr3, context)
-        ColumnOrConstant.map(column1, column2, column3, &__MODULE__.eval/3)
-    end
-  end
-end
-```
-
-### Pattern 7: Compile-Time Optimization
-
-For functions that can optimize when arguments are literals:
-
-```elixir
-defmodule Guardian.Query.Function.Replace do
-  # If pattern is a literal string, compile regex once
-  def eval2(context, %Guardian.AST.Node.FunctionCall{args: [expr1, expr2, expr3]}) do
-    with %Guardian.AST.Node.Literal{value: pattern} when is_binary(pattern) <- expr2,
-         {:ok, regex} <- Guardian.Query.Regex.compile(pattern) do
-      # Use compiled pattern for all rows
-      column1 = Guardian.Query.Eval.eval(expr1, context)
-      column3 = Guardian.Query.Eval.eval(expr3, context)
-      ColumnOrConstant.map(column1, column3, fn
-        string, replacement when is_binary(string) and is_binary(replacement) ->
-          Guardian.Query.Regex.replace(regex, string, replacement)
-
-        _, _ ->
-          nil
-      end)
-    else
-      _ ->
-        # Pattern not constant, return nil for all rows
-        Constant.duplicate(nil, Evaluation.context_count(context))
-    end
-  end
-end
-```
-
-## File Organization
-
-Each function gets its own file named in snake_case after the function:
-
-- `abs.ex` - `abs()` function
-- `email_domain.ex` - `email_domain()` function
-- `url_host.ex` - `url_host()` function
-- etc.
-
-Module names use PascalCase: `Guardian.Query.Function.EmailDomain`
-
-## Common Utilities
-
-### Guardian.Query.ColumnOrConstant
-
-Handles dual representation of columnar data:
-
-- `map(column, fun)` - Map unary function over column
-- `map(col1, col2, fun)` - Map binary function over two columns
-- `map(col1, col2, col3, fun)` - Map ternary function
-- `map(col1, col2, col3, col4, fun)` - Map 4-ary function
-- `generate(fun, count)` - Generate `count` values by calling `fun` repeatedly
-- `metadata(column)` - Get column metadata for optimizations
-
-### Guardian.Query.NativeDispatch
-
-- `evaluate(operation, col, fun)` / `evaluate(operation, col1, col2, fun)` - Use the
-  shared scalar/native policy for supported native-backed operations; supply the
-  scalar callback and leave native eligibility/selection to NativeDispatch. A new
-  native-backed operation gets a new `evaluate` clause there
-
-### Guardian.Query.Eval and Guardian.Query.Evaluation
-
-- `Guardian.Query.Eval.eval(expr, context)` - Evaluate an AST expression (argument)
-- `Guardian.Query.Evaluation.context_count(context)` - Get number of rows in context
-
-### Guardian.Query.Constant
-
-- `duplicate(value, count)` - Create constant repeated `count` times
-
-## Adding a New Function
-
-1. Create new file `lib/guardian/query/function/my_function.ex`
-2. Implement the module following one of the patterns above
-3. Register in `lib/guardian/query/function.ex`
-4. Create test file `test/guardian/query/function/my_function_test.exs`
-5. Run `mix test` to verify
-
-Example for adding `trim_start(string)`:
-
-```elixir
-# lib/guardian/query/function/trim_start.ex
-defmodule Guardian.Query.Function.TrimStart do
-  def eval(value) when is_binary(value) do
-    String.trim_leading(value)
-  end
-
-  def eval(_) do
-    nil
-  end
-end
-```
-
-Then register in `lib/guardian/query/function.ex`:
-
-```elixir
-@names_and_mods [
-  # ... existing functions ...
-  {"trim_start", 1, Guardian.Query.Function.TrimStart},
-]
-```
+# Query Functions
+
+For dispatch mechanics, worked implementation patterns, utilities and test examples,
+see the [query function guide](../../../../docs/guides/query-functions.md).
+This file holds the editing rules.
+
+## Registration and evaluation
+
+- Each function has one `Guardian.Query.Function.FunctionName` module in its
+  snake_case file. Manually register every name and arity in
+  `lib/guardian/query/function.ex`; names are lowercase, queries case-insensitive.
+  Aliases register the same module under additional names.
+- The default evaluation maps `eval/N` over arguments in order (arities 1–4);
+  without `eval2/2`, provide one scalar `eval/N` for every registered arity.
+- Define `eval2(context, %Guardian.AST.Node.FunctionCall{})` only when the default
+  is insufficient: short circuits, literal compilation, native paths, rewrites or
+  constants. It returns a `ColumnOrConstant` Column or Constant, evaluates arguments
+  through `Guardian.Query.Eval.eval/2`, and handles every registered arity.
+  Match on arguments, never `name:`, so aliases work.
+- Without `eval2/2`, a zero-argument `eval/0` runs once per row. A deterministic
+  constant should define `eval2/2` with `Constant.duplicate/2` and
+  `Evaluation.context_count/1`. Add non-deterministic functions to
+  `Guardian.Query.Evaluation.@non_deterministic_functions` so the test-only
+  `pre_eval/1` does not fold them; runtime queries do no compile-time folding.
+- Use `ColumnOrConstant.map`, not `Enum.map`, for column/constant values.
+  Variable-arity functions evaluate every argument and use `map_n/2` for one call
+  over each row's values. Never fold a capped string join through nested binary
+  calls: `Text.form_cut/2` must see the whole join and stop at its first cut.
+- Native-backed operations call `Guardian.Query.NativeDispatch.evaluate/3,4`
+  with the operation and scalar callback. NativeDispatch owns selection and
+  eligibility; add new operation clauses there, not a local native helper.
+- Keep scalar evaluation simple and avoid allocations in tight loops. Preserve
+  metadata-based short circuits (`if`, `coalesce`) to skip unused branches.
 
 ## Totality
 
-Every function and operator is total: on any input it returns a value storage can
-hold, or `nil`. It never raises, and never returns a bignum, a non-finite float, a
-list nested deeper than a list of lists, or a built string over 64 KiB.
-`Guardian.Query.Numeric` states the number rules and `Guardian.Query.Text` the string rules:
+Every function and operator returns a storable value or `nil` for every input,
+never raising or returning a bignum, non-finite float, a list deeper than a list
+of lists, or a built string over 64 KiB.
 
-- An integer result wraps to int64 with `Guardian.Query.Numeric.wrap/1`, matching the column
-  NIF's wrapping `+ - *` (`src/column.c`), so both evaluation paths agree.
-- Float arithmetic that overflows raises `ArithmeticError` in Erlang: catch
-  `:error, :badarith` and return `nil`.
-- A result with no good value (division by zero, a domain error, a rounded float
-  outside int64, `Guardian.Query.Numeric.int64_or_nil/1`) is `nil`.
-- A function that builds a string longer than its inputs cuts it to the string cap
-  with `Guardian.Query.Text.cap/1` (or stops building at `Guardian.Query.Text.max_bytes/0`); one that
-  returns an input or part of one needs no cap. A value becomes a string through
-  `Guardian.Query.Text.form/2`, never `Kernel.to_string/1`, which raises on some lists. A
-  function whose result is a transformed input (`replace`, `lower`) caps it even when
-  it is no longer than the input. Joining pieces stops at the first one
-  `Guardian.Query.Text.form_cut/2` cut, so the result is a prefix of the whole.
-- `Guardian.Query.ColumnOrConstant.list_or_constant_to_column_or_constant/1` turns any
-  remaining unstorable value into `nil` as the result is built, a backstop rather
-  than a substitute for the rules above.
+- Guard expected types and provide a fallback clause returning `nil`.
+- Wrap integer results to int64 with `Guardian.Query.Numeric.wrap/1`, matching
+  native arithmetic. Catch `:error, :badarith` for float overflow and return `nil`.
+  Invalid arithmetic/domain results and rounded floats outside int64 are `nil`
+  (`Numeric.int64_or_nil/1`).
+- Cap built strings with `Guardian.Query.Text.cap/1`, or stop at
+  `Text.max_bytes/0`. Returning an input or a slice needs no cap; transforming
+  an input (`replace`, `lower`) does, even without growth.
+  Convert values through `Text.form/2`, never `Kernel.to_string/1`.
+  Joins stop at the first piece cut by `Text.form_cut/2`.
+- Parse URLs through `Guardian.Query.URL.parse/1`, never `URI.parse/1`;
+  the shared nonraising helper never converts a port longer than 20 digits.
+- `ColumnOrConstant.list_or_constant_to_column_or_constant/1` replaces remaining
+  unstorable results with `nil`; this backstop does not replace these rules.
+- Compile and execute query regexes only through `Guardian.Query.Regex`
+  (`:re` with mandatory `match_limit` and `match_limit_recursion`).
+  Never call `:re` directly from a function; the fixed copies of URI patterns
+  inside `Guardian.Query.URL` are the sole exception and run no user pattern.
+  Never reintroduce a regex NIF: Hyperscan aborted the VM on growing/overlapping
+  matches. There is no `jq()`; the parser rejects it.
 
-`test/guardian/query/totality_test.exs` runs every registered function and operator over a grid
-of edge values per event, against constants and over columns, and checks that the
-three agree. A new function is covered automatically; add an edge value there when a
-new kind of input matters.
+## Tests
 
-## Type Handling
-
-Functions should handle type mismatches gracefully:
-
-- Return `nil` for unexpected types (don't raise errors)
-- Use guard clauses to check types: `when is_binary(value)`
-- Provide a fallback clause with a `do...end` block returning `nil`.
-
-Examples:
-```elixir
-# Good - graceful handling
-def eval(value) when is_number(value) do
-  abs(value)
-end
-
-def eval(_) do
-  nil
-end
-
-# Bad - will crash on wrong type
-def eval(value) do
-  abs(value)
-end
-```
-
-## Performance Considerations
-
-1. Columnar operations are HOT PATH
-   - These run on potentially billions of events
-   - Keep `eval/N` functions simple and fast
-   - Avoid allocations in tight loops
-   - Consider NIFs for computationally intensive operations
-
-2. No compile-time constant folding
-   - Queries evaluate constant expressions per segment, as written
-   - `Guardian.Query.Evaluation.pre_eval/1` folds constants but only tests use it; it skips
-     the functions in `Guardian.Query.Evaluation.@non_deterministic_functions` (random, now,
-     generate_uuid, ...). Add a new non-deterministic function to that list
-
-3. Short-circuit when possible
-   - Check column metadata for all-true/all-false conditions
-   - Avoid evaluating branches that won't be used (see `if` and `coalesce`)
-
-## Function Categories
-
-### Math Functions
-`abs`, `ceil`, `floor`, `round`, `sqrt`, `power`, `exp`, `log`, `log2`, `log10`, `factorial`, `mod`, `div`, `pi`
-
-### String Functions
-`concat`, `length`, `lower`, `upper`, `trim`, `ltrim`, `rtrim`, `lpad`, `rpad`, `substr`, `reverse`, `replace`, `normalize`, `to_string`
-
-### Email Functions
-`email_domain`, `email_username`
-
-### URL Functions
-`url_scheme`, `url_host`, `url_port`, `url_path`, `url_fragment`
-
-### Hash Functions
-`md5`, `sha1`, `sha256`, `sha512`
-
-### Date/Time Functions
-`date`, `now`, `date_add`, `date_sub`, `to_seconds`, `format_timestamp`, `interval`
-
-### Type Functions
-`type`, `to_boolean`, `to_string`
-
-### Conditional Functions
-`if`, `coalesce`
-
-### Utility Functions
-`random`, `generate_uuid`, `ip_to_integer`, `cosine_similarity`
-
-## Special Functions
-
-### replace - Regular expression replacement
-
-Runs through `Guardian.Query.Regex`, the only place patterns are compiled and run (`:re` with
-mandatory `match_limit` and `match_limit_recursion`). Never call `:re` directly from a
-function, and never reintroduce a regex NIF: the Hyperscan NIF this replaced aborted
-the VM on growing or overlapping matches. There is no `jq()`; the parser rejects it with a
-message.
-
-### cosine_similarity - Vector similarity
-
-Operates on lists, computes cosine similarity between two vectors.
-
-## Testing
-
-Each function should have a test file in `test/guardian/query/function/`:
-
-```elixir
-defmodule Guardian.Query.Function.EmailDomainTest do
-  use Guardian.Query.EvaluationTestCase, async: true
-
-  test "email_domain function" do
-    assert eval("email_domain('user@domain.com')") === "domain.com"
-    assert eval("email_domain('invalid')") === nil
-    assert eval("email_domain(123)") === nil
-  end
-end
-```
-
-The `Guardian.Query.EvaluationTestCase` provides the `eval/2` helper for easy testing.
-
-## Gotchas
-
-1. Always register new functions in `lib/guardian/query/function.ex` - they won't work otherwise
-2. Module name must match the pattern `Guardian.Query.Function.FunctionName`
-3. Return `nil` for type errors and for results with no good value; never raise
-   (see "Totality")
-4. For multi-arity functions, register EACH arity separately in the parent module
-5. Use `ColumnOrConstant.map` not regular `Enum.map` - different representation
-6. A module without `eval2/2` needs `eval/N` for each registered arity; `eval2/2` is
-   optional and, when defined, replaces the default for all of the module's arities
-7. Zero-argument functions without `eval2/2` call `eval/0` once per row; a
-   deterministic constant should define `eval2/2` with `Constant.duplicate`
-8. SQL function names are case-insensitive in queries but lowercase in registration
-9. Function aliases (like `unix_timestamp` → `to_seconds`) just register the same module under multiple names
-
-## Related Files
-
-- `lib/guardian/query/function.ex` - Function registry
-- `lib/guardian/query/evaluation.ex` - Evaluation engine that calls functions
-- `lib/guardian/query/column_or_constant.ex` - Columnar data utilities
-- `lib/guardian/query/native_dispatch.ex` - Scalar/native selection for native-backed operations
-- `lib/guardian/ast.ex` - AST node definitions
-- `test/guardian/query/function/` - Function tests
+Add a test file under `test/guardian/query/function/` using
+`Guardian.Query.EvaluationTestCase` for each function; cover valid, invalid and
+wrong-type inputs. `Guardian.Query.FunctionRegistryTest` exercises every
+registered name, including aliases.
+`test/guardian/query/totality_test.exs` exercises every registered function and
+operator per event, on constants and over columns, checking agreement.
+Add edge values for new input kinds; values too large for its pairwise grid go
+in `@huge_values`, tested alone against every function.

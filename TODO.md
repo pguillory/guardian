@@ -40,9 +40,14 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] atomic-write-helper: segment files and the local rule folder share one leaf
       temp-file, fsync, rename writer (`Guardian.AtomicFile`); local rule and lock
       writes are now fsynced too (`docs/changes/atomic-write-helper.md`)
-- [ ] object-store-local: a generic folder object store, with the rule folder's
-      listing and key policy moved into Rules; changes what a local rule folder lists
-      (`docs/changes/object-store-lock.md`, "Not in this change")
+- [x] object-store-local: a generic folder object store, with the rule folder's
+      listing and key policy moved into Rules; a local rule folder is read like a
+      bucket (`docs/changes/object-store-local.md`)
+- [x] s3-write-deadline-check: expose the S3 write deadline and check that Rules'
+      default save margin exceeds it (`docs/changes/s3-write-deadline-check.md`)
+- [x] local-store-lock-id: a local folder store's conditional puts are serialized
+      per folder on this node; its lock had named the folder as the requester, so
+      concurrent writers all held it at once (`docs/changes/local-store-lock-id.md`)
 - [x] ingest-rules: SET and UNSET rules stored as files (`<table>/<name>.gsql`, in a
       folder or an S3-compatible bucket), run on API ingests before storage, managed
       through MCP tools with whole-set validation and a store-held write lock
@@ -203,6 +208,10 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       (a port of over about 1.26 million digits) and `cosine_similarity` returns null
       for lists of different lengths and catches only `badarith`; query results are
       unchanged (code review follow-up)
+- [x] url-parse-totality: the `url_*` functions parse through the nonraising
+      `Guardian.Query.URL.parse/1`, which never converts a port of more than 20 digits,
+      so a URL with a port too long for `URI.parse/1` no longer fails the query
+      (`docs/changes/url-parse-totality.md`)
 - [x] format-timestamp-names-nonraising: unknown month/hour names give null through
       fallback lookups instead of a rescued `CaseClauseError`, keeping the terminal
       cap and invalid-name behavior (code review follow-up)
@@ -257,6 +266,13 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       `Guardian.Query.Resolver.resolve/1`
 
 ## Interfaces and operations
+
+- [x] rules-idempotency-docs: link repeated rule and retry requirements to their
+      canonical homes, preserve product tiers and change history, and mark aggregate
+      policy supersessions (`docs/changes/rules-idempotency-docs.md`)
+- [x] agent-instruction-tutorials: move the query-function tutorial and column
+      reference into docs/, retaining short mandatory editing rules and pointers
+      (`docs/changes/agent-instruction-tutorials.md`)
 
 - [x] engine-fun-frame: preserve per-event failure handling when a caught failure
       carries a BEAM fun stack frame (`docs/changes/failure-diagnostics.md`)

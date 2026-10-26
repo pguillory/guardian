@@ -17,8 +17,8 @@ prefix. Keep the Mix application and its configuration under `:guardian`.
   Guardian.Web. It holds only metadata and never runs ingestion; unavailability fails open.
 - `Guardian.Engine`: validates and ingests events, running the table's rules on API ingests.
 - `Guardian.Rules`: ingest-time SET/UNSET/TRACK/LOOKUP rules stored as files (`lib/guardian/rules/CLAUDE.md`).
-- `Guardian.ObjectStore`: the generic object-store client (S3/R2) and its lease lock on a
-  key (`lib/guardian/object_store/CLAUDE.md`); Rules is its caller.
+- `Guardian.ObjectStore`: the generic object-store client (S3/R2 and a local folder) and
+  its lease lock on a key (`lib/guardian/object_store/CLAUDE.md`); Rules is its caller.
 - `Guardian.Counters.Store`: node-local, ephemeral ETS get/gets/cas/incr store with TTLs and
   a memory budget (`lib/guardian/counters/CLAUDE.md`); TRACK/LOOKUP run through Rules using
   bounded owner routing and fail-open defaults.
@@ -85,8 +85,9 @@ single user next to that user instead.
   partition routing (ids are `{node, index}` partitions) both use it; changing the score
   can change counter ownership.
 - `Guardian.AtomicFile.write/2` is the one temp-file, fsync, rename writer, shared by
-  segment files (`Guardian.Storage.BlobStore`) and the local rule folder
-  (`Guardian.Rules.Store.Local`). The directory entry is not fsynced.
+  segment files (`Guardian.Storage.BlobStore`) and the folder object store
+  (`Guardian.ObjectStore.Local`). The directory entry is not fsynced. `temp_file?/1`
+  recognizes its temp names, which the folder store's listing skips.
 - `Guardian.SegmentID` creates sortable 32-byte hex identifiers containing a timestamp.
 - `Guardian.Failure` owns value-free diagnostic classification and stack redaction.
   Callers keep their logging and catch/reraise policies; caller-facing query

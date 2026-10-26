@@ -60,13 +60,14 @@ Modules:
 - `Guardian.Rules.Runner`: runs a batch in a worker under the heap limit, 1 s per event.
 - `Guardian.Rules.Store`: the rule store's policy (the lock key, lease and save
   margin). The store itself is a `Guardian.ObjectStore` (`lib/guardian/object_store/CLAUDE.md`):
-  `Guardian.ObjectStore.S3`, or the rule folder `Guardian.Rules.Store.Local`, which lists
-  and accepts only rule keys. The write lock is a `Guardian.ObjectStore.Lock`.
+  `Guardian.ObjectStore.S3`, or the folder store `Guardian.ObjectStore.Local`. Both list
+  every object; the rule layout (`Guardian.Rules.RuleSet.parse_key/1`) is applied by
+  Server and `Guardian.Rules.list_rules/1`. The write lock is a `Guardian.ObjectStore.Lock`.
 - `Guardian.Rules.Config`: chooses the store from the environment.
 - `Guardian.Rules.Server`: process, startup load, reload, poll, locked writes and
   admission. Holds Publisher's pool value and forwards reclamation messages.
 
-Rules to keep:
+## Rules to keep
 
 1. Nothing reads the store per event. The ingest path sees only the published map.
 2. Never load a module name twice while anything can call it. Compile into a free

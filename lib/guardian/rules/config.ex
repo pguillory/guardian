@@ -9,7 +9,9 @@ defmodule Guardian.Rules.Config do
     `GUARDIAN_RULES_S3_SECRET_ACCESS_KEY`; `GUARDIAN_RULES_S3_REGION` (default `auto`,
     right for R2) and `GUARDIAN_RULES_S3_PREFIX` (default none; a non-empty prefix
     must end in `/`) are optional.
-  - Otherwise a local folder: `GUARDIAN_RULES_DIR`, default `<data dir>/rules`.
+  - Otherwise a local folder: `GUARDIAN_RULES_DIR`, default `<data dir>/rules`. The
+    folder may not be the data folder, contain it, or be inside the segments folder:
+    every file in the rule folder is read on each poll.
 
   Setting the folder and the bucket, or only some of the bucket settings, is an
   error. The secrets are read here and kept only inside a closure
@@ -50,11 +52,21 @@ defmodule Guardian.Rules.Config do
         {:error, "#{Enum.join(optional, " and ")} set without GUARDIAN_RULES_S3_BUCKET"}
 
       Enum.all?(Map.values(s3), &is_nil/1) ->
-        dir = dir || Path.join(Application.fetch_env!(:guardian, :data_dir), "rules")
+        data_dir = Application.fetch_env!(:guardian, :data_dir)
+        dir = dir || Path.join(data_dir, "rules")
 
-        case Guardian.Rules.Store.Local.new(dir) do
-          {:ok, store} -> {:ok, store}
-          {:error, reason} -> {:error, Guardian.ObjectStore.reason_message(reason)}
+        cond do
+          contains?(dir, data_dir) ->
+            {:error, "GUARDIAN_RULES_DIR must not be the data folder or a folder containing it"}
+
+          contains?(Guardian.Storage.segment_dir(), dir) ->
+            {:error, "GUARDIAN_RULES_DIR must not be inside the segments folder"}
+
+          true ->
+            case ObjectStore.Local.new(dir) do
+              {:ok, store} -> {:ok, store}
+              {:error, reason} -> {:error, ObjectStore.reason_message(reason)}
+            end
         end
 
       dir != nil ->
@@ -96,6 +108,12 @@ defmodule Guardian.Rules.Config do
 
         {:ok, {ObjectStore.S3, config}}
     end
+  end
+
+  # Whether `path` is `dir` or under it, comparing expanded paths (no symlinks).
+  defp contains?(dir, path) do
+    dir = Path.split(Path.expand(dir))
+    List.starts_with?(Path.split(Path.expand(path)), dir)
   end
 
   defp endpoint_message({:error, :not_url}) do

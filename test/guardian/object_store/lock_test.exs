@@ -53,9 +53,8 @@ defmodule Guardian.ObjectStore.LockTest do
   test "works on a local folder too" do
     dir = Path.join(System.tmp_dir!(), "object_store_lock_#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(dir) end)
-    # The only folder store is the rule folder, which accepts only its own lock key.
-    {:ok, store} = Guardian.Rules.Store.Local.new(dir)
-    key = Guardian.Rules.Store.lock_key()
+    {:ok, store} = Guardian.ObjectStore.Local.new(dir)
+    key = "k"
     assert {:ok, lock} = Lock.acquire(store, key, "a")
     assert Lock.acquire(store, key, "b", timeout_ms: 600) == {:error, :busy}
     assert Lock.release(lock) == :ok

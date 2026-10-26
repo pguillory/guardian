@@ -34,6 +34,42 @@ defmodule Guardian.Rules.ServerTest do
     assert Guardian.Rules.lookup(table) == nil
   end
 
+  test "a local folder is read like a bucket: stray files are ignored, misplaced rules are errors" do
+    dir = Path.join(System.tmp_dir!(), "rules_stray_#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf!(dir) end)
+    nested = unique_table("rules_nested")
+    good = unique_table("rules_good")
+
+    for {key, body} <- [
+          {"x.gsql", "SET x = 1"},
+          {"#{nested}/sub/a.gsql", "SET x = 1"},
+          {"#{nested}/a.gsql", "SET x = 1"},
+          {"#{good}/a.gsql", "SET x = 1"},
+          {"#{good}/notes.txt", "not a rule"},
+          {"README", "not a rule"},
+        ] do
+      path = Path.join(dir, key)
+      File.mkdir_p!(Path.dirname(path))
+      File.write!(path, body)
+    end
+
+    {:ok, store} = Guardian.ObjectStore.Local.new(dir)
+    log = ExUnit.CaptureLog.capture_log(fn -> {:ok, _} = restart_server(store) end)
+    assert log =~ "x.gsql (path)"
+    assert log =~ "#{nested}/sub/a.gsql (path)"
+
+    # The nested file makes its table invalid; the root file names no table.
+    assert {:invalid, _} = Guardian.Rules.lookup(nested)
+    assert (module = Guardian.Rules.lookup(good)) != nil and is_atom(module)
+    assert Guardian.Rules.list_rules(good) == {:ok, [%{table: good, name: "a", size: 9}]}
+
+    # Existing errors do not block a write, which reports them.
+    assert {:ok, %{errors: errors}} = Guardian.Rules.write_rule(good, "b", "SET y = 2")
+    assert Enum.any?(errors, &String.starts_with?(&1, "x.gsql"))
+    assert Enum.any?(errors, &String.starts_with?(&1, "#{nested}/sub/a.gsql"))
+    assert Guardian.Rules.lookup(good) not in [nil, module]
+  end
+
   test "an invalid stored table fails at boot by default; other tables load" do
     s3 = Guardian.FakeS3.start()
     on_exit(fn -> Guardian.FakeS3.stop(s3) end)

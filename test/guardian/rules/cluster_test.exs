@@ -80,7 +80,7 @@ defmodule Guardian.Rules.ClusterTest do
   } do
     dir = Path.join(System.tmp_dir!(), "rules_local_#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(dir) end)
-    {:ok, store} = Guardian.Rules.Store.Local.new(dir)
+    {:ok, store} = Guardian.ObjectStore.Local.new(dir)
     {:ok, _} = restart_server(store)
 
     assert {:error, message} =

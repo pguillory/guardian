@@ -175,7 +175,7 @@ Two C components live in `src/` and are built by the Makefile through
 
 1. `column.c` (`priv/column.so`): the column NIF. It implements typed, packed columns
    and every per-column operation the query engine uses (arithmetic, comparison,
-   filtering, type counts). See `lib/guardian/storage/column/CLAUDE.md`.
+   filtering, type counts). See the [column reference](storage-columns.md).
 2. `mmap.c` (`priv/mmap.so`): maps a segment file read-only and returns it as a
    binary. The descriptor is closed at once, and the mapping is removed when the last
    binary referring to it is garbage collected, so deleting a mapped file is safe.
@@ -391,7 +391,10 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    Runner shares one Client batch budget across worker replacements and starts
    each event's membership snapshot and counter phase on worker entry. Generated
    modules accept this context through `apply/2`; `apply/1` creates a fresh event/batch.
-5. Loading: at boot, then on every write and every minute. The store is listed, and
+5. Loading: at boot, then on every write and every minute. The store is listed (a
+   bucket under its prefix, or every file in a local folder through the generic
+   `Guardian.ObjectStore.Local`); objects not ending in `.gsql` are ignored, a `.gsql`
+   object at any other path than `<table>/<name>.gsql` is a path error, and
    objects whose ETag changed are fetched with `If-Match` on the listed ETag (a change
    in between restarts the read). A table invalid at boot is published as invalid; a
    running node keeps a table's previous good module if its stored copy turns
@@ -990,10 +993,12 @@ subtraction; each caller keeps its own acceptance rules and null results.
 
 ### 5.6 Regular expressions
 
-`Guardian.Query.Regex` is the one place patterns are compiled and run, on Erlang's `:re`
+`Guardian.Query.Regex` is the one place query patterns are compiled and run, on Erlang's `:re`
 (PCRE2): the parser validates `RLIKE` and `replace` patterns with it, and evaluation
 compiles them again, once per evaluation. Compiled patterns are never put in the AST,
-which travels between nodes. Patterns compile in UTF-8 mode without `ucp`, so values
+which travels between nodes. (`Guardian.Query.URL` runs `URI.parse/1`'s own fixed
+patterns directly, without UTF-8 mode, to find a URL's port; no user pattern goes there.)
+Patterns compile in UTF-8 mode without `ucp`, so values
 match by character while `\w`, `\d` and `\b` stay ASCII by default (inline `(*UCP)`
 changes that). A value that is not valid UTF-8 makes `:re.run` raise; only that call
 is rescued, and the value gives null. Every run passes `match_limit` (1,000,000, per
@@ -1348,7 +1353,7 @@ Environment variables:
 | `RELEASE_COOKIE` | `rel/env.sh.eex`, the release | Erlang cookie. Required with `GUARDIAN_NODE_HOST` or on Fly; must match on every node. |
 | `GUARDIAN_DIST_PORT` | `rel/env.sh.eex` | Pins the server's distribution listen port, 1 to 65535. Unset means a random port. |
 | `FLY_PRIVATE_IP`, `FLY_APP_NAME` | `rel/env.sh.eex`, `config/runtime.exs` | Set by Fly. Their presence selects the Fly preset (section 7) and the volume check. |
-| `GUARDIAN_RULES_DIR` | `Guardian.Rules.Config` | The local rule folder. Default `<data dir>/rules`. |
+| `GUARDIAN_RULES_DIR` | `Guardian.Rules.Config` | The local rule folder (`Guardian.ObjectStore.Local`). Default `<data dir>/rules`; the data folder, a folder containing it, or one inside `segments` refuses startup. |
 | `GUARDIAN_RULES_S3_BUCKET`, `_ENDPOINT`, `_ACCESS_KEY_ID`, `_SECRET_ACCESS_KEY`, `_REGION`, `_PREFIX` | `Guardian.Rules.Config` | An S3-compatible rule store instead of the folder (3.4). The first four together or none; region defaults to `auto`. Read at boot by Guardian.Rules.Server, not `config/runtime.exs`, so the secret never enters application config. |
 | `TUNNEL_TOKEN` | `bin/fly-start` | Optional. Starts the cloudflared connector (10.1); Guardian's own process never sees it. |
 | `GUARDIAN_TUNNEL` | `bin/fly-start` | `off` keeps the connector from starting even with `TUNNEL_TOKEN` set (the token is still kept from Guardian), for a machine that should take no tunnel traffic. Any other value, or unset, leaves it on. |
@@ -1540,7 +1545,8 @@ About 150 test files cover:
 5. Rules: the parser, whole-set validation, semantics through real ingestion, the
    worker's limits, the server (boot refusals, repair, activation, the module pool,
    restarts), both rule stores, and a peer cluster sharing a store; the object-store
-   client's S3 implementation and key lock have their own tests. `Guardian.FakeS3` (in
+   client's S3 and folder implementations, their shared contract and the key lock
+   have their own tests. `Guardian.FakeS3` (in
    `libtest/guardian/`) is a small S3 server that checks every request's SigV4 signature with
    its own implementation of the canonical request; `Guardian.RulesTestHelper` restarts the
    shared Guardian.Rules.Server on a test store.

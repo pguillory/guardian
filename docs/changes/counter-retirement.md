@@ -2,6 +2,11 @@
 
 Status: implemented and validated.
 
+Superseded in part by [aggregates-unify.md](aggregates-unify.md): explicit counter
+aggregate opt-in was removed and the aggregate policies preserved here were unified
+with query semantics afterward. The obsolete entry-point and adapter removals
+remain in place; the original compatibility and validation record is below.
+
 Product spec impact: none. No statements change in overview.md or spec.md.
 TRACK/LOOKUP semantics, query results, aggregate policies, states, fail-open
 behavior, deadlines, cooldowns and budgets remain unchanged.

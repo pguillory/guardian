@@ -377,7 +377,11 @@ Files:
 3. Files live in a local folder (the default, `<data dir>/rules`) or an S3-compatible
    bucket such as Cloudflare R2 (configured by environment,
    [configuration](../reference/configuration.md)). There is no index file and no
-   local cache: listing the store is the rule set.
+   local cache: listing the store is the rule set. Files not ending in `.gsql` are
+   ignored; a `.gsql` file at any other path is a validation error, for the table its
+   first folder names if that is a valid table. In a local folder, names starting with
+   `.` are skipped, more than 20,000 entries fail the load, and the folder may not be
+   the data folder, contain it, or be inside its segments folder (startup refuses).
 
 Statements:
 
@@ -596,7 +600,7 @@ the shipped surface:
    infinity. That covers division or modulo by zero, the square root of a negative, the
    logarithm of zero or less, a float result too large to represent, a rounded float or
    an interval outside 64-bit integers, `factorial` above 20, date arithmetic outside
-   years 0000 to 9999, a port outside 0 to 65535, `ip_to_integer` of invalid UTF-8
+   years 0000 to 9999, a port outside 0 to 65535 or written with more than 20 digits, `ip_to_integer` of invalid UTF-8
    or of a string over 64 bytes, `format_timestamp` of a month or hour with no name,
    and a list nested deeper than storage holds (a list of lists).
 4. Aggregates (21 names): `count`, `count_if`, `count_distinct` (approximate,
