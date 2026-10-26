@@ -8,19 +8,15 @@ defmodule Guardian.Storage.PersistedSegmentsTest do
   import ExUnit.CaptureLog
 
   # A segment linked to the test process would die when the test ends, under the
-  # persister that still holds it. Start segments from a process that exits normally
-  # instead.
+  # persister that still holds it. Start segments from a task that returns normally
+  # instead, waiting for completion under ExUnit's overall test timeout.
   defp unlinked_segment(row) do
-    test = self()
-
-    spawn(fn ->
+    Task.async(fn ->
       {:ok, segment} = Segment.start_link()
       :ok = Segment.append(segment, row)
-      send(test, {:segment, segment})
+      segment
     end)
-
-    assert_receive {:segment, segment}, 1_000
-    segment
+    |> Task.await(:infinity)
   end
 
   describe "a segment that cannot be stored" do
@@ -47,6 +43,7 @@ defmodule Guardian.Storage.PersistedSegmentsTest do
       assert Process.whereis(PersistedSegments) == persister
       assert {:ok, ^segment} = FullSegments.get_segment(segment_id)
       assert segment_id in FullSegments.segment_ids(table)
+      assert Segment.get_row(segment, 0) == {:ok, %{"v" => 1}}
       assert [_] = Regex.scan(~r/Could not persist segment #{segment_id}/, log)
       assert log =~ "enametoolong"
 

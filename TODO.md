@@ -84,6 +84,14 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
          ingestion continuing after the restart (`desktop_events`, `system_stats`), and
          a clean boot log. The only MCP log warnings were clients' `server/discover`
          probes, rejected as before. Rollback target: v40's image.
+         `ab86e59` (2026-10-26 morning Pacific, v42: the top-down counter execution
+         restructure, with the full pre-commit gate passing on that main). Checked:
+         `/health` ok, the image's `priv/commit`, MCP SHOW TABLES and `list_rules`
+         returning empty (so no counter rules or counter-derived fields to check),
+         live ingestion continuing after the restart (`desktop_events`,
+         `system_stats`, `stumpy_events`), and a clean boot log apart from the same
+         `server/discover` warning and the restart window's proxy errors. Rollback
+         target: v41's image.
       2. Bucket: an R2 bucket and a bucket-scoped object read/write token, made by
          the maintainer; the secret goes straight into the deployment's secrets,
          never printed or stored here. Check the credentials from the deployment's
@@ -379,6 +387,10 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       name is absent
 
 ## Tests
+
+- [x] persisted-segment-test-synchronization: wait for fixture creation through task
+      completion instead of a 1 s message deadline; preserve segment lifetime and
+      verify the retained row (`docs/changes/persisted-segment-test-synchronization.md`)
 
 - [x] counter-test-allowance-seam-adoption: move ContextTest and CounterRuntimeTest
       allowance reads and the simulated retained charge onto the counter test budget
