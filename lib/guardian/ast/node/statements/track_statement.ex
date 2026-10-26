@@ -6,7 +6,7 @@ defmodule Guardian.AST.Node.Statements.TrackStatement do
 
   use Guardian.AST.Node
 
-  alias Guardian.AST.Node.Statements.SetStatement
+  alias Guardian.AST.Node.Statements.RuleClauses
 
   @enforce_keys [:field, :aggregate_expr, :last_expr]
   defstruct [:field, :aggregate_expr, :last_expr, by_exprs: [], where_expr: nil]
@@ -16,8 +16,8 @@ defmodule Guardian.AST.Node.Statements.TrackStatement do
       Guardian.AST.unparse(expr.field) <>
       " = " <>
       Guardian.AST.unparse(expr.aggregate_expr) <>
-      by_source(expr.by_exprs) <>
-      SetStatement.where_source(expr.where_expr) <>
+      RuleClauses.by_source(expr.by_exprs) <>
+      RuleClauses.where_source(expr.where_expr) <>
       " LAST " <> Guardian.AST.unparse(expr.last_expr)
   end
 
@@ -29,14 +29,5 @@ defmodule Guardian.AST.Node.Statements.TrackStatement do
       pre,
       post
     )
-  end
-
-  @doc false
-  def by_source([]) do
-    ""
-  end
-
-  def by_source(exprs) do
-    " BY " <> Enum.map_join(exprs, ", ", &Guardian.AST.unparse/1)
   end
 end

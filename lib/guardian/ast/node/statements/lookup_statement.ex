@@ -6,8 +6,7 @@ defmodule Guardian.AST.Node.Statements.LookupStatement do
 
   use Guardian.AST.Node
 
-  alias Guardian.AST.Node.Statements.SetStatement
-  alias Guardian.AST.Node.Statements.TrackStatement
+  alias Guardian.AST.Node.Statements.RuleClauses
 
   @enforce_keys [:field, :counter]
   defstruct [:field, :counter, :from_table, by_exprs: [], where_expr: nil]
@@ -18,7 +17,7 @@ defmodule Guardian.AST.Node.Statements.LookupStatement do
       " = " <>
       Guardian.AST.unparse(expr.counter) <>
       from_source(expr.from_table) <>
-      TrackStatement.by_source(expr.by_exprs) <> SetStatement.where_source(expr.where_expr)
+      RuleClauses.by_source(expr.by_exprs) <> RuleClauses.where_source(expr.where_expr)
   end
 
   def traverse(%__MODULE__{} = expr, acc, pre, post) do

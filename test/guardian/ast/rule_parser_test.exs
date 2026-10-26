@@ -63,6 +63,20 @@ defmodule Guardian.AST.RuleParserTest do
     assert Guardian.Engine.valid_table_name?("set") and Guardian.Engine.valid_table_name?("last")
   end
 
+  test "literal false and null WHERE predicates remain in canonical rule source" do
+    for predicate <- ["false", "null"],
+        source <- [
+          "SET x = 1 WHERE #{predicate}",
+          "UNSET password WHERE #{predicate}",
+          "TRACK c = count() WHERE #{predicate} LAST '1h'",
+          "LOOKUP x = c WHERE #{predicate}",
+        ] do
+      [{statement, 1}] = Parser.parse_rules(source)
+      assert Guardian.AST.unparse(statement) == source
+      assert Parser.parse_rules(Guardian.AST.unparse(statement)) == [{statement, 1}]
+    end
+  end
+
   test "parses counter statements with all optional clauses and source lines" do
     source = """
     -- counters
@@ -108,6 +122,7 @@ defmodule Guardian.AST.RuleParserTest do
           "LOOKUP x = c FROM t WHERE keep",
           "LOOKUP x = c FROM t BY ip",
           "LOOKUP x = c FROM t BY ip WHERE keep",
+          "LOOKUP x = c FROM t BY ip, last WHERE keep > 0",
           "TRACK track = count() BY lookup, last WHERE unset LAST '1h'",
           "LOOKUP lookup = track FROM last BY set WHERE unset",
         ] do

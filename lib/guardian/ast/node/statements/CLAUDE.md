@@ -17,6 +17,9 @@ uses `/api/json/send_events`.
 Statement modules implement `to_source/1` and `traverse/4`. Parser tests must cover
 construction and round trips; execution behavior belongs in query tests.
 
+Rule statements share optional BY and WHERE rendering through `RuleClauses`, a
+rendering helper rather than an AST node. LOOKUP owns its private FROM renderer.
+
 Counter clauses follow source order in traversal. TRACK holds `field`,
 `aggregate_expr`, `by_exprs`, `where_expr`, `last_expr` (a string literal);
 LOOKUP holds `field`, `counter`, `from_table`, `by_exprs`, `where_expr`.

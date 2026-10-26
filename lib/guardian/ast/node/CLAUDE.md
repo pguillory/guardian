@@ -1,6 +1,7 @@
 # AST Nodes
 
-AST node modules define query expressions and statements. Each does `use Guardian.AST.Node`,
+AST node modules define query expressions and statements. Rendering helpers such as
+`Statements.RuleClauses` are not nodes. Each node does `use Guardian.AST.Node`,
 which declares the `Guardian.AST.Node` behaviour (its moduledoc is the contract):
 
 - `to_source/1` for deterministic SQL-like output
