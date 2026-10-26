@@ -61,7 +61,9 @@ defmodule Guardian.Query.TextTest do
 
     test "stops at the budget, also inside a huge nested list" do
       list = List.duplicate(List.duplicate("abcdef", 1_000), 1_000)
-      {micros, form} = :timer.tc(fn -> Text.form(list, 100) end)
+      {:reductions, before_render} = Process.info(self(), :reductions)
+      form = Text.form(list, 100)
+      {:reductions, after_render} = Process.info(self(), :reductions)
 
       assert form ==
                binary_part(
@@ -70,7 +72,9 @@ defmodule Guardian.Query.TextTest do
                  100
                )
 
-      assert micros < 100_000
+      # Reject rendering the million strings before cutting to 100 bytes. Process
+      # reductions measure this caller's work without charging scheduler delays.
+      assert after_render - before_render < 100_000
       assert Text.form(["é"], 3) == ~s([")
       assert Text.form(["é"], 4) == ~s(["é)
       # Escapes and U+FFFD lengthen a string; the cut falls on the rendered text.

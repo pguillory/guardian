@@ -99,16 +99,18 @@ defmodule Guardian.Rules.RowIndexTest do
 
   describe "cost" do
     # Runs `source` as the table's rules on `row` the way a compiled module does, and
-    # times every statement after the first. The first applies and builds the index,
-    # which costs about the row's size; the rest should cost what they touch. The
-    # scan this replaced took about 205 s for them in the first test and 1.8 s after
-    # the UNSET in the second; the index takes a few milliseconds.
+    # measures reductions for every statement after the first. The first builds
+    # the index, which costs about the row's size; the rest should cost what they
+    # touch. The bounds reject repeated whole-row scans, including scanning stale
+    # case variants after UNSET, without charging scheduler delays.
     defp run(source, row) do
       %{tables: %{"t" => {:ok, plan}}} = Guardian.Rules.RuleSet.validate(%{"t/r.gsql" => source})
       [first | rest] = plan.steps
       state = step(Guardian.Rules.Runtime.start(row), first)
-      {micros, state} = :timer.tc(fn -> Enum.reduce(rest, state, &step(&2, &1)) end)
-      {micros / 1_000_000, Guardian.Rules.Runtime.finish(state)}
+      {:reductions, before_steps} = Process.info(self(), :reductions)
+      state = Enum.reduce(rest, state, &step(&2, &1))
+      {:reductions, after_steps} = Process.info(self(), :reductions)
+      {after_steps - before_steps, Guardian.Rules.Runtime.finish(state)}
     end
 
     defp step(state, step) do
@@ -119,10 +121,10 @@ defmodule Guardian.Rules.RowIndexTest do
       row = Map.new(1..100_000, &{"c#{&1}", &1})
       source = Enum.map_join(1..1_000, ";\n", &"SET f#{&1} = c#{&1} + 1 WHERE c1 = 1")
 
-      {seconds, result} = run(source, row)
+      {reductions, result} = run(source, row)
       assert result["f1000"] == 1_001
       assert map_size(result) == 101_000
-      assert seconds < 0.5
+      assert reductions < 2_000_000
     end
 
     test "many reads of a field with 100,000 case variants, live and after an UNSET" do
@@ -144,17 +146,17 @@ defmodule Guardian.Rules.RowIndexTest do
       least = live |> Map.keys() |> Enum.min()
       expected = Map.fetch!(live, least)
       reads = Enum.map_join(1..999, ";\n", &"SET f#{&1} = 1 WHERE #{name} = #{expected}")
-      {seconds, result} = run("SET v = #{name};\n" <> reads, live)
+      {reductions, result} = run("SET v = #{name};\n" <> reads, live)
       assert result["v"] == expected
       assert result["f999"] == 1
-      assert seconds < 0.5
+      assert reductions < 2_000_000
 
       stale =
         "UNSET #{name};\n" <> Enum.map_join(1..999, ";\n", &"UNSET c#{&1} WHERE #{name} = 0")
 
-      {seconds, result} = run(stale, Map.put(row, "c1", 1))
+      {reductions, result} = run(stale, Map.put(row, "c1", 1))
       assert result == %{"c1" => 1}
-      assert seconds < 0.5
+      assert reductions < 2_000_000
     end
   end
 end
