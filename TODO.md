@@ -92,6 +92,15 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
          `system_stats`, `stumpy_events`), and a clean boot log apart from the same
          `server/discover` warning and the restart window's proxy errors. Rollback
          target: v41's image.
+         `c510c34` (2026-10-26 morning Pacific, v43: counter execution moved into
+         Counters, behavior unchanged; the implementation's full pre-commit gate
+         passed, 1334 tests). Checked: `/health` ok, the image's `priv/commit`, MCP
+         SHOW TABLES and queries returning data, and `list_rules` returning empty
+         (no counter rules to exercise). New rows kept arriving after the restart
+         in `desktop_events`, `system_stats` and `stumpy_events`. The inspected boot
+         tail showed no Guardian errors; it included `server/discover` warnings,
+         Cloudflare's disabled ICMP proxy warnings and restart-window Fly proxy
+         errors. Rollback target: v42's image.
       2. Bucket: an R2 bucket and a bucket-scoped object read/write token, made by
          the maintainer; the secret goes straight into the deployment's secrets,
          never printed or stored here. Check the credentials from the deployment's
