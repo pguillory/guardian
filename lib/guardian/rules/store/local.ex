@@ -3,10 +3,15 @@ defmodule Guardian.Rules.Store.Local do
   Rule files in a local folder, as a `Guardian.ObjectStore`: `<dir>/<table>/<name>.gsql`,
   and the write lock at `<dir>/_write.lock` (`Guardian.Rules.Store.lock_key/0`).
   It lists and accepts only those keys, which is rule policy; a generic folder store
-  is a follow-up (`docs/changes/object-store-lock.md`). ETags are content hashes. Writes go to a temporary file that is
-  renamed into place; this node's writes to the folder are serialized, so conditional
-  puts are atomic here. Each node has its own folder, so `Guardian.Rules.Server` refuses
-  writes while other nodes are connected.
+  is a follow-up (`docs/changes/object-store-lock.md`). ETags are content hashes.
+
+  Writes go through `Guardian.AtomicFile.write/2` (a temporary file, fsynced, then
+  renamed into place), so a crash never leaves a torn rule or lock file. The directory
+  entry is not fsynced, so a power loss can roll a recent write back to the previous
+  version, or to no file for a new key, and a crash mid-write can leave an ignored
+  `{key}.{n}.tmp` file. This node's writes to the folder are serialized, so
+  conditional puts are atomic here. Each node has its own folder, so
+  `Guardian.Rules.Server` refuses writes while other nodes are connected.
   """
 
   @behaviour Guardian.ObjectStore
@@ -114,13 +119,8 @@ defmodule Guardian.Rules.Store.Local do
   end
 
   defp write(path, body) do
-    tmp = path <> ".tmp"
-
-    with :ok <- File.mkdir_p(Path.dirname(path)),
-         :ok <- File.write(tmp, body),
-         :ok <- File.rename(tmp, path) do
-      {:ok, etag(body)}
-    else
+    case Guardian.AtomicFile.write(path, body) do
+      :ok -> {:ok, etag(body)}
       {:error, posix} -> {:error, {:failed, Atom.to_string(posix)}}
     end
   end

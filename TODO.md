@@ -37,6 +37,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] object-store-lock: the rule write lock and the S3 client move out of Rules into
       a generic object-store client (`Guardian.ObjectStore`), with a lease lock on any
       key; Rules is one caller, with no behavior change (`docs/changes/object-store-lock.md`)
+- [x] atomic-write-helper: segment files and the local rule folder share one leaf
+      temp-file, fsync, rename writer (`Guardian.AtomicFile`); local rule and lock
+      writes are now fsynced too (`docs/changes/atomic-write-helper.md`)
 - [ ] object-store-local: a generic folder object store, with the rule folder's
       listing and key policy moved into Rules; changes what a local rule folder lists
       (`docs/changes/object-store-lock.md`, "Not in this change")

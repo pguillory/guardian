@@ -51,6 +51,8 @@ defmodule Guardian.Rules.StoreTest do
   } do
     {Store.Local, %{dir: dir}} = local = stores[:local]
     File.mkdir_p!(Path.join(dir, "t/folder.gsql"))
+    # A temporary file left by a crash mid-write is not a rule file.
+    File.write!(Path.join(dir, "t/a.gsql.123.tmp"), "SET y = 1")
     {:ok, _} = ObjectStore.put(local, "t/a.gsql", "SET x = 1", :absent)
     assert {:ok, [%{key: "t/a.gsql"}]} = ObjectStore.list(local)
 
@@ -58,5 +60,20 @@ defmodule Guardian.Rules.StoreTest do
     File.chmod!(path, 0o000)
     on_exit(fn -> File.chmod(path, 0o644) end)
     assert {:error, {:failed, "t/a.gsql: eacces"}} = ObjectStore.list(local)
+  end
+
+  test "local writes replace the file and leave no temp file, even when they fail", %{
+    stores: stores,
+  } do
+    {Store.Local, %{dir: dir}} = local = stores[:local]
+    {:ok, etag1} = ObjectStore.put(local, "t/a.gsql", "SET a = 1", :absent)
+    {:ok, _} = ObjectStore.put(local, "t/a.gsql", "SET a = 2", {:etag, etag1})
+    assert File.read!(Path.join(dir, "t/a.gsql")) == "SET a = 2"
+    assert File.ls!(Path.join(dir, "t")) == ["a.gsql"]
+
+    # Renaming over a nonempty folder fails after the temp file is written.
+    File.mkdir_p!(Path.join(dir, "u/b.gsql/child"))
+    assert {:error, {:failed, _posix}} = ObjectStore.put(local, "u/b.gsql", "SET b = 1", :none)
+    assert File.ls!(Path.join(dir, "u")) == ["b.gsql"]
   end
 end

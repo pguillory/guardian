@@ -403,7 +403,12 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    from the store, refuse the change if it adds an error, check 80 s of lease remain,
    save the one file conditionally (20 s deadline), release, publish locally, and ask
    every connected node to reload (10 s). An unknown save outcome leaves the lock to
-   expire. With a local folder and peers connected, writes are refused.
+   expire. With a local folder and peers connected, writes are refused. A local
+   folder writes each rule or lock file through `Guardian.AtomicFile.write/2`, as
+   segments are written (section 4.3): a crash never leaves a torn file, but a power
+   loss can roll a recent write back to the previous version, or to no file for a
+   new key (no directory fsync), and a crash mid-write can leave an ignored
+   `{key}.{n}.tmp` file.
 7. The S3 client is the generic `Guardian.ObjectStore.S3` (`lib/guardian/object_store/`):
    Req with SigV4 (`service: :s3`, region `auto` for R2), path-style
    URLs, `:xmerl` for ListObjectsV2, 5 s connect and 15 s receive timeouts, no
@@ -682,9 +687,11 @@ column data      each stored column's packed binary, in key order
 `Guardian.Storage.SegmentFile` encodes and decodes this layout and owns the filename rules;
 `test/guardian/storage/segment_file_golden_test.exs` pins it byte for byte.
 
-`Guardian.Storage.BlobStore.write/2` writes the file under a unique temporary name
-(`{final}.{n}.tmp`), fsyncs it, and renames it into place, so a reader never sees a
-partly written file under the final name, after a VM crash or a host crash.
+`Guardian.Storage.BlobStore.write/2` writes the file through the shared leaf
+`Guardian.AtomicFile.write/2` (also used by the local rule folder, section 3.4):
+under a unique temporary name (`{final}.{n}.tmp`), fsynced, then renamed into place,
+so a reader never sees a partly written file under the final name, after a VM crash
+or a host crash.
 
 Why this format: it is the packed columns themselves plus enough header to find them,
 so loading is a map and a header parse, with no decoding of column data.
