@@ -326,17 +326,8 @@ defmodule Guardian.Storage.PersistedSegmentRetirementTest do
   end
 
   test "an invalid cache window stops the persister from starting" do
-    previous = Application.fetch_env(:guardian, :persisted_segment_cache_ms)
-
-    on_exit(fn ->
-      case previous do
-        {:ok, value} -> Application.put_env(:guardian, :persisted_segment_cache_ms, value)
-        :error -> Application.delete_env(:guardian, :persisted_segment_cache_ms)
-      end
-    end)
-
     for invalid <- [0, -1, 1.5, "600000", nil] do
-      Application.put_env(:guardian, :persisted_segment_cache_ms, invalid)
+      Guardian.TestEnv.put(persisted_segment_cache_ms: invalid)
 
       assert_raise ArgumentError, "persisted_segment_cache_ms must be a positive integer", fn ->
         PersistedSegments.init([])
@@ -345,15 +336,7 @@ defmodule Guardian.Storage.PersistedSegmentRetirementTest do
   end
 
   test "the configured cache window ends with the in-memory copy stopped" do
-    previous = Application.fetch_env(:guardian, :persisted_segment_cache_ms)
-    Application.put_env(:guardian, :persisted_segment_cache_ms, 50)
-
-    on_exit(fn ->
-      case previous do
-        {:ok, value} -> Application.put_env(:guardian, :persisted_segment_cache_ms, value)
-        :error -> Application.delete_env(:guardian, :persisted_segment_cache_ms)
-      end
-    end)
+    Guardian.TestEnv.put(persisted_segment_cache_ms: 50)
 
     :ok = :sys.resume(PersistedSegments)
     table = table()

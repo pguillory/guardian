@@ -13,6 +13,53 @@ defmodule Guardian.TestCluster do
   """
 
   @doc """
+  Starts one Storage peer and waits until it can participate in queries. Call from
+  `setup` or `setup_all`; returns the peer controller and node as test context.
+
+  On exit, stops the peer (also safe if the test stopped it), removes its data root,
+  and stops distribution only if this call started it.
+  """
+  def single_peer do
+    started_distribution = ensure_distributed()
+    data_root = data_root()
+
+    ExUnit.Callbacks.on_exit(fn ->
+      File.rm_rf!(data_root)
+      if started_distribution, do: Node.stop()
+    end)
+
+    {peer, peer_node} = start_peer(data_root)
+
+    ExUnit.Callbacks.on_exit(fn ->
+      try do
+        :peer.stop(peer)
+      catch
+        :exit, _ -> :ok
+      end
+    end)
+
+    await_query_node(peer_node)
+    %{peer: peer, peer_node: peer_node}
+  end
+
+  @doc """
+  Waits for a peer's Storage readiness and GROUP BY partition lookup. This is a
+  startup barrier: a lookup that times out during a later query can still omit a
+  node's partitions. It does not start Storage on peers that intentionally lack it.
+  """
+  def await_query_node(peer_node) do
+    Guardian.TestHelpers.eventually(
+      fn ->
+        peer_node in Guardian.Cluster.connected_nodes() and
+          Enum.any?(Guardian.Query.Executor.group_by_partitions(), fn {node, _} ->
+            node == peer_node
+          end)
+      end,
+      10_000
+    )
+  end
+
+  @doc """
   Makes the test VM a distributed node if it is not one already. Returns `true` if
   this call started distribution (and so the caller should stop it).
   """

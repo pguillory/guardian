@@ -5,24 +5,7 @@ defmodule Guardian.Cluster.QueryFailuresTest do
   import Guardian.TestHelpers
 
   setup do
-    started_distribution = Guardian.TestCluster.ensure_distributed()
-
-    data_root = Guardian.TestCluster.data_root()
-
-    {peer, peer_node} = Guardian.TestCluster.start_peer(data_root)
-
-    on_exit(fn ->
-      try do
-        :peer.stop(peer)
-      catch
-        :exit, _ -> :ok
-      end
-
-      File.rm_rf!(data_root)
-      if started_distribution, do: Node.stop()
-    end)
-
-    %{peer: peer, peer_node: peer_node}
+    Guardian.TestCluster.single_peer()
   end
 
   test "the query time limit stops the query's workers on every machine",

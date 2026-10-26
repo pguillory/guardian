@@ -4,49 +4,25 @@ defmodule Guardian.Cluster.GroupByTest do
   use ExUnit.Case, async: false
   import Guardian.TestHelpers, only: [eventually: 2, run_sql: 1]
 
-  alias Guardian.Query.DistributedStream
+  alias Guardian.Query.Executor
   alias Guardian.Storage.Column.Metadata
   require Metadata
 
   setup_all do
-    started_distribution = Guardian.TestCluster.ensure_distributed()
-    data_root = Guardian.TestCluster.data_root()
-    {peer, peer_node} = Guardian.TestCluster.start_peer(data_root)
-
-    on_exit(fn ->
-      :peer.stop(peer)
-      File.rm_rf!(data_root)
-      if started_distribution, do: Node.stop()
-    end)
-
-    # Readiness barrier for a freshly started peer: a peer that answers GROUP BY's
-    # partition lookup after its 5 s timeout gets no partitions. Results stay correct
-    # then, but no group would merge on the peer, so wait until the peer is a query
-    # node and answers the lookup. It guards startup, not each query's own lookups.
-    eventually(
-      fn ->
-        peer_node in Guardian.Cluster.connected_nodes() and
-          partition_nodes() == Enum.sort([node(), peer_node])
-      end,
-      10_000
-    )
-
-    %{peer_node: peer_node}
+    %{peer_node: peer_node} = context = Guardian.TestCluster.single_peer()
+    eventually(fn -> partition_nodes() == Enum.sort([node(), peer_node]) end, 10_000)
+    context
   end
 
   setup do
     %{table: "cluster_group_by_#{System.unique_integer([:positive])}"}
   end
 
-  # The partitions GROUP BY routes to. Mirrors Guardian.Query.Executor's
-  # `concurrency: 2`; if that changes, these tests still pass but may merge every
-  # group on one node.
-  defp partitions do
-    DistributedStream.partitions(concurrency: 2)
-  end
-
   defp partition_nodes do
-    partitions() |> Enum.map(fn {node, _} -> node end) |> Enum.uniq() |> Enum.sort()
+    Executor.group_by_partitions()
+    |> Enum.map(fn {node, _} -> node end)
+    |> Enum.uniq()
+    |> Enum.sort()
   end
 
   # The first `n` candidate keys whose GROUP BY owner is on each node. Node names
@@ -54,7 +30,7 @@ defmodule Guardian.Cluster.GroupByTest do
   # node and some on the peer. `key_fun` turns a candidate into the routing key the
   # executor uses: the list of the row's group-by values.
   defp keys_owned_by_each_node(peer_node, n, key_fun) do
-    partitions = partitions()
+    partitions = Executor.group_by_partitions()
     candidates = Enum.map(0..199, key_fun)
 
     owned_by = fn owner ->

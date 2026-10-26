@@ -859,7 +859,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
   test "Runner preserves batch reservations and arrival coordinates through worker replacement" do
     table = unique_table("counter_worker_metadata")
     publish_module(table, MetadataRules)
-    put_env(:counter_metadata_observer, self())
+    Guardian.TestEnv.put(counter_metadata_observer: self())
     first = Event.arrival()
     second = %{first | arrival_ms: first.arrival_ms + 1}
 
@@ -888,7 +888,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
   test "Engine arrival metadata stays outside caller rows and is never stored" do
     table = unique_table("counter_engine_metadata")
     publish_module(table, MetadataRules)
-    put_env(:counter_metadata_observer, self())
+    Guardian.TestEnv.put(counter_metadata_observer: self())
     spoofed = %{"arrival_ms" => 1, "monotonic_ms" => 1, "timestamp" => "old", "counters" => 99}
     before = System.system_time(:millisecond)
 

@@ -21,8 +21,8 @@ defmodule Guardian.Web.AuthTest do
 
   describe "check_conn/1 with query keys allowed" do
     setup do
-      Application.put_env(:guardian, :allow_query_api_key, true)
-      on_exit(fn -> Application.delete_env(:guardian, :allow_query_api_key) end)
+      Guardian.TestEnv.put(allow_query_api_key: true)
+      :ok
     end
 
     test "takes the first x-api-key header, else the api_key query parameter" do

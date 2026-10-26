@@ -11,8 +11,8 @@ defmodule Guardian.ClusterTest do
 
   describe "with a DNS query" do
     setup do
-      Application.put_env(:guardian, :dns_cluster_query, "my-app.internal")
-      on_exit(fn -> Application.delete_env(:guardian, :dns_cluster_query) end)
+      Guardian.TestEnv.put(dns_cluster_query: "my-app.internal")
+      :ok
     end
 
     test "an IPv6-named node, as on Fly, looks up AAAA records" do

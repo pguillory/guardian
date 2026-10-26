@@ -25,6 +25,11 @@ defmodule Guardian.Query.Executor do
     |> Enum.to_list()
   end
 
+  @doc false
+  def group_by_partitions do
+    DistributedStream.partitions(concurrency: 2)
+  end
+
   defp step({:from, nil}, nil = _stream, _errors) do
     [%SegmentSnapshot{columns: %{}, count: 1}]
   end
@@ -92,7 +97,7 @@ defmodule Guardian.Query.Executor do
     aggregations = Enum.map(aggregate_names, &Guardian.Aggregation.fetch!/1)
     num_group_by_exprs = length(group_by_exprs)
 
-    partitions = DistributedStream.partitions(concurrency: 2)
+    partitions = group_by_partitions()
 
     # TODO: directly fan_out without pulling through a stream
     stream

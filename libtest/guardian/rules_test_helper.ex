@@ -26,19 +26,24 @@ defmodule Guardian.RulesTestHelper do
   @doc """
   Restarts the test VM's Guardian.Rules.Server on `store` (or on what `env` configures) from a
   clean slate (nothing published), returning what restarting the child returned. The
-  original server is restored when the test exits.
+  previous env and server's running/stopped state are restored when the test exits.
   """
   def restart_server(store, app_env \\ []) do
+    was_running = Process.whereis(Guardian.Rules.Server) != nil
+    stop_server()
+    env = if store, do: [{:rules_store, store} | app_env], else: app_env
+    restore = Guardian.TestEnv.put(env)
+
     on_exit(fn ->
-      Application.delete_env(:guardian, :rules_store)
-      for {key, _} <- app_env, do: Application.delete_env(:guardian, key)
       stop_server()
-      {:ok, _} = Supervisor.restart_child(Guardian.Application, Guardian.Rules.Server)
+      restore.()
+      # A previous failed start leaves invalid env but no running server. Let its
+      # own cleanup restore the earlier working configuration before restarting.
+      if was_running do
+        {:ok, _} = Supervisor.restart_child(Guardian.Application, Guardian.Rules.Server)
+      end
     end)
 
-    stop_server()
-    if store, do: Application.put_env(:guardian, :rules_store, store)
-    for {key, value} <- app_env, do: Application.put_env(:guardian, key, value)
     Supervisor.restart_child(Guardian.Application, Guardian.Rules.Server)
   end
 
@@ -54,11 +59,6 @@ defmodule Guardian.RulesTestHelper do
     on_exit(fn ->
       Guardian.Rules.publish(Map.delete(Guardian.Rules.published() || %{}, table))
     end)
-  end
-
-  @doc "Puts app env for a test, restoring the previous value when it exits."
-  def put_env(key, value) do
-    Guardian.TestEnv.put([{key, value}])
   end
 
   def unique_table(prefix) do

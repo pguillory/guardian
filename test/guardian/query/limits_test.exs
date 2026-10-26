@@ -3,20 +3,7 @@ defmodule Guardian.Query.LimitsTest do
   use ExUnit.Case, async: false
   import Guardian.TestHelpers, only: [run_sql: 1]
 
-  @keys [:query_max_result_rows, :query_max_result_bytes]
-
   setup do
-    saved = Application.get_all_env(:guardian) |> Keyword.take(@keys)
-
-    on_exit(fn ->
-      Enum.each(@keys, fn key ->
-        case Keyword.fetch(saved, key) do
-          {:ok, value} -> Application.put_env(:guardian, key, value)
-          :error -> Application.delete_env(:guardian, key)
-        end
-      end)
-    end)
-
     table = "limits_#{System.unique_integer([:positive])}"
 
     Guardian.Engine.ingest_events(
@@ -33,7 +20,7 @@ defmodule Guardian.Query.LimitsTest do
 
   describe "result cap" do
     setup do
-      Application.put_env(:guardian, :query_max_result_rows, 10)
+      Guardian.TestEnv.put(query_max_result_rows: 10)
       :ok
     end
 
@@ -53,8 +40,7 @@ defmodule Guardian.Query.LimitsTest do
     end
 
     test "bounds bytes too", %{table: table} do
-      Application.put_env(:guardian, :query_max_result_rows, 1_000)
-      Application.put_env(:guardian, :query_max_result_bytes, 200)
+      Guardian.TestEnv.put(query_max_result_rows: 1_000, query_max_result_bytes: 200)
       assert error("SELECT s FROM #{table}") =~ "query result exceeds 0 MiB"
       assert length(run_sql("SELECT s FROM #{table} LIMIT 3")) == 3
     end

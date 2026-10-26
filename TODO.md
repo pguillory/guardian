@@ -335,6 +335,10 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Tests
 
+- [x] test-infrastructure-helpers: migrate remaining scoped environment cleanup to
+      TestEnv, restore Rules server settings, and share single-peer query setup,
+      readiness and GROUP BY partitions (`docs/changes/test-infrastructure-helpers.md`)
+
 - [x] formatter-convergence: one `mix format` invocation handles newly wrapped
       trailing commas for explicit files and stdin without a Mix alias
       (`docs/changes/formatter-convergence.md`)

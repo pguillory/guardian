@@ -4,9 +4,7 @@ defmodule Guardian.Cluster.QueryLogTest do
   use ExUnit.Case, async: false
 
   setup do
-    started_distribution = Guardian.TestCluster.ensure_distributed()
-    data_root = Guardian.TestCluster.data_root()
-    {peer, peer_node} = Guardian.TestCluster.start_peer(data_root)
+    %{peer_node: peer_node} = context = Guardian.TestCluster.single_peer()
     # Peers run only Storage; give this one a recorder, so a row it recorded would show.
     {:ok, _} =
       :erpc.call(peer_node, GenServer, :start, [
@@ -15,18 +13,7 @@ defmodule Guardian.Cluster.QueryLogTest do
         [name: Guardian.Web.QueryLog],
       ])
 
-    on_exit(fn ->
-      try do
-        :peer.stop(peer)
-      catch
-        :exit, _ -> :ok
-      end
-
-      File.rm_rf!(data_root)
-      if started_distribution, do: Node.stop()
-    end)
-
-    %{peer_node: peer_node}
+    context
   end
 
   test "a query that fans out is recorded once, on the coordinating machine",

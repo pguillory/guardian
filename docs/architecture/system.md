@@ -1569,13 +1569,22 @@ appends a nested row straight to a segment (`segment_append/2`), writes a segmen
 from rows (`write_segment_file/2`), and registers a
 one-call fake segment to inject an append's reply (`intercept_append/2`), and
 `Guardian.TestCluster.data_root/0` gives a peer a fresh data directory.
+`Guardian.TestCluster.single_peer/0` shares a single Storage peer's setup and cleanup
+across query tests, preserving the calling setup's test or module lifetime.
+Its `await_query_node/1` startup barrier waits for Storage readiness and a GROUP BY
+partition lookup; GROUP BY's executor and routing tests share
+`Guardian.Query.Executor.group_by_partitions/0`.
 `Guardian.TestEnv` (in `libtest/guardian/`) puts `:guardian` application env for an
 `async: false` test, on this node or on named peers, and restores it when the test or a
 block ends; `with_time_limit/2`, `Guardian.QueryApiKeys.with_query_api_keys/2`,
-`Guardian.RulesTestHelper.put_env/2`,
-and `Guardian.CounterBudgetHelper.relax/1` and `scale/1` delegate to it. Tests do not use
-`:global` names: `Guardian.Query.DistributedStream.ClusterTest` suspends `:global` and checks on
-teardown that it still registers names. A bare `assert_receive` waits up to 5 s
+and `Guardian.CounterBudgetHelper.relax/1` and `scale/1` delegate to it.
+`Guardian.RulesTestHelper.restart_server/2` stops the test server before restoring
+the previous store and extra settings through TestEnv. It restarts a previously
+running server, leaving a previous failed start stopped until its outer cleanup
+restores the original working configuration.
+Tests do not use `:global` names: `Guardian.Query.DistributedStream.ClusterTest`
+suspends `:global` and checks on teardown that it still registers names. A bare
+`assert_receive` waits up to 5 s
 (`assert_receive_timeout` in `test/test_helper.exs`), not ExUnit's 100 ms, so tests
 need no explicit timeout to wait on another process under load.
 

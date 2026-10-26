@@ -3,19 +3,8 @@ defmodule Guardian.Query.RegexMemoryTest do
   use ExUnit.Case, async: false
   import Guardian.TestHelpers, only: [run_sql: 1]
 
-  setup do
-    previous = Application.fetch_env(:guardian, :query_max_heap_mb)
-
-    on_exit(fn ->
-      case previous do
-        {:ok, value} -> Application.put_env(:guardian, :query_max_heap_mb, value)
-        :error -> Application.delete_env(:guardian, :query_max_heap_mb)
-      end
-    end)
-  end
-
   defp set_limit(mb) do
-    Application.put_env(:guardian, :query_max_heap_mb, mb)
+    Guardian.TestEnv.put(query_max_heap_mb: mb)
   end
 
   defp replace(subject, pattern, replacement) do

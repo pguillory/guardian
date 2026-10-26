@@ -10,6 +10,49 @@ defmodule Guardian.Rules.ServerTest do
     {s3, store}
   end
 
+  test "nested restarts restore the previous env and running server on exit" do
+    {_s3, original_store} = s3_server(rules_poll_ms: 120_000)
+    table = unique_table("rules_restore")
+    assert {:ok, _} = Guardian.Rules.write_rule(table, "original", "SET x = 1")
+    assert Application.fetch_env(:guardian, :rules_test_helper_unset) == :error
+
+    temporary_s3 = Guardian.FakeS3.start()
+    on_exit(fn -> Guardian.FakeS3.stop(temporary_s3) end)
+    temporary_store = Guardian.FakeS3.store(temporary_s3)
+
+    # Registered first, so this observes the real exit restoration, including the
+    # restarted server loading the original store's rules.
+    on_exit(fn ->
+      assert Application.fetch_env(:guardian, :rules_store) == {:ok, original_store}
+      assert Application.fetch_env(:guardian, :rules_poll_ms) == {:ok, 120_000}
+      assert Application.fetch_env(:guardian, :rules_test_helper_unset) == :error
+      assert server = Process.whereis(Guardian.Rules.Server)
+      assert Process.alive?(server)
+      assert Guardian.Rules.lookup(table) != nil
+      assert Guardian.Rules.read_rule(table, "original") == {:ok, "SET x = 1"}
+    end)
+
+    assert {:ok, _} =
+             restart_server(temporary_store,
+               rules_poll_ms: 180_000,
+               rules_test_helper_unset: :temporary
+             )
+
+    assert Guardian.Rules.lookup(table) == nil
+
+    on_exit(fn ->
+      assert Application.fetch_env(:guardian, :rules_store) == {:ok, temporary_store}
+      assert Application.fetch_env(:guardian, :rules_poll_ms) == {:ok, 180_000}
+      assert Application.fetch_env(:guardian, :rules_test_helper_unset) == {:ok, :temporary}
+      assert server = Process.whereis(Guardian.Rules.Server)
+      assert Process.alive?(server)
+    end)
+
+    assert {:ok, _} = restart_server(nil, rules_poll_ms: 240_000)
+    assert Application.fetch_env(:guardian, :rules_store) == {:ok, temporary_store}
+    assert Application.fetch_env(:guardian, :rules_poll_ms) == {:ok, 240_000}
+  end
+
   test "a rejected write saves nothing and lists every new error" do
     table = unique_table("rules_reject")
     {_s3, store} = s3_server()
@@ -179,6 +222,16 @@ defmodule Guardian.Rules.ServerTest do
   test "a misconfigured store refuses startup at once; an unreachable one after retrying" do
     s3 = Guardian.FakeS3.start()
     on_exit(fn -> Guardian.FakeS3.stop(s3) end)
+
+    previous_store = Application.fetch_env(:guardian, :rules_store)
+    previous_retry = Application.fetch_env(:guardian, :rules_boot_retry_ms)
+
+    on_exit(fn ->
+      assert Application.fetch_env(:guardian, :rules_store) == previous_store
+      assert Application.fetch_env(:guardian, :rules_boot_retry_ms) == previous_retry
+      assert server = Process.whereis(Guardian.Rules.Server)
+      assert Process.alive?(server)
+    end)
 
     ExUnit.CaptureLog.capture_log(fn ->
       assert {:error, {:rules_store, "store misconfigured (HTTP 403)"}} =
@@ -618,7 +671,7 @@ defmodule Guardian.Rules.ServerTest do
 
   test "a save whose outcome is unknown reports it and leaves the lock held" do
     {s3, store} = s3_server()
-    put_env(:object_store_s3_write_deadline_ms, 300)
+    Guardian.TestEnv.put(object_store_s3_write_deadline_ms: 300)
     table = unique_table("rules_unknown")
 
     # Faults apply to requests in order: the lock create, the list, then the save.
@@ -635,7 +688,7 @@ defmodule Guardian.Rules.ServerTest do
 
   test "after a delete whose outcome is unknown, the next reload unpublishes the rule" do
     {s3, _store} = s3_server()
-    put_env(:object_store_s3_write_deadline_ms, 300)
+    Guardian.TestEnv.put(object_store_s3_write_deadline_ms: 300)
     table = unique_table("rules_unknown_delete")
     Guardian.FakeS3.put_object(s3, "#{table}/a.gsql", "SET x = 1")
     assert :ok = Guardian.Rules.reload()
@@ -656,7 +709,7 @@ defmodule Guardian.Rules.ServerTest do
 
   test "a write refuses to save with too little lease left" do
     {_s3, _store} = s3_server()
-    put_env(:rules_save_margin_ms, 200_000)
+    Guardian.TestEnv.put(rules_save_margin_ms: 200_000)
 
     assert Guardian.Rules.write_rule(unique_table("rules_margin"), "a", "SET x = 1") ==
              {:error, "the write lock's lease ran short; retry"}

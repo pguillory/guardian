@@ -9,19 +9,8 @@ defmodule Guardian.Query.HeapLimitTest do
 
   alias Guardian.Query.DistributedStream
 
-  setup do
-    previous = Application.fetch_env(:guardian, :query_max_heap_mb)
-
-    on_exit(fn ->
-      case previous do
-        {:ok, value} -> Application.put_env(:guardian, :query_max_heap_mb, value)
-        :error -> Application.delete_env(:guardian, :query_max_heap_mb)
-      end
-    end)
-  end
-
   defp set_limit(mb) do
-    Application.put_env(:guardian, :query_max_heap_mb, mb)
+    Guardian.TestEnv.put(query_max_heap_mb: mb)
   end
 
   # Runs a pipeline as a trapping consumer, like the query process, in a fresh process.
@@ -167,12 +156,12 @@ defmodule Guardian.Query.HeapLimitTest do
 
       # Off here, on there: the remote worker is killed.
       set_limit(0)
-      :ok = :erpc.call(peer_node, Application, :put_env, [:guardian, :query_max_heap_mb, 1])
+      Guardian.TestEnv.put([query_max_heap_mb: 1], [peer_node])
       assert run.() == {:exit, :killed}
 
       # On here, off there: it finishes.
       set_limit(1)
-      :ok = :erpc.call(peer_node, Application, :put_env, [:guardian, :query_max_heap_mb, 0])
+      Guardian.TestEnv.put([query_max_heap_mb: 0], [peer_node])
       assert run.() == {:ok, [200_000]}
     end
   end

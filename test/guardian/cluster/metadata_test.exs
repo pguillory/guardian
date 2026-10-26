@@ -8,19 +8,7 @@ defmodule Guardian.Cluster.MetadataTest do
   require Metadata
 
   setup_all do
-    started_distribution = Guardian.TestCluster.ensure_distributed()
-
-    data_root = Guardian.TestCluster.data_root()
-
-    {peer, peer_node} = Guardian.TestCluster.start_peer(data_root)
-
-    on_exit(fn ->
-      :peer.stop(peer)
-      File.rm_rf!(data_root)
-      if started_distribution, do: Node.stop()
-    end)
-
-    %{peer_node: peer_node}
+    Guardian.TestCluster.single_peer()
   end
 
   defp unique_table do
