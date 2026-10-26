@@ -361,11 +361,79 @@ defmodule Guardian.Counters.ClientTest do
   test "malformed operations and routing keys are refused before dispatch", %{store: store} do
     context = event(store)
 
-    for operation <- [nil, {:unsupported, key()}, {:get, :bad_key}, {:get, {nil, {}, 1}}] do
+    malformed_expiries =
+      for expiry <- [nil, :bad, "bad", [], %{}, {}, 0.0, 1.0e30],
+          operation <- [
+            {:incr, key(), 1, {:expires, expiry}},
+            {:cas, key(), :missing, 1, {:expires, expiry}},
+          ],
+          do: operation
+
+    for operation <-
+          [nil, {:unsupported, key()}, {:get, :bad_key}, {:get, {nil, {}, 1}}] ++
+            malformed_expiries do
       assert Client.batch(%{one: operation}, context) ==
                %{one: {:error, :invalid_request}}
     end
 
+    assert :atomics.get(context.batch, 1) == 250_000
+    assert :ets.lookup(:counter_client_test, node()) == []
+  end
+
+  test "malformed anchored expiries are refused before budget and cooldown admission", %{
+    store: store,
+  } do
+    context = event(store)
+    :atomics.put(context.batch, 1, 0)
+
+    operations = %{
+      incr: {:incr, key(), 1, {:expires, nil}},
+      cas: {:cas, key(), :missing, 1, {:expires, "bad"}},
+    }
+
+    errors = %{incr: {:error, :invalid_request}, cas: {:error, :invalid_request}}
+    assert Client.batch(operations, context) == errors
+    assert :atomics.get(context.batch, 1) == 0
+
+    :atomics.put(context.batch, 1, 250_000)
+    cooldown = {node(), System.monotonic_time(:microsecond) + 10_000_000}
+    :ets.insert(:counter_client_test, cooldown)
+    assert Client.batch(operations, context) == errors
+    assert :atomics.get(context.batch, 1) == 250_000
+    assert :ets.lookup(:counter_client_test, node()) == [cooldown]
+  end
+
+  test "malformed anchored writes leave healthy siblings and integer expiries intact", %{
+    store: store,
+  } do
+    Guardian.Test.Counters.Budget.relax()
+    context = event(store)
+    expiry = System.monotonic_time(:millisecond) + 60_000
+    incr_key = key({}, 2)
+    cas_key = key({}, 3)
+
+    assert Client.batch(
+             %{
+               bad_incr: {:incr, key(), 1, {:expires, nil}},
+               bad_cas: {:cas, key(), :missing, 1, {:expires, "bad"}},
+               read: {:get, key()},
+               incr: {:incr, incr_key, 2, {:expires, expiry}},
+               cas: {:cas, cas_key, :missing, 3, {:expires, expiry}},
+               expired: {:incr, key({}, 4), 1, {:expires, expiry - 120_000}},
+             },
+             context
+           ) == %{
+             bad_incr: {:error, :invalid_request},
+             bad_cas: {:error, :invalid_request},
+             read: :not_found,
+             incr: {:ok, 2},
+             cas: :ok,
+             expired: {:error, :expired},
+           }
+
+    assert Store.get(key(), server: store) == :not_found
+    assert Store.get(incr_key, server: store) == {:ok, 2}
+    assert Store.get(cas_key, server: store) == {:ok, 3}
     assert :atomics.get(context.batch, 1) == 250_000
     assert :ets.lookup(:counter_client_test, node()) == []
   end

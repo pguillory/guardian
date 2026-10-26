@@ -65,8 +65,11 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    fault injection pauses callers through a libtest clock gate, not the housekeeper.
    Store validates request options explicitly (`:invalid_request`) and catches any
    other request failure as `:unavailable`; that catch is its deliberate boundary for
-   direct callers and the remote endpoint. Transport's `operation_owner/2` rescues
-   nothing: bad membership is a programming error that Rules records and fails open.
+   direct callers and the remote endpoint. Transport's `operation_owner/2` checks
+   anchored increment/CAS expiries are integers before grouping or admission, so
+   malformed expiries return `:invalid_request` without reserving allowance.
+   It rescues nothing: bad membership is a programming error that Rules records
+   and fails open. Translate valid anchored expiries only at actual dispatch.
 
 `Guardian.Counters.Client` is the batched facade used by Rules and Machine. It
 returns a typed `Guardian.Counters.Context` nested under

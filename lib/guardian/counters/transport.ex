@@ -29,12 +29,13 @@ defmodule Guardian.Counters.Transport do
     pipelines(pending, %{}, errors, event)
   end
 
-  # Refuses a malformed operation or routing key. Nothing here is rescued: `owner/2`
+  # Refuses a malformed operation, anchored expiry or routing key. Nothing is rescued: `owner/2`
   # raises only on members that aren't a non-empty list of atoms, a programming error
   # that Rules.Runtime records as a statement failure (failing open), not request data.
   defp operation_owner(operation, members) do
     with true <- is_tuple(operation) and tuple_size(operation) in [2, 4, 5],
          kind when kind in [:get, :gets, :incr, :cas] <- elem(operation, 0),
+         true <- anchored_expiry_valid?(operation),
          {:ok, routing} <- routing_key(elem(operation, 1)) do
       {:ok, owner(routing, members)}
     else
@@ -143,6 +144,20 @@ defmodule Guardian.Counters.Transport do
       end)
 
     {Enum.reverse(ready), results}
+  end
+
+  # Validate before admission; subtraction at dispatch must receive an integer.
+  # Other operands remain Store's responsibility, including ordinary TTLs.
+  defp anchored_expiry_valid?({:incr, _, _, {:expires, expiry}}) do
+    is_integer(expiry)
+  end
+
+  defp anchored_expiry_valid?({:cas, _, _, _, {:expires, expiry}}) do
+    is_integer(expiry)
+  end
+
+  defp anchored_expiry_valid?(_) do
+    true
   end
 
   defp prepare_operation({:incr, key, delta, {:expires, expiry}}) do

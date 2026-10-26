@@ -53,6 +53,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] counter-rescues: `Guardian.Counters.Store` validates request options instead of
       rescuing them and keeps one documented catch-all as its fail-open boundary;
       Transport's routing no longer rescues programming errors (code review follow-up)
+- [x] counter-transport-malformed-op: refuse noninteger anchored increment/CAS
+      expiries before routing and admission, preserving sibling operations and
+      failed-wait allowance (`docs/changes/counter-transport-malformed-op.md`)
 - [x] local-store-lock-identity: a local folder store's write lock is keyed by the
       folder's device and inode, taken in `new/2`, so `dir`, `dir/`, a relative path
       or a symlink to one folder share it (follow-up to local-store-lock-id)
