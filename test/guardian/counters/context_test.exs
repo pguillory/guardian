@@ -2,6 +2,7 @@ defmodule Guardian.Counters.ContextTest do
   use ExUnit.Case, async: false
   alias Guardian.Counters.{Budget, Client, Context, Store, Transport}
   alias Guardian.Rules.Event
+  alias Guardian.Test.Counters.Budget, as: CounterBudgetHelper
 
   test "Client captures a typed context with the existing defaults and shared batch" do
     batch = Client.new_batch()
@@ -21,7 +22,7 @@ defmodule Guardian.Counters.ContextTest do
     assert [local | peers] = context.members
     assert local == node()
     assert Enum.all?(peers, &is_atom/1)
-    assert :atomics.get(batch, 1) == 250_000
+    assert CounterBudgetHelper.remaining_us(batch) == 250_000
   end
 
   test "test overrides preserve shortened deadlines and upper caps" do
@@ -69,7 +70,7 @@ defmodule Guardian.Counters.ContextTest do
     assert %Event{counters: %Context{}} = Event.new()
   end
 
-  # The one budget test that uses Guardian.Test.Counters.Budget: it tests the seam itself.
+  # Only this test changes the runtime budgets: it tests the configuration seam itself.
   test "the internal budget seam replaces defaults, caps and the remote endpoint bound" do
     batch = Client.new_batch()
     store = start_supervised!({Store, name: nil})
@@ -79,7 +80,7 @@ defmodule Guardian.Counters.ContextTest do
     assert Transport.remote_operation(probe, store, 50) == {:ok, [:not_found]}
     assert Transport.remote_operation(probe, store, 51) == {:error, :invalid_request}
 
-    Guardian.Test.Counters.Budget.relax()
+    CounterBudgetHelper.relax()
     before = System.monotonic_time(:microsecond)
     relaxed = Client.new_event(batch, event_timeout_ms: 5_000)
     assert relaxed.timeout_us == 1_000_000

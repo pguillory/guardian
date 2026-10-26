@@ -4,6 +4,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
   alias Guardian.Aggregation
   alias Guardian.Counters.Store
   alias Guardian.Rules.{CounterRuntime, DependencyGraph, Event, Runtime}
+  alias Guardian.Test.Counters.Budget, as: CounterBudgetHelper
 
   # No test here depends on the production 50 ms call or 100 ms event budget: the
   # timeout tests pass shorter explicit timeouts, which stay capped, and the allowance
@@ -11,7 +12,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
   # including a cold first call, from timing out under host load and setting a
   # cooldown that fails later calls open.
   setup do
-    Guardian.Test.Counters.Budget.relax()
+    CounterBudgetHelper.relax()
     store = start_supervised!({Store, name: nil})
     start_supervised!({Guardian.Counters.Budget, name: :rules_counter_runtime_test})
     %{store: store}
@@ -98,7 +99,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
       refute Map.has_key?(row, "secret")
     end
 
-    assert :atomics.get(batch, 1) == 250_000
+    assert CounterBudgetHelper.remaining_us(batch) == 250_000
   end
 
   test "cross-table lookups preserve exact ordered typed groups, including null", %{store: store} do
@@ -825,7 +826,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     for n <- 1..300,
         do: assert(CounterRuntime.track(definition, {}, [], event(store, batch)) == n)
 
-    assert :atomics.get(batch, 1) == 250_000
+    assert CounterBudgetHelper.remaining_us(batch) == 250_000
   end
 
   test "concurrent native increments never omit the event's own mutation", %{store: store} do
@@ -871,7 +872,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
       assert Enum.all?(row, fn {_field, value} -> value == 0 end)
     end
 
-    assert :atomics.get(batch, 1) < 10_000
+    assert CounterBudgetHelper.remaining_us(batch) < 10_000
     # Guards against events waiting out their whole 900 ms event budgets (25 of them
     # would take over 20 s); it leaves room for host load.
     assert System.monotonic_time(:millisecond) - started < 2_500
@@ -908,7 +909,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
       )
 
       if row["die"] do
-        :atomics.sub(event.counters.batch, 1, 50_000)
+        CounterBudgetHelper.charge_us(event.counters.batch, 50_000)
         Process.exit(self(), :kill)
       end
 
@@ -940,7 +941,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     assert two.arrival_ms == second.arrival_ms
     assert one.monotonic_ms == two.monotonic_ms
     assert one.counters.batch == two.counters.batch
-    assert :atomics.get(two.counters.batch, 1) == 200_000
+    assert CounterBudgetHelper.remaining_us(two.counters.batch) == 200_000
     assert two.counters.members == [node() | Node.list()]
     assert two.counters.deadline > one.counters.deadline
   end

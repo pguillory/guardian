@@ -362,6 +362,10 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Tests
 
+- [x] counter-test-allowance-seam-adoption: move ContextTest and CounterRuntimeTest
+      allowance reads and the simulated retained charge onto the counter test budget
+      helper (`docs/changes/counter-test-budgets.md`, allowance seam adoption)
+
 - [x] counter-client-test-budget-seam: share ClientTest event construction and hide
       batch allowance storage behind the counter test budget helper
       (`docs/changes/counter-test-budgets.md`, ClientTest allowance helpers)

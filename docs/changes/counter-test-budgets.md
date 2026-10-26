@@ -226,10 +226,34 @@ claim the whole-reservation equivalence of scaled budget tests.
 
 Test scenarios, assertion values, budget transitions and cleanup are preserved.
 ContextTest's and CounterRuntimeTest's direct allowance access remains outside
-this ClientTest refactor.
+this ClientTest refactor (addressed in the allowance seam adoption follow-up below).
 The three residual timing cases listed in item 4 above remain unchanged: this
 allowance seam does not control transport scheduling or remote clocks, so making
 them deterministic would need a separate timing mechanism.
 
 Validation: the focused ClientTest and ContextTest run passed with warnings as
 errors: 30 tests, no failures. No test cases were added or removed.
+
+## Follow-up: allowance seam adoption (2026-10-26)
+
+Product spec impact: none. No statements in `docs/product/overview.md` or
+`docs/product/spec.md` change; production code is unchanged.
+
+ContextTest and CounterRuntimeTest now read remaining allowance through
+`Guardian.Test.Counters.Budget.remaining_us/1`. Neither test depends on the
+atomics slot layout. The worker-replacement fixture uses the helper's new
+`charge_us/2` to simulate the same retained 50_000-microsecond charge before
+killing the worker. This absolute charge is independent of relaxed operation
+budgets, preserving the assertion that the next worker shares the remaining
+200_000 of the original 250_000 microseconds. Callers must provide enough
+allowance and no outstanding reservations.
+
+Test scenarios, assertion values, budget transitions and cleanup are preserved;
+no test cases are added or removed. This follow-up covers only ContextTest and
+CounterRuntimeTest; lower-level Budget tests still access the atomics directly.
+
+Validation: the focused ContextTest and CounterRuntimeTest run passed with warnings
+as errors: 35 tests, no failures. Test declarations and assertions are preserved,
+and neither file has raw atomics accesses. Independent Claude and Codex code reviews
+approved this follow-up. The full pre-commit gate passed once: formatter,
+warnings-as-errors compilation and 1,322 tests with no failures (3 excluded).

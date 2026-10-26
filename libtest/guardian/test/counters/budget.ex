@@ -6,7 +6,8 @@ defmodule Guardian.Test.Counters.Budget do
   with a larger wall-clock unit.
 
   `batch/1,2` create or reset a batch allowance in current operation-budget units;
-  `remaining_us/1` reads it without exposing its storage layout to callers.
+  `remaining_us/1` reads it and `charge_us/2` simulates a retained charge, without
+  exposing its storage layout to callers.
 
   WARNING: use `relax/1` only in tests whose assertions do not depend on production's
   operation or event budget values (an explicit shorter `timeout_ms` still applies,
@@ -89,6 +90,15 @@ defmodule Guardian.Test.Counters.Budget do
   """
   def remaining_us(batch) do
     :atomics.get(batch, 1)
+  end
+
+  @doc """
+  Simulates a retained failed-wait charge of `amount_us` microseconds.
+  Call only when the batch has no outstanding reservations and enough allowance
+  to cover the charge. The amount is independent of the current operation budget.
+  """
+  def charge_us(batch, amount_us) when is_integer(amount_us) and amount_us >= 0 do
+    :atomics.sub(batch, 1, amount_us)
   end
 
   defp put(budgets, peers) do
