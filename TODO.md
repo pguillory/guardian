@@ -73,6 +73,14 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
          succeeding (numeric offsets return null). The boot line was outside Fly's
          latest-100-log buffer; direct runtime checks confirmed the empty local
          folder, empty rule list and absence of rule settings instead.
+         Later deploys, still with no `GUARDIAN_RULES_*` settings or secrets:
+         `f0ef316` (2026-10-24 evening Pacific, Fly release v40; found unrecorded and
+         identified from the image's `priv/commit`) and `c8f95fd` (2026-10-25, v41,
+         after a passing pre-commit gate on main). Checked for v41: `/health` ok, the
+         image's `priv/commit`, MCP SHOW TABLES and `list_rules` returning empty, live
+         ingestion continuing after the restart (`desktop_events`, `system_stats`), and
+         a clean boot log. The only MCP log warnings were clients' `server/discover`
+         probes, rejected as before. Rollback target: v40's image.
       2. Bucket: an R2 bucket and a bucket-scoped object read/write token, made by
          the maintainer; the secret goes straight into the deployment's secrets,
          never printed or stored here. Check the credentials from the deployment's
