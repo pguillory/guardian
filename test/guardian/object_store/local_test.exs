@@ -159,4 +159,27 @@ defmodule Guardian.ObjectStore.LocalTest do
     assert {:error, {:failed, _posix}} = ObjectStore.put(store, "u/b.gsql", "SET b = 1", :none)
     assert File.ls!(Path.join(dir, "u")) == ["b.gsql"]
   end
+
+  test "concurrent :absent puts to one key: exactly one succeeds", %{dir: dir, store: store} do
+    # Each key gets several writers released at once; without serialization they all
+    # see no file and all write.
+    tasks =
+      for key <- ~w[k0 k1 k2 k3 k4], n <- 1..4 do
+        Task.async(fn ->
+          receive do
+            :go -> {key, n, ObjectStore.put(store, key, "#{n}", :absent)}
+          end
+        end)
+      end
+
+    Enum.each(tasks, &send(&1.pid, :go))
+    results = Task.await_many(tasks, 30_000)
+
+    for {key, key_results} <- Enum.group_by(results, &elem(&1, 0)) do
+      {wins, losses} = Enum.split_with(key_results, &match?({_key, _n, {:ok, _}}, &1))
+      assert [{^key, winner, {:ok, _etag}}] = wins
+      assert Enum.all?(losses, &match?({^key, _n, {:error, :precondition_failed}}, &1))
+      assert File.read!(Path.join(dir, key)) == "#{winner}"
+    end
+  end
 end

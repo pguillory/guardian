@@ -237,8 +237,11 @@ defmodule Guardian.ObjectStore.Local do
     end
   end
 
+  # A `:global` lock id is `{resource, requester}`, and the lock is granted again to its
+  # own requester, so the folder is the resource and the calling process the requester.
+  # Do not nest: an inner call would be granted the lock and release it on return.
   defp serialized(%__MODULE__{dir: dir}, fun) do
-    :global.trans({__MODULE__, dir}, fun, [node()])
+    :global.trans({{__MODULE__, dir}, self()}, fun, [node()])
   end
 
   defp path(%__MODULE__{dir: dir}, key) do

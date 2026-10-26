@@ -43,6 +43,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] object-store-local: a generic folder object store, with the rule folder's
       listing and key policy moved into Rules; a local rule folder is read like a
       bucket (`docs/changes/object-store-local.md`)
+- [x] local-store-lock-id: a local folder store's conditional puts are serialized
+      per folder on this node; its lock had named the folder as the requester, so
+      concurrent writers all held it at once (`docs/changes/local-store-lock-id.md`)
 - [x] ingest-rules: SET and UNSET rules stored as files (`<table>/<name>.gsql`, in a
       folder or an S3-compatible bucket), run on API ingests before storage, managed
       through MCP tools with whole-set validation and a store-held write lock

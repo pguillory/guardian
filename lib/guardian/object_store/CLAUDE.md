@@ -14,8 +14,9 @@ Modules:
   config runs first.
 - `Guardian.ObjectStore.Local`: a local folder, every regular file at any depth an
   object (hidden, non-UTF-8 and `Guardian.AtomicFile` temp names skipped, the walk
-  bounded by `max_entries`), with content-hash ETags and writes serialized on this
-  node through `Guardian.AtomicFile`.
+  bounded by `max_entries`), with content-hash ETags, writes through
+  `Guardian.AtomicFile`, and each folder's writes serialized on this node by a
+  `:global` lock held by the writing process.
 - `Guardian.ObjectStore.Lock`: a lease lock on one key of any store, judged by the
   store's clock, with ownership-safe release. A lease, not a fence.
 
