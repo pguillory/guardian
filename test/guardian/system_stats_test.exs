@@ -10,11 +10,14 @@ defmodule Guardian.SystemStatsTest do
   end
 
   test "stamps each system_stats event with a UTC timestamp" do
+    before_metrics = NaiveDateTime.utc_now(:second)
     timestamp = Keyword.fetch!(Guardian.SystemStats.metrics(), :timestamp)
+    after_metrics = NaiveDateTime.utc_now(:second)
 
     assert {:ok, recorded} = NaiveDateTime.from_iso8601(timestamp)
     assert timestamp == NaiveDateTime.to_string(recorded)
-    assert abs(NaiveDateTime.diff(NaiveDateTime.utc_now(), recorded)) < 5
+    assert NaiveDateTime.compare(recorded, before_metrics) in [:eq, :gt]
+    assert NaiveDateTime.compare(recorded, after_metrics) in [:eq, :lt]
   end
 
   test "counter availability is visible in metrics while health remains Storage-only" do

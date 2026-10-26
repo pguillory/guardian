@@ -4,6 +4,7 @@ defmodule Guardian.Query.TextTest do
   use Guardian.Query.EvaluationTestCase, async: true
 
   alias Guardian.Query.Text
+  alias Guardian.WorkBounds
 
   @max Text.max_bytes()
 
@@ -61,9 +62,7 @@ defmodule Guardian.Query.TextTest do
 
     test "stops at the budget, also inside a huge nested list" do
       list = List.duplicate(List.duplicate("abcdef", 1_000), 1_000)
-      {:reductions, before_render} = Process.info(self(), :reductions)
-      form = Text.form(list, 100)
-      {:reductions, after_render} = Process.info(self(), :reductions)
+      {reductions, form} = WorkBounds.reductions(fn -> Text.form(list, 100) end)
 
       assert form ==
                binary_part(
@@ -74,7 +73,7 @@ defmodule Guardian.Query.TextTest do
 
       # Reject rendering the million strings before cutting to 100 bytes. Process
       # reductions measure this caller's work without charging scheduler delays.
-      assert after_render - before_render < 100_000
+      assert reductions < 100_000
       assert Text.form(["é"], 3) == ~s([")
       assert Text.form(["é"], 4) == ~s(["é)
       # Escapes and U+FFFD lengthen a string; the cut falls on the rendered text.

@@ -30,22 +30,14 @@ regressions exceed the bounds on the supported runtime.
 
 The suite scan leaves these unchanged:
 
-- LIKE operator tests: six 1 s guards against backtracking and expensive pattern
-  compilation. These CPU guards are candidates for a separate work-bound change
-  with their own negative controls; they have wider margins than the changed tests.
-- Tokenizer: a 1 s guard against converting a million-digit literal to a bignum.
-  Also a candidate for a separate work-bound change, accounting for native integer
-  conversion rather than assuming reductions capture it.
 - QueryLog and QueryParseErrors: two 1 s guards while the recorder is suspended.
   These distinguish an asynchronous handoff from a blocking recorder call.
 - Deployment: a 4 s shutdown guard distinguishes interrupting a 5 s restart pause
   from waiting it out. This tests actual time-dependent process behavior.
 - Segment reader: 4.9–8 s checks the real 5 s storage timeout. A separate measured
   query duration chooses deadlines for a race test; it asserts no fixed CPU limit.
-- SystemStats: a timestamp freshness check within 5 s. It tests timestamp content,
-  although a pause before the comparison can still fail it.
 - ObjectStore: returned object age must be nonnegative and below 5 s. This checks
-  timestamp freshness too, and can fail after a sufficiently delayed put/list/get.
+  timestamp freshness and can fail after a sufficiently delayed put/list/get.
 - PersistedSegments scheduling: a 3 s polling deadline allows successive 1 s
   persistence ticks. Other storage/query helper deadlines, Task.await and
   assert_receive limits bound asynchronous waits rather than CPU benchmarks.
@@ -74,3 +66,59 @@ Both changed test files passed together twice (15 tests per pass) with the
 original failure's seed, 357856. Further repetitions were stopped when host load
 exceeded the development run limit; an incomplete pass is not counted. The
 normal full pre-commit checks run at commit.
+
+## Follow-up: LIKE, integer tokenization and timestamp freshness
+
+The six remaining LIKE CPU guards and the million-digit integer tokenizer guard
+now measure caller reductions through the test-only `Guardian.WorkBounds` helper.
+String rendering and RowIndex use that helper too, preserving their workloads and
+bounds. Inputs are built before measurement; the result assertions remain.
+Product spec impact remains none.
+
+LIKE retains the existing SQL evaluation helper coverage, and the oversized
+65,536-code-point pattern still calls the operator directly. The valid
+1,000-code-point pattern keeps its literal-case result assertion; its work bound
+moves to a 1,000-row column snapshot, built outside the measurement. This
+distinguishes compiling a constant pattern once from compiling it again for each
+row; literal operands alone did not exercise that distinction.
+
+Calibration on Elixir 1.19.3 / OTP 28.5.0.8 gave the following reduction counts.
+LIKE bounds allow at least three times the baseline work; every LIKE
+regression exceeds its bound by at least four times. The tokenizer has less
+separation: its bound allows 50% above the million-reduction scan, while a native
+conversion before the range check costs about 2.37 million reductions overall.
+This includes the scanner and the same parse-error path, rather than inferring
+coverage from the conversion alone. Native integer conversion is charged enough
+on this runtime to distinguish that regression without call tracing or heap limits.
+
+| Workload | Baseline reductions (approximate) | Bound | Representative regression |
+| --- | ---: | ---: | ---: |
+| 1,000-character value, 20 `%_` pairs then `x` | 40,000 | 200,000 | naive backtracker stopped above 2,000,000 |
+| 30-character value, 31 `%_` pairs | 4,000 | 25,000 | naive backtracker stopped above 2,000,000 |
+| 16,384-character value, 999 `%a` pairs then `%b` | 1,375,000 | 5,000,000 | historical backtracker stopped above 20,000,000 |
+| 80-character value, `%a%a%a%a%a%b` | 4,800 | 25,000 | historical backtracker stopped above 20,000,000 |
+| 65,536 distinct code points, direct operator call | 138,000 | 500,000 | uncapped compiler stopped above 2,000,000 |
+| 1,000 distinct code points, constant pattern over 1,000 column values | 54,000 | 500,000 | per-row compilation: 10,145,000 |
+| Million-digit out-of-range integer | 1,000,034 | 1,500,000 | convert before checking range: 2,374,000 |
+
+Negative controls ran only in throwaway VMs from scratch scripts, with no production
+source edits. The `%_` control uses ordinary recursive wildcard backtracking without
+the historical `%_` normalization; that normalization already handles these two
+inputs cheaply. Alternating literals use the historical recursive matcher. The
+compiler control lifts the item cap, and the constant-pattern control restores
+per-row compilation through the real query path. Runaway controls were isolated
+in monitored processes and stopped after exceeding reduction budgets; their
+reported counts are lower bounds, not completed workloads. The tokenizer control
+retains the scanner, range rejection and parse-error construction, but converts the
+integer before comparing it with int64's maximum. Two runs measured about
+2,374,000 reductions, versus 1,000,034 for the current tokenizer. Direct native
+conversion alone charged about 1.37 million reductions.
+
+SystemStats now checks its second-precision UTC timestamp between timestamps
+captured before and after collecting metrics, inclusively. Scheduler pauses no
+longer invalidate a fresh timestamp. This still assumes the wall clock does not
+step backwards during the call. ObjectStore's age assertion and actual timeout,
+lease, cooldown and asynchronous-handoff checks remain unchanged.
+
+The five affected test files passed together with seed 357856 (37 tests).
+Independent Claude and Codex plan and code reviews approved this follow-up.

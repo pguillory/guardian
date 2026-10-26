@@ -2,6 +2,8 @@ defmodule Guardian.AST.Node.Operators.LikeOperatorTest do
   use Guardian.Query.EvaluationTestCase, async: true
 
   alias Guardian.AST.Node.Operators.LikeOperator
+  alias Guardian.Storage.Column
+  alias Guardian.WorkBounds
 
   test "like operator" do
     assert eval("'' like ''") == true
@@ -38,34 +40,36 @@ defmodule Guardian.AST.Node.Operators.LikeOperatorTest do
     assert eval("'a' like '%_%_'") == false
   end
 
-  test "a run of %_ against a long value is fast" do
+  test "a run of %_ against a long value takes bounded work" do
     value = String.duplicate("a", 1_000)
     pattern = String.duplicate("%_", 20) <> "x"
-    {micros, result} = :timer.tc(fn -> eval("'#{value}' like '#{pattern}'") end)
+    source = "'#{value}' like '#{pattern}'"
+    {reductions, result} = WorkBounds.reductions(fn -> eval(source) end)
     assert result == false
-    assert micros < 1_000_000
+    assert reductions < 200_000
 
     short = String.duplicate("a", 30)
 
-    {micros, result} =
-      :timer.tc(fn -> eval("'#{short}' like '#{String.duplicate("%_", 31)}'") end)
+    source = "'#{short}' like '#{String.duplicate("%_", 31)}'"
+    {reductions, result} = WorkBounds.reductions(fn -> eval(source) end)
 
     assert result == false
-    assert micros < 1_000_000
+    assert reductions < 25_000
   end
 
-  test "no pattern backtracks: alternating literals and % stay fast" do
+  test "no pattern backtracks: alternating literals and % take bounded work" do
     value = String.duplicate("a", 16_384)
     pattern = String.duplicate("%a", 999) <> "%b"
-    {micros, result} = :timer.tc(fn -> eval("'#{value}' like '#{pattern}'") end)
+    source = "'#{value}' like '#{pattern}'"
+    {reductions, result} = WorkBounds.reductions(fn -> eval(source) end)
     assert result == false
-    assert micros < 1_000_000
+    assert reductions < 5_000_000
 
-    {micros, result} =
-      :timer.tc(fn -> eval("'#{String.duplicate("a", 80)}' like '%a%a%a%a%a%b'") end)
+    source = "'#{String.duplicate("a", 80)}' like '%a%a%a%a%a%b'"
+    {reductions, result} = WorkBounds.reductions(fn -> eval(source) end)
 
     assert result == false
-    assert micros < 1_000_000
+    assert reductions < 25_000
   end
 
   test "a pattern of more than 1,000 characters besides % matches nothing" do
@@ -78,14 +82,25 @@ defmodule Guardian.AST.Node.Operators.LikeOperatorTest do
   test "a long, varied pattern costs little, as a constant or per row" do
     # Distinct code points, each with its own state mask: bounded by the item cap.
     varied = 0x10000..0x1FFFF |> Enum.map(&<<&1::utf8>>) |> Enum.join()
-    {micros, result} = :timer.tc(fn -> LikeOperator.eval("", varied) end)
+    {reductions, result} = WorkBounds.reductions(fn -> LikeOperator.eval("", varied) end)
     assert result == nil
-    assert micros < 1_000_000
+    assert reductions < 500_000
 
     pattern = 0x4E00..0x51E7 |> Enum.map(&<<&1::utf8>>) |> Enum.join()
-    {micros, result} = :timer.tc(fn -> eval("'x' like '#{pattern}'") end)
-    assert result == false
-    assert micros < 1_000_000
+    assert eval("'x' like '#{pattern}'") == false
+
+    # A column value forces matching per row; the constant pattern should still
+    # compile once. Building the snapshot is outside the work measurement.
+    snapshot = snapshot(List.duplicate(%{"value" => "x"}, 1_000))
+    source = "value like '#{pattern}'"
+
+    {reductions, result} =
+      WorkBounds.reductions(fn ->
+        Guardian.Query.Evaluation.eval(snapshot, source) |> Column.to_list()
+      end)
+
+    assert result == List.duplicate(false, 1_000)
+    assert reductions < 500_000
   end
 
   test "_ is one character of UTF-8 text, one byte otherwise" do

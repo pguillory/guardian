@@ -3,6 +3,7 @@ defmodule Guardian.Rules.RowIndexTest do
 
   alias Guardian.Rules.RowIndex
   alias Guardian.Storage.Flattening
+  alias Guardian.WorkBounds
 
   describe "against the scan-every-key implementation it replaced" do
     # The reference: what Guardian.Rules.Runtime did before the index, one pass over the row
@@ -107,10 +108,11 @@ defmodule Guardian.Rules.RowIndexTest do
       %{tables: %{"t" => {:ok, plan}}} = Guardian.Rules.RuleSet.validate(%{"t/r.gsql" => source})
       [first | rest] = plan.steps
       state = step(Guardian.Rules.Runtime.start(row), first)
-      {:reductions, before_steps} = Process.info(self(), :reductions)
-      state = Enum.reduce(rest, state, &step(&2, &1))
-      {:reductions, after_steps} = Process.info(self(), :reductions)
-      {after_steps - before_steps, Guardian.Rules.Runtime.finish(state)}
+
+      {reductions, state} =
+        WorkBounds.reductions(fn -> Enum.reduce(rest, state, &step(&2, &1)) end)
+
+      {reductions, Guardian.Rules.Runtime.finish(state)}
     end
 
     defp step(state, step) do

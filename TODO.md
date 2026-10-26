@@ -381,6 +381,10 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] unit-test-work-bounds: string rendering and RowIndex CPU guards measure
       caller reductions instead of host-dependent elapsed time; other timing
       assertions are surveyed (`docs/changes/unit-test-work-bounds.md`)
+- [x] unit-test-work-bounds-more: LIKE and million-digit integer CPU guards use
+      calibrated caller reductions through a shared test helper; SystemStats
+      timestamp freshness uses an inclusive bracket
+      (`docs/changes/unit-test-work-bounds.md`, follow-up section)
 - [x] counter-test-budgets: peer and ingest counter tests timed out under host load
       against cold peers and the production 50 ms call / 100 ms event budgets; peer
       tests now wait for a readiness barrier, and tests not about budgets opt in to

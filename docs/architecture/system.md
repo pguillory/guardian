@@ -1582,6 +1582,9 @@ partition lookup; GROUP BY's executor and routing tests share
 `async: false` test, on this node or on named peers, and restores it when the test or a
 block ends; `with_time_limit/2`, `Guardian.QueryApiKeys.with_query_api_keys/2`,
 and `Guardian.CounterBudgetHelper.relax/1` and `scale/1` delegate to it.
+`Guardian.WorkBounds` measures caller reductions for synchronous CPU guards, with
+bounds calibrated against representative regressions rather than host-dependent
+elapsed time (see [unit-test work bounds](../changes/unit-test-work-bounds.md)).
 `Guardian.RulesTestHelper.restart_server/2` stops the test server before restoring
 the previous store and extra settings through TestEnv. It restarts a previously
 running server, leaving a previous failed start stopped until its outer cleanup

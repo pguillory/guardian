@@ -1,6 +1,7 @@
 defmodule Guardian.AST.TokenizerTest do
   import Guardian.AST.Tokenizer
   alias Guardian.AST.ParseError
+  alias Guardian.WorkBounds
   use ExUnit.Case, async: true
 
   test "tokenize" do
@@ -210,9 +211,11 @@ defmodule Guardian.AST.TokenizerTest do
 
   test "a huge integer literal is rejected without converting it" do
     source = String.duplicate("9", 1_000_000)
-    {micros, error} = :timer.tc(fn -> catch_error(tokenize(source)) end)
+    {reductions, error} = WorkBounds.reductions(fn -> catch_error(tokenize(source)) end)
     assert %ParseError{reason: "Number out of range", col: 0} = error
-    assert micros < 1_000_000
+    # Scanning is linear, but converting the million digits first also charges
+    # enough reductions to exceed this bound on the supported runtime.
+    assert reductions < 1_500_000
   end
 
   test "errors" do
