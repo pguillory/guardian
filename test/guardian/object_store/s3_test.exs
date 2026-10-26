@@ -52,6 +52,8 @@ defmodule Guardian.ObjectStore.S3Test do
       object_store_s3_write_deadline_ms: 300
     )
 
+    assert S3.write_deadline_ms() == 300
+
     Guardian.FakeS3.fault(s3, {:status, 503})
     assert ObjectStore.list(store) == {:error, {:unreachable, "HTTP 503"}}
     Guardian.FakeS3.fault(s3, {:status, 500})

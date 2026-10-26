@@ -115,4 +115,5 @@ gains the refusal of a rule folder containing the data folder.
 - `Guardian.Rules.Store` then holds only the lock key, lease, save margin and
   `local?/1`; folding it into `Guardian.Rules.Server` is a possible follow-up.
 - Exposing `Guardian.ObjectStore.S3`'s 20 s write deadline so the 80 s save margin's
-  dependency on it is checked in code.
+  dependency on it is checked in code, completed in
+  [`s3-write-deadline-check.md`](s3-write-deadline-check.md).
