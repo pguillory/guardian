@@ -8,7 +8,8 @@ defmodule Guardian.Storage.Column.NIF do
   end
 
   # One stub per NIF, in the order of nif_funcs[] in src/column.c; load_nif/2
-  # replaces each. Exception: get_value/2 has no C implementation and always exits.
+  # replaces each. test/guardian/storage/column/nif_test.exs checks that they match
+  # by name and arity.
   @stubs [
     max_string_size: 0,
     max_list_length: 0,
@@ -21,7 +22,6 @@ defmodule Guardian.Storage.Column.NIF do
     packed_size: 1,
     allocated_size: 1,
     live_columns: 0,
-    get_value: 2,
     from_list: 1,
     to_list: 1,
     count: 1,

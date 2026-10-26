@@ -102,7 +102,7 @@ defmodule Guardian.Storage.Segment do
     false
   end
 
-  # Reads (count, full, keys, schema, get_column, get_row, get_value) are monitored
+  # Reads (count, full, keys, schema, get_column, get_row) are monitored
   # calls with no timeout by default, so a slow segment is waited for, and a segment
   # that is gone or dies mid-call (including a remote one whose node disconnects)
   # returns `{:error, {:segment_unavailable, reason}}` at once. Queries rely on this
@@ -279,22 +279,6 @@ defmodule Guardian.Storage.Segment do
           {:ok, binary()} | {:error, :not_found} | read_error()
   def get_column(segment, key, timeout \\ :infinity) when is_binary(key) do
     read(segment, {:get_column, key}, timeout)
-  end
-
-  @spec get_value(pid(), String.t(), non_neg_integer(), timeout()) ::
-          {:ok, term()} | read_error()
-  def get_value(segment, key, offset, timeout \\ :infinity)
-      when is_binary(key) and is_integer(offset) do
-    case get_column(segment, key, timeout) do
-      {:ok, column} ->
-        {:ok, Column.get_value(column, offset)}
-
-      {:error, :not_found} ->
-        {:ok, nil}
-
-      {:error, {:segment_unavailable, _reason}} = error ->
-        error
-    end
   end
 
   @spec get_row(pid(), integer(), timeout()) ::

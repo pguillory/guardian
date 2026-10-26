@@ -40,7 +40,6 @@ defmodule Guardian.Storage.Column do
     72 + 7 * 8 * div(count + 63, 64)
   end
 
-  defdelegate get_value(column, offset), to: NIF
   defdelegate from_list(column), to: NIF
   defdelegate to_list(column), to: NIF
   defdelegate count(column), to: NIF

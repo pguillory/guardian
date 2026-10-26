@@ -208,7 +208,7 @@ The parent `lib/guardian/storage/column.ex` module:
 
 ### When modifying this code:
 
-1. **Keep the stub list and the C table in step**: the `@stubs` list in `nif.ex` must match `nif_funcs[]` in `/src/column.c` by name and arity (except `get_value/2`, which has no C implementation yet). Changes require modifying both files.
+1. **Keep the stub list and the C table in step**: the `@stubs` list in `nif.ex` must match `nif_funcs[]` in `/src/column.c` by name and arity; `test/guardian/storage/column/nif_test.exs` checks it. Changes require modifying both files.
 
 2. **Metadata tuple order is fixed**: The 8-element tuple structure is hardcoded in multiple places. Changing it requires updates to:
    - `metadata.ex` macro

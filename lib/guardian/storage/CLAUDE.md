@@ -73,12 +73,12 @@ or argument list from segment loading: they carry segment data. Native column as
 on corrupt bytes still abort the VM: packed columns are not yet validated before the
 NIF reads them.
 
-Segment readers (`count`, `full`, `keys`, `schema`, `get_column`, `get_row`,
-`get_value`) are monitored calls that return `{:error, {:segment_unavailable,
-reason}}` when the segment is gone or dies, instead of exiting the caller. Their
-timeout defaults to `:infinity` for queries. Storage's own processes use the bang
-readers (`count!`, `full!`, `keys!`, `schema!`, `get_column!`), which wait at most 5 s
-so a hung segment can't block them and exit with only the reason's kind.
+Segment readers (`count`, `full`, `keys`, `schema`, `get_column`, `get_row`) are
+monitored calls that return `{:error, {:segment_unavailable, reason}}` when the
+segment is gone or dies, instead of exiting the caller. Their timeout defaults to
+`:infinity` for queries. Storage's own processes use the bang readers (`count!`,
+`full!`, `keys!`, `schema!`, `get_column!`), which wait at most 5 s so a hung segment
+can't block them and exit with only the reason's kind.
 `Guardian.Storage.schema/1` shares that budget and exit through
 `Segment.storage_read_timeout/0` and `Segment.exit_unavailable/1`. The writers
 (`freeze`, `pack`, `store`, `put_column`, `update_count`) are plain 5 s

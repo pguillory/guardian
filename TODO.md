@@ -170,6 +170,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] nif-stub-list: `Guardian.Storage.Column.NIF` generates its stubs from one
       name/arity list that mirrors `nif_funcs[]` in `src/column.c`, plus the existing
       `get_value/2` stub
+- [x] remove-column-get-value: remove the column `get_value` API, which had no C
+      implementation, and test that the NIF stubs match `nif_funcs[]`
+      (`docs/changes/remove-column-get-value.md`)
 
 ## Queries
 
