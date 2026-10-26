@@ -1,6 +1,7 @@
 defmodule Guardian.ObjectStore.LockTest do
   use ExUnit.Case, async: false
 
+  alias Guardian.ObjectStore
   alias Guardian.ObjectStore.Lock
 
   setup do
@@ -10,8 +11,15 @@ defmodule Guardian.ObjectStore.LockTest do
   end
 
   defp lock_state(store, key) do
-    {:ok, body, _meta} = Guardian.ObjectStore.get(store, key)
+    {:ok, body, _meta} = ObjectStore.get(store, key)
     Jason.decode!(body)["state"]
+  end
+
+  defp local_store! do
+    dir = Path.join(System.tmp_dir!(), "object_store_lock_#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf!(dir) end)
+    {:ok, store} = ObjectStore.Local.new(dir)
+    store
   end
 
   test "one holder at a time per key; release lets the next in", %{store: store} do
@@ -51,13 +59,44 @@ defmodule Guardian.ObjectStore.LockTest do
   end
 
   test "works on a local folder too" do
-    dir = Path.join(System.tmp_dir!(), "object_store_lock_#{System.unique_integer([:positive])}")
-    on_exit(fn -> File.rm_rf!(dir) end)
-    {:ok, store} = Guardian.ObjectStore.Local.new(dir)
+    store = local_store!()
     key = "k"
     assert {:ok, lock} = Lock.acquire(store, key, "a")
     assert Lock.acquire(store, key, "b", timeout_ms: 600) == {:error, :busy}
     assert Lock.release(lock) == :ok
     assert {:ok, _lock} = Lock.acquire(store, key, "b", timeout_ms: 600)
+  end
+
+  test "concurrent local acquisitions have one holder per key, on create and released takeover" do
+    store = local_store!()
+
+    # Keep every winner held until all contenders finish. The next round races the
+    # released objects' ETags rather than their initial absent creation.
+    for round <- 1..2 do
+      tasks =
+        for key <- ~w[k0 k1 k2 k3 k4], n <- 1..4 do
+          Task.async(fn ->
+            receive do
+              :go ->
+                holder = "#{key}:#{round}:#{n}"
+                {key, holder, Lock.acquire(store, key, holder, timeout_ms: 0)}
+            end
+          end)
+        end
+
+      Enum.each(tasks, &send(&1.pid, :go))
+      results = Task.await_many(tasks, 30_000)
+
+      for {key, key_results} <- Enum.group_by(results, &elem(&1, 0)) do
+        {wins, losses} = Enum.split_with(key_results, &match?({_key, _holder, {:ok, _}}, &1))
+        assert [{^key, holder, {:ok, lock}}] = wins
+        assert Enum.all?(losses, &match?({^key, _holder, {:error, :busy}}, &1))
+        assert {:ok, body, %{etag: etag}} = ObjectStore.get(store, key)
+        assert etag == lock.etag
+        assert %{"state" => "held", "holder" => ^holder} = Jason.decode!(body)
+        assert Lock.release(lock) == :ok
+        assert lock_state(store, key) == "released"
+      end
+    end
   end
 end

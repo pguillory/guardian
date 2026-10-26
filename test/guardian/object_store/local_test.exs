@@ -161,7 +161,17 @@ defmodule Guardian.ObjectStore.LocalTest do
   end
 
   test "concurrent :absent puts to one key: exactly one succeeds", %{dir: dir, store: store} do
-    race_absent_puts(dir, [store])
+    race_puts(dir, [store])
+  end
+
+  test "concurrent ETag puts: exactly one replaces each original", %{dir: dir, store: store} do
+    etags =
+      Map.new(~w[k0 k1 k2 k3 k4], fn key ->
+        {:ok, etag} = ObjectStore.put(store, key, "original:#{key}", :absent)
+        {key, etag}
+      end)
+
+    race_puts(dir, [store], fn key -> {:etag, Map.fetch!(etags, key)} end)
   end
 
   test "stores naming one folder differently share its write lock", %{dir: dir, store: store} do
@@ -184,7 +194,7 @@ defmodule Guardian.ObjectStore.LocalTest do
     assert [_one_lock] =
              stores |> Enum.map(fn {_module, config} -> config.lock end) |> Enum.uniq()
 
-    race_absent_puts(dir, stores)
+    race_puts(dir, stores)
 
     {:ok, {_module, other}} = ObjectStore.Local.new(dir <> "_other")
     on_exit(fn -> File.rm_rf!(dir <> "_other") end)
@@ -192,15 +202,17 @@ defmodule Guardian.ObjectStore.LocalTest do
   end
 
   # Each key gets several writers, through `stores` in turn, released at once; without
-  # serialization they all see no file and all write.
-  defp race_absent_puts(dir, stores) do
+  # serialization several can read the same current version and all write.
+  defp race_puts(dir, stores, condition_for_key \\ fn _key -> :absent end) do
     writers = stores |> Stream.cycle() |> Enum.take(4 * length(stores)) |> Enum.with_index(1)
 
     tasks =
       for key <- ~w[k0 k1 k2 k3 k4], {store, n} <- writers do
         Task.async(fn ->
           receive do
-            :go -> {key, n, ObjectStore.put(store, key, "#{n}", :absent)}
+            :go ->
+              body = "#{key}:#{n}"
+              {key, body, ObjectStore.put(store, key, body, condition_for_key.(key))}
           end
         end)
       end
@@ -209,10 +221,11 @@ defmodule Guardian.ObjectStore.LocalTest do
     results = Task.await_many(tasks, 30_000)
 
     for {key, key_results} <- Enum.group_by(results, &elem(&1, 0)) do
-      {wins, losses} = Enum.split_with(key_results, &match?({_key, _n, {:ok, _}}, &1))
-      assert [{^key, winner, {:ok, _etag}}] = wins
-      assert Enum.all?(losses, &match?({^key, _n, {:error, :precondition_failed}}, &1))
-      assert File.read!(Path.join(dir, key)) == "#{winner}"
+      {wins, losses} = Enum.split_with(key_results, &match?({_key, _body, {:ok, _}}, &1))
+      assert [{^key, winner, {:ok, etag}}] = wins
+      assert Enum.all?(losses, &match?({^key, _body, {:error, :precondition_failed}}, &1))
+      assert File.read!(Path.join(dir, key)) == winner
+      assert {:ok, ^winner, %{etag: ^etag}} = ObjectStore.get(hd(stores), key)
     end
   end
 end

@@ -4,6 +4,8 @@ Status: complete.
 
 Superseded in part by local-store-lock-identity (TODO.md): the lock resource is now the
 folder's device and inode, taken in `new/2`, not the `dir` string (points 1 and 4).
+Further concurrency coverage and the decision to retain `:global` are recorded in
+[local-store-lock-races](local-store-lock-races.md).
 
 ## Problem
 

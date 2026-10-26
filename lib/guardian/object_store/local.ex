@@ -35,6 +35,11 @@ defmodule Guardian.ObjectStore.Local do
   before and after no longer share a lock. Locking is per root folder, not per file:
   overlapping stores (one on a folder, one on a folder inside it) or a symlink from one
   store's folder into another's reach the same file under different locks.
+
+  Contended writes use `:global`'s randomized exponential backoff, with each retry
+  delay capped at 8 s, no fairness and no total wait limit. A hung write holds up later
+  writes to its folder. `Guardian.ObjectStore.Lock.acquire/4`'s timeout bounds its
+  retries, but cannot interrupt an underlying put waiting for this local lock.
   """
 
   @behaviour Guardian.ObjectStore
@@ -256,6 +261,7 @@ defmodule Guardian.ObjectStore.Local do
   # own requester, so the folder is the resource and the calling process the requester.
   # The folder is named by its identity, so every spelling of it shares the lock.
   # Do not nest: an inner call would be granted the lock and release it on return.
+  # See the moduledoc for the contention and unbounded-wait limits.
   defp serialized(%__MODULE__{lock: lock}, fun) do
     :global.trans({{__MODULE__, lock}, self()}, fun, [node()])
   end
