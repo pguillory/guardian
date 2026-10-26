@@ -175,7 +175,7 @@ Two C components live in `src/` and are built by the Makefile through
 
 1. `column.c` (`priv/column.so`): the column NIF. It implements typed, packed columns
    and every per-column operation the query engine uses (arithmetic, comparison,
-   filtering, type counts). See `lib/guardian/storage/column/CLAUDE.md`.
+   filtering, type counts). See the [column reference](storage-columns.md).
 2. `mmap.c` (`priv/mmap.so`): maps a segment file read-only and returns it as a
    binary. The descriptor is closed at once, and the mapping is removed when the last
    binary referring to it is garbage collected, so deleting a mapped file is safe.

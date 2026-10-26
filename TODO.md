@@ -262,6 +262,10 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Interfaces and operations
 
+- [x] agent-instruction-tutorials: move the query-function tutorial and column
+      reference into docs/, retaining short mandatory editing rules and pointers
+      (`docs/changes/agent-instruction-tutorials.md`)
+
 - [x] engine-fun-frame: preserve per-event failure handling when a caught failure
       carries a BEAM fun stack frame (`docs/changes/failure-diagnostics.md`)
 - [x] failure-diagnostics: share value-free failure classification and stack

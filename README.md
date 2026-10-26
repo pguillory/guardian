@@ -338,6 +338,10 @@ Working on it:
 
 - [Building and development](docs/guides/development.md): prerequisites, setup, the
   commit checks and running locally. See also [CONTRIBUTING.md](CONTRIBUTING.md).
+- [Implementing query functions](docs/guides/query-functions.md): dispatch,
+  implementation patterns and worked tests.
+- [Storage columns](docs/architecture/storage-columns.md): native column APIs,
+  metadata, usage patterns and debugging.
 - Product docs: the [overview](docs/product/overview.md) (one sentence, one
   paragraph, one page) and the full [product spec](docs/product/spec.md).
 - How it's built: the [system architecture](docs/architecture/system.md). What it
