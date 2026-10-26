@@ -57,6 +57,7 @@ defmodule Guardian.Rules.CounterIngestTest do
   end
 
   test "HTTP and MCP return LOOKUP=49/TRACK=50, SET decisions and historical stored fields" do
+    Guardian.CounterBudgetHelper.relax()
     Guardian.MCPTestClient.start()
 
     for interface <- [:http, :mcp] do
@@ -200,6 +201,7 @@ defmodule Guardian.Rules.CounterIngestTest do
   end
 
   test "a count outside int64 is refused where the event is stored, keeping the rest" do
+    Guardian.CounterBudgetHelper.relax()
     table = unique_table("live_counter_int64")
     with_rules(%{"#{table}/r.gsql" => "TRACK hits = count() LAST '1h'; SET seen = true"})
     definition = track(table).definition
@@ -213,6 +215,7 @@ defmodule Guardian.Rules.CounterIngestTest do
   end
 
   test "unkeyed resubmissions count twice; completed HTTP/MCP keyed retries return only a receipt" do
+    Guardian.CounterBudgetHelper.relax()
     Guardian.MCPTestClient.start()
     table = unique_table("live_counter_retry")
     with_rules(%{"#{table}/r.gsql" => "TRACK hits = count() LAST '1h'"})

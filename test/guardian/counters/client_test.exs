@@ -101,9 +101,12 @@ defmodule Guardian.Counters.ClientTest do
 
     # One available reservation queues the second owner. Its absolute write expiry
     # must be checked after the first owner refunds, not when the round was built.
+    # Relaxed budgets let the first owner's call reserve the batch's whole 250 ms
+    # allowance, so the 15 ms hold below is far less likely to time out under host load. The expired
+    # owner then reserves and refunds without dispatching, returning the full allowance.
+    restore_budgets = Guardian.CounterBudgetHelper.relax([peer])
     [earlier, later] = Enum.sort(members)
     limited = Client.new_batch()
-    :atomics.put(limited, 1, 50_000)
     expiry = System.monotonic_time(:millisecond) + 10
 
     task =
@@ -129,7 +132,8 @@ defmodule Guardian.Counters.ClientTest do
     send(waiting, :release)
     assert Task.await(task) == %{first: {:ok, 1}, expired: {:error, :expired}}
     refute_receive {:pipeline, _, _, _}, 10
-    assert :atomics.get(limited, 1) == 50_000
+    assert :atomics.get(limited, 1) == 250_000
+    restore_budgets.()
 
     limited = Client.new_batch()
     :atomics.put(limited, 1, 20_000)
@@ -446,6 +450,7 @@ defmodule Guardian.Counters.ClientTest do
   end
 
   test "atom group terms route and store", %{store: store} do
+    Guardian.CounterBudgetHelper.relax()
     context = event(store)
     atom_key = key({:group})
 
@@ -456,6 +461,7 @@ defmodule Guardian.Counters.ClientTest do
   test "local native operations preserve nil, tokens, colocation and definite errors", %{
     store: store,
   } do
+    Guardian.CounterBudgetHelper.relax()
     context = event(store)
     assert batch_one({:cas, key(), :missing, nil, 5_000}, context) == :ok
     assert {:ok, nil, token} = batch_one({:gets, key()}, context)
@@ -477,6 +483,8 @@ defmodule Guardian.Counters.ClientTest do
     store: store,
     peer_node: peer,
   } do
+    Guardian.CounterBudgetHelper.relax([peer])
+
     for {server, members} <- [{store, [node()]}, {Store, [peer]}],
         value <- [{:error, :unavailable}, [{:error, :timeout}, {:error, :unavailable}]] do
       context = event(server, members: members)

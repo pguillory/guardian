@@ -345,6 +345,10 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       against cold peers and the production 50 ms call / 100 ms event budgets; peer
       tests now wait for a readiness barrier, and tests not about budgets opt in to
       larger budgets through an internal test seam (`docs/changes/counter-test-budgets.md`)
+- [x] counter-test-budgets-more: ClientTest's queued-owner expiry sub-case timed out
+      during its 15 ms hold under a 50 ms allowance; it and six more healthy-call
+      counter tests not about budgets now relax budgets
+      (`docs/changes/counter-test-budgets.md`, follow-up section)
 - [x] test-env-helper: one generic test helper, `Guardian.TestEnv`, puts and restores
       `:guardian` application env on this node or on peers; four helpers that copied that
       code now delegate to it, and a fifth copy in the S3 tests was replaced by it
