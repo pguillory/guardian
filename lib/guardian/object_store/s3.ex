@@ -35,7 +35,8 @@ defmodule Guardian.ObjectStore.S3 do
     Application.get_env(:guardian, :object_store_s3_receive_timeout_ms, @receive_timeout)
   end
 
-  defp write_deadline do
+  @doc "The overall put/delete deadline in milliseconds; tests may override it through app env."
+  def write_deadline_ms do
     Application.get_env(:guardian, :object_store_s3_write_deadline_ms, @write_deadline)
   end
 
@@ -292,7 +293,7 @@ defmodule Guardian.ObjectStore.S3 do
   defp with_deadline(fun) do
     task = Task.async(fn -> safely(fun, :write) end)
 
-    case Task.yield(task, write_deadline()) || Task.shutdown(task, :brutal_kill) do
+    case Task.yield(task, write_deadline_ms()) || Task.shutdown(task, :brutal_kill) do
       {:ok, result} -> result
       {:exit, _reason} -> {:error, {:unknown, "client error"}}
       nil -> {:error, {:unknown, "deadline"}}

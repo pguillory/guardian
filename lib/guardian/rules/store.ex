@@ -14,9 +14,9 @@ defmodule Guardian.Rules.Store do
 
   @lock_key "_write.lock"
   @lock_lease_ms 120_000
-  # Well over the 20 s deadline `Guardian.ObjectStore.S3` puts on the one write a
-  # holder makes, so a save that completes lands inside the lease. Raise it with that
-  # deadline.
+  # Well over Guardian.ObjectStore.S3.write_deadline_ms/0 for the one S3 write a
+  # holder makes, including time before the write starts. StoreTest checks that
+  # dependency against the defaults; reconsider this margin when the deadline grows.
   @save_margin_ms 80_000
 
   @doc "The key of the rule write lock."
