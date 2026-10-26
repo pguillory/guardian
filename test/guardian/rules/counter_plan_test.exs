@@ -1,5 +1,6 @@
 defmodule Guardian.Rules.CounterPlanTest do
   use ExUnit.Case, async: true
+  import Guardian.RulesTestHelper, only: [compile_module: 2]
 
   alias Guardian.Rules.RuleSet
 
@@ -184,12 +185,7 @@ defmodule Guardian.Rules.CounterPlanTest do
     {:ok, plan} = preparation.tables["t"]
     module = __MODULE__.CounterDefinitionProbe
 
-    on_exit(fn ->
-      :code.delete(module)
-      :code.soft_purge(module)
-    end)
-
-    assert Guardian.Rules.Compiler.compile(module, plan) == :ok
+    compile_module(module, plan)
     recovered = apply(module, :plan, [])
     assert recovered == plan
 

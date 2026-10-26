@@ -51,3 +51,24 @@ cluster and counter reload run passed (46 tests, no failures).
 Independent Claude and Codex plan and code reviews approved the change. The full
 pre-commit checks passed: formatting, test compilation with warnings as errors,
 and 1310 tests with no failures (3 excluded).
+
+## Follow-up: Rules peers and compiled probes
+
+Product spec impact: none. Production behavior is unchanged.
+
+Rules.ClusterTest now uses `Guardian.TestCluster.single_peer/0` for its per-test
+Storage peer, including the shared query-readiness barrier and exit cleanup.
+No tests or assertions were removed.
+
+`Guardian.RulesTestHelper.compile_module/2` shares the successful compile assertion
+and exit cleanup used by CompilerTest, CounterPlanTest and CounterRuntimeTest.
+Cleanup is registered before compilation and still deletes the module before
+soft-purging it. CompilerTest still returns its prepared plan; CounterPlanTest's
+rejected-compilation assertions remain direct. Compiler-only tests using distinct
+probe modules remain async; the shared Rules server helpers still require serial
+tests.
+
+Validation: CompilerTest, CounterPlanTest, CounterRuntimeTest and Rules.ClusterTest
+passed together with warnings as errors (72 tests, no failures), including the
+peer's initially unloaded store assertion. The full pre-commit remains the final
+validation gate before publication.

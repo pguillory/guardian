@@ -498,12 +498,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
 
     module = __MODULE__.LevelProbe
 
-    on_exit(fn ->
-      :code.delete(module)
-      :code.soft_purge(module)
-    end)
-
-    assert Guardian.Rules.Compiler.compile(module, plan) == :ok
+    compile_module(module, plan)
 
     row = apply(module, :apply, [%{"ip" => "A", "v" => 5, "secret" => "private"}, event(store)])
 

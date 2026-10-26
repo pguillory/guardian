@@ -1,19 +1,15 @@
 defmodule Guardian.Rules.CompilerTest do
   use ExUnit.Case, async: true
+  import Guardian.RulesTestHelper, only: [compile_module: 2]
 
-  alias Guardian.Rules.{Compiler, DependencyGraph, Event, RuleSet, Runtime}
+  alias Guardian.Rules.{DependencyGraph, Event, RuleSet, Runtime}
 
   defp compile(module, files) do
     preparation = RuleSet.prepare(files)
     assert preparation.errors == []
     {:ok, plan} = preparation.tables["t"]
 
-    on_exit(fn ->
-      :code.delete(module)
-      :code.soft_purge(module)
-    end)
-
-    assert Compiler.compile(module, plan) == :ok
+    compile_module(module, plan)
     plan
   end
 

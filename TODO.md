@@ -349,6 +349,10 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Tests
 
+- [x] rules-test-helper-follow-ups: share Rules cluster Storage-peer setup and
+      successful probe compilation and cleanup
+      (`docs/changes/test-infrastructure-helpers.md`)
+
 - [x] test-infrastructure-helpers: migrate remaining scoped environment cleanup to
       TestEnv, restore Rules server settings, and share single-peer query setup,
       readiness and GROUP BY partitions (`docs/changes/test-infrastructure-helpers.md`)

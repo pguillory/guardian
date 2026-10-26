@@ -1,10 +1,25 @@
 defmodule Guardian.RulesTestHelper do
   @moduledoc """
-  Helpers for rule tests, which share the test VM's one `Guardian.Rules.Server` and so must be
-  `async: false`.
+  Helpers for rule tests. Tests using the shared `Guardian.Rules.Server` must be
+  `async: false`; compiling distinct probe modules does not use that shared state.
   """
 
   import ExUnit.Callbacks, only: [on_exit: 1]
+  import ExUnit.Assertions, only: [assert: 1]
+
+  @doc """
+  Compiles a resolved plan and deletes and soft-purges its module when the test exits.
+  Safe for async tests when each test uses a distinct module.
+  """
+  def compile_module(module, plan) do
+    on_exit(fn ->
+      :code.delete(module)
+      :code.soft_purge(module)
+    end)
+
+    assert Guardian.Rules.Compiler.compile(module, plan) == :ok
+    :ok
+  end
 
   @doc "Writes rule files for a test and deletes them when it exits."
   def with_rules(files) do

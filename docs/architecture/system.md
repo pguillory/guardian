@@ -1574,7 +1574,7 @@ from rows (`write_segment_file/2`), and registers a
 one-call fake segment to inject an append's reply (`intercept_append/2`), and
 `Guardian.TestCluster.data_root/0` gives a peer a fresh data directory.
 `Guardian.TestCluster.single_peer/0` shares a single Storage peer's setup and cleanup
-across query tests, preserving the calling setup's test or module lifetime.
+across query and Rules tests, preserving the calling setup's test or module lifetime.
 Its `await_query_node/1` startup barrier waits for Storage readiness and a GROUP BY
 partition lookup; GROUP BY's executor and routing tests share
 `Guardian.Query.Executor.group_by_partitions/0`.
@@ -1589,6 +1589,9 @@ elapsed time (see [unit-test work bounds](../changes/unit-test-work-bounds.md)).
 the previous store and extra settings through TestEnv. It restarts a previously
 running server, leaving a previous failed start stopped until its outer cleanup
 restores the original working configuration.
+`Guardian.RulesTestHelper.compile_module/2` asserts successful compilation and
+registers module deletion and soft purge on exit; tests compiling distinct probe
+modules can use it asynchronously without touching the shared Rules server.
 Tests do not use `:global` names: `Guardian.Query.DistributedStream.ClusterTest`
 suspends `:global` and checks on teardown that it still registers names. A bare
 `assert_receive` waits up to 5 s
