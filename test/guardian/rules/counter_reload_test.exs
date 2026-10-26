@@ -33,7 +33,7 @@ defmodule Guardian.Rules.CounterReloadTest do
   end
 
   defp identity(module) do
-    Enum.find(module.plan().steps, &(&1.kind == :track)).identity
+    Enum.find(module.plan().steps, &(&1.kind == :track)).definition.identity
   end
 
   test "valid edits switch target and dependent identities; in-flight old modules keep old state",

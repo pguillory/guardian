@@ -95,8 +95,7 @@ defmodule Guardian.Rules.CounterPlanTest do
     for {name, arity} <- Guardian.Aggregation.names_and_arities() do
       args = Guardian.AggregationTestHelper.source_args(name, arity, "amount")
       [track] = plan(%{"t/a.gsql" => "TRACK c = #{name}(#{args}) LAST '1h'"}).steps
-      assert track.operator == {name, arity}
-      assert track.aggregation == Guardian.Aggregation.fetch!(name)
+      assert track.definition.operator == {name, arity}
     end
 
     assert kinds("TRACK c = sum(count()) LAST '1h'") == [:expression]
@@ -112,29 +111,15 @@ defmodule Guardian.Rules.CounterPlanTest do
     # The parser already refuses these in rule text; validation checks the same
     # registry for any TRACK step.
     for operator <- [{"count", 2}, {"max_n", 1}, {"nope", 1}] do
-      step = %Guardian.Rules.Step.Track{
-        table: "t",
-        file: "t/a.gsql",
-        line: 1,
-        field: "c",
-        operator: operator,
-        aggregate_expr: Guardian.AST.parse_expression("sum(x)"),
-        window_ms: 3_600_000,
-      }
+      [step] = plan(%{"t/a.gsql" => "TRACK c = sum(x) LAST '1h'"}).steps
+      step = %{step | definition: %{step.definition | operator: operator}}
 
       assert [%{kind: :counter_aggregate}] = Guardian.Rules.Validation.errors(step)
     end
 
     for operator <- Guardian.Aggregation.names_and_arities() do
-      step = %Guardian.Rules.Step.Track{
-        table: "t",
-        file: "t/a.gsql",
-        line: 1,
-        field: "c",
-        operator: operator,
-        aggregate_expr: Guardian.AST.parse_expression("sum(x)"),
-        window_ms: 3_600_000,
-      }
+      [step] = plan(%{"t/a.gsql" => "TRACK c = sum(x) LAST '1h'"}).steps
+      step = %{step | definition: %{step.definition | operator: operator}}
 
       assert Guardian.Rules.Validation.errors(step) == []
     end
@@ -156,7 +141,35 @@ defmodule Guardian.Rules.CounterPlanTest do
     end
   end
 
-  test "compiled plans recover the resolved configurations in TRACKs and LOOKUPs" do
+  test "parsed TRACKs own counter metadata before validation, without resolving aggregates" do
+    for {interval, expected_window, expected_bucket} <- [
+          {"1h", 3_600_000, 1_200_000},
+          {"0s", nil, nil},
+        ] do
+      [{statement, line}] =
+        Guardian.AST.Parser.parse_rules("TRACK c = sum(x) BY ip LAST '#{interval}'")
+
+      # Construction also tolerates an unknown aggregate in a manually built AST;
+      # validation owns the diagnostic rather than an eager registry lookup.
+      statement = %{statement | aggregate_expr: %{statement.aggregate_expr | name: "unknown"}}
+      track = Guardian.Rules.Step.new("t", "t/a.gsql", line, 0, statement)
+
+      assert track.definition.window_ms == expected_window
+
+      assert track.definition.bucket_ms == expected_bucket
+
+      assert track.definition.operator == {"unknown", 1}
+      assert track.definition.group_arity == 1
+      assert {"t", "c", _digest} = track.definition.identity
+
+      expected_errors =
+        if expected_window, do: [:counter_aggregate], else: [:counter_aggregate, :counter_window]
+
+      assert Enum.map(Guardian.Rules.Validation.errors(track), & &1.kind) == expected_errors
+    end
+  end
+
+  test "compiled plans recover the single counter definitions in TRACKs and LOOKUPs" do
     source =
       Guardian.Aggregation.names_and_arities()
       |> Enum.with_index()
@@ -169,7 +182,7 @@ defmodule Guardian.Rules.CounterPlanTest do
     assert preparation.errors == []
     {:ok, candidate} = preparation.candidates["t"]
     {:ok, plan} = preparation.tables["t"]
-    module = __MODULE__.ResolvedConfigurationProbe
+    module = __MODULE__.CounterDefinitionProbe
 
     on_exit(fn ->
       :code.delete(module)
@@ -181,19 +194,31 @@ defmodule Guardian.Rules.CounterPlanTest do
     assert recovered == plan
 
     for %Guardian.Rules.Step.Track{} = track <- recovered.steps do
-      definition = Guardian.Rules.CounterDefinition.from_track(track)
+      definition = track.definition
 
       lookup =
         Enum.find(plan.steps, &(&1.field == "prior" <> String.trim_leading(track.field, "c")))
 
-      assert definition.aggregation == Guardian.Aggregation.fetch!(elem(track.operator, 0))
-      assert track.definition == definition
+      assert Map.keys(definition) |> Enum.sort() ==
+               Enum.sort([
+                 :__struct__,
+                 :identity,
+                 :operator,
+                 :window_ms,
+                 :bucket_ms,
+                 :group_arity,
+               ])
+
+      for key <- [:identity, :operator, :window_ms, :bucket_ms, :aggregation] do
+        refute Map.has_key?(track, key)
+      end
+
       assert lookup.target == definition
 
       assert Enum.find(candidate.steps, &(&1.field == track.field)).definition == definition
 
       assert :erlang.term_to_binary(Guardian.Rules.CounterDefinition.hash_term(definition)) ==
-               :erlang.term_to_binary(Map.delete(definition, :aggregation))
+               :erlang.term_to_binary(definition)
     end
   end
 
@@ -207,8 +232,8 @@ defmodule Guardian.Rules.CounterPlanTest do
           {"52w 1d", 31_536_000_000, 10_512_000_000},
         ] do
       [track] = plan(%{"t/a.gsql" => "TRACK c = count() LAST '#{interval}'"}).steps
-      assert track.window_ms == expected
-      assert track.bucket_ms == bucket
+      assert track.definition.window_ms == expected
+      assert track.definition.bucket_ms == bucket
     end
 
     for interval <- [
@@ -245,9 +270,8 @@ defmodule Guardian.Rules.CounterPlanTest do
     }
 
     lookup = hd(plan(files).steps)
-    assert lookup.target.identity == hd(plan(files, "a").steps).identity
+    assert lookup.target.identity == hd(plan(files, "a").steps).definition.identity
     assert lookup.target.operator == {"sum", 1}
-    assert lookup.target.aggregation == Guardian.Aggregation.Sum
     assert lookup.target.group_arity == 2
     assert lookup.reads == ["address", "country"]
 
@@ -258,7 +282,7 @@ defmodule Guardian.Rules.CounterPlanTest do
     }
 
     lookup = hd(plan(files).steps)
-    assert lookup.target.identity == hd(plan(files, "queries").steps).identity
+    assert lookup.target.identity == hd(plan(files, "queries").steps).definition.identity
   end
 
   test "output, counter and table names are not field dependency reads" do
@@ -334,7 +358,7 @@ defmodule Guardian.Rules.CounterPlanTest do
     base = "TRACK c = sum(amount) BY ip WHERE ok LAST '1h'"
     [first] = plan(%{"t/a.gsql" => base}).steps
     moved = plan(%{"t/b.gsql" => "-- moved\n track c = SUM(amount) by ip where ok last '1h'"})
-    assert hd(moved.steps).identity == first.identity
+    assert hd(moved.steps).definition.identity == first.definition.identity
 
     for changed <- [
           String.replace(base, "sum", "max"),
@@ -344,10 +368,12 @@ defmodule Guardian.Rules.CounterPlanTest do
           String.replace(base, "1h", "2h"),
           String.replace(base, "c =", "renamed ="),
         ] do
-      refute hd(plan(%{"t/a.gsql" => changed}).steps).identity == first.identity
+      refute hd(plan(%{"t/a.gsql" => changed}).steps).definition.identity ==
+               first.definition.identity
     end
 
-    refute hd(plan(%{"u/a.gsql" => base}, "u").steps).identity == first.identity
+    refute hd(plan(%{"u/a.gsql" => base}, "u").steps).definition.identity ==
+             first.definition.identity
   end
 
   test "counter identities and plan hashes match fixed baselines" do
@@ -429,7 +455,8 @@ defmodule Guardian.Rules.CounterPlanTest do
 
       actual_identities =
         for {_table, {:ok, plan}} <- preparation.tables,
-            %Guardian.Rules.Step.Track{identity: {table, field, digest}} <- plan.steps,
+            %Guardian.Rules.Step.Track{definition: %{identity: {table, field, digest}}} <-
+              plan.steps,
             into: %{},
             do: {{table, field}, digest}
 
@@ -445,8 +472,7 @@ defmodule Guardian.Rules.CounterPlanTest do
 
     first = plan(files)
 
-    # A fixed deterministic baseline: derived configuration must not reset
-    # dependent plan hashes.
+    # A fixed deterministic baseline: metadata refactors must not reset dependent hashes.
     assert first.hash == "af17331add04d2d82ea91d666d5278d07dc037f25c5ff827a7cabb067e63d748"
 
     moved =
@@ -485,8 +511,8 @@ defmodule Guardian.Rules.CounterPlanTest do
     assert plan(files, "b").steps |> hd() |> Map.fetch!(:kind) == :lookup
     a = plan(files, "a")
     b = plan(files, "b")
-    assert target(a).identity == Enum.find(b.steps, &(&1.kind == :track)).identity
-    assert target(b).identity == Enum.find(a.steps, &(&1.kind == :track)).identity
+    assert target(a).identity == Enum.find(b.steps, &(&1.kind == :track)).definition.identity
+    assert target(b).identity == Enum.find(a.steps, &(&1.kind == :track)).definition.identity
   end
 
   test "SET/UNSET preparation and runtime selection preserve per-table behavior" do

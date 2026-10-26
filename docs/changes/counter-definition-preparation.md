@@ -2,6 +2,12 @@
 
 Status: implemented and validated.
 
+The duplicate TRACK fields and stored aggregate configurations described below
+were subsequently removed by
+[counter-definition-single-source.md](counter-definition-single-source.md).
+Definitions are now built with parsed TRACKs and checked before plan construction;
+execution selects the shared aggregate by name. Hash inputs remain unchanged.
+
 Product spec impact: none. No statements change in overview.md or spec.md.
 Counter identities, bucket keys, results, aggregate defaults, ordering, budgets
 and reload selection remain unchanged.

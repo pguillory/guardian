@@ -444,15 +444,16 @@ stored historical output fields. No later rule/storage failure rolls back update
 
 Counters and queries share one aggregate registry, `Guardian.Aggregation`, with one
 configuration per aggregate: every registered name/arity is a TRACK operator, and
-TRACK validation checks the same registry the parser uses. After semantic
-validation, rule plans resolve these configurations and prepare each TRACK's
-immutable CounterDefinition once. LOOKUPs bind those same definitions, and Runtime
-reuses them rather than constructing metadata per event. Compiled plans and key
-machines carry the configurations through empty/start/merge/finish without further
-lookups. CounterDefinition owns the struct-shaped input used to hash LOOKUP
-targets, excluding derived configuration; Resolution encodes it deterministically.
-The name/arity remains available for diagnostics and native-count dispatch. Derived
-configurations do not change counter identities or dependent plan hashes.
+TRACK validation checks the same registry the parser uses. Step construction builds
+each TRACK's immutable CounterDefinition, the single owner of its identity,
+operator, window/bucket sizes and grouping arity. Validation checks its operator
+and window before plan construction; LOOKUPs bind the same definitions, and Runtime
+reuses them rather than constructing metadata per event. Execution selects the aggregation
+with `Guardian.Aggregation.fetch!(name)` from the definition's operator and passes
+it through empty/start/merge/finish and key machines. CounterDefinition owns the
+struct-shaped input used to hash LOOKUP targets; Resolution encodes it
+deterministically. The name/arity also controls native-count dispatch. This metadata
+representation preserves counter identities and dependent plan hashes.
 Every aggregate has an empty mergeable state, an exact identity of its merge; a
 query's no-rows default is that state finished, so a missing counter and an empty
 query give the same result (sum's is null). Arbitrary and the top-N family use the

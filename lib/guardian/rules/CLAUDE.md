@@ -22,10 +22,12 @@ Modules:
   levels from them once per compiled module.
 - `Guardian.Rules.Resolution`: immutable target definitions and fixed-point invalidity.
   Resolved plan hashes use deterministic ETF, so they match across VM starts.
-- `Guardian.Rules.CounterDefinition`: immutable target metadata, resolved shared
-  aggregate configuration and window/bucket sizes. TRACK steps receive their
-  definition after semantic validation; LOOKUPs and Runtime reuse it. `hash_term/1`
-  owns the target's struct-shaped hash input, excluding derived configuration.
+- `Guardian.Rules.CounterDefinition`: the single owner of counter identity, operator,
+  window/bucket sizes and grouping arity. Step builds it for a parsed TRACK;
+  Validation checks its operator and window before plan construction, and LOOKUPs
+  and Runtime reuse it.
+  `hash_term/1` owns the target's struct-shaped hash input. Execution selects the
+  shared aggregation with `Guardian.Aggregation.fetch!(name)`.
 - `Guardian.Rules.Activation`: pure coherent reload selection, used by Publisher.
 - `Guardian.Rules.Publisher`: synchronous activation/publication and generated-module
   pool ownership, called inside Server's scrubbed callbacks. Recovers prior plans

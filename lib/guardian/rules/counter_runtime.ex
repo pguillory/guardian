@@ -6,11 +6,13 @@ defmodule Guardian.Rules.CounterRuntime do
   @counts [{"count", 0}, {"count", 1}]
 
   def lookup(definition, group, event) do
-    definition |> expand_lookup(group, event) |> run(definition.aggregation, event)
+    {name, _arity} = definition.operator
+    definition |> expand_lookup(group, event) |> run(Aggregation.fetch!(name), event)
   end
 
   def track(definition, group, values, event) do
-    definition |> expand_track(group, values, event) |> run(definition.aggregation, event)
+    {name, _arity} = definition.operator
+    definition |> expand_track(group, values, event) |> run(Aggregation.fetch!(name), event)
   end
 
   def expand_lookup(definition, group, event) do
@@ -19,7 +21,8 @@ defmodule Guardian.Rules.CounterRuntime do
 
   def expand_track(definition, group, values, event) do
     operator = definition.operator
-    aggregation = definition.aggregation
+    {name, _arity} = operator
+    aggregation = Aggregation.fetch!(name)
     delta = Aggregation.start(aggregation, values)
     keys = keys(definition, group, event)
 

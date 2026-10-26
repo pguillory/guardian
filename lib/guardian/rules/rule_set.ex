@@ -327,10 +327,7 @@ defmodule Guardian.Rules.RuleSet do
   end
 
   defp plan(table, statements) do
-    statements =
-      statements
-      |> Enum.uniq_by(&{&1.kind, &1.field, &1.source})
-      |> Enum.map(&prepare_counter/1)
+    statements = Enum.uniq_by(statements, &{&1.kind, &1.field, &1.source})
 
     {:ok, ordered} =
       Guardian.Rules.DependencyGraph.order(Enum.reject(statements, &(&1.kind == :unset)))
@@ -341,17 +338,6 @@ defmodule Guardian.Rules.RuleSet do
     identity = Enum.map(steps, &{&1.file, &1.line, &1.source})
     hash = :crypto.hash(:sha256, :erlang.term_to_binary(identity))
     %Guardian.Rules.Plan{table: table, steps: steps, hash: Base.encode16(hash, case: :lower)}
-  end
-
-  # Called only while constructing a plan after semantic validation succeeds.
-  defp prepare_counter(%Guardian.Rules.Step.Track{} = step) do
-    {name, _arity} = step.operator
-    step = %{step | aggregation: Guardian.Aggregation.fetch!(name)}
-    %{step | definition: Guardian.Rules.CounterDefinition.from_track(step)}
-  end
-
-  defp prepare_counter(step) do
-    step
   end
 
   @doc "The top-level field of a field name or path (`user` for `user.name`)."

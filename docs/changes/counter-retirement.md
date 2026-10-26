@@ -7,6 +7,11 @@ aggregate opt-in was removed and the aggregate policies preserved here were unif
 with query semantics afterward. The obsolete entry-point and adapter removals
 remain in place; the original compatibility and validation record is below.
 
+The stored aggregate configurations described below were subsequently removed by
+[counter-definition-single-source.md](counter-definition-single-source.md).
+Execution now selects the shared aggregate by name; the entry-point and adapter
+removals remain in place.
+
 Product spec impact: none. No statements change in overview.md or spec.md.
 TRACK/LOOKUP semantics, query results, aggregate policies, states, fail-open
 behavior, deadlines, cooldowns and budgets remain unchanged.

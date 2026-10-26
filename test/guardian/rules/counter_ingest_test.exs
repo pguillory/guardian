@@ -407,7 +407,7 @@ defmodule Guardian.Rules.CounterIngestTest do
     Guardian.CounterClientHelper.await_ready(peer_node)
     # One slow call under host load would cool the peer down and zero the burst.
     production_budgets = Guardian.CounterBudgetHelper.relax([peer_node])
-    identity = track(table).identity
+    identity = track(table).definition.identity
 
     group =
       Enum.find(

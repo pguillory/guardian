@@ -128,11 +128,11 @@ requires all nodes to restart on the same build; mixed-version rolling deploys a
 this split are unsupported (`docs/changes/counter-client.md`). Store retains its
 local atomic primitives.
 
-Validated TRACK steps carry shared `Guardian.Aggregation` configurations into
-immutable counter definitions, bound LOOKUPs and key machines. Every registered
+TRACK steps and bound LOOKUPs carry immutable counter definitions. Every registered
 `{name, arity}` is a TRACK operator, with the same configuration queries use.
-Resolve configurations once during plan construction after validation, never per
-event or merge. Call empty/start/merge/finish through the shared registry API.
+Execution selects the aggregation with `Guardian.Aggregation.fetch!(name)` from
+the definition's operator and passes it to key machines. Call
+empty/start/merge/finish through the shared registry API.
 Every empty is a mergeable state whose finish is the query's no-rows result, which
 is also the missing/failed counter result. Distinct uses Hypex precision 8 with
 fixed 256-byte bitstring registers. Average keeps `{sum, count}` and skips empty

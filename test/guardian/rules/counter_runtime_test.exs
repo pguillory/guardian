@@ -68,7 +68,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
   defp definition(plan) do
     plan.steps
     |> Enum.find(&(&1.kind == :track))
-    |> Guardian.Rules.CounterDefinition.from_track()
+    |> Map.fetch!(:definition)
   end
 
   test "LOOKUP barrier, SET dependencies, deduplication and the 50th event", %{store: store} do
@@ -173,12 +173,11 @@ defmodule Guardian.Rules.CounterRuntimeTest do
       defn = %{
         definition(plan)
         | operator: operator,
-          aggregation: Aggregation.fetch!(name),
           identity: {plan.table, "missing", inspect(operator)},
       }
 
       assert CounterRuntime.lookup(defn, {}, event(store)) ==
-               CounterRuntime.missing(defn.aggregation)
+               CounterRuntime.missing(Aggregation.fetch!(name))
     end
   end
 
@@ -364,7 +363,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
       definition = definition(plan(source))
 
       assert CounterRuntime.track(definition, {}, [nil], event(store)) ==
-               CounterRuntime.missing(definition.aggregation)
+               CounterRuntime.missing(Aggregation.fetch!(elem(definition.operator, 0)))
     end
 
     assert {:ok, %{keys: 0}} = Store.stats(server: store)

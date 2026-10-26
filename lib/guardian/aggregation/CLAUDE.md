@@ -26,9 +26,9 @@ the executor, in counters and in `eval_aggregate/2` in tests.
 
 Queries and counters share one behaviour: there is no query/counter option and no
 counter opt-in list. Every registered name/arity is a TRACK operator; Rules validate
-TRACK against `names_and_arities/0` and resolve configurations once into TRACK steps
-and immutable LOOKUP definitions. Counter execution carries those configurations
-through empty/start/merge/finish without looking them up again. Count finishes raw:
+TRACK against `names_and_arities/0`. Counter definitions hold the operator name and
+arity; execution selects its aggregation with `fetch!(name)` and passes it through
+empty/start/merge/finish and key machines. Count finishes raw:
 the int64 limit applies where values are stored. Distinct is Hypex precision
 8/Bitstring (256 register bytes); do not change the backend or precision
 incidentally. Avg's merge skips empty states, preserving signed-zero bits and

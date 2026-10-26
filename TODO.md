@@ -116,6 +116,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] counter-definition-preparation: prepare immutable TRACK definitions once and
       centralize legacy hash-field selection without changing identities or results
       (`docs/changes/counter-definition-preparation.md`)
+- [x] counter-definition-single-source: keep TRACK metadata only in CounterDefinition
+      and select shared aggregates by name, preserving identities and plan hashes
+      (`docs/changes/counter-definition-single-source.md`)
 - [x] plan-hash-determinism: encode resolved LOOKUP plan hashes deterministically so
       they match across VM starts, without changing counter identity or base hashes
       (`docs/changes/plan-hash-determinism.md`)

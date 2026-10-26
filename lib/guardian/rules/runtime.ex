@@ -62,7 +62,8 @@ defmodule Guardian.Rules.Runtime do
       {{step, _machines, definition}, results}, index ->
         value =
           counter_guard(step, definition, fn ->
-            Guardian.Rules.CounterRuntime.combine(definition.aggregation, results)
+            {name, _arity} = definition.operator
+            Guardian.Rules.CounterRuntime.combine(Guardian.Aggregation.fetch!(name), results)
           end)
 
         RowIndex.put_field(index, step.field, value)
@@ -82,7 +83,8 @@ defmodule Guardian.Rules.Runtime do
   end
 
   defp prepare_counter(index, step, event) do
-    # Preparation guarantees bound metadata; a missing definition is a plan error.
+    # Step construction binds TRACK metadata; resolution binds LOOKUP targets.
+    # Validation checks operators and windows before execution.
     definition = counter_definition(step)
 
     try do
@@ -132,7 +134,8 @@ defmodule Guardian.Rules.Runtime do
         Guardian.Failure.kind(kind, reason, __STACKTRACE__)
       )
 
-      Guardian.Rules.CounterRuntime.missing(definition.aggregation)
+      {name, _arity} = definition.operator
+      Guardian.Rules.CounterRuntime.missing(Guardian.Aggregation.fetch!(name))
   end
 
   defp counter_definition(%Guardian.Rules.Step.Track{

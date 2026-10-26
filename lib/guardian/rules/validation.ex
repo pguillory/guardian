@@ -11,7 +11,7 @@ defmodule Guardian.Rules.Validation do
     # The parser already refuses unknown names and arities in rule text; this checks
     # any TRACK step against the same registry.
     operator_errors =
-      if step.operator in Guardian.Aggregation.names_and_arities() do
+      if step.definition.operator in Guardian.Aggregation.names_and_arities() do
         []
       else
         [
@@ -25,7 +25,7 @@ defmodule Guardian.Rules.Validation do
       end
 
     window_errors =
-      if step.window_ms do
+      if step.definition.window_ms do
         []
       else
         [

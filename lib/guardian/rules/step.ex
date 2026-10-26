@@ -21,17 +21,12 @@ defmodule Guardian.Rules.Step do
           struct!(Guardian.Rules.Step.Unset, attrs)
 
         %Guardian.AST.Node.Statements.TrackStatement{} ->
-          window_ms = Guardian.Rules.CounterDefinition.window_ms(statement.last_expr.value)
-
           struct!(
             Guardian.Rules.Step.Track,
             Map.merge(attrs, %{
               aggregate_expr: statement.aggregate_expr,
               by_exprs: statement.by_exprs,
-              operator: {statement.aggregate_expr.name, length(statement.aggregate_expr.args)},
-              window_ms: window_ms,
-              bucket_ms: Guardian.Rules.CounterDefinition.bucket_ms(window_ms),
-              identity: {table, statement.field.name, digest(attrs.source)},
+              definition: Guardian.Rules.CounterDefinition.new(table, attrs.source, statement),
             })
           )
 
@@ -63,10 +58,6 @@ defmodule Guardian.Rules.Step do
 
   def inputs(%Guardian.Rules.Step.Lookup{} = step) do
     step.by_exprs ++ [step.where_expr]
-  end
-
-  defp digest(source) do
-    :crypto.hash(:sha256, source) |> Base.encode16(case: :lower)
   end
 
   # Field names the inputs read, in first-read order.
