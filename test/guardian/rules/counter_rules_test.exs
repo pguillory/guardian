@@ -2,7 +2,8 @@ defmodule Guardian.Rules.CounterRulesTest do
   @moduledoc """
   TRACK and LOOKUP through Rules: rule plans run by `Guardian.Rules.Runtime` and
   compiled modules, Runner and Engine. Counter execution's own behavior (buckets,
-  expiries, CAS, budgets) is tested in `Guardian.Counters.ExecutionTest`.
+  expiries, CAS, budgets) is tested in `Guardian.Counters.ExecutionTest` and
+  `Guardian.Counters.ExecutionStoreTest`.
   """
   use ExUnit.Case, async: false
   import Guardian.Test.Rules
@@ -17,19 +18,14 @@ defmodule Guardian.Rules.CounterRulesTest do
   # calls, including a cold first call, from timing out under host load and setting a
   # cooldown that fails later calls open.
   setup do
-    CounterBudgetHelper.relax()
-    store = start_supervised!({Store, name: nil})
-    start_supervised!({Guardian.Counters.Budget, name: :rules_counter_rules_test})
-    %{store: store}
+    Guardian.Test.Counters.relaxed_store(:rules_counter_rules_test)
   end
 
   defp event(store, batch \\ Guardian.Counters.Client.new_batch()) do
     Event.start(
       Arrival.now(),
       batch,
-      store: ProbeStore.backend(store),
-      members: [node()],
-      cooldown_table: :rules_counter_rules_test
+      Guardian.Test.Counters.event_options(store, :rules_counter_rules_test)
     )
   end
 
@@ -245,8 +241,14 @@ defmodule Guardian.Rules.CounterRulesTest do
     older = {definition.identity, {}, current - 1}
     assert :ok = Store.cas(older, :missing, {[9], 1}, 5_000, server: store)
 
-    assert Map.take(run(plan, %{"v" => 3, "k" => 2}, context), ~w(top hits)) ==
-             %{"top" => nil, "hits" => 3}
+    # Unlike a failed bucket, a failed combination is reported as a rule warning.
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert Map.take(run(plan, %{"v" => 3, "k" => 2}, context), ~w(top hits)) ==
+                 %{"top" => nil, "hits" => 3}
+      end)
+
+    assert log =~ "failed: Guardian.Query.Error"
   end
 
   test "WHERE false/null preserves fields; errors overwrite spoofed values and still UNSET", %{

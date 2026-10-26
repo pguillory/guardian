@@ -44,9 +44,9 @@ defmodule Guardian.Rules.ClusterTest do
   end
 
   defp s3_cluster(peer_node, peer_env \\ []) do
-    s3 = Guardian.FakeS3.start()
-    on_exit(fn -> Guardian.FakeS3.stop(s3) end)
-    store = Guardian.FakeS3.store(s3)
+    s3 = Guardian.Test.FakeS3.start()
+    on_exit(fn -> Guardian.Test.FakeS3.stop(s3) end)
+    store = Guardian.Test.FakeS3.store(s3)
     {:ok, _} = restart_server(store)
     :ok = :erpc.call(peer_node, Guardian.Test.Cluster, :start_rules, [store, peer_env])
     s3
@@ -98,7 +98,7 @@ defmodule Guardian.Rules.ClusterTest do
   test "a node that missed a reload catches up by polling", %{peer_node: peer_node} do
     s3 = s3_cluster(peer_node, rules_poll_ms: 100)
     table = unique_table("rules_missed")
-    Guardian.FakeS3.put_object(s3, "#{table}/a.gsql", "SET x = 1")
+    Guardian.Test.FakeS3.put_object(s3, "#{table}/a.gsql", "SET x = 1")
 
     Enum.reduce_while(1..100, nil, fn _, _ ->
       case peer_ingest(peer_node, table, [%{}]) do
@@ -143,9 +143,9 @@ defmodule Guardian.Rules.ClusterTest do
   end
 
   test "a custom store without the optional callback still accepts clustered writes" do
-    s3 = Guardian.FakeS3.start()
-    on_exit(fn -> Guardian.FakeS3.stop(s3) end)
-    {_module, config} = Guardian.FakeS3.store(s3)
+    s3 = Guardian.Test.FakeS3.start()
+    on_exit(fn -> Guardian.Test.FakeS3.stop(s3) end)
+    {_module, config} = Guardian.Test.FakeS3.store(s3)
     store = {LegacyStore, config}
     {:ok, _} = restart_server(store)
     table = unique_table("rules_legacy")

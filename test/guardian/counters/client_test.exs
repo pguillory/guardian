@@ -76,8 +76,8 @@ defmodule Guardian.Counters.ClientTest do
   test "owner pipelines run concurrently, group every key, and refund healthy waits", %{
     peer_node: peer,
   } do
-    local = start_supervised!({Guardian.CounterPipelineProbe, self()})
-    {:ok, remote} = :erpc.call(peer, Guardian.CounterPipelineProbe, :start, [self()])
+    local = start_supervised!({Guardian.Test.Counters.PipelineProbe, self()})
+    {:ok, remote} = :erpc.call(peer, Guardian.Test.Counters.PipelineProbe, :start, [self()])
 
     on_exit(fn ->
       send(local, :release)
@@ -106,7 +106,7 @@ defmodule Guardian.Counters.ClientTest do
     task =
       Task.async(fn ->
         context =
-          event(batch, {Guardian.CounterStoreProbe, Guardian.CounterPipelineProbe},
+          event(batch, {Guardian.Test.Counters.ProbeStore, Guardian.Test.Counters.PipelineProbe},
             members: members
           )
 
@@ -142,7 +142,9 @@ defmodule Guardian.Counters.ClientTest do
     task =
       Task.async(fn ->
         context =
-          event(limited, {Guardian.CounterStoreProbe, Guardian.CounterPipelineProbe},
+          event(
+            limited,
+            {Guardian.Test.Counters.ProbeStore, Guardian.Test.Counters.PipelineProbe},
             members: members
           )
 
@@ -169,7 +171,9 @@ defmodule Guardian.Counters.ClientTest do
     task =
       Task.async(fn ->
         context =
-          event(limited, {Guardian.CounterStoreProbe, Guardian.CounterPipelineProbe},
+          event(
+            limited,
+            {Guardian.Test.Counters.ProbeStore, Guardian.Test.Counters.PipelineProbe},
             members: members
           )
 
@@ -229,11 +233,11 @@ defmodule Guardian.Counters.ClientTest do
     end
 
     # A later refund must release pending work while the earliest owner is blocked.
-    local = start_supervised!({Guardian.CounterPipelineProbe, self()})
+    local = start_supervised!({Guardian.Test.Counters.PipelineProbe, self()})
 
     probes =
       Map.new(tl(members), fn member ->
-        {:ok, pid} = :erpc.call(member, Guardian.CounterPipelineProbe, :start, [self()])
+        {:ok, pid} = :erpc.call(member, Guardian.Test.Counters.PipelineProbe, :start, [self()])
         {member, pid}
       end)
       |> Map.put(node(), local)
@@ -249,7 +253,7 @@ defmodule Guardian.Counters.ClientTest do
     task =
       Task.async(fn ->
         context =
-          event(batch, {Guardian.CounterStoreProbe, Guardian.CounterPipelineProbe},
+          event(batch, {Guardian.Test.Counters.ProbeStore, Guardian.Test.Counters.PipelineProbe},
             members: members
           )
 
@@ -291,7 +295,7 @@ defmodule Guardian.Counters.ClientTest do
     members = [node(), peer]
     local_key = owned_key(node(), members)
     remote_key = owned_key(peer, members)
-    pause = :erpc.call(peer, Guardian.CounterStoreProbe, :pause, [remote])
+    pause = :erpc.call(peer, Guardian.Test.Counters.StorePause, :pause, [remote])
 
     try do
       context = event(:counter_partial_store, members: members)
@@ -317,7 +321,7 @@ defmodule Guardian.Counters.ClientTest do
       Guardian.Test.Processes.await_queued_call(elem(pause, 0), node: peer)
       Process.sleep(55)
     after
-      :erpc.call(peer, Guardian.CounterStoreProbe, :resume, [pause])
+      :erpc.call(peer, Guardian.Test.Counters.StorePause, :resume, [pause])
     end
 
     assert :erpc.call(peer, Store, :get, [remote_key, [server: remote]]) == :not_found
@@ -334,7 +338,7 @@ defmodule Guardian.Counters.ClientTest do
     # allowance of five units keeps the reservation decision and its retention the same.
     CounterBudgetHelper.scale()
     unit = CounterBudgetHelper.allowance_us(1)
-    pause = Guardian.CounterStoreProbe.pause(store)
+    pause = Guardian.Test.Counters.StorePause.pause(store)
     batch = CounterBudgetHelper.batch(5)
 
     caller =
@@ -355,7 +359,7 @@ defmodule Guardian.Counters.ClientTest do
       # A dispatched call can survive its caller. Leave it queued past its own deadline.
       Process.sleep(Guardian.Counters.Context.operation_ms() + 5)
     after
-      Guardian.CounterStoreProbe.resume(pause)
+      Guardian.Test.Counters.StorePause.resume(pause)
     end
 
     assert Store.get(key(), server: store) == :not_found
@@ -548,7 +552,7 @@ defmodule Guardian.Counters.ClientTest do
           id: {:malformed, index}
         )
 
-      context = event({Guardian.CounterStoreProbe, store})
+      context = event({Guardian.Test.Counters.ProbeStore, store})
 
       assert batch(%{a: {:get, key()}}, context) ==
                %{a: {:error, :invalid_response}}
@@ -741,7 +745,7 @@ defmodule Guardian.Counters.ClientTest do
   end
 
   test "local stall times out, queued mutation expires, cooldown recovers", %{store: store} do
-    pause = Guardian.CounterStoreProbe.pause(store)
+    pause = Guardian.Test.Counters.StorePause.pause(store)
     started = System.monotonic_time(:millisecond)
 
     try do
@@ -753,7 +757,7 @@ defmodule Guardian.Counters.ClientTest do
       # cooldown fast-fail.
       assert System.monotonic_time(:millisecond) - started < 1_000
     after
-      Guardian.CounterStoreProbe.resume(pause)
+      Guardian.Test.Counters.StorePause.resume(pause)
     end
 
     assert Store.get(key(), server: store) == :not_found
@@ -762,7 +766,7 @@ defmodule Guardian.Counters.ClientTest do
   end
 
   test "short call and exhausted event budget do not mark an owner", %{store: store} do
-    pause = Guardian.CounterStoreProbe.pause(store)
+    pause = Guardian.Test.Counters.StorePause.pause(store)
 
     try do
       assert batch_one({:get, key()}, event(store, timeout_ms: 15)) == {:error, :timeout}
@@ -776,7 +780,7 @@ defmodule Guardian.Counters.ClientTest do
       assert CounterBudgetHelper.remaining_us(batch) == 250_000
       assert :ets.lookup(:counter_client_test, node()) == []
     after
-      Guardian.CounterStoreProbe.resume(pause)
+      Guardian.Test.Counters.StorePause.resume(pause)
     end
   end
 
@@ -808,7 +812,7 @@ defmodule Guardian.Counters.ClientTest do
     peer_node: peer,
   } do
     for {target, members, suspend_node} <- [{store, [node()], node()}, {Store, [peer], peer}] do
-      pause = :erpc.call(suspend_node, Guardian.CounterStoreProbe, :pause, [target])
+      pause = :erpc.call(suspend_node, Guardian.Test.Counters.StorePause, :pause, [target])
       batch = Client.new_batch()
       started = System.monotonic_time(:millisecond)
 
@@ -838,7 +842,7 @@ defmodule Guardian.Counters.ClientTest do
         # this bound, proves the shared cap.
         assert System.monotonic_time(:millisecond) - started < 1_500
       after
-        :erpc.call(suspend_node, Guardian.CounterStoreProbe, :resume, [pause])
+        :erpc.call(suspend_node, Guardian.Test.Counters.StorePause, :resume, [pause])
       end
     end
   end
@@ -851,7 +855,7 @@ defmodule Guardian.Counters.ClientTest do
     # allowance of five units keeps the reservation decision and its retention the same.
     CounterBudgetHelper.scale()
     unit = CounterBudgetHelper.allowance_us(1)
-    pause = Guardian.CounterStoreProbe.pause(store)
+    pause = Guardian.Test.Counters.StorePause.pause(store)
     batch = CounterBudgetHelper.batch(5)
 
     context =
@@ -868,7 +872,7 @@ defmodule Guardian.Counters.ClientTest do
       assert CounterBudgetHelper.remaining_us(batch) >= 4 * unit
       assert CounterBudgetHelper.remaining_us(batch) < 5 * unit
     after
-      Guardian.CounterStoreProbe.resume(pause)
+      Guardian.Test.Counters.StorePause.resume(pause)
     end
   end
 
@@ -878,7 +882,7 @@ defmodule Guardian.Counters.ClientTest do
     for _ <- 1..80 do
       # Replies straddle the 10ms boundary, including already-delivered replies
       # racing the caller's timer. Neither outcome may leave messages behind.
-      context = event({Guardian.CounterStoreProbe, store}, timeout_ms: 10)
+      context = event({Guardian.Test.Counters.ProbeStore, store}, timeout_ms: 10)
       assert batch_one({:get, key()}, context) in [:not_found, {:error, :timeout}]
     end
 
@@ -889,7 +893,7 @@ defmodule Guardian.Counters.ClientTest do
   test "overlapping callers cannot reserve more than the shared failure allowance", %{
     store: store,
   } do
-    pause = Guardian.CounterStoreProbe.pause(store)
+    pause = Guardian.Test.Counters.StorePause.pause(store)
     batch = Client.new_batch()
 
     try do
@@ -914,7 +918,7 @@ defmodule Guardian.Counters.ClientTest do
       assert Enum.count(outcomes, &(&1 == {:error, :timeout})) in 1..5
       assert CounterBudgetHelper.remaining_us(batch) >= 0
     after
-      Guardian.CounterStoreProbe.resume(pause)
+      Guardian.Test.Counters.StorePause.resume(pause)
     end
 
     assert Store.get(key(), server: store) == :not_found

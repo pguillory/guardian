@@ -380,7 +380,7 @@ defmodule Guardian.Counters.StoreTest do
     opts: opts,
   } do
     assert Store.get(:key, server: :counter_store_not_running) == {:error, :unavailable}
-    pause = Guardian.CounterStoreProbe.pause(server)
+    pause = Guardian.Test.Counters.StorePause.pause(server)
 
     try do
       task =
@@ -394,10 +394,10 @@ defmodule Guardian.Counters.StoreTest do
 
       Guardian.Test.Processes.await_queued_call(elem(pause, 0))
       Process.sleep(20)
-      Guardian.CounterStoreProbe.resume(pause)
+      Guardian.Test.Counters.StorePause.resume(pause)
       assert Task.await(task) == {:error, :timeout}
     after
-      if Process.alive?(elem(pause, 0)), do: Guardian.CounterStoreProbe.resume(pause)
+      if Process.alive?(elem(pause, 0)), do: Guardian.Test.Counters.StorePause.resume(pause)
     end
 
     assert Store.get("private-key", opts) == :not_found

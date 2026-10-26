@@ -547,8 +547,8 @@ shared batch handle, operation allowance, cooldown table and store server.
 `Guardian.Counters.Arrival` (private Unix/monotonic arrival coordinates); Runtime
 passes both, with the ops, to Execution, whose code names no Rules module.
 Transport calls Store directly in production; test builds select a libtest adapter
-at compile time for transport probes. No backend tuple handling enters the production
-path. Transport chooses the highest rendezvous score
+(`Guardian.Test.Counters.Backend`) at compile time for transport probes. No
+backend tuple handling enters the production path. Transport chooses the highest rendezvous score
 `{:erlang.phash2({{identity, group}, member_name}, 4_294_967_296), member_name}`,
 where member_name is the node's string name and breaks hash ties
 (`Guardian.Rendezvous`, shared with GROUP BY routing). phash2 accepts
@@ -1545,9 +1545,9 @@ About 150 test files cover:
    column release, and a segment column race run in a child VM
    (`test/fixtures/segment_column_race.exs`).
 3. Interfaces: the JSON API through `Plug.Test` connections against the real router
-   stack (`Guardian.JsonApiTestClient.query/2` in `libtest/guardian/` posts a query),
-   and the MCP endpoint end to end through a real MCP client (`Guardian.MCPTestClient`
-   in `libtest/guardian/`, an Anubis client started by `Guardian.MCPTestClient.start/0`) against the
+   stack (`Guardian.Test.JsonApiClient.query/2` in `libtest/guardian/test/` posts a query),
+   and the MCP endpoint end to end through a real MCP client (`Guardian.Test.MCPClient`
+   in `libtest/guardian/test/`, an Anubis client started by `Guardian.Test.MCPClient.start/0`) against the
    test listener on an OS-chosen port, including sessions, the 404 and 405 rules, and
    authentication with query keys allowed and refused (`Guardian.Test.QueryApiKeys` in `libtest/guardian/test/`
    switches the setting for `async: false` tests).
@@ -1560,14 +1560,14 @@ About 150 test files cover:
    on one node (crashes, halts, nested pipelines, a forged marker, workers that exit
    early) and on three (two peers whose connection to each other drops
    mid-pipeline); stage functions that must run on peers live in
-   `libtest/guardian/distributed_stream_test_stages.ex`, because test modules are not loaded
+   `libtest/guardian/test/distributed_stream_stages.ex`, because test modules are not loaded
    there.
 5. Rules: the parser, whole-set validation, semantics through real ingestion, the
    worker's limits, the server (boot refusals, repair, activation, the module pool,
    restarts), both rule stores, and a peer cluster sharing a store; the object-store
    client's S3 and folder implementations, their shared contract and the key lock
-   have their own tests. `Guardian.FakeS3` (in
-   `libtest/guardian/`) is a small S3 server that checks every request's SigV4 signature with
+   have their own tests. `Guardian.Test.FakeS3` (in
+   `libtest/guardian/test/`) is a small S3 server that checks every request's SigV4 signature with
    its own implementation of the canonical request; `Guardian.Test.Rules` restarts the
    shared Guardian.Rules.Server on a test store.
 6. Configuration and deployment: `config/runtime.exs` and the production config are
@@ -1590,10 +1590,18 @@ node or peers. `Guardian.Test.Segments` picks a full segment's loaded copy
 (`write_segment_file/2`) and injects one-call append replies (`intercept_append/2`).
 Callers isolate observed processes, files, segments and tables; shared Storage
 process manipulation requires serial tests. `Guardian.Test.Aggregation` supplies
-pure representative aggregate arguments. `Guardian.Test.Counters.ProbeStore` is a
-scripted counter store shared by the counter execution and rules tests. Other
-specialized clients, fake servers, counter probes/backends and the evaluation test
-case retain their existing homes.
+pure representative aggregate arguments. The counter test family lives under
+`Guardian.Test.Counters`: the module itself sets up a relaxed-budget store and event
+options for counter execution and rules tests (serial tests only);
+`Guardian.Test.Counters.ProbeStore` is a scripted counter store and the mailbox batch
+adapter for probes; `Guardian.Test.Counters.Backend` is the test build's Transport
+backend; `Guardian.Test.Counters.StorePause` pauses a real Store's callers and is the
+one test module that reads the Store's private descriptor;
+`Guardian.Test.Counters.PipelineProbe` holds pipelines until released. The fake S3
+server, JSON and MCP clients, DistributedStream peer stages and the engine's
+raising key also live under `Guardian.Test.*`. `Guardian.Query.EvaluationTestCase`
+and the test-only query function `Guardian.Query.Function.TestRaise` keep their homes
+beside the query code they test.
 `Guardian.Test.Cluster.data_root/0` gives a peer a fresh data directory.
 `Guardian.Test.Cluster.single_peer/0` shares a single Storage peer's setup and cleanup
 across query and Rules tests, preserving the calling setup's test or module lifetime.

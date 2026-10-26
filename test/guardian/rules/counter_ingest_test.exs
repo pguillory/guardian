@@ -33,7 +33,7 @@ defmodule Guardian.Rules.CounterIngestTest do
   end
 
   defp mcp(tool, arguments) do
-    assert {:ok, response} = Guardian.MCPTestClient.call_tool(tool, arguments)
+    assert {:ok, response} = Guardian.Test.MCPClient.call_tool(tool, arguments)
     refute response.result["isError"] == true
     [%{"type" => "text", "text" => text}] = response.result["content"]
     Jason.decode!(text)
@@ -58,7 +58,7 @@ defmodule Guardian.Rules.CounterIngestTest do
 
   test "HTTP and MCP return LOOKUP=49/TRACK=50, SET decisions and historical stored fields" do
     Guardian.Test.Counters.Budget.relax()
-    Guardian.MCPTestClient.start()
+    Guardian.Test.MCPClient.start()
 
     for interface <- [:http, :mcp] do
       table = unique_table("counter_#{interface}")
@@ -216,7 +216,7 @@ defmodule Guardian.Rules.CounterIngestTest do
 
   test "unkeyed resubmissions count twice; completed HTTP/MCP keyed retries return only a receipt" do
     Guardian.Test.Counters.Budget.relax()
-    Guardian.MCPTestClient.start()
+    Guardian.Test.MCPClient.start()
     table = unique_table("live_counter_retry")
     with_rules(%{"#{table}/r.gsql" => "TRACK hits = count() LAST '1h'"})
     args = %{"table" => table, "events" => [%{}], "return_keys" => ["hits"]}
@@ -321,10 +321,10 @@ defmodule Guardian.Rules.CounterIngestTest do
     source = Enum.map_join(1..16, ";", &"TRACK c#{&1} = count() LAST '1h'") <> "; UNSET secret"
     with_rules(%{"#{table}/r.gsql" => source})
     store = Process.whereis(Store)
-    pause = Guardian.CounterStoreProbe.pause(store)
+    pause = Guardian.Test.Counters.StorePause.pause(store)
 
     on_exit(fn ->
-      if Process.alive?(elem(pause, 0)), do: Guardian.CounterStoreProbe.resume(pause)
+      if Process.alive?(elem(pause, 0)), do: Guardian.Test.Counters.StorePause.resume(pause)
     end)
 
     started = System.monotonic_time(:millisecond)
@@ -335,7 +335,7 @@ defmodule Guardian.Rules.CounterIngestTest do
       assert System.monotonic_time(:millisecond) - started < 1_500
       assert [{_, _}] = :ets.lookup(Guardian.Counters.Budget, node())
     after
-      :ok = Guardian.CounterStoreProbe.resume(pause)
+      :ok = Guardian.Test.Counters.StorePause.resume(pause)
     end
 
     await_cooldown(node())
@@ -344,7 +344,7 @@ defmodule Guardian.Rules.CounterIngestTest do
   end
 
   test "HTTP and MCP counter failure stays fail-open and redacts secret groups from status and logs" do
-    Guardian.MCPTestClient.start()
+    Guardian.Test.MCPClient.start()
     table = unique_table("live_counter_redaction")
     marker = "PRIVATE-#{System.unique_integer([:positive])}"
 
@@ -360,10 +360,10 @@ defmodule Guardian.Rules.CounterIngestTest do
     }
 
     store = Process.whereis(Store)
-    pause = Guardian.CounterStoreProbe.pause(store)
+    pause = Guardian.Test.Counters.StorePause.pause(store)
 
     on_exit(fn ->
-      if Process.alive?(elem(pause, 0)), do: Guardian.CounterStoreProbe.resume(pause)
+      if Process.alive?(elem(pause, 0)), do: Guardian.Test.Counters.StorePause.resume(pause)
     end)
 
     log =
@@ -378,7 +378,7 @@ defmodule Guardian.Rules.CounterIngestTest do
         end
       end)
 
-    :ok = Guardian.CounterStoreProbe.resume(pause)
+    :ok = Guardian.Test.Counters.StorePause.resume(pause)
     refute log =~ marker
 
     for process <- [Store, Guardian.Counters.Budget, Guardian.Rules.Server] do
@@ -429,11 +429,11 @@ defmodule Guardian.Rules.CounterIngestTest do
     # Failure, cooldown and recovery run on production budgets.
     production_budgets.()
 
-    pause = :erpc.call(peer_node, Guardian.CounterStoreProbe, :pause, [Store])
+    pause = :erpc.call(peer_node, Guardian.Test.Counters.StorePause, :pause, [Store])
 
     on_exit(fn ->
       if Process.alive?(peer) and :erpc.call(peer_node, Process, :alive?, [elem(pause, 0)]),
-        do: :erpc.call(peer_node, Guardian.CounterStoreProbe, :resume, [pause])
+        do: :erpc.call(peer_node, Guardian.Test.Counters.StorePause, :resume, [pause])
     end)
 
     started = System.monotonic_time(:millisecond)
@@ -447,7 +447,7 @@ defmodule Guardian.Rules.CounterIngestTest do
       assert System.monotonic_time(:millisecond) - started < 1_500
       assert [{_, _}] = :ets.lookup(Guardian.Counters.Budget, peer_node)
     after
-      :ok = :erpc.call(peer_node, Guardian.CounterStoreProbe, :resume, [pause])
+      :ok = :erpc.call(peer_node, Guardian.Test.Counters.StorePause, :resume, [pause])
     end
 
     await_cooldown(peer_node)

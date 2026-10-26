@@ -195,7 +195,7 @@ defmodule Guardian.EngineTest do
   test "a failure with a fun stack frame is redacted and the batch continues" do
     table = unique_table()
     marker = "private-fun-frame-marker"
-    key = %Guardian.EngineTestKey{marker: marker}
+    key = %Guardian.Test.EngineKey{marker: marker}
 
     log =
       ExUnit.CaptureLog.capture_log(fn ->

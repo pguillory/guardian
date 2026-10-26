@@ -11,12 +11,12 @@ defmodule Guardian.ObjectStoreTest do
   end
 
   setup do
-    s3 = Guardian.FakeS3.start(page_size: 2)
-    on_exit(fn -> Guardian.FakeS3.stop(s3) end)
+    s3 = Guardian.Test.FakeS3.start(page_size: 2)
+    on_exit(fn -> Guardian.Test.FakeS3.stop(s3) end)
     dir = Path.join(System.tmp_dir!(), "object_store_#{System.unique_integer([:positive])}")
     on_exit(fn -> File.rm_rf!(dir) end)
     {:ok, local} = Guardian.ObjectStore.Local.new(dir)
-    %{s3: s3, stores: [local: local, s3: Guardian.FakeS3.store(s3, "guardian/")]}
+    %{s3: s3, stores: [local: local, s3: Guardian.Test.FakeS3.store(s3, "guardian/")]}
   end
 
   test "stores declare whether conditional writes coordinate across nodes", %{stores: stores} do

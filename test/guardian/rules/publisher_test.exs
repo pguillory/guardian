@@ -7,9 +7,9 @@ defmodule Guardian.Rules.PublisherTest do
   alias Guardian.Rules.RuleSet
 
   setup do
-    s3 = Guardian.FakeS3.start()
-    on_exit(fn -> Guardian.FakeS3.stop(s3) end)
-    {:ok, _} = restart_server(Guardian.FakeS3.store(s3))
+    s3 = Guardian.Test.FakeS3.start()
+    on_exit(fn -> Guardian.Test.FakeS3.stop(s3) end)
+    {:ok, _} = restart_server(Guardian.Test.FakeS3.store(s3))
     :ok
   end
 

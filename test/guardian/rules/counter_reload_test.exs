@@ -6,20 +6,20 @@ defmodule Guardian.Rules.CounterReloadTest do
     # No test here is about budgets: a larger one keeps healthy counter calls from
     # timing out under load.
     Guardian.Test.Counters.Budget.relax()
-    s3 = Guardian.FakeS3.start()
-    on_exit(fn -> Guardian.FakeS3.stop(s3) end)
-    {:ok, _} = restart_server(Guardian.FakeS3.store(s3))
+    s3 = Guardian.Test.FakeS3.start()
+    on_exit(fn -> Guardian.Test.FakeS3.stop(s3) end)
+    {:ok, _} = restart_server(Guardian.Test.FakeS3.store(s3))
     %{s3: s3}
   end
 
   defp load(s3, files) do
-    for key <- Map.keys(Guardian.FakeS3.objects(s3)),
+    for key <- Map.keys(Guardian.Test.FakeS3.objects(s3)),
         String.ends_with?(key, ".gsql"),
         not Map.has_key?(files, key) do
-      assert :ok = Guardian.ObjectStore.delete(Guardian.FakeS3.store(s3), key)
+      assert :ok = Guardian.ObjectStore.delete(Guardian.Test.FakeS3.store(s3), key)
     end
 
-    for {key, source} <- files, do: Guardian.FakeS3.put_object(s3, key, source)
+    for {key, source} <- files, do: Guardian.Test.FakeS3.put_object(s3, key, source)
     ExUnit.CaptureLog.capture_log(fn -> assert :ok = Guardian.Rules.reload() end)
   end
 
@@ -216,8 +216,8 @@ defmodule Guardian.Rules.CounterReloadTest do
     load(s3, files)
     old = Guardian.Rules.published()
     assert ingest(a)["hits"] == 1
-    Guardian.FakeS3.put_object(s3, "#{a}/r.gsql", "TRACK hits = sum(amount) LAST '1h'")
-    Guardian.FakeS3.put_object(s3, "#{b}/r.gsql", "SET")
+    Guardian.Test.FakeS3.put_object(s3, "#{a}/r.gsql", "TRACK hits = sum(amount) LAST '1h'")
+    Guardian.Test.FakeS3.put_object(s3, "#{b}/r.gsql", "SET")
 
     ExUnit.CaptureLog.capture_log(fn ->
       assert :ok = Supervisor.terminate_child(Guardian.Application, Guardian.Rules.Server)
@@ -230,7 +230,7 @@ defmodule Guardian.Rules.CounterReloadTest do
     assert ingest(b)["prior"] == 2
 
     assert :ok = Supervisor.terminate_child(Guardian.Application, Guardian.Rules.Server)
-    Guardian.FakeS3.fault(s3, {:status, 503})
+    Guardian.Test.FakeS3.fault(s3, {:status, 503})
 
     ExUnit.CaptureLog.capture_log(fn ->
       assert {:ok, _} = Supervisor.restart_child(Guardian.Application, Guardian.Rules.Server)
@@ -239,8 +239,8 @@ defmodule Guardian.Rules.CounterReloadTest do
 
     assert Guardian.Rules.published() == old
     assert ingest(b)["prior"] == 2
-    Guardian.FakeS3.fault(s3, nil)
-    Guardian.FakeS3.put_object(s3, "#{b}/r.gsql", files["#{b}/r.gsql"])
+    Guardian.Test.FakeS3.fault(s3, nil)
+    Guardian.Test.FakeS3.put_object(s3, "#{b}/r.gsql", files["#{b}/r.gsql"])
     assert :ok = Guardian.Rules.reload()
     refute Guardian.Rules.published() == old
     assert ingest(a, %{"amount" => 11})["hits"] == 11
@@ -252,18 +252,18 @@ defmodule Guardian.Rules.CounterReloadTest do
     a = unique_table("boot_target")
     b = unique_table("boot_invalid_reader")
     c = unique_table("boot_transitive_reader")
-    Guardian.FakeS3.put_object(s3, "#{a}/r.gsql", "TRACK ca = count() LAST '1h'")
+    Guardian.Test.FakeS3.put_object(s3, "#{a}/r.gsql", "TRACK ca = count() LAST '1h'")
 
-    Guardian.FakeS3.put_object(
+    Guardian.Test.FakeS3.put_object(
       s3,
       "#{b}/r.gsql",
       "TRACK cb = count() LAST '1h'; LOOKUP bad = ca FROM #{a} BY ip"
     )
 
-    Guardian.FakeS3.put_object(s3, "#{c}/r.gsql", "LOOKUP bad = cb FROM #{b}")
+    Guardian.Test.FakeS3.put_object(s3, "#{c}/r.gsql", "LOOKUP bad = cb FROM #{b}")
 
     ExUnit.CaptureLog.capture_log(fn ->
-      assert {:ok, _} = restart_server(Guardian.FakeS3.store(s3))
+      assert {:ok, _} = restart_server(Guardian.Test.FakeS3.store(s3))
     end)
 
     assert ingest(a)["ca"] == 1

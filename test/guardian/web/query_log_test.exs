@@ -3,7 +3,7 @@ defmodule Guardian.Web.QueryLogTest do
 
   import ExUnit.CaptureLog
 
-  alias Guardian.JsonApiTestClient
+  alias Guardian.Test.JsonApiClient
   alias Guardian.Web.QueryLog
 
   @api_key Application.compile_env!(:guardian, :api_key)
@@ -21,8 +21,8 @@ defmodule Guardian.Web.QueryLogTest do
   end
 
   defp mcp_query(sql) do
-    Guardian.MCPTestClient.start()
-    {:ok, response} = Guardian.MCPTestClient.call_tool("query", %{"sql" => sql})
+    Guardian.Test.MCPClient.start()
+    {:ok, response} = Guardian.Test.MCPClient.call_tool("query", %{"sql" => sql})
     response.result
   end
 
@@ -37,7 +37,7 @@ defmodule Guardian.Web.QueryLogTest do
       sql = "SELECT v FROM #{table}"
 
       assert {200, %{"rows" => [[1], [2]]}} =
-               JsonApiTestClient.query(sql, [
+               JsonApiClient.query(sql, [
                  {"user-agent", "secret-agent"},
                  {"x-forwarded-for", "9.9.9.9"},
                ])
@@ -66,7 +66,7 @@ defmodule Guardian.Web.QueryLogTest do
 
     test "a query error (400) records outcome error, kind query" do
       sql = "SELECT max_n(1, -1) AS #{marker()}"
-      assert {400, %{"info" => info}} = JsonApiTestClient.query(sql)
+      assert {400, %{"info" => info}} = JsonApiClient.query(sql)
 
       assert [row] = rows_for(sql)
       assert row["outcome"] == "error"
@@ -77,13 +77,13 @@ defmodule Guardian.Web.QueryLogTest do
 
     test "a statement-count rejection records kind query" do
       sql = "SELECT 1 FROM #{marker()}; SELECT 2"
-      assert {400, _} = JsonApiTestClient.query(sql)
+      assert {400, _} = JsonApiClient.query(sql)
       assert [%{"error_kind" => "query", "outcome" => "error"}] = rows_for(sql)
     end
 
     test "a parse error returns the same 500 and records kind parse" do
       sql = "SELECT FROM #{marker()} WHERE"
-      assert {500, %{"status" => 500}} = JsonApiTestClient.query(sql)
+      assert {500, %{"status" => 500}} = JsonApiClient.query(sql)
 
       # Resolve independently: the JSON boundary no longer exposes the exception.
       error = assert_raise Guardian.AST.ParseError, fn -> Guardian.Query.Resolver.resolve(sql) end
@@ -98,7 +98,7 @@ defmodule Guardian.Web.QueryLogTest do
       Guardian.Engine.ingest_event(table, %{"a" => 1, "A" => 2})
       sql = "SELECT a FROM #{table}"
 
-      assert {500, %{"status" => 500}} = JsonApiTestClient.query(sql)
+      assert {500, %{"status" => 500}} = JsonApiClient.query(sql)
 
       # Resolve independently to retain the exact recorded-message assertion.
       error =
@@ -118,7 +118,7 @@ defmodule Guardian.Web.QueryLogTest do
       :ok = :sys.suspend(pid)
 
       try do
-        {micros, result} = :timer.tc(fn -> JsonApiTestClient.query(sql) end)
+        {micros, result} = :timer.tc(fn -> JsonApiClient.query(sql) end)
         assert {200, _} = result
         assert micros < 1_000_000
       after
@@ -133,7 +133,7 @@ defmodule Guardian.Web.QueryLogTest do
       :ok = Supervisor.terminate_child(Guardian.Application, QueryLog)
 
       try do
-        log = capture_log(fn -> assert {200, _} = JsonApiTestClient.query(sql) end)
+        log = capture_log(fn -> assert {200, _} = JsonApiClient.query(sql) end)
         assert log =~ "Failed to record a query in queries: the recorder is not running"
         refute log =~ sql
       after
@@ -145,17 +145,17 @@ defmodule Guardian.Web.QueryLogTest do
 
     test "a query on the queries table logs exactly one row" do
       sql = "SELECT count() FROM queries WHERE sql = '#{marker()}'"
-      assert {200, _} = JsonApiTestClient.query(sql)
-      assert {200, _} = JsonApiTestClient.query(sql)
+      assert {200, _} = JsonApiClient.query(sql)
+      assert {200, _} = JsonApiClient.query(sql)
       assert [_, _] = rows_for(sql)
     end
 
     test "the table is queryable" do
       sql = "SELECT 1 FROM #{marker()}"
-      JsonApiTestClient.query(sql)
+      JsonApiClient.query(sql)
       :ok = QueryLog.sync()
 
-      assert {200, %{"rows" => keys}} = JsonApiTestClient.query("DESC queries")
+      assert {200, %{"rows" => keys}} = JsonApiClient.query("DESC queries")
 
       for key <-
             ~w(timestamp hostname interface remote_ip sql sql_bytes sql_truncated duration_ms outcome row_count error_kind error dropped_before) do

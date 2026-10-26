@@ -1,4 +1,4 @@
-defmodule Guardian.MCPTestClient do
+defmodule Guardian.Test.MCPClient do
   @moduledoc """
   An MCP client for tests that drive Guardian's MCP endpoint end to end (Anubis
   client). It identifies itself as `guardian` version `0.1.0`, which tests read back
@@ -6,8 +6,8 @@ defmodule Guardian.MCPTestClient do
 
   Start it with `start/0` from the test process, then call it by module name:
 
-      MCPTestClient.start()
-      {:ok, response} = MCPTestClient.call_tool("query", %{"sql" => "SHOW TABLES"})
+      MCPClient.start()
+      {:ok, response} = MCPClient.call_tool("query", %{"sql" => "SHOW TABLES"})
   """
 
   use Anubis.Client,

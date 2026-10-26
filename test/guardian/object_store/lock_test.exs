@@ -5,9 +5,9 @@ defmodule Guardian.ObjectStore.LockTest do
   alias Guardian.ObjectStore.Lock
 
   setup do
-    s3 = Guardian.FakeS3.start()
-    on_exit(fn -> Guardian.FakeS3.stop(s3) end)
-    %{s3: s3, store: Guardian.FakeS3.store(s3)}
+    s3 = Guardian.Test.FakeS3.start()
+    on_exit(fn -> Guardian.Test.FakeS3.stop(s3) end)
+    %{s3: s3, store: Guardian.Test.FakeS3.store(s3)}
   end
 
   defp lock_state(store, key) do
@@ -42,7 +42,7 @@ defmodule Guardian.ObjectStore.LockTest do
        %{s3: s3, store: store} do
     assert {:ok, old} = Lock.acquire(store, "k", "old", lease_ms: 30_000)
     assert Lock.remaining_ms(old) <= 30_000 and Lock.remaining_ms(old) > 25_000
-    Guardian.FakeS3.age(s3, "k", 31)
+    Guardian.Test.FakeS3.age(s3, "k", 31)
     assert {:ok, new} = Lock.acquire(store, "k", "new", lease_ms: 30_000, timeout_ms: 600)
     assert Lock.release(old) == {:error, :precondition_failed}
     assert lock_state(store, "k") == "held"
@@ -54,7 +54,7 @@ defmodule Guardian.ObjectStore.LockTest do
     assert {:ok, _lock} = Lock.acquire(store, "k", "a")
     # Not aged past the default lease on the store: still live, however long this
     # node thinks it has waited.
-    Guardian.FakeS3.age(s3, "k", 60)
+    Guardian.Test.FakeS3.age(s3, "k", 60)
     assert Lock.acquire(store, "k", "b", timeout_ms: 600) == {:error, :busy}
   end
 

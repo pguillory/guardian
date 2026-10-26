@@ -61,7 +61,7 @@ defmodule Guardian.Query.HeapLimitTest do
       consume(fn ->
         [1, 2]
         |> DistributedStream.fan_out(fn value -> {node(), value} end)
-        |> DistributedStream.map(&Guardian.DistributedStreamTestStages.grow_heap/1)
+        |> DistributedStream.map(&Guardian.Test.DistributedStreamStages.grow_heap/1)
         |> DistributedStream.fan_in()
         |> Enum.to_list()
       end)
@@ -83,7 +83,7 @@ defmodule Guardian.Query.HeapLimitTest do
 
     result =
       consume(fn ->
-        Stream.map([1], &Guardian.DistributedStreamTestStages.grow_heap/1)
+        Stream.map([1], &Guardian.Test.DistributedStreamStages.grow_heap/1)
         |> DistributedStream.fan_out(fn _ -> {node(), 1} end)
         |> DistributedStream.fan_in()
         |> Enum.to_list()
@@ -149,7 +149,7 @@ defmodule Guardian.Query.HeapLimitTest do
         consume(fn ->
           [1]
           |> DistributedStream.fan_out(fn _ -> {peer_node, 1} end)
-          |> DistributedStream.map(&Guardian.DistributedStreamTestStages.grow_heap/1)
+          |> DistributedStream.map(&Guardian.Test.DistributedStreamStages.grow_heap/1)
           |> DistributedStream.fan_in()
           |> Enum.to_list()
         end)

@@ -3,7 +3,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
 
   import ExUnit.CaptureLog
 
-  alias Guardian.JsonApiTestClient
+  alias Guardian.Test.JsonApiClient
   alias Guardian.Web.QueryParseErrors
 
   # Malformed SQL unique to one test, so rows can be told apart in the shared table.
@@ -33,7 +33,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       sql = bad_sql()
 
       assert {500, %{"status" => 500}} =
-               JsonApiTestClient.query(sql, [
+               JsonApiClient.query(sql, [
                  {"user-agent", "test-agent/1"},
                  {"x-forwarded-for", "9.9.9.9"},
                ])
@@ -56,8 +56,8 @@ defmodule Guardian.Web.QueryParseErrorsTest do
     test "valid queries and statement-count rejections record nothing" do
       marker = "valid_#{System.unique_integer([:positive])}_end"
 
-      assert {200, _} = JsonApiTestClient.query("SELECT 1 FROM #{marker}")
-      assert {400, _} = JsonApiTestClient.query("SELECT 1 FROM #{marker}; SELECT 2")
+      assert {200, _} = JsonApiClient.query("SELECT 1 FROM #{marker}")
+      assert {400, _} = JsonApiClient.query("SELECT 1 FROM #{marker}; SELECT 2")
       :ok = QueryParseErrors.sync()
 
       rows = Guardian.Storage.dump_table(QueryParseErrors.table())
@@ -71,7 +71,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       try do
         log =
           capture_log(fn ->
-            assert {500, %{"status" => 500}} = JsonApiTestClient.query(sql)
+            assert {500, %{"status" => 500}} = JsonApiClient.query(sql)
           end)
 
         assert log =~ "Failed to record a http query parse error: the recorder is not running"
@@ -88,7 +88,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       :ok = :sys.suspend(pid)
 
       try do
-        {micros, result} = :timer.tc(fn -> JsonApiTestClient.query(sql) end)
+        {micros, result} = :timer.tc(fn -> JsonApiClient.query(sql) end)
         assert {500, %{"status" => 500}} = result
         assert micros < 1_000_000
       after
@@ -100,13 +100,13 @@ defmodule Guardian.Web.QueryParseErrorsTest do
 
     test "the table is queryable like other built-in tables" do
       sql = bad_sql()
-      JsonApiTestClient.query(sql)
+      JsonApiClient.query(sql)
       :ok = QueryParseErrors.sync()
 
-      assert {200, %{"rows" => tables}} = JsonApiTestClient.query("SHOW TABLES")
+      assert {200, %{"rows" => tables}} = JsonApiClient.query("SHOW TABLES")
       assert ["query_parse_errors"] in tables
 
-      assert {200, %{"rows" => keys}} = JsonApiTestClient.query("DESC query_parse_errors")
+      assert {200, %{"rows" => keys}} = JsonApiClient.query("DESC query_parse_errors")
 
       for key <-
             ~w(timestamp hostname interface remote_ip sql sql_bytes sql_truncated error dropped_before) do
@@ -114,7 +114,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       end
 
       assert {200, %{"rows" => [["http", ^sql]]}} =
-               JsonApiTestClient.query(
+               JsonApiClient.query(
                  "SELECT interface, sql FROM query_parse_errors WHERE sql = '#{sql}'"
                )
     end
@@ -143,9 +143,9 @@ defmodule Guardian.Web.QueryParseErrorsTest do
   describe "MCP" do
     test "a parse error returns the same tool error and records one row" do
       sql = bad_sql()
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
 
-      {:ok, response} = Guardian.MCPTestClient.call_tool("query", %{"sql" => sql})
+      {:ok, response} = Guardian.Test.MCPClient.call_tool("query", %{"sql" => sql})
 
       assert response.result["isError"] == true
       assert [%{"text" => text}] = response.result["content"]
@@ -163,10 +163,10 @@ defmodule Guardian.Web.QueryParseErrorsTest do
     test "resolve errors are not recorded" do
       table = "ambiguous_#{System.unique_integer([:positive])}_end"
       Guardian.Engine.ingest_event(table, %{"a" => 1, "A" => 2})
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
 
       {:ok, response} =
-        Guardian.MCPTestClient.call_tool("query", %{"sql" => "SELECT a FROM #{table}"})
+        Guardian.Test.MCPClient.call_tool("query", %{"sql" => "SELECT a FROM #{table}"})
 
       assert response.result["isError"] == true
       assert [%{"text" => "ambiguous column" <> _}] = response.result["content"]
@@ -180,10 +180,10 @@ defmodule Guardian.Web.QueryParseErrorsTest do
 
     test "an unknown function is a parse error and is recorded" do
       sql = "SELECT no_such_function_#{System.unique_integer([:positive])}(1)"
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
 
       {:ok, response} =
-        Guardian.MCPTestClient.call_tool("query", %{"sql" => sql})
+        Guardian.Test.MCPClient.call_tool("query", %{"sql" => sql})
 
       assert [%{"text" => "Parse error" <> _ = text}] = response.result["content"]
       assert [%{"error" => ^text}] = rows_for(sql)

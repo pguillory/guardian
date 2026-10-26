@@ -424,6 +424,12 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       split SQL, polling, process and segment helpers by concern without changing
       test behavior or coverage (`docs/changes/test-support-namespace.md`)
 
+- [x] test-support-consolidation: split ExecutionTest into async round-loop and
+      serial store-backed modules over a shared relaxed-store helper, fold the counter
+      probes and backend into one `Guardian.Test.Counters` family, move the remaining
+      cheap specialized helpers under `Guardian.Test.*`, and capture the top-N test's
+      warning (`docs/changes/test-support-consolidation.md`)
+
 - [x] rules-test-helper-follow-ups: share Rules cluster Storage-peer setup and
       successful probe compilation and cleanup
       (`docs/changes/test-infrastructure-helpers.md`)

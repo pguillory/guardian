@@ -1,6 +1,6 @@
 defmodule Guardian.Web.MCP.ClientTest do
   use ExUnit.Case, async: false
-  import Guardian.MCPTestClient
+  import Guardian.Test.MCPClient
 
   @api_key Application.compile_env!(:guardian, :api_key)
 
@@ -25,7 +25,7 @@ defmodule Guardian.Web.MCP.ClientTest do
 
   describe "initialization" do
     test "client connects and initializes" do
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
 
       # get_server_info returns the map directly (not wrapped in {:ok, ...})
       info = get_server_info()
@@ -36,7 +36,7 @@ defmodule Guardian.Web.MCP.ClientTest do
 
   describe "tools/list" do
     test "returns available tools" do
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
 
       {:ok, response} = list_tools()
       tools = response.result["tools"]
@@ -83,7 +83,7 @@ defmodule Guardian.Web.MCP.ClientTest do
 
   describe "resources" do
     test "serves the query language reference" do
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
 
       {:ok, response} = list_resources()
 
@@ -99,7 +99,7 @@ defmodule Guardian.Web.MCP.ClientTest do
 
   describe "query tool" do
     test "executes SELECT query and returns list of maps" do
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
       table = "mcp_select_#{System.unique_integer([:positive])}"
 
       Guardian.Engine.ingest_event(table, %{"name" => "alice", "score" => 10})
@@ -120,7 +120,7 @@ defmodule Guardian.Web.MCP.ClientTest do
     end
 
     test "executes SHOW TABLES" do
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
 
       {:ok, response} =
         call_tool("query", %{"sql" => "SHOW TABLES"})
@@ -129,7 +129,7 @@ defmodule Guardian.Web.MCP.ClientTest do
     end
 
     test "returns error for invalid SQL" do
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
 
       {:ok, response} =
         call_tool("query", %{"sql" => "INVALID SQL QUERY"})
@@ -138,7 +138,7 @@ defmodule Guardian.Web.MCP.ClientTest do
     end
 
     test "parse errors name the token found" do
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
 
       {:ok, response} =
         call_tool("query", %{"sql" => "SELECT a FROM t UNION SELECT b FROM t"})
@@ -149,7 +149,7 @@ defmodule Guardian.Web.MCP.ClientTest do
     end
 
     test "a Guardian.Query.Error while running is a tool error with its message" do
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
 
       {:ok, response} = call_tool("query", %{"sql" => "SELECT max_n(1, -1)"})
 
@@ -159,7 +159,7 @@ defmodule Guardian.Web.MCP.ClientTest do
     end
 
     test "returns error for multi-statement queries" do
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
 
       {:ok, response} =
         call_tool(
@@ -173,7 +173,7 @@ defmodule Guardian.Web.MCP.ClientTest do
     end
 
     test "executes GROUP BY with aggregation" do
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
       table = "mcp_aggregate_#{System.unique_integer([:positive])}"
 
       Guardian.Engine.ingest_event(table, %{"category" => "A", "value" => 10})
@@ -212,7 +212,7 @@ defmodule Guardian.Web.MCP.ClientTest do
     end
 
     test "HTTP and MCP share same-node receipts and MCP conflicts are tool errors" do
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
       table = "mcp_retry_#{System.unique_integer([:positive])}"
 
       params = %{
@@ -246,7 +246,7 @@ defmodule Guardian.Web.MCP.ClientTest do
     end
 
     test "MCP reports pending HTTP claims as tool errors and acknowledges mixed failures" do
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
       table = "mcp_pending_#{System.unique_integer([:positive])}"
       events = [%{"value" => 1}, nil]
       token = make_ref()
@@ -276,7 +276,7 @@ defmodule Guardian.Web.MCP.ClientTest do
     end
 
     test "ingests arbitrary nested keys and values unchanged and makes them queryable" do
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
       table = "mcp_ingest_#{System.unique_integer([:positive])}"
 
       event = %{
@@ -303,7 +303,7 @@ defmodule Guardian.Web.MCP.ClientTest do
     end
 
     test "mixed per-event failures continue in input order with HTTP-equivalent results" do
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
       table = "mcp_mixed_#{System.unique_integer([:positive])}"
       http_table = "http_mcp_mixed_#{System.unique_integer([:positive])}"
 
@@ -342,7 +342,7 @@ defmodule Guardian.Web.MCP.ClientTest do
     end
 
     test "storage call failures retain uncertain wording and continue later events" do
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
       table = "mcp_uncertain_#{System.unique_integer([:positive])}"
       segment_id = Guardian.SegmentID.generate()
 
@@ -395,7 +395,7 @@ defmodule Guardian.Web.MCP.ClientTest do
     end
 
     test "preserves absent, null, selected and empty return_keys without filtering stored events; a missing selected key is null" do
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
       event = %{"value" => 1, "nested" => %{"x" => 2}}
 
       for {options, expected} <- [
@@ -420,7 +420,7 @@ defmodule Guardian.Web.MCP.ClientTest do
     end
 
     test "empty and all-failed batches remain successful tool calls" do
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
       table = "mcp_failed_#{System.unique_integer([:positive])}"
 
       assert send_events(%{"table" => table, "events" => []}) |> decoded_result() == %{
@@ -442,7 +442,7 @@ defmodule Guardian.Web.MCP.ClientTest do
     end
 
     test "malformed requests produce tool errors with messages before any writes" do
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
       table = "mcp_invalid_#{System.unique_integer([:positive])}"
       valid = %{"table" => table, "events" => [%{"value" => 1}]}
 
@@ -511,7 +511,7 @@ defmodule Guardian.Web.MCP.ClientTest do
     end
 
     test "events sent through the JSON API are visible to MCP and JSON queries" do
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
       table = "single_store_#{System.unique_integer([:positive])}"
 
       assert %{"status" => 200} =
@@ -532,7 +532,7 @@ defmodule Guardian.Web.MCP.ClientTest do
     end
 
     test "system_stats is queryable through MCP and the JSON API" do
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
       :ok = Guardian.SystemStats.record_metrics()
 
       assert [%{"count()" => mcp_count}] = mcp_query("SELECT count() FROM system_stats")
@@ -545,7 +545,7 @@ defmodule Guardian.Web.MCP.ClientTest do
     end
 
     test "request logs are queryable and carry no user namespace" do
-      Guardian.MCPTestClient.start()
+      Guardian.Test.MCPClient.start()
       # web_requests outlives a test run, and other tests share the default user agent.
       user_agent = "request-log-test-#{Base.encode16(:crypto.strong_rand_bytes(8))}"
       json_request("/api/json/query", %{query: "SELECT 1"}, user_agent)

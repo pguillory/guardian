@@ -1,4 +1,4 @@
-defmodule Guardian.FakeS3 do
+defmodule Guardian.Test.FakeS3 do
   @moduledoc """
   A small S3-compatible server for object store and rule store tests: ListObjectsV2 (with pagination),
   GET, PUT and DELETE of objects in one bucket, `If-Match` and `If-None-Match: *`, and

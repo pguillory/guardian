@@ -5,13 +5,13 @@ defmodule Guardian.ObjectStore.S3Test do
   alias Guardian.ObjectStore.S3
 
   setup do
-    s3 = Guardian.FakeS3.start(page_size: 2)
-    on_exit(fn -> Guardian.FakeS3.stop(s3) end)
-    %{s3: s3, store: Guardian.FakeS3.store(s3, "guardian/")}
+    s3 = Guardian.Test.FakeS3.start(page_size: 2)
+    on_exit(fn -> Guardian.Test.FakeS3.stop(s3) end)
+    %{s3: s3, store: Guardian.Test.FakeS3.store(s3, "guardian/")}
   end
 
   test "S3 requests are signed, paginated and prefix-scoped", %{s3: s3, store: store} do
-    Guardian.FakeS3.put_object(s3, "other/x.gsql", "not ours")
+    Guardian.Test.FakeS3.put_object(s3, "other/x.gsql", "not ours")
     for n <- 1..5, do: {:ok, _} = ObjectStore.put(store, "t/f#{n}.gsql", "SET a = #{n}", :absent)
 
     assert {:ok, objects} = ObjectStore.list(store)
@@ -19,19 +19,19 @@ defmodule Guardian.ObjectStore.S3Test do
 
     lists =
       s3
-      |> Guardian.FakeS3.requests()
+      |> Guardian.Test.FakeS3.requests()
       |> Enum.filter(&(&1.method == "GET" and &1.path == "/rules-bucket"))
 
     assert length(lists) == 3
     assert Enum.any?(lists, &(&1.query =~ "continuation-token="))
-    assert Map.has_key?(Guardian.FakeS3.objects(s3), "guardian/t/f1.gsql")
+    assert Map.has_key?(Guardian.Test.FakeS3.objects(s3), "guardian/t/f1.gsql")
   end
 
   test "S3 with the wrong secret is misconfigured, and no secret reaches a log or inspect", %{
     s3: s3,
   } do
     wrong = %{s3 | secret_access_key: "WRONG-SECRET-VALUE"}
-    store = Guardian.FakeS3.store(wrong)
+    store = Guardian.Test.FakeS3.store(wrong)
 
     log =
       ExUnit.CaptureLog.capture_log(fn ->
@@ -43,7 +43,7 @@ defmodule Guardian.ObjectStore.S3Test do
 
     refute log =~ "WRONG-SECRET-VALUE"
     refute inspect(store) =~ "WRONG-SECRET-VALUE"
-    refute inspect(Guardian.FakeS3.store(s3)) =~ s3.secret_access_key
+    refute inspect(Guardian.Test.FakeS3.store(s3)) =~ s3.secret_access_key
   end
 
   test "S3 failures are classified by kind", %{s3: s3, store: store} do
@@ -54,29 +54,29 @@ defmodule Guardian.ObjectStore.S3Test do
 
     assert S3.write_deadline_ms() == 300
 
-    Guardian.FakeS3.fault(s3, {:status, 503})
+    Guardian.Test.FakeS3.fault(s3, {:status, 503})
     assert ObjectStore.list(store) == {:error, {:unreachable, "HTTP 503"}}
-    Guardian.FakeS3.fault(s3, {:status, 500})
+    Guardian.Test.FakeS3.fault(s3, {:status, 500})
     assert ObjectStore.put(store, "t/a.gsql", "x", :none) == {:error, {:unknown, "HTTP 500"}}
 
     # Rate limited: a read can be retried, and a write is known not to have happened.
-    Guardian.FakeS3.put_object(s3, "guardian/t/b.gsql", "SET x = 1")
+    Guardian.Test.FakeS3.put_object(s3, "guardian/t/b.gsql", "SET x = 1")
     assert {:ok, _, _} = ObjectStore.get(store, "t/b.gsql")
-    Guardian.FakeS3.fault(s3, {:status, 429})
+    Guardian.Test.FakeS3.fault(s3, {:status, 429})
     assert ObjectStore.list(store) == {:error, {:unreachable, "HTTP 429"}}
-    Guardian.FakeS3.fault(s3, {:status, 429})
+    Guardian.Test.FakeS3.fault(s3, {:status, 429})
     assert ObjectStore.get(store, "t/b.gsql") == {:error, {:unreachable, "HTTP 429"}}
-    Guardian.FakeS3.fault(s3, {:status, 429})
+    Guardian.Test.FakeS3.fault(s3, {:status, 429})
     assert ObjectStore.put(store, "t/a.gsql", "x", :none) == {:error, {:failed, "HTTP 429"}}
-    Guardian.FakeS3.fault(s3, {:status, 429})
+    Guardian.Test.FakeS3.fault(s3, {:status, 429})
     assert ObjectStore.delete(store, "t/b.gsql") == {:error, {:failed, "HTTP 429"}}
-    assert Map.keys(Guardian.FakeS3.objects(s3)) == ["guardian/t/b.gsql"]
-    Guardian.FakeS3.fault(s3, {:delay, 1_000})
+    assert Map.keys(Guardian.Test.FakeS3.objects(s3)) == ["guardian/t/b.gsql"]
+    Guardian.Test.FakeS3.fault(s3, {:delay, 1_000})
     assert {:error, {:unreachable, "timeout"}} = ObjectStore.list(store)
-    Guardian.FakeS3.fault(s3, {:delay, 1_000})
+    Guardian.Test.FakeS3.fault(s3, {:delay, 1_000})
     assert {:error, {:unknown, _}} = ObjectStore.put(store, "t/a.gsql", "x", :none)
 
-    closed = Guardian.FakeS3.store(%{s3 | endpoint: "http://localhost:1"})
+    closed = Guardian.Test.FakeS3.store(%{s3 | endpoint: "http://localhost:1"})
     assert {:error, {:unreachable, "econnrefused"}} = ObjectStore.list(closed)
 
     assert {:error, {:unreachable, "econnrefused"}} =
@@ -98,7 +98,7 @@ defmodule Guardian.ObjectStore.S3Test do
   end
 
   test "a listing stops after max_list_pages pages", %{s3: s3} do
-    {S3, config} = Guardian.FakeS3.store(s3)
+    {S3, config} = Guardian.Test.FakeS3.store(s3)
     store = {S3, %{config | max_list_pages: 2}}
     for n <- 1..4, do: {:ok, _} = ObjectStore.put(store, "f#{n}", "x", :absent)
     assert {:ok, [_, _, _, _]} = ObjectStore.list(store)

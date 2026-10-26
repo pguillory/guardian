@@ -1,18 +1,11 @@
-defmodule Guardian.CounterStoreProbe do
-  @moduledoc false
+defmodule Guardian.Test.Counters.StorePause do
+  @moduledoc """
+  Pauses a real `Guardian.Counters.Store`'s callers through its clock, and owns the
+  test side's knowledge of the Store's private descriptor (the
+  `:counter_store_descriptor` process-dictionary key and ETS row). `store?/1` tells a
+  real Store from a probe for `Guardian.Test.Counters.ProbeStore.backend/1`.
+  """
   use GenServer
-
-  # Mailbox transport doubles stay outside the production ETS Store.
-  def batch(operations, opts) do
-    request({:batch, operations}, opts)
-  end
-
-  defp request(operation, opts) do
-    GenServer.call(opts[:server], {:operation, opts[:deadline], operation}, opts[:timeout])
-  catch
-    :exit, {:timeout, _} -> {:error, :timeout}
-    _, _ -> {:error, :unavailable}
-  end
 
   # Pause actual callers, not the housekeeping process. Tests can still await a
   # queued call on this gate and release its reply through ordinary sys controls.
@@ -35,6 +28,13 @@ defmodule Guardian.CounterStoreProbe do
     :sys.resume(gate)
     GenServer.stop(gate)
     :ok
+  end
+
+  @doc "Whether `pid` is a real Store, which publishes its descriptor in its dictionary."
+  def store?(pid) when is_pid(pid) do
+    case Process.info(pid, :dictionary) do
+      {:dictionary, dictionary} -> Keyword.has_key?(dictionary, :counter_store_descriptor)
+    end
   end
 
   defp descriptor(store) do

@@ -44,6 +44,10 @@ established homes. Renaming them would add churn outside this shared-helper task
 The only production `.ex` edit updates a helper name in a comment in counter
 Context; executable production code is unchanged.
 
+Later, [test support consolidation](test-support-consolidation.md) moved the
+counter probes and backend, the fake S3 server, the JSON and MCP clients, the
+DistributedStream peer stages and the engine test key under `Guardian.Test.*`.
+
 ## Concurrency
 
 Application settings, counter budgets, query-key policy, query time limits and

@@ -3,7 +3,7 @@ defmodule Guardian.Web.MCP.RulesToolsTest do
   import Guardian.Test.Rules
 
   defp call(tool, arguments) do
-    {:ok, response} = Guardian.MCPTestClient.call_tool(tool, arguments)
+    {:ok, response} = Guardian.Test.MCPClient.call_tool(tool, arguments)
     [%{"type" => "text", "text" => text}] = response.result["content"]
     {response.result["isError"] == true, text}
   end
@@ -14,7 +14,7 @@ defmodule Guardian.Web.MCP.RulesToolsTest do
   end
 
   test "write, list, read and delete rules, and get computed fields back from send_events" do
-    Guardian.MCPTestClient.start()
+    Guardian.Test.MCPClient.start()
     table = unique_table("mcp_rules")
 
     assert ok("write_rule", %{
@@ -63,7 +63,7 @@ defmodule Guardian.Web.MCP.RulesToolsTest do
   test "counter writes reject invalid definitions and later rule failures preserve prior increments" do
     # Not about budgets: a larger one keeps healthy counter calls from timing out under load.
     Guardian.Test.Counters.Budget.relax()
-    Guardian.MCPTestClient.start()
+    Guardian.Test.MCPClient.start()
     table = unique_table("mcp_counter_validation")
 
     for source <- ["TRACK hits = count() LAST '0s'", "LOOKUP prior = absent"] do

@@ -1,4 +1,4 @@
-defmodule Guardian.CounterTestBackend do
+defmodule Guardian.Test.Counters.Backend do
   @moduledoc false
 
   # Only test builds interpret backend tuples; ordinary servers pass through to ETS.

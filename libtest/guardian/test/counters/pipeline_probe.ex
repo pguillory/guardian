@@ -1,4 +1,4 @@
-defmodule Guardian.CounterPipelineProbe do
+defmodule Guardian.Test.Counters.PipelineProbe do
   @moduledoc false
   use GenServer
 

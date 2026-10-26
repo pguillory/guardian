@@ -1,9 +1,14 @@
 defmodule Guardian.Test.Counters.ProbeStore do
   @moduledoc """
-  A scripted counter store for transport-level tests, reached through the libtest
-  batch adapter (`Guardian.CounterStoreProbe`). Started with `fun`, it answers each
-  operation of a batch with `fun.(operation)`; started with `{:pipeline, fun}`, it
-  answers a whole batch with `fun.(operations)`.
+  A scripted counter store for transport-level tests. Started with `fun`, it answers
+  each operation of a batch with `fun.(operation)`; started with `{:pipeline, fun}`,
+  it answers a whole batch with `fun.(operations)`.
+
+  `batch/2` is also the mailbox batch adapter that `Guardian.Test.Counters.Backend`
+  calls for a `{Guardian.Test.Counters.ProbeStore, server}` store option, for this
+  probe or any other process speaking its `{:operation, deadline, {:batch, ops}}`
+  call (such as `Guardian.Test.Counters.PipelineProbe`). Mailbox transport doubles
+  stay outside the production ETS Store.
 
   `backend/1` turns a store into the Context `:store` option: a registered name or a
   real `Guardian.Counters.Store` stays as is, and any other process (a probe) goes
@@ -33,16 +38,22 @@ defmodule Guardian.Test.Counters.ProbeStore do
     {:reply, {:ok, Enum.map(operations, handler)}, handler}
   end
 
+  def batch(operations, opts) do
+    request({:batch, operations}, opts)
+  end
+
+  defp request(operation, opts) do
+    GenServer.call(opts[:server], {:operation, opts[:deadline], operation}, opts[:timeout])
+  catch
+    :exit, {:timeout, _} -> {:error, :timeout}
+    _, _ -> {:error, :unavailable}
+  end
+
   def backend(store) when is_atom(store) do
     store
   end
 
   def backend(store) do
-    case Process.info(store, :dictionary) do
-      {:dictionary, dictionary} ->
-        if Keyword.has_key?(dictionary, :counter_store_descriptor),
-          do: store,
-          else: {Guardian.CounterStoreProbe, store}
-    end
+    if Guardian.Test.Counters.StorePause.store?(store), do: store, else: {__MODULE__, store}
   end
 end

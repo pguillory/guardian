@@ -88,7 +88,7 @@ mind, and keep the comments in the file in step with them.
 2. Closures and the `node_schedulers/0` multicall run on other nodes by module name,
    so every node must run the same build.
 3. Stage functions that tests run on peers live in
-   `libtest/guardian/distributed_stream_test_stages.ex`: test modules aren't loaded there.
+   `libtest/guardian/test/distributed_stream_stages.ex`: test modules aren't loaded there.
 4. Run `test/guardian/query/distributed_stream_test.exs`, `test/guardian/query/distributed_stream/`,
    `test/guardian/query/pipeline_failures_test.exs`, `test/guardian/query/failure_test.exs` and
    `test/guardian/cluster/query_failures_test.exs`, then the full suite.

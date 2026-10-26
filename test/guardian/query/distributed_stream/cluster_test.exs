@@ -8,7 +8,7 @@ defmodule Guardian.Query.DistributedStream.ClusterTest do
 
   import Guardian.Query.DistributedStream
   import Guardian.Test.Polling
-  alias Guardian.DistributedStreamTestStages, as: Stages
+  alias Guardian.Test.DistributedStreamStages, as: Stages
 
   # Keeps :global from disconnecting the other nodes when two peers lose their
   # connection, so the routers' links (all through the test node) stay up and only

@@ -48,8 +48,9 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
 5. Operations check real monotonic deadlines; batch executes at most 4,000 operations
    in order, with a check before each, without rollback or a multi-key snapshot.
    Budget retains its wait budgets/cooldowns and never replays uncertain increments.
-   Test builds select a libtest batch adapter at compile time; only that adapter
-   interprets the internal {backend_module, server} store option for transport probes.
+   Test builds select a libtest batch adapter (`Guardian.Test.Counters.Backend`) at
+   compile time; only that adapter interprets the internal {backend_module, server}
+   store option for transport probes.
    Production calls Store directly, with no backend tuple handling or mailbox fallback.
    Context's `event_ms`/`operation_ms` application env is the other internal test
    seam: it replaces the 100/50 ms defaults and caps, including the remote endpoint
@@ -62,7 +63,8 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    failures scrub stacks through `Guardian.Failure.stacktrace/1` and reset the
    store. Status redacts state/messages/logs.
    Tests use a private injectable expiry clock, while deadlines use real time;
-   fault injection pauses callers through a libtest clock gate, not the housekeeper.
+   fault injection pauses callers through a libtest clock gate
+   (`Guardian.Test.Counters.StorePause`), not the housekeeper.
    Store validates request options explicitly (`:invalid_request`) and catches any
    other request failure as `:unavailable`; that catch is its deliberate boundary for
    direct callers and the remote endpoint. Transport's `route/2` checks

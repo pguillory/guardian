@@ -1,4 +1,4 @@
-defmodule Guardian.JsonApiTestClient do
+defmodule Guardian.Test.JsonApiClient do
   @moduledoc """
   Drives Guardian's JSON API in process through `Guardian.Web.MainRouter`, the way an
   authenticated HTTP client would.

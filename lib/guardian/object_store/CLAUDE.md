@@ -49,5 +49,5 @@ Rules to keep:
    the lock to expire when a write's outcome is unknown.
 
 Tests are in `test/guardian/object_store/` (with the contract both stores share in
-`test/guardian/object_store_test.exs`), S3's against `Guardian.FakeS3`, which checks
+`test/guardian/object_store_test.exs`), S3's against `Guardian.Test.FakeS3`, which checks
 SigV4 with its own implementation of the canonical request.

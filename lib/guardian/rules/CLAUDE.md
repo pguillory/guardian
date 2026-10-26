@@ -128,5 +128,5 @@ Read the reviewed counter design in `docs/changes/ingest-rules.md` and its follo
 change documents before changing any counter semantics.
 
 Tests use `Guardian.Test.Rules`; its shared-server helpers require `async: false`,
-while `compile_module/2` is async-safe for distinct probe modules. `Guardian.FakeS3`
+while `compile_module/2` is async-safe for distinct probe modules. `Guardian.Test.FakeS3`
 checks SigV4 with its own implementation of the canonical request.
