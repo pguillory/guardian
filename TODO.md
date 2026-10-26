@@ -362,6 +362,10 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Tests
 
+- [x] counter-client-test-budget-seam: share ClientTest event construction and hide
+      batch allowance storage behind the counter test budget helper
+      (`docs/changes/counter-test-budgets.md`, ClientTest allowance helpers)
+
 - [x] test-support-namespace: consolidate common helpers under `Guardian.Test.*` and
       split SQL, polling, process and segment helpers by concern without changing
       test behavior or coverage (`docs/changes/test-support-namespace.md`)

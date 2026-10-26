@@ -56,7 +56,7 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    bound. Never set it outside tests; only `Guardian.Test.Counters.Budget` does, for
    tests not about budgets, the seam's own test, and budget tests that scale the
    operation budget (`scale/1`) and size their batch allowance in units of it
-   (`allowance_us/1`), with no durations or allowances derived from 50 ms
+   (`batch/1`, with `allowance_us/1` for expected values), with no durations or allowances derived from 50 ms
    (`docs/changes/counter-test-budgets.md`).
 6. Return fixed errors; no key/value/exception logging. Housekeeping callback
    failures scrub stacks through `Guardian.Failure.stacktrace/1` and reset the

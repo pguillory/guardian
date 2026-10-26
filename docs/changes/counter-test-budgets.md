@@ -209,3 +209,27 @@ full suite passed once, in this change's pre-commit run.
 These are larger margins, not a removal of wall-clock dependence: held calls can still
 time out after 1 s, relaxed calls are still capped by a 250 ms allowance, and the
 readiness barrier still needs three replies of at most 20 ms.
+
+## Follow-up: ClientTest allowance helpers (2026-10-25)
+
+Product spec impact: none. No statements in `docs/product/overview.md` or
+`docs/product/spec.md` change; production code is unchanged.
+
+ClientTest now builds shared-batch contexts through its existing event helper,
+with the same store, membership and cooldown defaults and per-event overrides.
+`Guardian.Test.Counters.Budget.batch/1` creates an allowance measured in current
+operation budgets, `batch/2` resets an idle batch (including the zero/refill
+validation case), and `remaining_us/1` reads its allowance. Within ClientTest,
+only the helper needs to know Budget's atomics slot. Fractional multiples are rounded to microseconds;
+the 0.4-unit case retains its 20 ms allowance on production budgets and does not
+claim the whole-reservation equivalence of scaled budget tests.
+
+Test scenarios, assertion values, budget transitions and cleanup are preserved.
+ContextTest's and CounterRuntimeTest's direct allowance access remains outside
+this ClientTest refactor.
+The three residual timing cases listed in item 4 above remain unchanged: this
+allowance seam does not control transport scheduling or remote clocks, so making
+them deterministic would need a separate timing mechanism.
+
+Validation: the focused ClientTest and ContextTest run passed with warnings as
+errors: 30 tests, no failures. No test cases were added or removed.

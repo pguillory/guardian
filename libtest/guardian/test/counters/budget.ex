@@ -5,6 +5,9 @@ defmodule Guardian.Test.Counters.Budget do
   timeouts, and `scale/1` so budget tests can keep production's reservation decisions
   with a larger wall-clock unit.
 
+  `batch/1,2` create or reset a batch allowance in current operation-budget units;
+  `remaining_us/1` reads it without exposing its storage layout to callers.
+
   WARNING: use `relax/1` only in tests whose assertions do not depend on production's
   operation or event budget values (an explicit shorter `timeout_ms` still applies,
   and the 250 ms batch allowance is unchanged). It replaces both the default and the
@@ -22,7 +25,7 @@ defmodule Guardian.Test.Counters.Budget do
   `scale/1` is for tests of reservation decisions (how many owners dispatch
   concurrently, who waits for a refund) or of a bound against a full call budget. It
   sets a 1 s operation budget and a 10 s event budget, and the test sets its own batch
-  allowance to the multiple of the operation budget it means (`allowance_us/1`, for example five units for
+  allowance to the multiple of the operation budget it means (`batch/1`, for example five units for
   production's 250 ms of 50 ms calls). Budget compares a reservation only with the
   remaining allowance and its 10 ms minimum, so while every reservation is a whole
   unit and the event deadline does not bind, each decision is the same as in
@@ -49,18 +52,43 @@ defmodule Guardian.Test.Counters.Budget do
   @doc """
   Scales budgets (10 s event, 1 s operation unit) on this node and on `peers`, with the
   same restore behavior as `relax/1`. Size the test's batch allowance with
-  `allowance_us/1` afterwards.
+  `batch/1` afterwards.
   """
   def scale(peers \\ []) do
     put(@scaled, peers)
   end
 
   @doc """
-  A batch allowance of `multiple` operation budgets on this node's current setting, in
-  the microseconds `:atomics.put(batch, 1, _)` takes. Call it after `scale/1`.
+  A batch allowance of `multiple` operation budgets on this node's current setting,
+  rounded to integer microseconds. Works with production, relaxed or scaled budgets.
+  Fractional multiples do not carry `scale/1`'s whole-reservation equivalence guarantee.
   """
   def allowance_us(multiple) do
-    multiple * Guardian.Counters.Clock.from_ms(@context.operation_ms())
+    round(multiple * Guardian.Counters.Clock.from_ms(@context.operation_ms()))
+  end
+
+  @doc """
+  Creates a batch with `multiple` operation budgets of allowance at the current setting.
+  """
+  def batch(multiple) do
+    batch(Guardian.Counters.Client.new_batch(), multiple)
+  end
+
+  @doc """
+  Resets an existing batch's allowance to `multiple` current operation budgets.
+  Zero exhausts it; fractional multiples are rounded to integer microseconds.
+  Call only when the batch has no outstanding reservations.
+  """
+  def batch(batch, multiple) when is_number(multiple) and multiple >= 0 do
+    :atomics.put(batch, 1, allowance_us(multiple))
+    batch
+  end
+
+  @doc """
+  Reads a batch's remaining failed-wait allowance in microseconds.
+  """
+  def remaining_us(batch) do
+    :atomics.get(batch, 1)
   end
 
   defp put(budgets, peers) do
