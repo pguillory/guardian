@@ -75,10 +75,10 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
 
 `Guardian.Counters.Client` is the facade Execution's round loop uses: `route/2` names an
 operation's owner and `dispatch/2` runs one round's owner batches. It
-returns a typed `Guardian.Counters.Context` nested under
-`Guardian.Rules.Event.counters`.
+returns a typed `Guardian.Counters.Context`, which Rules carries per event.
 Context captures the event deadline before snapshotting connected members; private
-Unix/monotonic arrival coordinates remain on Rules.Event, outside the row. Internal
+Unix/monotonic arrival coordinates are a separate `Guardian.Counters.Arrival`,
+outside the row. Internal
 `Guardian.Counters.Transport` routes `{identity, group_tuple, bucket}` keys with rendezvous
 hashing over identity and group only. Each member's score is
 `{:erlang.phash2({{identity, group_tuple}, member_name}, 4_294_967_296), member_name}`,
@@ -105,7 +105,7 @@ Context deadlines/timeouts, Budget reservations, settlement timestamps and
 cooldowns, and Transport dispatch deadlines share; read the clock and convert
 ms/us only through it. Store's
 `:deadline` stays monotonic ms (`to_store_ms/1`) and mutation TTLs stay on the
-Rules arrival milliseconds.
+monotonic arrival milliseconds (`Guardian.Counters.Arrival`).
 
 1. Keep `new_batch/0` outside replaceable workers; its atomics handle holds 250 ms
    of failed-call allowance. `new_event(batch)` snapshots members and starts a
@@ -151,7 +151,7 @@ local atomic primitives.
 
 `Guardian.Counters.Execution` is a level's counter execution, read top-down,
 below `Guardian.Rules.Runtime` (which prepares statements into ops and writes
-results into fields): `run_counters/3` expands each op into bucket key machines,
+results into fields): `run_counters/4` expands each op into bucket key machines,
 flattens them, runs them in rounds (`run_state_machines/3`), unflattens, and
 combines each op's states chronologically. Each round routes pending operations
 (`Client.route/2`), groups them by owner and sends the round through one
@@ -164,16 +164,22 @@ overcount: floor((arrival-W)/B) through floor(arrival/B), B=ceil(W/3). Native
 count increments and generic gets/merge/CAS use their returned state, never a
 post-update read. Zero-count deltas and unchanged generic states skip mutation.
 TTLs count down to one anchored monotonic expiry derived from bucket_end+W;
-transit can still delay physical expiry at the owner. Ops carry
-`Guardian.Rules.CounterDefinition`s and the event is a `Guardian.Rules.Event`;
-Execution reads only their counter fields (a known counters-to-rules coupling,
-listed in TODO.md). A nil operation reads as a finished machine; key machines
+transit can still delay physical expiry at the owner. Execution's inputs are
+counters-layer values: ops carrying `Guardian.Counters.Definition`s, the event's
+`Guardian.Counters.Arrival` and its `Guardian.Counters.Context`. No code in this
+directory references a Rules module; Rules builds these inputs
+(`docs/changes/counter-definition-layer.md`). A nil operation reads as a finished
+machine; key machines
 never hold one.
 
-TRACK steps and bound LOOKUPs carry immutable counter definitions. Every registered
+TRACK steps and bound LOOKUPs carry immutable `Guardian.Counters.Definition`s:
+identity, operator, window and bucket sizes (three buckets per window, from
+`Definition.new/4`) and grouping arity. Every registered
 `{name, arity}` is a TRACK operator, with the same configuration queries use.
-Execution selects the aggregation with `Guardian.Aggregation.fetch!(name)` from
-the definition's operator and passes it to key machines. Call
+`Definition.aggregation/1` selects the aggregation with
+`Guardian.Aggregation.fetch!(name)` from the operator; Execution passes it to key
+machines, and its `Aggregation.default/1` is the missing result Rules writes for
+a failed statement. Call
 empty/start/merge/finish through the shared registry API.
 Every empty is a mergeable state whose finish is the query's no-rows result, which
 is also the missing/failed counter result. Distinct uses Hypex precision 8 with

@@ -10,8 +10,9 @@ defmodule Guardian.Counters.Clock do
   in milliseconds and anchor it with `deadline/1` on their own clock. Store's
   `:deadline` option is a monotonic millisecond instant (`to_store_ms/1`).
 
-  Mutation TTLs are a separate contract: their expiries use the Rules arrival
-  coordinate, `System.monotonic_time(:millisecond)`, not this one.
+  Mutation TTLs are a separate contract: their expiries use the event's monotonic
+  arrival coordinate (`Guardian.Counters.Arrival`,
+  `System.monotonic_time(:millisecond)`), not this one.
   """
 
   @doc "The current local monotonic instant, in microseconds."

@@ -1,7 +1,6 @@
 defmodule Guardian.Counters.ContextTest do
   use ExUnit.Case, async: false
   alias Guardian.Counters.{Budget, Client, Context, Store, Transport}
-  alias Guardian.Rules.Event
   alias Guardian.Test.Counters.Budget, as: CounterBudgetHelper
 
   test "Client captures a typed context with the existing defaults and shared batch" do
@@ -54,20 +53,6 @@ defmodule Guardian.Counters.ContextTest do
       assert context.store == self()
       assert context.batch == batch
     end
-  end
-
-  test "starting an Event preserves private arrival coordinates and nests the typed context" do
-    arrival = %Event{arrival_ms: 123, monotonic_ms: -456}
-    batch = Client.new_batch()
-    first = Event.start(arrival, batch, members: [node()])
-    second = Event.start(arrival, batch, members: [node()])
-
-    assert arrival.counters == nil
-    assert %Event{arrival_ms: 123, monotonic_ms: -456, counters: %Context{batch: ^batch}} = first
-    assert second.arrival_ms == first.arrival_ms
-    assert second.monotonic_ms == first.monotonic_ms
-    assert second.counters.batch == first.counters.batch
-    assert %Event{counters: %Context{}} = Event.new()
   end
 
   # Only this test changes the runtime budgets: it tests the configuration seam itself.

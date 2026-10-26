@@ -23,12 +23,14 @@ Modules:
   levels from them once per compiled module.
 - `Guardian.Rules.Resolution`: immutable target definitions and fixed-point invalidity.
   Resolved plan hashes use deterministic ETF, so they match across VM starts.
-- `Guardian.Rules.CounterDefinition`: the single owner of counter identity, operator,
-  window/bucket sizes and grouping arity. Step builds it for a parsed TRACK;
-  Validation checks its operator and window before plan construction, and LOOKUPs
-  and Runtime reuse it.
-  `hash_term/1` owns the target's struct-shaped hash input. Execution selects the
-  shared aggregation with `Guardian.Aggregation.fetch!(name)`.
+- Counter definitions are `Guardian.Counters.Definition`s (counters layer): the
+  single owner of counter identity, operator, window/bucket sizes and grouping
+  arity. Step builds one for a parsed TRACK (identity from table, field and source
+  digest; the LAST interval with its 365-day bound); Validation checks its operator
+  and window before plan construction, and LOOKUPs and Runtime reuse it.
+  `Guardian.Rules.Resolution.hash_term/1` owns the target's struct-shaped hash
+  input, under the frozen `Guardian.Rules.CounterDefinition` format tag; renaming
+  that tag resets every dependent plan hash.
 - `Guardian.Rules.Activation`: pure coherent reload selection, used by Publisher.
 - `Guardian.Rules.Publisher`: synchronous activation/publication and generated-module
   pool ownership, called inside Server's scrubbed callbacks. Recovers prior plans
@@ -44,14 +46,18 @@ Modules:
   failures), threading a `Guardian.Rules.RowIndex` through dependency levels. Internal
   TRACK/LOOKUP dispatch uses bound identities and aggregate defaults on failure.
   For each level, Runtime prepares every counter statement as skipped, failed or
-  an op, runs the ops through `Guardian.Counters.Execution.run_counters/3` (the
+  an op, runs the ops with the event's arrival and counter context through
+  `Guardian.Counters.Execution.run_counters/4` (the
   counters layer: buckets, rounds, routing, combination;
   `lib/guardian/counters/CLAUDE.md`), writes each result into its field and logs
   `{:error, kind}` results by file and line (`docs/changes/counter-execution-layer.md`).
-- `Guardian.Rules.Event`: private Unix/monotonic arrival coordinates outside the row; Engine
-  captures them before validation. Runner adds a typed Counters.Context under
-  Event.counters on worker entry, sharing one batch atomics budget across
-  replacement workers.
+  Failed statements get their operator's missing result,
+  `Aggregation.default(Definition.aggregation(definition))`.
+- `Guardian.Rules.Event`: what a compiled module gets besides the row: the event's
+  private `Guardian.Counters.Arrival` (Unix/monotonic arrival coordinates outside
+  the row, which Engine captures before validation) and the typed Counters.Context
+  that Runner adds under Event.counters on worker entry, sharing one batch atomics
+  budget across replacement workers.
 - `Guardian.Rules.RowIndex`: the event's row, with a trie of its keys by lowercase object path
   and a map of lowercase spelling to present keys, so a statement costs what it
   touches rather than a pass over every column. Its tests check it against the old

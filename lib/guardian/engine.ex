@@ -109,7 +109,7 @@ defmodule Guardian.Engine do
   defp ingest_with_rules(table, events) do
     prepared =
       Enum.map(events, fn event ->
-        arrival = Guardian.Rules.Event.arrival()
+        arrival = Guardian.Counters.Arrival.now()
 
         prepared =
           if is_map(event),

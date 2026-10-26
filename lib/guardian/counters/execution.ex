@@ -4,7 +4,7 @@ defmodule Guardian.Counters.Execution do
   `Guardian.Rules.Runtime`, which prepares each TRACK/LOOKUP statement as an op and
   writes the results into event fields.
 
-  `run_counters/3` expands each op into one key machine per bucket, runs every
+  `run_counters/4` expands each op into one key machine per bucket, runs every
   machine of the level together in rounds (`run_state_machines/3`), and combines
   each op's finished machines into its counter result. Each round routes the
   pending store operations to their owner nodes, groups them by owner and sends the
@@ -14,9 +14,8 @@ defmodule Guardian.Counters.Execution do
   owner's operations in input order, and dispatch starts owners in the order given.
   The key machines are `Guardian.Counters.KeyMachines`.
 
-  Ops carry `Guardian.Rules.CounterDefinition`s and the event is a
-  `Guardian.Rules.Event`; only their counter fields are read (identity, operator,
-  window and bucket sizes; arrival coordinates and the counter context).
+  Its inputs are counters-layer values: ops carrying `Guardian.Counters.Definition`s,
+  the event's `Guardian.Counters.Arrival` and its `Guardian.Counters.Context`.
 
   The production machines (read, incr, merge) finish in at most six rounds: every
   routed operation gets a response, failures included, read and incr finish on
@@ -24,14 +23,14 @@ defmodule Guardian.Counters.Execution do
   total attempts.
   """
   alias Guardian.Aggregation
-  alias Guardian.Counters.{Client, KeyMachines, Machine}
+  alias Guardian.Counters.{Arrival, Client, Context, Definition, KeyMachines, Machine}
   alias Guardian.Lists
 
   @counts [{"count", 0}, {"count", 1}]
 
   @type op ::
-          {:track, Guardian.Rules.CounterDefinition.t(), tuple(), [term()]}
-          | {:lookup, Guardian.Rules.CounterDefinition.t(), tuple()}
+          {:track, Definition.t(), tuple(), [term()]}
+          | {:lookup, Definition.t(), tuple()}
 
   @doc """
   One result per op, in order. A failed bucket (timeout, unavailable, cooldown,
@@ -39,17 +38,17 @@ defmodule Guardian.Counters.Execution do
   missing result, `{:ok, missing}`. `{:error, failure_kind}` means expansion, the
   round or combination raised; the caller logs it and writes the missing result.
   """
-  @spec run_counters([op()], Guardian.Rules.Event.t(), function()) :: [
+  @spec run_counters([op()], Arrival.t(), Context.t(), function()) :: [
           {:ok, term()} | {:error, String.t()},
         ]
-  def run_counters(ops, event, dispatch \\ &Client.dispatch/2) do
-    expanded = Enum.map(ops, &expand(&1, event))
+  def run_counters(ops, arrival, context, dispatch \\ &Client.dispatch/2) do
+    expanded = Enum.map(ops, &expand(&1, arrival))
     nested = Enum.map(expanded, &machines/1)
 
     try do
       nested
       |> Lists.flatten()
-      |> run_state_machines(event.counters, dispatch)
+      |> run_state_machines(context, dispatch)
       |> Lists.unflatten(nested)
     catch
       kind, reason ->
@@ -64,7 +63,7 @@ defmodule Guardian.Counters.Execution do
   Runs machines until every one has finished, returning them in input order.
   `dispatch` sends a round's owner batches (`Guardian.Counters.Client.dispatch/2`).
   """
-  @spec run_state_machines([%Machine{}], Guardian.Counters.Context.t(), function()) :: [
+  @spec run_state_machines([%Machine{}], Context.t(), function()) :: [
           %Machine{},
         ]
   def run_state_machines(machines, context, dispatch \\ &Client.dispatch/2)
@@ -124,17 +123,10 @@ defmodule Guardian.Counters.Execution do
     not Machine.done?(machine)
   end
 
-  @doc "The operator's missing result, written for a skipped or failed counter."
-  def missing(definition) do
-    {name, _arity} = definition.operator
-    Aggregation.default(Aggregation.fetch!(name))
-  end
-
   # An op's aggregation and bucket machines, or the expansion's failure kind.
-  defp expand(op, event) do
-    {name, _arity} = elem(op, 1).operator
-    aggregation = Aggregation.fetch!(name)
-    {:ok, aggregation, expand_machines(op, aggregation, event)}
+  defp expand(op, arrival) do
+    aggregation = Definition.aggregation(elem(op, 1))
+    {:ok, aggregation, expand_machines(op, aggregation, arrival)}
   catch
     kind, reason -> {:error, Guardian.Failure.kind(kind, reason, __STACKTRACE__)}
   end
@@ -147,20 +139,20 @@ defmodule Guardian.Counters.Execution do
     []
   end
 
-  defp expand_machines({:lookup, definition, group}, _aggregation, event) do
-    Enum.map(keys(definition, group, event), &KeyMachines.read/1)
+  defp expand_machines({:lookup, definition, group}, _aggregation, arrival) do
+    Enum.map(keys(definition, group, arrival), &KeyMachines.read/1)
   end
 
-  defp expand_machines({:track, definition, group, values}, aggregation, event) do
+  defp expand_machines({:track, definition, group, values}, aggregation, arrival) do
     operator = definition.operator
     delta = Aggregation.start(aggregation, values)
-    keys = keys(definition, group, event)
+    keys = keys(definition, group, arrival)
 
     if operator in @counts and delta == 0 do
       Enum.map(keys, &KeyMachines.read/1)
     else
       {previous, [current]} = Enum.split(keys, -1)
-      expiry = expiry(definition, event)
+      expiry = expiry(definition, arrival)
 
       writer =
         if operator in @counts,
@@ -208,15 +200,15 @@ defmodule Guardian.Counters.Execution do
     kind, reason -> {:error, Guardian.Failure.kind(kind, reason, __STACKTRACE__)}
   end
 
-  defp keys(definition, group, event) do
-    first = Integer.floor_div(event.arrival_ms - definition.window_ms, definition.bucket_ms)
-    last = Integer.floor_div(event.arrival_ms, definition.bucket_ms)
+  defp keys(definition, group, arrival) do
+    first = Integer.floor_div(arrival.unix_ms - definition.window_ms, definition.bucket_ms)
+    last = Integer.floor_div(arrival.unix_ms, definition.bucket_ms)
     for bucket <- first..last, do: {definition.identity, group, bucket}
   end
 
-  defp expiry(definition, event) do
-    bucket = Integer.floor_div(event.arrival_ms, definition.bucket_ms)
+  defp expiry(definition, arrival) do
+    bucket = Integer.floor_div(arrival.unix_ms, definition.bucket_ms)
     unix_expiry = (bucket + 1) * definition.bucket_ms + definition.window_ms
-    event.monotonic_ms + unix_expiry - event.arrival_ms
+    arrival.monotonic_ms + unix_expiry - arrival.unix_ms
   end
 end

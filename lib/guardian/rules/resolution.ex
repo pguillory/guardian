@@ -104,7 +104,7 @@ defmodule Guardian.Rules.Resolution do
   defp hash(base_hash, steps) do
     targets =
       for %Guardian.Rules.Step.Lookup{target: target} <- steps,
-          do: Guardian.Rules.CounterDefinition.hash_term(target)
+          do: hash_term(target)
 
     case targets do
       [] ->
@@ -114,5 +114,26 @@ defmodule Guardian.Rules.Resolution do
         :crypto.hash(:sha256, :erlang.term_to_binary({base_hash, targets}, [:deterministic]))
         |> Base.encode16(case: :lower)
     end
+  end
+
+  # A frozen hash-format tag, not a module reference: target definitions were once
+  # `Guardian.Rules.CounterDefinition` structs, and keeping that atom here keeps every
+  # dependent resolved plan hash unchanged now that they are
+  # `Guardian.Counters.Definition`s. Renaming it resets dependent hashes
+  # (docs/changes/counter-definition-layer.md).
+  @definition_hash_tag Guardian.Rules.CounterDefinition
+
+  @doc false
+  # The target's input to dependent resolved plan hashes, public only for its test.
+  # Changing these keys or values changes dependent resolved plan hashes.
+  def hash_term(%Guardian.Counters.Definition{} = definition) do
+    %{
+      __struct__: @definition_hash_tag,
+      identity: definition.identity,
+      operator: definition.operator,
+      window_ms: definition.window_ms,
+      bucket_ms: definition.bucket_ms,
+      group_arity: definition.group_arity,
+    }
   end
 end

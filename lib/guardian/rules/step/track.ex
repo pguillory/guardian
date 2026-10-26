@@ -1,7 +1,8 @@
 defmodule Guardian.Rules.Step.Track do
   @moduledoc """
-  A parsed TRACK's expressions and source location. CounterDefinition owns its
-  counter metadata from construction; Validation checks it before plan construction.
+  A parsed TRACK's expressions and source location. Its `Guardian.Counters.Definition`
+  owns the counter metadata from construction; Validation checks it before plan
+  construction.
   """
   defstruct [
     :table,

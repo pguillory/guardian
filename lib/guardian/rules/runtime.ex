@@ -18,7 +18,8 @@ defmodule Guardian.Rules.Runtime do
   Generated modules execute resolved counter plans through this same dispatcher.
   """
 
-  alias Guardian.Counters.Execution
+  alias Guardian.Aggregation
+  alias Guardian.Counters.{Definition, Execution}
   alias Guardian.Lists
   alias Guardian.Rules.RowIndex
   alias Guardian.Rules.Runtime.Failure
@@ -59,7 +60,7 @@ defmodule Guardian.Rules.Runtime do
       prepared
       |> Lists.filter(&runnable?/1)
       |> Enum.map(fn {:run, op} -> op end)
-      |> Execution.run_counters(event)
+      |> Execution.run_counters(event.arrival, event.counters)
       |> Lists.unfilter(prepared, &runnable?/1)
 
     steps
@@ -80,7 +81,8 @@ defmodule Guardian.Rules.Runtime do
   end
 
   defp write_counter(index, step, :failed) do
-    RowIndex.put_field(index, step.field, Execution.missing(counter_definition(step)))
+    missing = Aggregation.default(Definition.aggregation(counter_definition(step)))
+    RowIndex.put_field(index, step.field, missing)
   end
 
   defp write_counter(index, step, {:ok, value}) do
@@ -133,9 +135,7 @@ defmodule Guardian.Rules.Runtime do
     end
   end
 
-  defp counter_definition(%Guardian.Rules.Step.Track{
-         definition: %Guardian.Rules.CounterDefinition{} = definition,
-       }) do
+  defp counter_definition(%Guardian.Rules.Step.Track{definition: %Definition{} = definition}) do
     definition
   end
 

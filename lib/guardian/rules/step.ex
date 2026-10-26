@@ -26,7 +26,7 @@ defmodule Guardian.Rules.Step do
             Map.merge(attrs, %{
               aggregate_expr: statement.aggregate_expr,
               by_exprs: statement.by_exprs,
-              definition: Guardian.Rules.CounterDefinition.new(table, attrs.source, statement),
+              definition: counter_definition(table, attrs.source, statement),
             })
           )
 
@@ -42,6 +42,33 @@ defmodule Guardian.Rules.Step do
       end
 
     %{step | reads: reads(inputs(step))}
+  end
+
+  @max_window_seconds 365 * 24 * 60 * 60
+
+  # A parsed TRACK's counter definition: identity from the table, field and source
+  # digest, and the LAST interval in milliseconds. Validation rejects invalid
+  # operators and windows (a nil window) before plan construction.
+  defp counter_definition(table, source, statement) do
+    digest = :crypto.hash(:sha256, source) |> Base.encode16(case: :lower)
+
+    Guardian.Counters.Definition.new(
+      {table, statement.field.name, digest},
+      {statement.aggregate_expr.name, length(statement.aggregate_expr.args)},
+      window_ms(statement.last_expr.value),
+      length(statement.by_exprs)
+    )
+  end
+
+  defp window_ms(value) when is_binary(value) do
+    case Guardian.Query.Function.Interval.to_seconds(value) do
+      {:ok, seconds} when seconds > 0 and seconds <= @max_window_seconds -> seconds * 1_000
+      _ -> nil
+    end
+  end
+
+  defp window_ms(_value) do
+    nil
   end
 
   def inputs(%Guardian.Rules.Step.Set{} = step) do

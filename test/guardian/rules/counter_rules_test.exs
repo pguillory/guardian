@@ -1,51 +1,43 @@
-defmodule Guardian.Rules.CounterRuntimeTest do
+defmodule Guardian.Rules.CounterRulesTest do
+  @moduledoc """
+  TRACK and LOOKUP through Rules: rule plans run by `Guardian.Rules.Runtime` and
+  compiled modules, Runner and Engine. Counter execution's own behavior (buckets,
+  expiries, CAS, budgets) is tested in `Guardian.Counters.ExecutionTest`.
+  """
   use ExUnit.Case, async: false
   import Guardian.Test.Rules
   alias Guardian.Aggregation
-  alias Guardian.Counters.{Execution, Store}
+  alias Guardian.Counters.{Arrival, Execution, Store}
   alias Guardian.Rules.{DependencyGraph, Event, Runtime}
   alias Guardian.Test.Counters.Budget, as: CounterBudgetHelper
+  alias Guardian.Test.Counters.ProbeStore
 
   # No test here depends on the production 50 ms call or 100 ms event budget: the
-  # timeout tests pass shorter explicit timeouts, which stay capped, and the allowance
-  # tests depend on the 250 ms batch allowance. Larger budgets keep healthy calls,
-  # including a cold first call, from timing out under host load and setting a
+  # allowance test depends on the 250 ms batch allowance. Larger budgets keep healthy
+  # calls, including a cold first call, from timing out under host load and setting a
   # cooldown that fails later calls open.
   setup do
     CounterBudgetHelper.relax()
     store = start_supervised!({Store, name: nil})
-    start_supervised!({Guardian.Counters.Budget, name: :rules_counter_runtime_test})
+    start_supervised!({Guardian.Counters.Budget, name: :rules_counter_rules_test})
     %{store: store}
   end
 
-  defp event(
-         store,
-         batch \\ Guardian.Counters.Client.new_batch(),
-         arrival \\ Event.arrival(),
-         opts \\ []
-       ) do
+  defp event(store, batch \\ Guardian.Counters.Client.new_batch()) do
     Event.start(
-      arrival,
+      Arrival.now(),
       batch,
-      Keyword.merge(
-        [
-          store: test_backend(store),
-          members: [node()],
-          cooldown_table: :rules_counter_runtime_test,
-        ],
-        opts
-      )
+      store: ProbeStore.backend(store),
+      members: [node()],
+      cooldown_table: :rules_counter_rules_test
     )
   end
 
-  # One statement through the level runner, unwrapped to its counter value.
-  defp track(definition, group, values, event) do
-    [{:ok, value}] = Execution.run_counters([{:track, definition, group, values}], event)
-    value
-  end
-
+  # One LOOKUP straight through counter execution, unwrapped to its value.
   defp lookup(definition, group, event) do
-    [{:ok, value}] = Execution.run_counters([{:lookup, definition, group}], event)
+    [{:ok, value}] =
+      Execution.run_counters([{:lookup, definition, group}], event.arrival, event.counters)
+
     value
   end
 
@@ -53,19 +45,6 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     preparation = Guardian.Rules.RuleSet.prepare(files)
     assert preparation.errors == []
     Map.new(preparation.tables, fn {table, {:ok, plan}} -> {table, plan} end)
-  end
-
-  defp test_backend(store) when is_atom(store) do
-    store
-  end
-
-  defp test_backend(store) do
-    case Process.info(store, :dictionary) do
-      {:dictionary, dictionary} ->
-        if Keyword.has_key?(dictionary, :counter_store_descriptor),
-          do: store,
-          else: {Guardian.CounterStoreProbe, store}
-    end
   end
 
   defp plan(source) do
@@ -247,7 +226,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
            }
 
     definition = definition(plan)
-    current = Integer.floor_div(event(store).arrival_ms, definition.bucket_ms)
+    current = Integer.floor_div(event(store).arrival.unix_ms, definition.bucket_ms)
     assert {:ok, nil} = Store.get({definition.identity, {}, current}, server: store)
   end
 
@@ -262,7 +241,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
 
     # An older bucket with another n fails the combination across buckets.
     context = event(store)
-    current = Integer.floor_div(context.arrival_ms, definition.bucket_ms)
+    current = Integer.floor_div(context.arrival.unix_ms, definition.bucket_ms)
     older = {definition.identity, {}, current - 1}
     assert :ok = Store.cas(older, :missing, {[9], 1}, 5_000, server: store)
 
@@ -323,72 +302,6 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     refute log =~ "PRIVATE"
   end
 
-  test "boundary reads include the complete oldest bucket and exclude older buckets", %{
-    store: store,
-  } do
-    definition = definition(plan("TRACK hits = count() LAST '1s'"))
-    arrival = %{Event.arrival() | arrival_ms: 10_000}
-    current = Integer.floor_div(arrival.arrival_ms, definition.bucket_ms)
-    first = Integer.floor_div(arrival.arrival_ms - definition.window_ms, definition.bucket_ms)
-
-    for bucket <- (first - 1)..current do
-      assert {:ok, 1} = Store.incr({definition.identity, {}, bucket}, 1, 10_000, server: store)
-    end
-
-    assert lookup(
-             definition,
-             {},
-             event(store, Guardian.Counters.Client.new_batch(), arrival)
-           ) == current - first + 1
-
-    assert track(
-             definition,
-             {},
-             [],
-             event(store, Guardian.Counters.Client.new_batch(), arrival)
-           ) == current - first + 2
-  end
-
-  test "whole-batch arrivals that expire before execution never create a bucket", %{store: store} do
-    definition = definition(plan("TRACK hits = count() LAST '1s'"))
-    arrival = %{Event.arrival() | monotonic_ms: System.monotonic_time(:millisecond) - 2_000}
-
-    assert track(
-             definition,
-             {},
-             [],
-             event(store, Guardian.Counters.Client.new_batch(), arrival)
-           ) == 0
-
-    assert {:ok, %{keys: 0}} = Store.stats(server: store)
-  end
-
-  test "unchanged generic states and zero count deltas do not create or refresh keys", %{
-    store: store,
-  } do
-    for source <- [
-          "TRACK hits = count(v) LAST '1h'",
-          "TRACK hits = sum(v) LAST '1h'",
-          "TRACK hits = min(v) LAST '1h'",
-          "TRACK hits = count_distinct(v) LAST '1h'",
-        ] do
-      definition = definition(plan(source))
-
-      assert track(definition, {}, [nil], event(store)) ==
-               Aggregation.default(Aggregation.fetch!(elem(definition.operator, 0)))
-    end
-
-    assert {:ok, %{keys: 0}} = Store.stats(server: store)
-    definition = definition(plan("TRACK hits = max(v) LAST '1h'"))
-    context = event(store)
-    assert track(definition, {}, [10], context) == 10
-    bucket = Integer.floor_div(context.arrival_ms, definition.bucket_ms)
-    key = {definition.identity, {}, bucket}
-    assert {:ok, 10, token} = Store.gets(key, server: store)
-    assert track(definition, {}, [1], event(store)) == 10
-    assert {:ok, 10, ^token} = Store.gets(key, server: store)
-  end
-
   test "definition edits reset counters while moving identical source keeps state", %{
     store: store,
   } do
@@ -399,30 +312,6 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     assert run(original, %{}, event(store))["hits"] == 1
     assert run(moved, %{}, event(store))["hits"] == 2
     assert run(edited, %{}, event(store))["hits"] == 1
-  end
-
-  defmodule ProbeStore do
-    use GenServer
-
-    def start_link(handler) do
-      GenServer.start_link(__MODULE__, handler)
-    end
-
-    def init(handler) do
-      {:ok, handler}
-    end
-
-    def handle_call(
-          {:operation, _deadline, {:batch, operations}},
-          _from,
-          {:pipeline, handler} = state
-        ) do
-      {:reply, handler.(operations), state}
-    end
-
-    def handle_call({:operation, _deadline, {:batch, operations}}, _from, handler) do
-      {:reply, {:ok, Enum.map(operations, handler)}, handler}
-    end
   end
 
   # A store that sends each dispatched batch to the test and answers as if empty.
@@ -599,261 +488,6 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     assert {:messages, []} = Process.info(self(), :messages)
   end
 
-  test "bucket merging remains chronological and retains the newest numeric tie type", %{
-    store: store,
-  } do
-    for operator <- ["min", "max"] do
-      definition = definition(plan("TRACK extreme = #{operator}(v) LAST '1h'"))
-      context = event(store)
-      current = Integer.floor_div(context.arrival_ms, definition.bucket_ms)
-
-      assert :ok =
-               Store.cas({definition.identity, {}, current - 1}, :missing, 1.0, 5_000,
-                 server: store
-               )
-
-      assert track(definition, {}, [1], context) === 1
-
-      assert lookup(definition, {}, context) === 1
-      assert track(definition, {}, [1.0], event(store)) === 1.0
-    end
-  end
-
-  test "CAS conflicts have three total attempts and uncertain writes are never retried" do
-    definition = definition(plan("TRACK total = sum(v) LAST '1h'"))
-    parent = self()
-
-    for failure <- [:conflict, :timeout] do
-      store =
-        start_supervised!(
-          {ProbeStore,
-           fn operation ->
-             case operation do
-               {:get, _} ->
-                 :not_found
-
-               {:gets, _} ->
-                 :not_found
-
-               {:cas, _, :missing, 5, _ttl} ->
-                 send(parent, :attempt)
-                 {:error, failure}
-             end
-           end}
-        )
-
-      # Below the 25 ms suspicion threshold, so cooldown cannot mask a retry.
-      context =
-        event(store, Guardian.Counters.Client.new_batch(), Event.arrival(), timeout_ms: 20)
-
-      assert track(definition, {}, [5], context) == nil
-      assert_receive :attempt
-
-      if failure == :conflict do
-        assert_receive :attempt
-        assert_receive :attempt
-      end
-
-      refute_receive :attempt, 10
-      stop_supervised!(ProbeStore)
-      :ets.delete_all_objects(:rules_counter_runtime_test)
-    end
-  end
-
-  test "a conflict retry refetches and merges the new current state" do
-    definition = definition(plan("TRACK total = sum(v) LAST '1h'"))
-    attempt = start_supervised!({Agent, fn -> 0 end})
-    parent = self()
-
-    store =
-      start_supervised!(
-        {ProbeStore,
-         fn
-           {:get, _} ->
-             :not_found
-
-           {:gets, _} ->
-             {:ok, if(Agent.get(attempt, & &1) == 0, do: 3, else: 5), make_ref()}
-
-           {:cas, _, _, merged, _} ->
-             send(parent, {:merged, merged})
-
-             if Agent.get_and_update(attempt, &{&1, &1 + 1}) == 0,
-               do: {:error, :conflict},
-               else: :ok
-         end}
-      )
-
-    assert track(definition, {}, [5], event(store)) == 10
-    assert_receive {:merged, 8}
-    assert_receive {:merged, 10}
-    assert Agent.get(attempt, & &1) == 2
-  end
-
-  test "a failed bucket defaults the whole result even when its parallel writer succeeds" do
-    definition = definition(plan("TRACK hits = count() LAST '1h'"))
-    parent = self()
-
-    store =
-      start_supervised!(
-        {ProbeStore,
-         fn operation ->
-           send(parent, operation)
-
-           case operation do
-             {:get, _} -> {:error, :evicted}
-             {:incr, _, _, _} -> {:ok, 99}
-           end
-         end}
-      )
-
-    assert track(definition, {}, [], event(store)) == 0
-    assert_receive {:get, _}
-    assert_receive {:incr, _, _, _}
-  end
-
-  test "TTL uses fixed expiry and decreases with elapsed private monotonic time" do
-    definition = definition(plan("TRACK hits = count() LAST '1h'"))
-    parent = self()
-
-    store =
-      start_supervised!(
-        {ProbeStore,
-         fn
-           {:get, _} ->
-             :not_found
-
-           {:incr, _, _, ttl} ->
-             send(parent, {:ttl, ttl})
-             {:ok, 1}
-         end}
-      )
-
-    # Mid-bucket: expiry is bucket_end+W, not arrival+B+W.
-    arrival = %{Event.arrival() | arrival_ms: 7_800_000}
-
-    assert track(
-             definition,
-             {},
-             [],
-             event(store, Guardian.Counters.Client.new_batch(), arrival)
-           ) == 1
-
-    assert_receive {:ttl, first}
-    assert first in 4_199_000..4_200_000
-    older = %{arrival | monotonic_ms: arrival.monotonic_ms - 1_000}
-
-    assert track(
-             definition,
-             {},
-             [],
-             event(store, Guardian.Counters.Client.new_batch(), older)
-           ) == 1
-
-    assert_receive {:ttl, second}
-    assert (first - second) in 1_000..2_000
-  end
-
-  test "generic TRACK merges the state it successfully wrote without reading it back" do
-    definition = definition(plan("TRACK total = sum(v) LAST '1h'"))
-    parent = self()
-
-    store =
-      start_supervised!(
-        {ProbeStore,
-         fn operation ->
-           send(parent, operation)
-
-           case operation do
-             {:get, _} -> {:ok, 2}
-             {:gets, _} -> {:ok, 3, :token}
-             {:cas, _, :token, 8, _} -> :ok
-           end
-         end}
-      )
-
-    context = event(store)
-
-    expected_prior =
-      Integer.floor_div(context.arrival_ms, definition.bucket_ms) -
-        Integer.floor_div(context.arrival_ms - definition.window_ms, definition.bucket_ms)
-
-    assert track(definition, {}, [5], context) == 8 + 2 * expected_prior
-    for _ <- 1..expected_prior, do: assert_receive({:get, _})
-    assert_receive {:gets, _}
-    assert_receive {:cas, _, :token, 8, _}
-    refute_receive {:gets, _}, 10
-    refute_receive {:get, _}, 10
-  end
-
-  test "a slow gets cannot dispatch a CAS after fixed expiry" do
-    definition = definition(plan("TRACK hits = sum(v) LAST '1s'"))
-    parent = self()
-
-    store =
-      start_supervised!(
-        {ProbeStore,
-         fn operation ->
-           send(parent, operation)
-
-           case operation do
-             {:get, _} ->
-               :not_found
-
-             {:gets, _} ->
-               Process.sleep(25)
-               :not_found
-
-             {:cas, _, _, _, _} ->
-               :ok
-           end
-         end}
-      )
-
-    # At Unix 0 the fixed expiry is 1334 ms later; leave 15 ms now.
-    arrival = %{
-      Event.arrival()
-      | arrival_ms: 0,
-        monotonic_ms: System.monotonic_time(:millisecond) - 1_319,
-    }
-
-    assert track(
-             definition,
-             {},
-             [5],
-             event(store, Guardian.Counters.Client.new_batch(), arrival)
-           ) == nil
-
-    assert_receive {:gets, _}
-    refute_receive {:cas, _, _, _, _}, 10
-  end
-
-  test "healthy large batches refund the budget and include every event", %{store: store} do
-    # A healthy call is refunded in full whatever it reserved, so the relaxed budget
-    # does not change what this checks.
-    definition = definition(plan("TRACK hits = count() LAST '1h'"))
-    batch = Guardian.Counters.Client.new_batch()
-
-    for n <- 1..300,
-        do: assert(track(definition, {}, [], event(store, batch)) == n)
-
-    assert CounterBudgetHelper.remaining_us(batch) == 250_000
-  end
-
-  test "concurrent native increments never omit the event's own mutation", %{store: store} do
-    definition = definition(plan("TRACK hits = count() LAST '1h'"))
-
-    values =
-      1..20
-      |> Task.async_stream(fn _ -> track(definition, {}, [], event(store)) end,
-        max_concurrency: 4
-      )
-      |> Enum.map(fn {:ok, value} -> value end)
-
-    assert Enum.sort(values) == Enum.to_list(1..20)
-    assert lookup(definition, {}, event(store)) == 20
-  end
-
   test "many rules across events stop waiting when the failed-call batch allowance runs out" do
     # The allowance, not the call budget, stops these waits, so the relaxed budget does
     # not change what this checks. Under load a 15 ms failure could otherwise time out
@@ -892,26 +526,6 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     assert drain_dispatches(0) in 1..17
   end
 
-  test "concurrent generic CAS updates include their event or explicitly default on conflict", %{
-    store: store,
-  } do
-    # A nil final lookup under production budgets was consistent with one call timing
-    # out at 50 ms and putting this node in cooldown, so the lookup failed open.
-    definition = definition(plan("TRACK total = sum(v) LAST '1h'"))
-
-    values =
-      1..30
-      |> Task.async_stream(fn _ -> track(definition, {}, [1], event(store)) end,
-        max_concurrency: 3
-      )
-      |> Enum.map(fn {:ok, value} -> value end)
-      |> Enum.reject(&is_nil/1)
-
-    assert length(values) > 0
-    assert Enum.sort(values) == Enum.to_list(1..length(values))
-    assert lookup(definition, {}, event(store)) == length(values)
-  end
-
   defmodule MetadataRules do
     def apply(row, event) do
       send(
@@ -932,8 +546,8 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     table = unique_table("counter_worker_metadata")
     publish_module(table, MetadataRules)
     Guardian.Test.Env.put(counter_metadata_observer: self())
-    first = Event.arrival()
-    second = %{first | arrival_ms: first.arrival_ms + 1}
+    first = Arrival.now()
+    second = %{first | unix_ms: first.unix_ms + 1}
 
     ExUnit.CaptureLog.capture_log(fn ->
       assert [{:error, _}, {:ok, %{"ok" => true}}] =
@@ -948,9 +562,9 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     assert %Guardian.Counters.Context{} = one.counters
     assert %Guardian.Counters.Context{} = two.counters
     refute first_worker == second_worker
-    assert one.arrival_ms == first.arrival_ms
-    assert two.arrival_ms == second.arrival_ms
-    assert one.monotonic_ms == two.monotonic_ms
+    assert one.arrival == first
+    assert two.arrival == second
+    assert one.arrival.monotonic_ms == two.arrival.monotonic_ms
     assert one.counters.batch == two.counters.batch
     assert CounterBudgetHelper.remaining_us(two.counters.batch) == 200_000
     assert two.counters.members == [node() | Node.list()]
@@ -961,15 +575,24 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     table = unique_table("counter_engine_metadata")
     publish_module(table, MetadataRules)
     Guardian.Test.Env.put(counter_metadata_observer: self())
-    spoofed = %{"arrival_ms" => 1, "monotonic_ms" => 1, "timestamp" => "old", "counters" => 99}
+
+    spoofed = %{
+      "arrival" => 1,
+      "unix_ms" => 1,
+      "arrival_ms" => 1,
+      "monotonic_ms" => 1,
+      "timestamp" => "old",
+      "counters" => 99,
+    }
+
     before = System.system_time(:millisecond)
 
     assert [{:ok, ^spoofed}, {:error, "event is not a JSON object"}, {:ok, %{}}] =
              Guardian.Engine.ingest_events(table, [spoofed, false, %{}])
 
     assert_receive {:metadata, _, ^spoofed, private}
-    assert private.arrival_ms >= before
-    assert private.arrival_ms <= System.system_time(:millisecond)
+    assert private.arrival.unix_ms >= before
+    assert private.arrival.unix_ms <= System.system_time(:millisecond)
     assert is_reference(private.counters.batch)
     assert_receive {:metadata, _, %{}, second}
     assert second.counters.batch == private.counters.batch

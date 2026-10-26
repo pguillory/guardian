@@ -28,7 +28,7 @@ defmodule Guardian.Rules.Runner do
   end
 
   def run(table, rows) do
-    run_with_metadata(table, Enum.map(rows, &{&1, Guardian.Rules.Event.arrival()}))
+    run_with_metadata(table, Enum.map(rows, &{&1, Guardian.Counters.Arrival.now()}))
   end
 
   @doc false

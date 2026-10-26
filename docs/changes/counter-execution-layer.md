@@ -43,7 +43,8 @@ and the event is a `Guardian.Rules.Event`, so Execution reads Rules structs' cou
 fields (identity, operator, window and bucket sizes; arrival coordinates and the
 counter context) and names them in typespecs. It never pattern-matches them, so
 there is no compile-time struct dependency. Moving the counter definition and the
-arrival coordinates into Counters is TODO `counter-definition-layer`.
+arrival coordinates into Counters was TODO `counter-definition-layer`, since done
+(`docs/changes/counter-definition-layer.md`).
 
 ## Tests
 
@@ -52,7 +53,8 @@ arrival coordinates into Counters is TODO `counter-definition-layer`.
   assertions unchanged.
 - `test/guardian/rules/counter_runtime_test.exs` keeps its name (its subject is
   Rules' counter behavior through Runtime and compiled modules, and change docs
-  cite it); its helpers call Execution.
+  cite it); its helpers call Execution. `docs/changes/counter-definition-layer.md`
+  later split it into `execution_test.exs` and `counter_rules_test.exs`.
 - `test/guardian/counters/client_test.exs` drops its helper that re-implemented
   route/group/dispatch/scatter: each operation becomes a one-shot machine that
   finishes with its response, run through `Execution.run_state_machines/2`. A nil

@@ -386,8 +386,9 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    lowercase object path. A SET or UNSET then touches only the keys it removes and a
    read is a lookup, so an event's rules cost about its columns plus its statements,
    each times a log factor, rather than columns times statements.
-   Engine captures private Unix/monotonic arrival coordinates before each event's
-   validation; they are carried outside the row and never automatically stored.
+   Engine captures private Unix/monotonic arrival coordinates
+   (`Guardian.Counters.Arrival`) before each event's validation; they are carried
+   outside the row and never automatically stored.
    Runner shares one Client batch budget across worker replacements and starts
    each event's membership snapshot and counter phase on worker entry. Generated
    modules accept this context through `apply/2`; `apply/1` creates a fresh event/batch.
@@ -450,14 +451,19 @@ stored historical output fields. No later rule/storage failure rolls back update
 Counters and queries share one aggregate registry, `Guardian.Aggregation`, with one
 configuration per aggregate: every registered name/arity is a TRACK operator, and
 TRACK validation checks the same registry the parser uses. Step construction builds
-each TRACK's immutable CounterDefinition, the single owner of its identity,
-operator, window/bucket sizes and grouping arity. Validation checks its operator
+each TRACK's immutable `Guardian.Counters.Definition` (counters layer), the single
+owner of its identity, operator, window/bucket sizes and grouping arity; Rules
+derives the identity and window from rule text, and the definition sizes the
+buckets. Validation checks its operator
 and window before plan construction; LOOKUPs bind the same definitions, and Runtime
 reuses them rather than constructing metadata per event. Execution selects the aggregation
 with `Guardian.Aggregation.fetch!(name)` from the definition's operator and passes
-it through empty/start/merge/finish and key machines. CounterDefinition owns the
-struct-shaped input used to hash LOOKUP targets; Resolution encodes it
-deterministically. The name/arity also controls native-count dispatch. This metadata
+it through empty/start/merge/finish and key machines. Resolution owns the
+struct-shaped input used to hash LOOKUP targets and encodes it deterministically;
+it keeps the former `Guardian.Rules.CounterDefinition` atom as a frozen format tag,
+so moving the definition into Counters changed no hash
+(`docs/changes/counter-definition-layer.md`). The name/arity also controls
+native-count dispatch. This metadata
 representation preserves counter identities and dependent plan hashes.
 Every aggregate has an empty mergeable state, an exact identity of its merge; a
 query's no-rows default is that state finished, so a missing counter and an empty
@@ -536,8 +542,10 @@ subtree, enforces event deadlines and owns failed-wait reservations and cooldown
 lifecycle; its admission and settlement use atomics/ETS directly, never its mailbox. Client takes
 one connected-member snapshot per event, without Storage readiness RPCs. Its typed
 `Guardian.Counters.Context` captures the deadline before membership and carries the
-shared batch handle, operation allowance, cooldown table and store server. Rules.Event
-nests it under counters, separate from private Unix/monotonic arrival coordinates.
+shared batch handle, operation allowance, cooldown table and store server.
+`Guardian.Rules.Event` carries it under counters, beside the event's
+`Guardian.Counters.Arrival` (private Unix/monotonic arrival coordinates); Runtime
+passes both, with the ops, to Execution, whose code names no Rules module.
 Transport calls Store directly in production; test builds select a libtest adapter
 at compile time for transport probes. No backend tuple handling enters the production
 path. Transport chooses the highest rendezvous score
@@ -547,7 +555,7 @@ where member_name is the node's string name and breaks hash ties
 any term and distinguishes integers from floats. Signed zeros share an owner but
 remain distinct stored counters through Store's ETF keys. All buckets share one owner.
 Each dependency level expands its counter statements into bucket key machines;
-`Guardian.Counters.Execution.run_counters/3` flattens them, runs them together in
+`Guardian.Counters.Execution.run_counters/4` flattens them, runs them together in
 batched rounds (`run_state_machines/3`) and restores the per-counter lists
 (`Guardian.Lists`). Each round routes pending operations to owners
 (`Counters.Client.route/2`), groups them by owner and sends the round's owner
@@ -1582,8 +1590,10 @@ node or peers. `Guardian.Test.Segments` picks a full segment's loaded copy
 (`write_segment_file/2`) and injects one-call append replies (`intercept_append/2`).
 Callers isolate observed processes, files, segments and tables; shared Storage
 process manipulation requires serial tests. `Guardian.Test.Aggregation` supplies
-pure representative aggregate arguments. Specialized clients, fake servers,
-counter probes/backends and the evaluation test case retain their existing homes.
+pure representative aggregate arguments. `Guardian.Test.Counters.ProbeStore` is a
+scripted counter store shared by the counter execution and rules tests. Other
+specialized clients, fake servers, counter probes/backends and the evaluation test
+case retain their existing homes.
 `Guardian.Test.Cluster.data_root/0` gives a peer a fresh data directory.
 `Guardian.Test.Cluster.single_peer/0` shares a single Storage peer's setup and cleanup
 across query and Rules tests, preserving the calling setup's test or module lifetime.

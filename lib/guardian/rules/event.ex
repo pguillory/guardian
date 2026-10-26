@@ -1,30 +1,21 @@
 defmodule Guardian.Rules.Event do
-  @moduledoc "Private arrival coordinates and per-event counter routing context, never row fields."
-  alias Guardian.Counters.{Client, Context}
-  @enforce_keys [:arrival_ms, :monotonic_ms]
-  defstruct [:arrival_ms, :monotonic_ms, :counters]
+  @moduledoc """
+  What a compiled rule module gets besides the row: the event's private arrival
+  coordinates and its per-event counter routing context, never row fields.
+  """
+  alias Guardian.Counters.{Arrival, Client, Context}
+  @enforce_keys [:arrival, :counters]
+  defstruct [:arrival, :counters]
 
-  @type t :: %__MODULE__{
-          arrival_ms: integer(),
-          monotonic_ms: integer(),
-          counters: Context.t() | nil,
-        }
+  @type t :: %__MODULE__{arrival: Arrival.t(), counters: Context.t()}
 
-  @spec arrival() :: t()
-  def arrival do
-    %__MODULE__{
-      arrival_ms: System.system_time(:millisecond),
-      monotonic_ms: System.monotonic_time(:millisecond),
-    }
-  end
-
-  @spec start(t(), Context.batch(), [Context.option()]) :: t()
-  def start(%__MODULE__{} = arrival, batch, opts \\ []) do
-    %{arrival | counters: Client.new_event(batch, opts)}
+  @spec start(Arrival.t(), Context.batch(), [Context.option()]) :: t()
+  def start(%Arrival{} = arrival, batch, opts \\ []) do
+    %__MODULE__{arrival: arrival, counters: Client.new_event(batch, opts)}
   end
 
   @spec new() :: t()
   def new do
-    start(arrival(), Client.new_batch())
+    start(Arrival.now(), Client.new_batch())
   end
 end

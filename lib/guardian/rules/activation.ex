@@ -39,7 +39,7 @@ defmodule Guardian.Rules.Activation do
     old =
       for {table, plan} <- previous,
           %Guardian.Rules.Step.Lookup{
-            target: %Guardian.Rules.CounterDefinition{identity: {target_table, _, _}},
+            target: %Guardian.Counters.Definition{identity: {target_table, _, _}},
           } <-
             plan.steps,
           do: {table, target_table}

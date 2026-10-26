@@ -169,7 +169,8 @@ defmodule Guardian.Counters.Transport do
     {:ok, op}
   end
 
-  # Expiries are Rules arrival milliseconds, not Clock's microsecond coordinate.
+  # Expiries are monotonic arrival milliseconds (Guardian.Counters.Arrival), not
+  # Clock's microsecond coordinate.
   defp mutation(expiry, build) do
     ttl = expiry - System.monotonic_time(:millisecond)
     if ttl > 0, do: {:ok, build.(ttl)}, else: {:error, :expired}

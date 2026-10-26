@@ -172,12 +172,13 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       to `Guardian.Counters.Execution` in the counters layer; Rules.Runtime prepares
       statements and writes results; Execution owns owner dispatch order; client
       tests run through the real round loop (`docs/changes/counter-execution-layer.md`)
-- [ ] counter-definition-layer: Counters.Execution reads Rules.CounterDefinition
-      and Rules.Event fields (a counters-to-rules coupling); consider moving the
-      counter definition and arrival coordinates into Counters (Execution taking
-      ops, arrival coordinates and a Counters.Context instead of a Rules.Event),
-      and `Execution.missing/1` into Guardian.Aggregation; a proposal for the
-      maintainer (`docs/changes/counter-execution-layer.md`)
+- [x] counter-definition-layer: the counter definition and arrival coordinates
+      move into Counters (`Counters.Definition`, `Counters.Arrival`); Execution
+      takes ops, an Arrival and a Counters.Context and names no Rules module;
+      `Execution.missing/1` is replaced by `Aggregation.default/1` of
+      `Definition.aggregation/1`; plan hashes unchanged; CounterRuntimeTest splits
+      into ExecutionTest and CounterRulesTest
+      (`docs/changes/counter-definition-layer.md`)
 - [x] rules-compiler-metadata: share compiled execution levels and reconstruct
       exact flat plan metadata only for activation, without per-event rebuilding
       (`docs/changes/rules-compiler-metadata.md`)

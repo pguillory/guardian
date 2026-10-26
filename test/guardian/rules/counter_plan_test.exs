@@ -213,8 +213,11 @@ defmodule Guardian.Rules.CounterPlanTest do
 
       assert Enum.find(candidate.steps, &(&1.field == track.field)).definition == definition
 
-      assert :erlang.term_to_binary(Guardian.Rules.CounterDefinition.hash_term(definition)) ==
-               :erlang.term_to_binary(definition)
+      # Every definition field feeds dependent hashes, under the frozen format tag.
+      hash_term = Guardian.Rules.Resolution.hash_term(definition)
+      assert Map.keys(hash_term) |> Enum.sort() == Map.keys(definition) |> Enum.sort()
+      assert hash_term.__struct__ == Guardian.Rules.CounterDefinition
+      assert Map.delete(hash_term, :__struct__) == Map.from_struct(definition)
     end
   end
 
