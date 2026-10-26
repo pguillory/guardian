@@ -53,9 +53,10 @@ sketches (cross-version queries are already unsupported); a deploy resets counte
 ## Product spec impact
 
 `docs/product/spec.md`: counter operators are every query aggregate with query
-semantics and no-rows missing results (section 5.1, items 1 and the UNSET memory
-note); count_distinct's precision 8 in the aggregate list; `sum(x)` is null for an
-empty table. MCP `query_language.md` and the write_rule tool description match.
+semantics and no-rows missing results ([Counters item 1 and the UNSET memory note
+in item 7](../product/spec.md#514-counters)); count_distinct's precision 8 in the
+aggregate list; `sum(x)` is null for an empty table. MCP `query_language.md` and the
+write_rule tool description match.
 `docs/product/overview.md`: none. `docs/architecture/security.md` names the newly
 value-retaining counter states.
 

@@ -87,7 +87,7 @@ apply these rules. `list_rules` (MCP) still shows only valid rule files.
 
 ## Docs
 
-- `docs/product/spec.md` section 5.1, files item 3: after "listing the store is the
+- [Spec Files item 3](../product/spec.md#511-files): after "listing the store is the
   rule set", add: "Files not ending in `.gsql` are ignored; a `.gsql` file at any other
   path is a validation error, for the table its first folder names if that is a valid
   table. In a local folder, names starting with `.` are skipped."
@@ -106,8 +106,8 @@ apply these rules. `list_rules` (MCP) still shows only valid rule files.
   (`Guardian.AtomicFile`'s docs, `lib/guardian/CLAUDE.md`, `system.md`).
 - TODO.md: close `object-store-local`.
 
-Product spec impact: section 5.1 "Files" item 3 gains the stray-file statement above,
-and the configuration reference (and spec, if it lists `GUARDIAN_RULES_DIR`'s rules)
+Product spec impact: [Files item 3](../product/spec.md#511-files) gains the stray-file
+statement above, and the configuration reference (and spec, if it lists `GUARDIAN_RULES_DIR`'s rules)
 gains the refusal of a rule folder containing the data folder.
 
 ## Not in this change

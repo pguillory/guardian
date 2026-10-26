@@ -93,9 +93,10 @@ gains the aggregate overflow sentence; item 8 drops "`factorial` takes at most 2
 `lib/guardian/web/mcp/query_language.md` says the same. `overview.md`: none. Architecture docs
 drop the factorial limit too (`docs/architecture/security.md`, `system.md` 5.7).
 
-Strings: spec section 5.1 item 5 (a rule statement no longer fails on a regular
-expression limit); section 7 item 5 (string forms, the cap and the functions it
-applies to, `ILIKE` on long values, null from `RLIKE`, `NOT RLIKE` and `replace` at
+Strings: [spec Running item 5](../product/spec.md#513-running) (a rule statement no
+longer fails on a regular expression limit); section 7 item 5 (string forms, the cap
+and the functions it applies to, `ILIKE` on long values, null from `RLIKE`,
+`NOT RLIKE` and `replace` at
 their limits) and item 8 (the 16 MiB refusal goes). The MCP reference, security.md
 5.2, system.md 5.6, 5.7 and the settings table (the `query_max_string_bytes` row),
 and `docs/reference/limitations.md` follow.

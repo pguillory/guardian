@@ -4,9 +4,10 @@ Status: implemented and validated.
 
 Product spec impact: `docs/product/spec.md` section 5 item 10 now says rules run on
 API-ingested rows on any table and Guardian's own writes to its built-in tables never
-run rules; section 5.1 Files item 1 no longer refuses a built-in table's name; section
-8 notes that built-in writes skip ingest rules. `docs/product/overview.md`: none. The
-security design (`docs/architecture/security.md`), the MCP query language reference
+run rules; [Files item 1](../product/spec.md#511-files) no longer refuses a built-in
+table's name; section 8 notes that built-in writes skip ingest rules.
+`docs/product/overview.md`: none. The security design (`docs/architecture/security.md`),
+the MCP query language reference
 and `docs/changes/ingest-rules.md` say the same.
 
 ## Why

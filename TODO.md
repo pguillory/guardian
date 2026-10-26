@@ -295,6 +295,8 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Interfaces and operations
 
+- [x] rules-docs-structure: split Rules invariants into single-purpose requirements
+      and add stable spec subsection links (`docs/changes/rules-docs-structure.md`)
 - [x] rules-idempotency-docs: link repeated rule and retry requirements to their
       canonical homes, preserve product tiers and change history, and mark aggregate
       policy supersessions (`docs/changes/rules-idempotency-docs.md`)

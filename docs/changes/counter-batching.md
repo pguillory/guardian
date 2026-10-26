@@ -2,9 +2,9 @@
 
 Status: implemented and validated.
 
-Product spec impact: spec section 5.1 (Running item 3) now describes dependency
-levels and concurrent independent counters; overview unchanged. TRACK/LOOKUP syntax,
-LOOKUP-before-TRACK ordering, whole-statement defaults, bucket policy and
+Product spec impact: [spec Running item 3](../product/spec.md#513-running) now describes
+dependency levels and concurrent independent counters; overview unchanged.
+TRACK/LOOKUP syntax, LOOKUP-before-TRACK ordering, whole-statement defaults, bucket policy and
 availability budgets are unchanged.
 This extends the counter implementation in [ingest-rules.md](ingest-rules.md).
 

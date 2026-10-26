@@ -18,7 +18,8 @@ Guardian's MCP endpoint exposes these tools:
   `Guardian.Rules`. A rejected or failed write is a tool error carrying the messages; a saved
   one returns `saved`, `remaining_errors` and `nodes_not_yet_reloaded`. The
   `write_rule` description summarizes the rule language; keep it in step with
-  `docs/product/spec.md` section 5.1 and the served reference's Ingest rules section.
+  [spec section 5.1](../../../../docs/product/spec.md#51-rules) and the served
+  reference's Ingest rules section.
   TRACK/LOOKUP outputs use return_keys; completed keyed retries return only receipts.
 
 The `query` description summarizes the language, its unsupported syntax, the untyped

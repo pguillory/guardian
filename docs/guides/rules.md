@@ -26,7 +26,7 @@ an IP returns 50, 49 and true. The producer decides what to do with that signal.
 Guardian stores the computed fields and queries read those historical values.
 
 TRACK includes the current event; LOOKUP reads before that event's updates. See the
-[rule execution contract](../product/spec.md#51-rules) for dependencies, ordering
+[rule execution contract](../product/spec.md#513-running) for dependencies, ordering
 and concurrency.
 
 For cross-table reads, put this in `payments/risk.gsql`:
@@ -42,8 +42,8 @@ the statement and preserves its incoming field. Apply counter statements
 unconditionally, or explicitly set a safe skipped value, when a caller-supplied
 output would be untrustworthy.
 
-The [product spec's counter contract](../product/spec.md#51-rules) defines supported
-aggregates and missing results (Counters item 1), typed groups (item 2), LAST and
+The [product spec's counter contract](../product/spec.md#514-counters) defines supported
+aggregates and missing results (item 1), typed groups (item 2), LAST and
 arrival-time buckets (item 3), failure handling and call budgets (items 5–6), and
 state loss and eviction (item 7). Counters are advisory signals; keep node clocks
 synchronized for their arrival-time windows.
@@ -60,9 +60,10 @@ secrets in those expressions.
 ### Editing and retrying counters
 
 Before editing a live counter, check the
-[identity and reload contract](../product/spec.md#51-rules) (Counters item 4 and
-Running item 6): it defines which edits reset counts or preserve them, and how
-invalid dependency components retain their previous good plans.
+[counter identity contract](../product/spec.md#514-counters) (item 4) and
+[reload contract](../product/spec.md#513-running) (item 6): they define which edits
+reset counts or preserve them, and how invalid dependency components retain their
+previous good plans.
 
 Writes validate the entire rule set. To change grouping arity or rename/delete a
 referenced TRACK, add a new named TRACK, retarget its LOOKUPs (with matching BY),
@@ -74,7 +75,8 @@ For retrying an ingest, use the [batch retry examples](../reference/api.md#retry
 and [idempotency contract](../product/spec.md#5-ingestion) (item 9). A later rule or
 storage failure can leave earlier TRACK increments; there is no rollback.
 Unkeyed resubmissions count again; a matching keyed retry returns only a receipt,
-without decision or counter fields (spec section 5.1, Counters item 5).
+without decision or counter fields ([counter contract](../product/spec.md#514-counters),
+item 5).
 
 ## A local folder (the default)
 

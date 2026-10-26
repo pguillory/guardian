@@ -3,7 +3,8 @@
 Ingest-time rules: files of SET, UNSET, TRACK and LOOKUP statements, one folder per table
 (`<table>/<name>.gsql`), run on each event sent through the ingest APIs before it is
 stored. The design and its reviews are in `docs/changes/ingest-rules.md`; user-visible
-behavior is `docs/product/spec.md` section 5.1. Read both before changing this.
+behavior is [spec section 5.1](../../../docs/product/spec.md#51-rules).
+Read both before changing this.
 
 Modules:
 
@@ -100,21 +101,28 @@ Modules:
    limit, fails the event; a table whose stored rules are invalid at boot is published
    as invalid (its events fail, other tables run) rather than refusing startup. There are
    no switches for either (`docs/changes/ingest-rules.md`, open questions 1 and 2).
-8. Statement words are contextual (see `lib/guardian/ast/CLAUDE.md`). Whole-set preparation
-   validates counter plans, orders expression dependencies with the LOOKUP barrier
-   and binds definition identities. Compiler refuses unresolved plans and unbound
-   LOOKUPs. The activation selector retains prior dependency
-   components on invalid reloads; Publisher derives prior plans from published
-   modules, including after restart, without a separate metadata registry.
-   Where TRACK counter state lives is settled in the change document:
-   Guardian.Counters.Store provides node-local ETS storage,
-   Guardian.Counters.Client provides bounded cluster ownership,
-   and Guardian.Aggregation provides shared mergeable operators. Counter failures fail
-   open without changing SET/UNSET's fail-closed behavior or skipping final UNSETs.
-   BY values and arbitrary, min/max, `_by` and `_n` states may retain sensitive
-   values after UNSET; no event retry or
-   rollback is allowed. GUARDIAN_COUNTER_MEMORY_MB maps positive MiB to Store's
-   byte budget. Read the reviewed design before changing counter semantics.
+8. Statement words are contextual (see `lib/guardian/ast/CLAUDE.md`).
+9. Whole-set preparation validates counter plans, orders expression dependencies
+   with the LOOKUP barrier and binds definition identities.
+10. Compiler refuses unresolved plans and unbound LOOKUPs.
+11. The activation selector retains prior dependency components on invalid reloads;
+    Publisher derives prior plans from published modules, including after restart,
+    without a separate metadata registry.
+12. Counter responsibilities stay split as settled in the change document:
+    Guardian.Counters.Store provides node-local ETS storage,
+    Guardian.Counters.Client provides bounded cluster ownership, and
+    Guardian.Aggregation provides shared mergeable operators.
+13. Counter failures fail open without changing SET/UNSET's fail-closed behavior
+    or skipping final UNSETs.
+14. BY values and arbitrary, min/max, `_by` and `_n` states may retain sensitive
+    values after UNSET.
+15. Rules never retry an event or roll back counter updates: an unkeyed
+    resubmission counts again, and a later rule or storage failure can leave
+    earlier TRACK updates counted.
+16. GUARDIAN_COUNTER_MEMORY_MB maps positive MiB to Store's byte budget.
+
+Read the reviewed counter design in `docs/changes/ingest-rules.md` and its follow-up
+change documents before changing any counter semantics.
 
 Tests use `Guardian.Test.Rules`; its shared-server helpers require `async: false`,
 while `compile_module/2` is async-safe for distinct probe modules. `Guardian.FakeS3`

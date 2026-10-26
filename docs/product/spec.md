@@ -366,7 +366,7 @@ SET busy = logins_last_hour >= 50;
 UNSET password
 ```
 
-Files:
+#### 5.1.1 Files
 
 1. A rule file is `<table>/<name>.gsql`; the folder names the table. `<name>` matches
    `[a-z0-9_][a-z0-9_-]*` (at most 64 bytes). The table must be a valid table name
@@ -383,7 +383,7 @@ Files:
    `.` are skipped, more than 20,000 entries fail the load, and the folder may not be
    the data folder, contain it, or be inside its segments folder (startup refuses).
 
-Statements:
+#### 5.1.2 Statements
 
 1. `SET field = expr [WHERE cond]` sets a top-level field, named in lowercase (names
    are not quoted, and `SET isBlocked` stores `isblocked`). It replaces the whole
@@ -403,7 +403,7 @@ Statements:
 6. `SET`, `UNSET`, `TRACK`, `LOOKUP` and `LAST` are not reserved words:
    they still work as column and table names, in rules and queries.
 
-Running:
+#### 5.1.3 Running
 
 1. A field the event lacks is null, with no warning; nothing is declared. Rules read
    the flattened event, so an object field has no value of its own: read its leaves
@@ -437,7 +437,7 @@ Running:
    of the rules process retains the published plans and their identities even while
    the rule store is unreachable. A whole node restart has no previous plans.
 
-Counters:
+#### 5.1.4 Counters
 
 1. Operators: every query aggregate and arity (section 7), with the same arguments,
    skipping, precision and numeric results as a query over the window's events.
@@ -496,7 +496,7 @@ Counters:
    remain for a window plus a bucket and cross the trusted peer network unencrypted.
    Avoid secrets in those expressions.
 
-Writing:
+#### 5.1.5 Writing
 
 1. Every write validates the whole set, every table together, and is refused if it
    adds an error the set did not already have: a parse error or unknown function, an
@@ -517,7 +517,9 @@ Writing:
    dependents can exhaust the bounded compiled-module pool; the file may be saved
    while activation waits for reclamation and the next poll.
 
-Startup: Guardian loads every rule before it loads stored events. A store it cannot
+#### 5.1.6 Startup
+
+Guardian loads every rule before it loads stored events. A store it cannot
 reach, or one that rate-limits it (HTTP 429), is retried for a minute, then startup is
 refused; misconfigured store settings refuse startup at once. A rule write the store
 rate-limits fails and saves nothing.

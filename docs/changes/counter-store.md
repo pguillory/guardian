@@ -2,9 +2,9 @@
 
 Status: implemented and validated.
 
-Product spec impact: overview none. Spec section 5.1 Counters item 7 now describes
-the asynchronous memory target, temporary overshoot, and sampled earliest-expiry
-cutoff (including tied expiries). TRACK/LOOKUP syntax, aggregate semantics,
+Product spec impact: overview none. [Spec Counters item 7](../product/spec.md#514-counters)
+now describes the asynchronous memory target, temporary overshoot, and sampled
+earliest-expiry cutoff (including tied expiries). TRACK/LOOKUP syntax, aggregate semantics,
 LOOKUP barriers, budgets, cooldowns and GUARDIAN_COUNTER_MEMORY_MB default remain.
 This supersedes C1's internal serialized-store contract in ingest-rules.md and the
 synchronous reclamation limitation recorded in counter-batching.md.

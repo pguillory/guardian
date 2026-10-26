@@ -30,8 +30,9 @@ Absent or null return_keys returns all event keys; a list of strings gives succe
 events exactly those keys, null for any the event lacks. Events are reported after
 the table's SET/UNSET/TRACK/LOOKUP rules, so return_keys is how a client reads a
 computed decision or counter result. Rule failure handling follows the
-[product contract](../../../docs/product/spec.md#51-rules). Valid requests return
-200 with ordered `results`, each `{success: true, event: ...}` or
+[rule execution contract](../../../docs/product/spec.md#513-running) and
+[counter failure contract](../../../docs/product/spec.md#514-counters). Valid
+requests return 200 with ordered `results`, each `{success: true, event: ...}` or
 `{success: false, error: ...}`. Events are independent: a failure does not stop the
 rest, and uncertain storage failures say the event may have been stored.
 

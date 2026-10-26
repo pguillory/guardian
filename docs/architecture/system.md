@@ -322,7 +322,7 @@ packs a snapshot of it; `lib/guardian/storage/CLAUDE.md` covers the costs).
 
 ### 3.4 Rules
 
-Rules (spec section 5.1) are files of SET, UNSET, TRACK and LOOKUP statements, `<table>/<name>.gsql`,
+Rules ([spec section 5.1](../product/spec.md#51-rules)) are files of SET, UNSET, TRACK and LOOKUP statements, `<table>/<name>.gsql`,
 in a rule store: a local folder or an S3-compatible bucket (`lib/guardian/rules/CLAUDE.md`;
 the design and its reviews are `docs/changes/ingest-rules.md`).
 

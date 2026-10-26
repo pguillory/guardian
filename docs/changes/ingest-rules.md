@@ -325,7 +325,7 @@ JSON API rule endpoints in phase 1.
    than freed, so a restart cannot reuse a name still callable by an old worker.
 6. Counter v1 extended activation to dependent LOOKUP plans in C4b/C4c1, enabled
    in C4c3 below. Current coherent reload requirements are
-   [Rules invariant 8](../../lib/guardian/rules/CLAUDE.md#rules-to-keep).
+   [Rules invariant 11](../../lib/guardian/rules/CLAUDE.md#rules-to-keep).
 7. Running a statement does not scan the row. At the first statement the runtime
    indexes the event's flattened row once: a trie of its keys by lowercase
    top-level object path, and each lowercase spelling's present keys in byte order.
