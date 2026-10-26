@@ -29,6 +29,9 @@ defmodule Guardian.Counters.Transport do
     pipelines(pending, %{}, errors, event)
   end
 
+  # Refuses a malformed operation or routing key. Nothing here is rescued: `owner/2`
+  # raises only on members that aren't a non-empty list of atoms, a programming error
+  # that Rules.Runtime records as a statement failure (failing open), not request data.
   defp operation_owner(operation, members) do
     with true <- is_tuple(operation) and tuple_size(operation) in [2, 4, 5],
          kind when kind in [:get, :gets, :incr, :cas] <- elem(operation, 0),
@@ -37,8 +40,6 @@ defmodule Guardian.Counters.Transport do
     else
       _ -> {:error, :invalid_request}
     end
-  rescue
-    _ -> {:error, :invalid_request}
   end
 
   defp pipelines(pending, running, results, event) do

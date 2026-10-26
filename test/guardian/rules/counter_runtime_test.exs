@@ -577,13 +577,17 @@ defmodule Guardian.Rules.CounterRuntimeTest do
   } do
     plan = plan("TRACK hits = count() LAST '1h'; TRACK total = sum(v) LAST '1h';
       SET safe = hits = 0; UNSET secret")
-    context = event(store)
-    context = %{context | counters: %{context.counters | batch: :invalid_budget_handle}}
+    # A corrupt budget handle, and membership Transport's routing cannot hash (which it
+    # does not rescue).
+    for corrupt <- [[batch: :invalid_budget_handle], [members: []], [members: ["node"]]] do
+      context = event(store)
+      context = %{context | counters: struct!(context.counters, corrupt)}
 
-    ExUnit.CaptureLog.capture_log(fn ->
-      assert run(plan, %{"v" => "private", "secret" => "private"}, context) ==
-               %{"v" => "private", "hits" => 0, "total" => nil, "safe" => true}
-    end)
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert run(plan, %{"v" => "private", "secret" => "private"}, context) ==
+                 %{"v" => "private", "hits" => 0, "total" => nil, "safe" => true}
+      end)
+    end
 
     assert {:messages, []} = Process.info(self(), :messages)
   end

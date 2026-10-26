@@ -420,6 +420,23 @@ defmodule Guardian.Counters.StoreTest do
     assert Store.get(:key, opts) == {:ok, 1}
   end
 
+  test "malformed request options are invalid requests", %{server: server, opts: opts} do
+    deadline = System.monotonic_time(:millisecond) + 5_000
+
+    malformed =
+      [:bad, [:bad], [{"server", server}], [{:server, server} | :tail]] ++
+        for timeout <- [nil, "50", 1.0, 0, -1],
+            extra <- [[], [deadline: deadline]],
+            do: [server: server, timeout: timeout] ++ extra
+
+    for request_opts <- malformed ++ [[server: server, deadline: nil]] do
+      assert Store.get(:key, request_opts) == {:error, :invalid_request}, inspect(request_opts)
+      assert Store.incr(:key, 1, 100, request_opts) == {:error, :invalid_request}
+    end
+
+    assert Store.get(:key, opts) == :not_found
+  end
+
   test "rejects invalid startup settings and values that cannot fit even as the only entry", %{
     clock: clock,
   } do

@@ -56,26 +56,33 @@ defmodule Guardian.Counters.Store do
     request(:stats, opts)
   end
 
+  # The public boundary for direct callers and the remote endpoint's store call:
+  # malformed options are checked, never rescued, and any other failure is a fixed,
+  # value-free :unavailable, since counters are advisory and fail open.
   defp request(operation, opts) do
-    timeout = Keyword.get(opts, :timeout, @default_timeout)
-    now = System.monotonic_time(:millisecond)
-    deadline = Keyword.get(opts, :deadline, now + timeout)
-
-    if is_integer(timeout) and timeout > 0 and is_integer(deadline) do
-      deadline = min(deadline, now + timeout)
-
-      with :ok <- before_deadline(deadline),
-           {:ok, state} <- descriptor(Keyword.get(opts, :server, __MODULE__)),
-           :ok <- before_deadline(deadline) do
-        execute_request(operation, state, deadline)
-      end
-    else
-      {:error, :invalid_request}
+    with {:ok, deadline} <- request_deadline(opts),
+         :ok <- before_deadline(deadline),
+         {:ok, state} <- descriptor(Keyword.get(opts, :server, __MODULE__)),
+         :ok <- before_deadline(deadline) do
+      execute_request(operation, state, deadline)
     end
-  rescue
-    _ -> {:error, :invalid_request}
   catch
     _, _ -> {:error, :unavailable}
+  end
+
+  # Validates the options, in order: a keyword list, a positive integer :timeout, then
+  # an integer :deadline. The request's deadline is the earlier of that and now plus
+  # the timeout.
+  defp request_deadline(opts) do
+    with true <- Keyword.keyword?(opts),
+         timeout when is_integer(timeout) and timeout > 0 <-
+           Keyword.get(opts, :timeout, @default_timeout),
+         now = System.monotonic_time(:millisecond),
+         deadline when is_integer(deadline) <- Keyword.get(opts, :deadline, now + timeout) do
+      {:ok, min(deadline, now + timeout)}
+    else
+      _ -> {:error, :invalid_request}
+    end
   end
 
   defp descriptor(server) do
@@ -200,9 +207,8 @@ defmodule Guardian.Counters.Store do
       now = state.clock.()
       with :ok <- before_deadline(deadline), do: execute(operation, state, now, deadline)
     end
-  rescue
-    _ -> {:error, :unavailable}
   catch
+    # A failing operation (the store's injected clock, say) fails alone, as :unavailable.
     _, _ -> {:error, :unavailable}
   end
 

@@ -63,6 +63,10 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    store. Status redacts state/messages/logs.
    Tests use a private injectable expiry clock, while deadlines use real time;
    fault injection pauses callers through a libtest clock gate, not the housekeeper.
+   Store validates request options explicitly (`:invalid_request`) and catches any
+   other request failure as `:unavailable`; that catch is its deliberate boundary for
+   direct callers and the remote endpoint. Transport's `operation_owner/2` rescues
+   nothing: bad membership is a programming error that Rules records and fails open.
 
 `Guardian.Counters.Client` is the batched facade used by Rules and Machine. It
 returns a typed `Guardian.Counters.Context` nested under
