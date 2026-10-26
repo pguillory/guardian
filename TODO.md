@@ -378,6 +378,10 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Tests
 
+- [x] persisted-segment-test-synchronization: wait for fixture creation through task
+      completion instead of a 1 s message deadline; preserve segment lifetime and
+      verify the retained row (`docs/changes/persisted-segment-test-synchronization.md`)
+
 - [x] counter-test-allowance-seam-adoption: move ContextTest and CounterRuntimeTest
       allowance reads and the simulated retained charge onto the counter test budget
       helper (`docs/changes/counter-test-budgets.md`, allowance seam adoption)
