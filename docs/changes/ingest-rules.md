@@ -10,6 +10,15 @@ Each was first kept switchable through app env (`:rules_on_failure`,
 `:rules_invalid_at_boot`); once confirmed, the switches and the alternatives they
 selected were removed. Rollout to a deployment is separate.
 
+This document records the original phase designs, decisions and validation, not a
+second current contract. Current behavior lives in
+[spec section 5.1](../product/spec.md#51-rules); examples and store setup are in the
+[rules guide](../guides/rules.md). The [Rules instructions](../../lib/guardian/rules/CLAUDE.md#rules-to-keep)
+hold mandatory implementation invariants, and the
+[rules architecture](../architecture/system.md#34-rules) describes the current
+mechanism. The historical C1–C4 plans below retain their original contracts, with
+supersession notes where later changes replaced them.
+
 ## Problem
 
 Guardian stores events exactly as they arrive. A producer that wants a derived field
@@ -299,37 +308,24 @@ JSON API rule endpoints in phase 1.
 
 ### Compilation
 
-1. Each table's rules compile to a generated module with `apply(row)`, holding the
-   table's ordered, deduplicated statements with their expressions as escaped AST
-   literals (regular expressions as pattern strings, never compiled `:re`
-   references) and running them through the query engine's scalar evaluator.
-   Generated code comes only from fixed templates plus escaped data; no rule text
-   becomes code. Generating native code per expression is a later optimization.
-2. A compiled module is immutable: a module name is never loaded twice while
-   anything can still call it. Names come from a fixed pool of 1,024
-   (`Guardian.Rules.Compiled.M0` to `M1023`), so atoms are bounded for the VM's lifetime
-   however often rules change. The pool covers the 256-table limit twice over plus
-   slack for modules waiting to be reclaimed.
-3. Activation: a reload compiles every changed table into free names, never
-   touching a published module. Only when all of them compile does it publish one
-   new `:persistent_term` map of table to module, atomically switching every
-   addition, change and deletion at once. If any table fails (compile error, no
-   free name), nothing is published, the new modules return to the pool, and the
-   previous set stays in force everywhere. The next poll retries it, so a node
-   that ran out of names during a burst catches up once retired names are freed.
-4. Reclamation: the modules the new map no longer uses are retired. Callers read the
-   map once per event, inside the rule worker, whose events are bounded by the 1 s
-   limit, so 30 s after retirement no caller can still hold one. Then the module is
-   deleted and soft-purged (`:code.delete/1`, `:code.soft_purge/1`) and its name
-   returns to the pool; if the soft purge fails, it is retried later, never forced.
-5. After a Rules process restart, the pool is rebuilt from what is loaded: names in
-   the published map stay in use, and any other loaded name is retired, not freed.
-6. A reload recompiles only tables whose statements changed. Counter v1 also
-   recompiles tables whose LOOKUPs reference changed TRACK definitions, publishing
-   their resolved counter identities atomically with the new definitions. Invalid
-   runtime reloads retain whole connected dependency components of prior plans,
-   as specified in C4b below. Server selection and module metadata are implemented
-   in C4c1; C4c3 enables live counter activation.
+1. The design used fixed templates and escaped AST data, with regular expressions
+   held as pattern strings, never compiled `:re` references. Native code generation
+   per expression was left as a later optimization. The current compiler shape is in
+   [architecture section 3.4, item 2](../architecture/system.md#34-rules).
+2. The original pool sizing allowed two generations of the table limit plus
+   reclamation slack. Bounded atoms and immutable module names are maintained by
+   [Rules invariants 2–3](../../lib/guardian/rules/CLAUDE.md#rules-to-keep).
+3. Publication and compile-failure rollback follow
+   [Rules invariant 2](../../lib/guardian/rules/CLAUDE.md#rules-to-keep) and
+   [architecture section 3.4, item 3](../architecture/system.md#34-rules).
+4. Reclamation's grace period and soft-purge mechanism are described in that same
+   architecture item; the prohibition on forced purge is Rules invariant 2.
+5. Restart recovery and pool reconstruction are also described in architecture
+   section 3.4, item 3. Loaded names outside the published map are retired rather
+   than freed, so a restart cannot reuse a name still callable by an old worker.
+6. Counter v1 extended activation to dependent LOOKUP plans in C4b/C4c1, enabled
+   in C4c3 below. Current coherent reload requirements are
+   [Rules invariant 8](../../lib/guardian/rules/CLAUDE.md#rules-to-keep).
 7. Running a statement does not scan the row. At the first statement the runtime
    indexes the event's flattened row once: a trie of its keys by lowercase
    top-level object path, and each lowercase spelling's present keys in byte order.
@@ -927,14 +923,10 @@ recommendation.
 
 ## Switching an existing deployment to an S3 store
 
-Written up generally in the guide: deploy the build first with the default local
-folder (behavior unchanged), check the bucket credentials from the deployment's own
-network before applying them, apply all bucket settings together in one restart,
-and roll back by removing all of them together (removing only some refuses
-startup). Copy any rules already in the local folder into the bucket first, or the
-switch drops them. The local folder stays in place for rollback. The check
-exercises the operations the lock depends on (create with `If-None-Match: *`, the
-412 on a second create, `If-Match` overwrite) against the real store.
+The [rules guide's switching procedure](../guides/rules.md#switching-an-existing-deployment-to-a-bucket)
+is the operator runbook. The rollout decision was to verify conditional writes
+from the deployment's network before switching stores, since the write lock depends
+on those operations.
 
 ## Validation
 

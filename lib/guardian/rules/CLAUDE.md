@@ -67,7 +67,7 @@ Modules:
 - `Guardian.Rules.Server`: process, startup load, reload, poll, locked writes and
   admission. Holds Publisher's pool value and forwards reclamation messages.
 
-Rules to keep:
+## Rules to keep
 
 1. Nothing reads the store per event. The ingest path sees only the published map.
 2. Never load a module name twice while anything can call it. Compile into a free

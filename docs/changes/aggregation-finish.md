@@ -2,6 +2,12 @@
 
 Status: implemented and validated.
 
+Superseded in part by [aggregates-unify.md](aggregates-unify.md): separate counter
+count bounds, query/counter HLL configurations, defaults/empty states and
+counter-only average shortcuts described below were unified afterward. The
+list-result validation boundary remains in place; the original compatibility and
+validation record below describes this change when it landed.
+
 Product spec impact: none. No statements change in `docs/product/overview.md` or
 `docs/product/spec.md`. Supported query and counter results remain unchanged.
 

@@ -262,6 +262,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Interfaces and operations
 
+- [x] rules-idempotency-docs: link repeated rule and retry requirements to their
+      canonical homes, preserve product tiers and change history, and mark aggregate
+      policy supersessions (`docs/changes/rules-idempotency-docs.md`)
 - [x] agent-instruction-tutorials: move the query-function tutorial and column
       reference into docs/, retaining short mandatory editing rules and pointers
       (`docs/changes/agent-instruction-tutorials.md`)
