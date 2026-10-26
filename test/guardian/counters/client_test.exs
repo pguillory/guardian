@@ -1,8 +1,7 @@
 defmodule Guardian.Counters.ClientTest do
   use ExUnit.Case, async: false
-  alias Guardian.Counters.{Budget, Client, Transport}
+  alias Guardian.Counters.{Budget, Client, Execution, Machine, Transport}
   alias Guardian.Counters.Store
-  alias Guardian.Lists
   alias Guardian.Test.Counters.Budget, as: CounterBudgetHelper
 
   setup_all do
@@ -43,23 +42,22 @@ defmodule Guardian.Counters.ClientTest do
     )
   end
 
-  # One round through route/2 and dispatch/2, as Rules runs it, keyed like the
-  # operations map; operations go out in the map's enumeration order.
+  # One round through route/2 and dispatch/2 in Counters.Execution's round loop,
+  # each operation a machine that finishes with its response; keyed like the
+  # operations map, which sets the input order. Using the real round loop (the
+  # module above Client) avoids re-implementing its routing, grouping and scatter.
+  # A nil operation would read as an already-finished machine, so tests route nil
+  # directly.
   defp batch(operations, context) do
     {ids, ops} = Enum.unzip(operations)
-    routes = Enum.map(ops, &Client.route(&1, context))
-    routed = for {{:ok, owner}, op} <- Enum.zip(routes, ops), do: {owner, op}
 
     responses =
-      if routed == [],
-        do: [],
-        else:
-          routed
-          |> Lists.group()
-          |> Client.dispatch(context)
-          |> Lists.ungroup(Enum.map(routed, &elem(&1, 0)))
+      ops
+      |> Enum.map(&Machine.new(&1, nil, fn _op, response, _state -> {:done, response} end))
+      |> Execution.run_state_machines(context)
+      |> Enum.map(& &1.result)
 
-    ids |> Enum.zip(Lists.unfilter(responses, routes, &match?({:ok, _}, &1))) |> Map.new()
+    ids |> Enum.zip(responses) |> Map.new()
   end
 
   defp route({identity, group, _bucket}) do
@@ -374,8 +372,10 @@ defmodule Guardian.Counters.ClientTest do
           ],
           do: operation
 
+    assert Client.route(nil, context) == {:error, :invalid_request}
+
     for operation <-
-          [nil, {:unsupported, key()}, {:get, :bad_key}, {:get, {nil, {}, 1}}] ++
+          [{:unsupported, key()}, {:get, :bad_key}, {:get, {nil, {}, 1}}] ++
             malformed_expiries do
       assert batch(%{one: operation}, context) ==
                %{one: {:error, :invalid_request}}

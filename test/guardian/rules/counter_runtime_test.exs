@@ -2,8 +2,8 @@ defmodule Guardian.Rules.CounterRuntimeTest do
   use ExUnit.Case, async: false
   import Guardian.Test.Rules
   alias Guardian.Aggregation
-  alias Guardian.Counters.Store
-  alias Guardian.Rules.{CounterRuntime, DependencyGraph, Event, Runtime}
+  alias Guardian.Counters.{Execution, Store}
+  alias Guardian.Rules.{DependencyGraph, Event, Runtime}
   alias Guardian.Test.Counters.Budget, as: CounterBudgetHelper
 
   # No test here depends on the production 50 ms call or 100 ms event budget: the
@@ -40,12 +40,12 @@ defmodule Guardian.Rules.CounterRuntimeTest do
 
   # One statement through the level runner, unwrapped to its counter value.
   defp track(definition, group, values, event) do
-    [{:ok, value}] = CounterRuntime.run_counters([{:track, definition, group, values}], event)
+    [{:ok, value}] = Execution.run_counters([{:track, definition, group, values}], event)
     value
   end
 
   defp lookup(definition, group, event) do
-    [{:ok, value}] = CounterRuntime.run_counters([{:lookup, definition, group}], event)
+    [{:ok, value}] = Execution.run_counters([{:lookup, definition, group}], event)
     value
   end
 

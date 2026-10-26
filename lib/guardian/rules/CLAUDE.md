@@ -43,27 +43,15 @@ Modules:
 - `Guardian.Rules.Runtime`: the dispatcher called by generated modules (reads, SET, UNSET,
   failures), threading a `Guardian.Rules.RowIndex` through dependency levels. Internal
   TRACK/LOOKUP dispatch uses bound identities and aggregate defaults on failure.
+  For each level, Runtime prepares every counter statement as skipped, failed or
+  an op, runs the ops through `Guardian.Counters.Execution.run_counters/3` (the
+  counters layer: buckets, rounds, routing, combination;
+  `lib/guardian/counters/CLAUDE.md`), writes each result into its field and logs
+  `{:error, kind}` results by file and line (`docs/changes/counter-execution-layer.md`).
 - `Guardian.Rules.Event`: private Unix/monotonic arrival coordinates outside the row; Engine
   captures them before validation. Runner adds a typed Counters.Context under
   Event.counters on worker entry, sharing one batch atomics budget across
   replacement workers.
-- `Guardian.Rules.CounterRuntime`: a level's counter execution, read top-down:
-  `run_counters/3` expands each op into bucket key machines, flattens them, runs
-  them in rounds (`run_state_machines/3`), unflattens, and combines each op's
-  states chronologically. Each round routes pending operations to owners, groups
-  them by owner, dispatches the owner batches through one `Counters.Client.dispatch/2`
-  call and feeds responses back in order (`docs/changes/counter-execution-topdown.md`).
-  The list reshaping is `Guardian.Lists`. Runtime, above it, prepares each
-  statement as skipped, failed or an op, and writes results into fields.
-  Any failed bucket defaults its whole statement quietly; missing buckets use empty
-  states. Exceptions (expansion, the round, combination) come back as
-  `{:error, kind}` for Runtime to log.
-  Whole intersecting buckets bias reads toward overcount: floor((arrival-W)/B)
-  through floor(arrival/B), B=ceil(W/3). Native count increments and generic
-  gets/merge/CAS use their returned state, never a post-update read. Only definite
-  CAS conflicts retry, at most three total attempts. Zero-count deltas and unchanged
-  generic states skip mutation. TTLs count down to one anchored monotonic expiry
-  derived from bucket_end+W; transit can still delay physical expiry at the owner.
 - `Guardian.Rules.RowIndex`: the event's row, with a trie of its keys by lowercase object path
   and a map of lowercase spelling to present keys, so a statement costs what it
   touches rather than a pass over every column. Its tests check it against the old
@@ -118,7 +106,8 @@ Modules:
     without a separate metadata registry.
 12. Counter responsibilities stay split as settled in the change document:
     Guardian.Counters.Store provides node-local ETS storage,
-    Guardian.Counters.Client provides bounded cluster ownership, and
+    Guardian.Counters.Client provides bounded cluster ownership,
+    Guardian.Counters.Execution runs a level's counters, and
     Guardian.Aggregation provides shared mergeable operators.
 13. Counter failures fail open without changing SET/UNSET's fail-closed behavior
     or skipping final UNSETs.

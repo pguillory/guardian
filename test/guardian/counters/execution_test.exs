@@ -1,9 +1,9 @@
-defmodule Guardian.Rules.CounterRoundsTest do
-  @moduledoc "CounterRuntime's round loop and level results, with scripted owner dispatch."
+defmodule Guardian.Counters.ExecutionTest do
+  @moduledoc "Execution's round loop and level results, with scripted owner dispatch."
   use ExUnit.Case, async: true
   alias Guardian.Aggregation
-  alias Guardian.Counters.{Context, KeyMachines, Machine}
-  alias Guardian.Rules.{CounterDefinition, CounterRuntime, Event}
+  alias Guardian.Counters.{Context, Execution, KeyMachines, Machine}
+  alias Guardian.Rules.{CounterDefinition, Event}
 
   @sum Aggregation.fetch!("sum")
   @min Aggregation.fetch!("min")
@@ -34,7 +34,7 @@ defmodule Guardian.Rules.CounterRoundsTest do
 
   defp run(machines, dispatch) do
     machines
-    |> CounterRuntime.run_state_machines(context(), dispatch)
+    |> Execution.run_state_machines(context(), dispatch)
     |> Enum.map(fn machine ->
       assert Machine.done?(machine)
       machine.result
@@ -114,7 +114,7 @@ defmodule Guardian.Rules.CounterRoundsTest do
     ]
 
     assert machines
-           |> CounterRuntime.run_state_machines(context, dispatch)
+           |> Execution.run_state_machines(context, dispatch)
            |> Enum.map(& &1.result) ==
              [
                {:ok, {:peer@host, b1}},
@@ -133,7 +133,7 @@ defmodule Guardian.Rules.CounterRoundsTest do
   test "no dispatch for no machines, finished machines or only routing errors" do
     dispatch = scripted(fn _ -> flunk("dispatched") end)
     assert run([], dispatch) == []
-    assert CounterRuntime.run_counters([], event(), dispatch) == []
+    assert Execution.run_counters([], event(), dispatch) == []
 
     assert run([KeyMachines.read(:malformed), KeyMachines.read({:also, :malformed})], dispatch) ==
              [{:error, :invalid_request}, {:error, :invalid_request}]
@@ -214,7 +214,7 @@ defmodule Guardian.Rules.CounterRoundsTest do
 
     # Four buckets of 2, while an unknown operator fails only its own op.
     assert [{:ok, 8}, {:error, expansion}, {:ok, 8}] =
-             CounterRuntime.run_counters(
+             Execution.run_counters(
                [
                  {:lookup, sum, {}},
                  {:lookup, definition({"no_such_aggregate", 1}), {}},
@@ -227,7 +227,7 @@ defmodule Guardian.Rules.CounterRoundsTest do
     assert is_binary(expansion)
 
     # A malformed routing key defaults only its own op.
-    assert CounterRuntime.run_counters(
+    assert Execution.run_counters(
              [
                {:lookup, sum, {}},
                {:lookup, definition({"sum", 1}, {"events", "hits", :bad}), {}},
@@ -241,7 +241,7 @@ defmodule Guardian.Rules.CounterRoundsTest do
     timeout = scripted(fn {:get, _} -> {:error, :timeout} end)
     missing = Aggregation.default(@sum)
 
-    assert CounterRuntime.run_counters(
+    assert Execution.run_counters(
              [
                {:lookup, sum, {}},
                {:lookup, definition({"sum", 1}, {"events", "hits", :bad}), {}},
@@ -255,7 +255,7 @@ defmodule Guardian.Rules.CounterRoundsTest do
     short = fn batches, _ -> Enum.map(batches, fn {owner, [_ | ops]} -> {owner, ops} end) end
 
     assert [{:error, round}, {:error, ^expansion}] =
-             CounterRuntime.run_counters(
+             Execution.run_counters(
                [{:lookup, sum, {}}, {:lookup, definition({"no_such_aggregate", 1}), {}}],
                event(),
                short

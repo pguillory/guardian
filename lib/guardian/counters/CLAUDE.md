@@ -2,7 +2,7 @@
 
 Ephemeral counter infrastructure for the reviewed TRACK/LOOKUP v1 design in
 `docs/changes/ingest-rules.md`. The node-local store, cluster routing and pure
-aggregate operators and live rule execution (`Guardian.Rules.CounterRuntime`) are
+aggregate operators and live counter execution (`Guardian.Counters.Execution`) are
 implemented. TRACK/LOOKUP are available through normal whole-set rule writes,
 startup and reload. GUARDIAN_COUNTER_MEMORY_MB sets positive MiB, default 64;
 explicit empty/invalid values refuse startup.
@@ -69,10 +69,11 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    anchored increment/CAS expiries are integers before grouping or admission, so
    malformed expiries return `:invalid_request` without reserving allowance.
    `dispatch/2` takes only operations `route/2` accepted.
-   It rescues nothing: bad membership is a programming error that Rules records
-   and fails open. Translate valid anchored expiries only at actual dispatch.
+   It rescues nothing: bad membership is a programming error that Execution
+   reports and Rules fails open. Translate valid anchored expiries only at
+   actual dispatch.
 
-`Guardian.Counters.Client` is the facade Rules' round loop uses: `route/2` names an
+`Guardian.Counters.Client` is the facade Execution's round loop uses: `route/2` names an
 operation's owner and `dispatch/2` runs one round's owner batches. It
 returns a typed `Guardian.Counters.Context` nested under
 `Guardian.Rules.Event.counters`.
@@ -93,7 +94,8 @@ reservations, deadline enforcement and settlement. Its hot path uses atomics/ETS
 Transport has no process. Client delegates batch dispatch to Transport, which calls
 Budget before dispatch and after normalized pipeline completion. A round's whole
 `[{owner, operations}]` goes to one `dispatch/2` call, which starts owners in the
-order given (Rules sorts them with `Guardian.Lists.group/1`) and answers
+order given (Execution sorts them with `Guardian.Lists.group/1`, the one place
+that orders a round's owners) and answers
 `[{owner, responses}]` in that order, one response per operation and in operation
 order. Transport keeps one response list per owner, never positional ids, and puts
 operations refused at dispatch back in place with `Guardian.Lists.unfilter/3`. Settlement unwraps
@@ -130,13 +132,13 @@ Rules arrival milliseconds.
 
 `Guardian.Counters.Machine` is one key's state machine: a pending operation or a
 finished result, advanced by a response callback (a raising callback finishes with
-`:invalid_state`). `Guardian.Rules.CounterRuntime` runs every pending machine of a
-level together per round. `Guardian.Counters.KeyMachines` implements
+`:invalid_state`). `Guardian.Counters.Execution` runs every pending machine of a
+level together per round (below). `Guardian.Counters.KeyMachines` implements
 read, incr and gets/merge/CAS response callbacks; these three always finish, in at
 most six rounds, while an arbitrary callback passed to `Machine.new/3` carries no
 such guarantee. Machine errors remain errors:
 missing keys alone default at the bucket layer; a failed bucket defaults the whole
-statement. Rules groups each round by owner; Transport dispatches the owner
+statement. Execution groups each round by owner; Transport dispatches the owner
 batches as concurrent pipelines. Pending
 owners wait for any completed call's reservation refund; cooldown, truly exhausted
 budgets or deadlines skip them. Charge failed waits once per pipeline using its
@@ -146,6 +148,27 @@ batched owner dispatch; the Transport remote endpoint accepts only owner pipelin
 requires all nodes to restart on the same build; mixed-version rolling deploys across
 this split are unsupported (`docs/changes/counter-client.md`). Store retains its
 local atomic primitives.
+
+`Guardian.Counters.Execution` is a level's counter execution, read top-down,
+below `Guardian.Rules.Runtime` (which prepares statements into ops and writes
+results into fields): `run_counters/3` expands each op into bucket key machines,
+flattens them, runs them in rounds (`run_state_machines/3`), unflattens, and
+combines each op's states chronologically. Each round routes pending operations
+(`Client.route/2`), groups them by owner and sends the round through one
+`Client.dispatch/2` call, then feeds responses back in order
+(`docs/changes/counter-execution-topdown.md`, `docs/changes/counter-execution-layer.md`).
+Any failed bucket defaults its whole statement quietly; missing buckets use empty
+states. Exceptions (expansion, the round, combination) come back as
+`{:error, kind}` for Runtime to log. Whole intersecting buckets bias reads toward
+overcount: floor((arrival-W)/B) through floor(arrival/B), B=ceil(W/3). Native
+count increments and generic gets/merge/CAS use their returned state, never a
+post-update read. Zero-count deltas and unchanged generic states skip mutation.
+TTLs count down to one anchored monotonic expiry derived from bucket_end+W;
+transit can still delay physical expiry at the owner. Ops carry
+`Guardian.Rules.CounterDefinition`s and the event is a `Guardian.Rules.Event`;
+Execution reads only their counter fields (a known counters-to-rules coupling,
+listed in TODO.md). A nil operation reads as a finished machine; key machines
+never hold one.
 
 TRACK steps and bound LOOKUPs carry immutable counter definitions. Every registered
 `{name, arity}` is a TRACK operator, with the same configuration queries use.
@@ -171,6 +194,6 @@ for ETS/erpc. HLL registers are fixed size; arbitrary, min/max and `_by` states
 retain an input-sized value, `_n` states up to n of them, and exact count/avg
 integer sizes grow logarithmically rather than having an
 absolute byte cap. Preserve Store's payload refusal and asynchronous memory target.
-Counter rule execution lives in Rules, with at most three total CAS attempts for
-definite conflicts only. See `docs/changes/shared-aggregates.md`,
+Counter execution, with at most three total CAS attempts for definite conflicts
+only, is `Guardian.Counters.Execution`. See `docs/changes/shared-aggregates.md`,
 `docs/changes/counter-retirement.md` and `docs/changes/aggregates-unify.md`.

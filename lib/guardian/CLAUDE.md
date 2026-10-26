@@ -20,8 +20,8 @@ prefix. Keep the Mix application and its configuration under `:guardian`.
 - `Guardian.ObjectStore`: the generic object-store client (S3/R2 and a local folder) and
   its lease lock on a key (`lib/guardian/object_store/CLAUDE.md`); Rules is its caller.
 - `Guardian.Counters.Store`: node-local, ephemeral ETS get/gets/cas/incr store with TTLs and
-  a memory budget (`lib/guardian/counters/CLAUDE.md`); TRACK/LOOKUP run through Rules using
-  bounded owner routing and fail-open defaults.
+  a memory budget (`lib/guardian/counters/CLAUDE.md`); Rules runs TRACK/LOOKUP through
+  `Guardian.Counters.Execution` using bounded owner routing and fail-open defaults.
 - `Guardian.Counters.Client`: facade for batched counter calls; internal Transport owns routing
   and bounded dispatch, and supervised Budget owns reservations, deadlines and cooldowns.
 - `Guardian.Counters.Restarter`: owns the disposable Store/Budget supervisor and recovers
@@ -92,7 +92,7 @@ single user next to that user instead.
   filter/unfilter and group/ungroup (sorted keys, per-key input order). Each inverse
   takes heads in one pass, with no positional ids or index lookups (ungroup keys a
   map by the semantic key), and raises when its inputs do not fit the shape.
-  Counter rounds (`Guardian.Rules.CounterRuntime`, `Guardian.Counters.Transport`) and
+  Counter rounds (`Guardian.Counters.Execution`, `Guardian.Counters.Transport`) and
   `Guardian.Rules.Runtime` use it.
 - `Guardian.SegmentID` creates sortable 32-byte hex identifiers containing a timestamp.
 - `Guardian.Failure` owns value-free diagnostic classification and stack redaction.

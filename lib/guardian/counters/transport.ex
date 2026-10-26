@@ -18,7 +18,7 @@ defmodule Guardian.Counters.Transport do
   routing key. Only routed operations may be passed to `dispatch/2`.
 
   Nothing is rescued: `owner/2` raises only on members that aren't a non-empty
-  list of atoms, a programming error that Rules.CounterRuntime reports as a
+  list of atoms, a programming error that Counters.Execution reports as a
   statement failure (failing open), not request data.
   """
   @spec route(tuple(), Context.t()) :: {:ok, node()} | {:error, :invalid_request}

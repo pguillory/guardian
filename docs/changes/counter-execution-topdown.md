@@ -59,7 +59,9 @@ Placement trade-off: the round loop (`run_state_machines`, `run_one_iteration`)
 contains no Rules concepts and could live in Counters. It stays in
 `Rules.CounterRuntime` because the target is the whole algorithm top-down in one
 module and bucket expansion is Rules semantics. If a second caller of the round
-loop appears, moving it to Counters is the follow-up.
+loop appears, moving it to Counters is the follow-up. (Superseded: the whole
+module moved to `Guardian.Counters.Execution`; see
+`docs/changes/counter-execution-layer.md`.)
 
 Layers:
 

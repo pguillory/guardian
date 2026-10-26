@@ -723,7 +723,8 @@ one batch atomics handle outside replaceable workers and snapshots membership an
 starts each event's bounded Cluster phase on worker entry. Arrival coordinates
 survive replacement and are never automatically stored or modifiable by SET.
 
-`Guardian.Rules.CounterRuntime` reads up to four complete intersecting buckets (the oldest
+Counter execution (`Guardian.Counters.Execution`, formerly
+`Guardian.Rules.CounterRuntime`) reads up to four complete intersecting buckets (the oldest
 can overcount by almost one bucket). TRACK merges prior buckets with its own
 mutation's returned state, without a read-back that could omit the current event.
 Count uses one native increment; zero deltas read without mutation. Other operators

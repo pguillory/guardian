@@ -431,8 +431,10 @@ invalid set, which loading then handles per table (spec section 12).
 
 `Guardian.Counters.Store` is the node-local foundation for TRACK/LOOKUP
 (`docs/changes/ingest-rules.md`). Public whole-set validation and Compiler admit
-resolved counter plans; generated modules call `Guardian.Rules.CounterRuntime` through
-the typed-step dispatcher. It keeps LOOKUP-before-TRACK ordering,
+resolved counter plans; generated modules run them through the typed-step
+dispatcher (`Guardian.Rules.Runtime`), which prepares each counter statement,
+runs the level's ops through `Guardian.Counters.Execution` in the counters layer
+and writes the results into fields. Counter execution keeps LOOKUP-before-TRACK ordering,
 uses the mutation's returned state for current-event inclusion, defaults the
 whole result on any failed operation, and leaves SET/UNSET failures fail closed.
 Buckets retain the complete oldest intersecting interval (overcount bias).
@@ -525,10 +527,10 @@ writes; a completed write can subsequently be evicted without changing its reply
 The budget excludes temporary copies, mailboxes and the rest of the VM. See
 [counter-store.md](../changes/counter-store.md) for design and validation.
 
-`Guardian.Counters.Client` is the facade used by Rules' counter round loop
-(`Guardian.Rules.CounterRuntime`), which routes each operation (`route/2`) and groups
-a round by owner. It delegates to internal `Guardian.Counters.Transport`, which owns
-routing, owner pipelines and bounded guard/worker dispatch (`dispatch/2`). Internal
+`Guardian.Counters.Client` is the facade used by the counter round loop
+(`Guardian.Counters.Execution`), which routes each operation (`route/2`) and groups
+a round by owner, sorting owners (the one place that orders them). It delegates
+to internal `Guardian.Counters.Transport`, which owns routing, owner pipelines and bounded guard/worker dispatch (`dispatch/2`). Internal
 `Guardian.Counters.Budget`, independently supervised after Store inside the counter
 subtree, enforces event deadlines and owns failed-wait reservations and cooldown ETS
 lifecycle; its admission and settlement use atomics/ETS directly, never its mailbox. Client takes
@@ -545,7 +547,7 @@ where member_name is the node's string name and breaks hash ties
 any term and distinguishes integers from floats. Signed zeros share an owner but
 remain distinct stored counters through Store's ETF keys. All buckets share one owner.
 Each dependency level expands its counter statements into bucket key machines;
-`Guardian.Rules.CounterRuntime.run_counters/3` flattens them, runs them together in
+`Guardian.Counters.Execution.run_counters/3` flattens them, runs them together in
 batched rounds (`run_state_machines/3`) and restores the per-counter lists
 (`Guardian.Lists`). Each round routes pending operations to owners
 (`Counters.Client.route/2`), groups them by owner and sends the round's owner
