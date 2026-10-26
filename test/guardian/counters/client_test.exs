@@ -70,7 +70,16 @@ defmodule Guardian.Counters.ClientTest do
         {{owner, bucket}, {:get, {identity, group, bucket}}}
       end
 
+    # Scaled budget (CounterBudgetHelper): both held owners must dispatch concurrently
+    # and wait for the test's release, which under host load can outlast a 50 ms call
+    # deadline. A 1 s unit with an allowance of five units keeps both reservations
+    # concurrent, as production's 50 ms of 250 ms does.
+    restore_scaled =
+      Guardian.CounterBudgetHelper.scale([peer])
+
+    five = Guardian.CounterBudgetHelper.allowance_us(5)
     batch = Client.new_batch()
+    :atomics.put(batch, 1, five)
 
     task =
       Task.async(fn ->
@@ -97,7 +106,8 @@ defmodule Guardian.Counters.ClientTest do
                {id, {:ok, bucket}}
              end)
 
-    assert :atomics.get(batch, 1) == 250_000
+    assert :atomics.get(batch, 1) == five
+    restore_scaled.()
 
     # One available reservation queues the second owner. Its absolute write expiry
     # must be checked after the first owner refunds, not when the round was built.
@@ -184,7 +194,14 @@ defmodule Guardian.Counters.ClientTest do
 
     Guardian.CounterClientHelper.await_ready(tl(members), :counter_pipeline_store)
 
-    for allowance <- [250_000, 50_000] do
+    # Production fits five 50 ms reservations in a 250 ms allowance, but 50 ms is also
+    # each call's wall-clock deadline, which host load can exceed. Scale the unit: a
+    # 1 s operation budget with allowances of five units and one unit makes every
+    # reservation decision the same, with a 1 s deadline per held call.
+    Guardian.CounterBudgetHelper.scale(tl(members))
+    five = Guardian.CounterBudgetHelper.allowance_us(5)
+
+    for allowance <- [five, Guardian.CounterBudgetHelper.allowance_us(1)] do
       batch = Client.new_batch()
       :atomics.put(batch, 1, allowance)
       ops = for owner <- members, into: %{}, do: {owner, {:get, owned_key(owner, members)}}
@@ -216,11 +233,17 @@ defmodule Guardian.Counters.ClientTest do
     end)
 
     ops = Map.new(members, &{&1, {:get, owned_key(&1, members)}})
+    batch = Client.new_batch()
+    :atomics.put(batch, 1, five)
 
     task =
       Task.async(fn ->
         context =
-          event({Guardian.CounterStoreProbe, Guardian.CounterPipelineProbe}, members: members)
+          Client.new_event(batch,
+            store: {Guardian.CounterStoreProbe, Guardian.CounterPipelineProbe},
+            members: members,
+            cooldown_table: :counter_client_test
+          )
 
         Client.batch(ops, context)
       end)
@@ -233,9 +256,12 @@ defmodule Guardian.Counters.ClientTest do
 
     sorted = Enum.sort(members)
     assert Enum.sort(started) == Enum.take(sorted, 5)
+    sixth = List.last(sorted)
+    # Five reservations spend the whole allowance, so the sixth owner waits.
+    assert :atomics.get(batch, 1) == 0
+    refute_receive {:pipeline, ^sixth, _, _}, 20
     later = Enum.at(sorted, 4)
     send(probes[later], :release)
-    sixth = List.last(sorted)
     assert_receive {:pipeline, ^sixth, _, [_]}
     Enum.each(probes, fn {member, pid} -> if member != later, do: send(pid, :release) end)
     assert Task.await(task) == Map.new(members, &{&1, {:ok, 1}})
@@ -295,8 +321,14 @@ defmodule Guardian.Counters.ClientTest do
   test "batch caller death terminates every owner helper and retains reservations", %{
     store: store,
   } do
+    # Scaled budget (CounterBudgetHelper): under load the production 50 ms call could
+    # time out before the test sees its helpers and kills the caller. A 1 s unit with an
+    # allowance of five units keeps the reservation decision and its retention the same.
+    Guardian.CounterBudgetHelper.scale()
+    unit = Guardian.CounterBudgetHelper.allowance_us(1)
     pause = Guardian.CounterStoreProbe.pause(store)
     batch = Client.new_batch()
+    :atomics.put(batch, 1, 5 * unit)
 
     caller =
       spawn(fn ->
@@ -313,11 +345,12 @@ defmodule Guardian.Counters.ClientTest do
     try do
       Guardian.TestHelpers.await_queued_call(elem(pause, 0))
       helpers = counter_helpers()
+      assert length(helpers) >= 2
       Process.exit(caller, :kill)
       Guardian.TestHelpers.eventually(fn -> Enum.all?(helpers, &(not Process.alive?(&1))) end)
-      assert :atomics.get(batch, 1) in 200_000..249_999
+      assert :atomics.get(batch, 1) in (4 * unit)..(5 * unit - 1)
       # A dispatched call can survive its caller. Leave it queued past its own deadline.
-      Process.sleep(55)
+      Process.sleep(Guardian.Counters.Context.operation_ms() + 5)
     after
       Guardian.CounterStoreProbe.resume(pause)
     end
@@ -369,6 +402,11 @@ defmodule Guardian.Counters.ClientTest do
   end
 
   test "malformed pipeline replies are charged consistently and never escape as exceptions" do
+    # A malformed reply is charged its elapsed wait and never marks cooldown whatever
+    # the call reserved, so a larger budget does not change what this checks; it keeps
+    # the 2 ms reply from timing out under host load.
+    Guardian.CounterBudgetHelper.relax()
+
     responses = [
       {:ok, []},
       {:ok, [:not_found | :improper]},
@@ -571,10 +609,10 @@ defmodule Guardian.Counters.ClientTest do
   test "booting and lost owners fail immediately without readiness or failover", %{store: store} do
     {peer, booting} = Guardian.TestCluster.start_peer(nil)
     on_exit(fn -> if Process.alive?(peer), do: :peer.stop(peer) end)
-
-    for module <- [Transport, Store],
-        do: :erpc.call(booting, Code, :ensure_loaded!, [module])
-
+    # The refusal and the cooldown it marks do not depend on the call budget; a larger
+    # one only keeps a cold peer's first call from timing out under host load.
+    :ok = :erpc.call(booting, Guardian.CounterClientHelper, :preload, [])
+    Guardian.CounterBudgetHelper.relax([booting])
     context = event(Store, members: [booting])
     assert batch_one({:incr, key(), 1, 5_000}, context) == {:error, :unavailable}
     assert batch_one({:get, key()}, context) == {:error, :cooldown}
@@ -591,7 +629,11 @@ defmodule Guardian.Counters.ClientTest do
     try do
       assert batch_one({:incr, key(), 1, 5_000}, event(store)) == {:error, :timeout}
       assert batch_one({:incr, key(), 1, 5_000}, event(store)) == {:error, :cooldown}
-      assert System.monotonic_time(:millisecond) - started < 200
+      # Rules out waits far beyond the 50 ms call budget, such as one bounded only by
+      # the paused store, which never answers. Under host load it no longer catches a
+      # wait of a few hundred ms; the results still assert the timeout and the
+      # cooldown fast-fail.
+      assert System.monotonic_time(:millisecond) - started < 1_000
     after
       Guardian.CounterStoreProbe.resume(pause)
     end
@@ -629,6 +671,10 @@ defmodule Guardian.Counters.ClientTest do
     store: store,
     peer_node: peer,
   } do
+    # A healthy call is refunded in full whatever it reserved, so a larger budget does
+    # not change what this checks; it keeps a slow healthy call from timing out.
+    Guardian.CounterBudgetHelper.relax([peer])
+
     for {target, members} <- [{store, [node()]}, {Store, [peer]}] do
       batch = Client.new_batch()
       key = key({System.unique_integer([:positive])})
@@ -658,26 +704,35 @@ defmodule Guardian.Counters.ClientTest do
       started = System.monotonic_time(:millisecond)
 
       try do
-        for _ <- 1..100 do
-          # 15ms calls avoid cooldown to exercise the shared failed-wait cap itself.
-          task =
-            Task.async(fn ->
-              context =
-                Client.new_event(batch,
-                  store: target,
-                  members: members,
-                  timeout_ms: 15,
-                  cooldown_table: :counter_client_test
-                )
+        outcomes =
+          for _ <- 1..100 do
+            # 15ms calls avoid cooldown to exercise the shared failed-wait cap itself.
+            task =
+              Task.async(fn ->
+                context =
+                  Client.new_event(batch,
+                    store: target,
+                    members: members,
+                    timeout_ms: 15,
+                    cooldown_table: :counter_client_test
+                  )
 
-              batch_one({:get, key()}, context)
-            end)
+                batch_one({:get, key()}, context)
+              end)
 
-          assert Task.await(task) in [{:error, :timeout}, {:error, :budget_exhausted}]
-        end
+            Task.await(task)
+          end
 
+        assert Enum.all?(outcomes, &(&1 in [{:error, :timeout}, {:error, :budget_exhausted}]))
+        # The 250 ms allowance fits about 17 failed 15 ms waits (25 leaves room for
+        # deadlines truncated to whole milliseconds); without the shared cap all 100
+        # would time out.
+        assert Enum.count(outcomes, &(&1 == {:error, :timeout})) in 1..25
         assert :atomics.get(batch, 1) < 10_000
-        assert System.monotonic_time(:millisecond) - started < 750
+        # Guards against a call outliving its 15 ms deadline: the paused store or
+        # frozen peer never answers, so such a call would hang. The outcome count, not
+        # this bound, proves the shared cap.
+        assert System.monotonic_time(:millisecond) - started < 1_500
       after
         :erpc.call(suspend_node, Guardian.CounterStoreProbe, :resume, [pause])
       end
@@ -687,8 +742,14 @@ defmodule Guardian.Counters.ClientTest do
   test "caller death conservatively charges its reservation and terminates helpers", %{
     store: store,
   } do
+    # Scaled budget (CounterBudgetHelper): under load the production 50 ms call could
+    # time out before the test sees its helpers and kills the caller. A 1 s unit with an
+    # allowance of five units keeps the reservation decision and its retention the same.
+    Guardian.CounterBudgetHelper.scale()
+    unit = Guardian.CounterBudgetHelper.allowance_us(1)
     pause = Guardian.CounterStoreProbe.pause(store)
     batch = Client.new_batch()
+    :atomics.put(batch, 1, 5 * unit)
 
     context =
       Client.new_event(batch,
@@ -705,8 +766,8 @@ defmodule Guardian.Counters.ClientTest do
       assert length(helpers) >= 2
       Process.exit(caller, :kill)
       Guardian.TestHelpers.eventually(fn -> Enum.all?(helpers, &(not Process.alive?(&1))) end)
-      assert :atomics.get(batch, 1) >= 200_000
-      assert :atomics.get(batch, 1) < 250_000
+      assert :atomics.get(batch, 1) >= 4 * unit
+      assert :atomics.get(batch, 1) < 5 * unit
     after
       Guardian.CounterStoreProbe.resume(pause)
     end
@@ -799,9 +860,12 @@ defmodule Guardian.Counters.ClientTest do
         end
 
       assert Enum.all?(outcomes, &(&1 in [{:error, :timeout}, {:error, :budget_exhausted}]))
-      assert Enum.count(outcomes, &(&1 == {:error, :timeout})) <= 25
+      assert Enum.count(outcomes, &(&1 == {:error, :timeout})) in 1..25
       assert :atomics.get(batch, 1) < 10_000
-      assert System.monotonic_time(:millisecond) - started < 750
+      # Guards against a call blocked in distribution backpressure outliving its 15 ms
+      # deadline: the stopped peer never drains, so such a call would hang. The
+      # timeout count, not this bound, proves the shared cap.
+      assert System.monotonic_time(:millisecond) - started < 1_500
       Guardian.TestHelpers.eventually(fn -> counter_helpers() == [] end)
       assert {:messages, []} = Process.info(self(), :messages)
     after
@@ -823,10 +887,25 @@ defmodule Guardian.Counters.ClientTest do
     send(Process.whereis(:counter_client_test), :cleanup)
     Guardian.TestHelpers.eventually(fn -> :ets.tab2list(:counter_client_test) == [] end)
 
+    # Scaled budget: with an allowance of five units, a call that waited instead of
+    # failing fast could take a whole 1 s call budget, so a 500 ms bound still
+    # separates the two under host load. The store is healthy, so a call dispatched
+    # anyway would answer :not_found quickly; the result code is the main check.
+    Guardian.CounterBudgetHelper.scale()
+    batch = Client.new_batch()
+    :atomics.put(batch, 1, Guardian.CounterBudgetHelper.allowance_us(5))
+
+    context =
+      Client.new_event(batch,
+        store: store,
+        members: [node()],
+        cooldown_table: :counter_client_test
+      )
+
     stop_supervised(Budget)
     started = System.monotonic_time(:millisecond)
-    assert batch_one({:get, key()}, event(store)) == {:error, :cooldown}
-    assert System.monotonic_time(:millisecond) - started < 50
+    assert batch_one({:get, key()}, context) == {:error, :cooldown}
+    assert System.monotonic_time(:millisecond) - started < 500
   end
 
   defp batch_one(operation, event) do

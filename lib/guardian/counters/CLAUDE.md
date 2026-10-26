@@ -54,7 +54,10 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    Context's `event_ms`/`operation_ms` application env is the other internal test
    seam: it replaces the 100/50 ms defaults and caps, including the remote endpoint
    bound. Never set it outside tests; only `Guardian.CounterBudgetHelper` does, for
-   tests not about budgets and the seam's own test (`docs/changes/counter-test-budgets.md`).
+   tests not about budgets, the seam's own test, and budget tests that scale the
+   operation budget (`scale/1`) and size their batch allowance in units of it
+   (`allowance_us/1`), with no durations or allowances derived from 50 ms
+   (`docs/changes/counter-test-budgets.md`).
 6. Return fixed errors; no key/value/exception logging. Housekeeping callback
    failures scrub stacks through `Guardian.Failure.stacktrace/1` and reset the
    store. Status redacts state/messages/logs.

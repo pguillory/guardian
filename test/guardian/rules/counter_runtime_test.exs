@@ -5,7 +5,13 @@ defmodule Guardian.Rules.CounterRuntimeTest do
   alias Guardian.Counters.Store
   alias Guardian.Rules.{CounterRuntime, DependencyGraph, Event, Runtime}
 
+  # No test here depends on the production 50 ms call or 100 ms event budget: the
+  # timeout tests pass shorter explicit timeouts, which stay capped, and the allowance
+  # tests depend on the 250 ms batch allowance. Larger budgets keep healthy calls,
+  # including a cold first call, from timing out under host load and setting a
+  # cooldown that fails later calls open.
   setup do
+    Guardian.CounterBudgetHelper.relax()
     store = start_supervised!({Store, name: nil})
     start_supervised!({Guardian.Counters.Budget, name: :rules_counter_runtime_test})
     %{store: store}
@@ -751,6 +757,8 @@ defmodule Guardian.Rules.CounterRuntimeTest do
   end
 
   test "healthy large batches refund the budget and include every event", %{store: store} do
+    # A healthy call is refunded in full whatever it reserved, so the relaxed budget
+    # does not change what this checks.
     definition = definition(plan("TRACK hits = count() LAST '1h'"))
     batch = Guardian.Counters.Client.new_batch()
 
@@ -775,6 +783,9 @@ defmodule Guardian.Rules.CounterRuntimeTest do
   end
 
   test "many rules across events stop waiting when the failed-call batch allowance runs out" do
+    # The allowance, not the call budget, stops these waits, so the relaxed budget does
+    # not change what this checks. Under load a 15 ms failure could otherwise time out
+    # at 50 ms and put the owner in cooldown, so later calls charge nothing.
     parent = self()
 
     store =
@@ -801,8 +812,10 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     end
 
     assert :atomics.get(batch, 1) < 10_000
-    assert System.monotonic_time(:millisecond) - started < 1_000
-    # Eight independent 100 ms phases could pass the elapsed-time check alone.
+    # Guards against events waiting out their whole 900 ms event budgets (25 of them
+    # would take over 20 s); it leaves room for host load.
+    assert System.monotonic_time(:millisecond) - started < 2_500
+    # Independent event phases could pass the elapsed-time check alone.
     # Shared 250 ms allowance permits at most 17 of these >=15 ms failed calls.
     assert drain_dispatches(0) in 1..17
   end
@@ -810,6 +823,8 @@ defmodule Guardian.Rules.CounterRuntimeTest do
   test "concurrent generic CAS updates include their event or explicitly default on conflict", %{
     store: store,
   } do
+    # A nil final lookup under production budgets was consistent with one call timing
+    # out at 50 ms and putting this node in cooldown, so the lookup failed open.
     definition = definition(plan("TRACK total = sum(v) LAST '1h'"))
 
     values =

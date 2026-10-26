@@ -349,6 +349,11 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       during its 15 ms hold under a 50 ms allowance; it and six more healthy-call
       counter tests not about budgets now relax budgets
       (`docs/changes/counter-test-budgets.md`, follow-up section)
+- [x] counter-test-budgets-semantics: budget-semantics counter tests failed under load
+      because 50 ms was both a reservation's size and its deadline; reservation tests
+      now scale the budget and allowance together, budget-independent assertions relax,
+      and duration bounds are loosened only as far as they still separate the behavior
+      they guard against (`docs/changes/counter-test-budgets.md`, second follow-up)
 - [x] test-env-helper: one generic test helper, `Guardian.TestEnv`, puts and restores
       `:guardian` application env on this node or on peers; four helpers that copied that
       code now delegate to it, and a fifth copy in the S3 tests was replaced by it

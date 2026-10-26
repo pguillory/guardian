@@ -47,6 +47,8 @@ defmodule Guardian.Rules.ServerTest do
   end
 
   test "invalid counter writes save nothing and valid counters execute through generated modules" do
+    # Not about budgets: a larger one keeps healthy counter calls from timing out under load.
+    Guardian.CounterBudgetHelper.relax()
     table = unique_table("counter_reject")
     {_s3, store} = s3_server()
 

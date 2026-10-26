@@ -1,10 +1,13 @@
 defmodule Guardian.CounterClientHelper do
   @moduledoc false
 
-  def start_store(opts \\ []) do
-    # Peers load code lazily; load the counter endpoint, store and test doubles
-    # before any budgeted call.
+  @doc """
+  Loads the counter endpoint's call path and test doubles on this node. Peers load
+  code lazily, so call it on a fresh peer (over `:erpc`) before any budgeted call.
+  """
+  def preload do
     for module <- [
+          Guardian.Counters.Clock,
           Guardian.Counters.Context,
           Guardian.Counters.Transport,
           Guardian.Counters.Store,
@@ -13,6 +16,11 @@ defmodule Guardian.CounterClientHelper do
         ],
         do: Code.ensure_loaded!(module)
 
+    :ok
+  end
+
+  def start_store(opts \\ []) do
+    preload()
     caller = self()
 
     spawn(fn ->

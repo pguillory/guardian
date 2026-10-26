@@ -61,6 +61,8 @@ defmodule Guardian.Web.MCP.RulesToolsTest do
   end
 
   test "counter writes reject invalid definitions and later rule failures preserve prior increments" do
+    # Not about budgets: a larger one keeps healthy counter calls from timing out under load.
+    Guardian.CounterBudgetHelper.relax()
     Guardian.MCPTestClient.start()
     table = unique_table("mcp_counter_validation")
 
