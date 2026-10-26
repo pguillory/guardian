@@ -101,6 +101,16 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
          tail showed no Guardian errors; it included `server/discover` warnings,
          Cloudflare's disabled ICMP proxy warnings and restart-window Fly proxy
          errors. Rollback target: v42's image.
+         `cd3f8ff` (2026-10-26 morning Pacific, v44: counter definitions and private
+         arrival coordinates moved into Counters, behavior and plan hashes
+         unchanged; the implementation's full pre-commit gate passed, 1334 tests).
+         Checked: `/health` ok, the image's `priv/commit`, MCP SHOW TABLES and
+         queries returning data, and `list_rules` returning empty (no counter
+         rules to exercise). New rows kept arriving after the full restart in
+         `desktop_events` and `system_stats`; fresh stats reported
+         `counters_available=true`. The inspected boot tail showed no Guardian
+         errors, with Cloudflare's disabled ICMP proxy warnings and restart-window
+         Fly proxy errors. Rollback target: v43's image.
       2. Bucket: an R2 bucket and a bucket-scoped object read/write token, made by
          the maintainer; the secret goes straight into the deployment's secrets,
          never printed or stored here. Check the credentials from the deployment's
