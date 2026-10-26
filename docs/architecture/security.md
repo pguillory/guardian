@@ -336,8 +336,11 @@ and no single request that takes the service down or destroys stored data.
    (`Guardian.Rules.Compiler`), never from a table name or rule text, so editing rules any
    number of times creates no new atoms. Rule file paths are checked
    (`Guardian.Rules.RuleSet.check_path/2`: a valid table name and `[a-z0-9_][a-z0-9_-]*`)
-   before they reach the store, and the local store refuses any other key, so a rule
-   name cannot escape the rule folder.
+   before they reach the store, and the folder store (`Guardian.ObjectStore.Local`)
+   refuses any key that is not a plain relative path (no empty, `.` or `..` segment,
+   no leading `.`, no NUL, valid UTF-8), so no key can climb out of the rule folder.
+   Symlinks inside the folder are followed, by listings, reads and writes alike: they
+   are the folder owner's configuration, trusted like the folder itself.
 3. No dynamic code from input. Nothing in `lib/` evaluates code, runs shell
    commands, or decodes Erlang terms from input (`Code.eval`, `System.cmd`, `:os.cmd`,
    and `binary_to_term` do not appear). Rules are compiled with `Module.create/3`, but

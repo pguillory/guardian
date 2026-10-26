@@ -121,4 +121,5 @@ the store" without naming modules, which stays true.
 
 - A generic folder object store (`Guardian.ObjectStore.Local`) with the rule
   listing and key policy moved to the caller. It changes what a local rule folder
-  lists and reports (see above), so it is its own change (TODO.md, object-store-local).
+  lists and reports (see above), so it is its own change
+  (`docs/changes/object-store-local.md`).

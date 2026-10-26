@@ -119,7 +119,13 @@ moves them. Files edited there by hand are picked up within a minute and checked
 any write. If a table's rules fail the check, a running node keeps that table's last
 good rules and logs the errors; a node starting up rejects that table's events until
 the rules are fixed. Any `.gsql` file in a table's folder counts, so a stray or
-misnamed one (`logins/README.gsql`) fails that table.
+misnamed one (`logins/README.gsql`) fails that table. A `.gsql` file anywhere else is
+reported as an error too: `logins/old/rate.gsql` fails `logins`, while `rate.gsql` at
+the top names no table, so it fails none. Other files are ignored, as are names
+starting with `.`. Every file in the folder is read on each check, and a folder with
+more than 20,000 entries fails to load, so keep only rules there: Guardian refuses to
+start if the folder is `GUARDIAN_DATA_DIR`, contains it, or is inside its `segments`
+folder.
 
 A folder suits one node only. A node that is connected to others refuses rule writes
 to a local folder, since each node would have its own copy.

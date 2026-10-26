@@ -377,7 +377,11 @@ Files:
 3. Files live in a local folder (the default, `<data dir>/rules`) or an S3-compatible
    bucket such as Cloudflare R2 (configured by environment,
    [configuration](../reference/configuration.md)). There is no index file and no
-   local cache: listing the store is the rule set.
+   local cache: listing the store is the rule set. Files not ending in `.gsql` are
+   ignored; a `.gsql` file at any other path is a validation error, for the table its
+   first folder names if that is a valid table. In a local folder, names starting with
+   `.` are skipped, more than 20,000 entries fail the load, and the folder may not be
+   the data folder, contain it, or be inside its segments folder (startup refuses).
 
 Statements:
 

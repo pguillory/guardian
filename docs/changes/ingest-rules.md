@@ -221,7 +221,8 @@ JSON API rule endpoints in phase 1.
 2. No index or manifest object and no local cache. Each object is one rule file;
    listing the bucket (prefix-scoped) is the index. Objects not ending in `.gsql`
    are ignored (the write lock below is one); a `.gsql` object at an invalid path
-   is a validation error for its table.
+   is a validation error for its table. A local folder is read the same way
+   (`docs/changes/object-store-local.md`).
 3. Reading the set: list, then GET each object with `If-Match` on its listed ETag;
    a mismatch (changed between list and get) restarts the read, at most 3 times.
 4. S3 client (the generic `Guardian.ObjectStore.S3`, which Rules uses;

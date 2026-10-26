@@ -2,10 +2,11 @@ defmodule Guardian.Rules.Store do
   @moduledoc """
   Rule policy for where rule files live. The store is a `Guardian.ObjectStore`: an
   S3-compatible bucket (`Guardian.ObjectStore.S3`) or a local folder
-  (`Guardian.Rules.Store.Local`), chosen by `Guardian.Rules.Config`. There is no index
-  or manifest: listing the store is the index, each object one rule file
-  (`<table>/<name>.gsql`), plus the write lock (`lock_key/0`, a
-  `Guardian.ObjectStore.Lock`), which the loader ignores.
+  (`Guardian.ObjectStore.Local`), chosen by `Guardian.Rules.Config`. There is no index
+  or manifest: listing the store is the index. Each `.gsql` object is a rule file
+  (`<table>/<name>.gsql`, or a validation error at any other path,
+  `Guardian.Rules.RuleSet.parse_key/1`); every other object, the write lock
+  (`lock_key/0`, a `Guardian.ObjectStore.Lock`) among them, is ignored.
 
   Writes take the lock with `lock_lease_ms/0` and save only with `save_margin_ms/0`
   of the lease left (`Guardian.Rules.Server`).
@@ -34,7 +35,7 @@ defmodule Guardian.Rules.Store do
     Application.get_env(:guardian, :rules_save_margin_ms, @save_margin_ms)
   end
 
-  def local?({Guardian.Rules.Store.Local, _config}) do
+  def local?({Guardian.ObjectStore.Local, _config}) do
     true
   end
 

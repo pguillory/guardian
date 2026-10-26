@@ -34,6 +34,14 @@ defmodule Guardian.AtomicFile do
     end
   end
 
+  @doc """
+  Whether a file name (one path segment) is a temp file `write/2` would create, so a
+  folder listing can skip one left by a crash mid-write.
+  """
+  def temp_file?(name) do
+    String.match?(name, ~r/\.[1-9][0-9]*\.tmp\z/)
+  end
+
   # Writes, fsyncs, and closes `file`; every step must succeed before the rename.
   # Raw-mode `:file` calls return errors (`{:error, :badarg}` for bad iodata) rather
   # than raising, so the descriptor is always closed.
