@@ -1521,8 +1521,8 @@ About 150 test files cover:
    switches the setting for `async: false` tests).
 4. Clustering: `Guardian.TestCluster` (in `libtest/guardian/`) starts peer BEAM nodes on the same host,
    each running only Storage in its own data directory, and connects them, so schema
-   merging, node failures, a peer whose Storage has not started, and errors on a peer
-   are tested with real distribution.
+   merging, GROUP BY merging of groups split across nodes, node failures, a peer whose
+   Storage has not started, and errors on a peer are tested with real distribution.
    Tests with peers run `async: false`, since every query fans out to them.
    DistributedStream's failure protocol is tested (`test/guardian/query/distributed_stream/`)
    on one node (crashes, halts, nested pipelines, a forged marker, workers that exit

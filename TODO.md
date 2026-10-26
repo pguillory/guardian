@@ -178,6 +178,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] rendezvous-single-module: one leaf `Guardian.Rendezvous` serves counter ownership
       (mapping unchanged) and GROUP BY partition routing, which gains a tie-break
       (code review follow-up)
+- [x] groupby-peer-merge-test: a peer-cluster test puts rows for the same one- and
+      two-column groups on two nodes, with groups owned by each node, and asserts one
+      merged row per group (code review follow-up)
 - [x] evaluation-alias-block: consolidate Evaluation's two alias blocks into one
       sorted block after its moduledoc (code review follow-up)
 - [x] timestamp-offsets: time arithmetic and epoch conversion accept only UTC
