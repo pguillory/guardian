@@ -40,7 +40,7 @@ prefix. Keep the Mix application and its configuration under `:guardian`.
   results.
 - `Guardian.SystemStats`: the runtime child that records VM metrics (below).
 - Leaf helpers (`Guardian.AtomicFile`, `Guardian.Build`, `Guardian.Failure`,
-  `Guardian.Rendezvous`, `Guardian.SegmentID`, `Guardian.SortedSet`, `Guardian.Timestamp`,
+  `Guardian.Lists`, `Guardian.Rendezvous`, `Guardian.SegmentID`, `Guardian.SortedSet`, `Guardian.Timestamp`,
   `Guardian.Utils`) live directly in this directory; their rules are in "Leaf
   utilities" below.
 
@@ -73,7 +73,7 @@ to the file's directory. Run the full suite afterward.
 
 Utilities are leaf helpers: atomic file replacement (`Guardian.AtomicFile`), build
 information (`Guardian.Build`), safe failure labels and stack redaction
-(`Guardian.Failure`), rendezvous hashing (`Guardian.Rendezvous`), segment IDs
+(`Guardian.Failure`), order-keeping list reshaping (`Guardian.Lists`), rendezvous hashing (`Guardian.Rendezvous`), segment IDs
 (`Guardian.SegmentID`), `Guardian.SortedSet`, timestamps (`Guardian.Timestamp`), and
 `Guardian.Utils` (hostname, ETS streaming). They call no other Guardian subsystem
 (Engine, Storage, Query, AST, Web, Cluster); keep it that way, and put a helper with a
@@ -88,6 +88,12 @@ single user next to that user instead.
   segment files (`Guardian.Storage.BlobStore`) and the folder object store
   (`Guardian.ObjectStore.Local`). The directory entry is not fsynced. `temp_file?/1`
   recognizes its temp names, which the folder store's listing skips.
+- `Guardian.Lists` reshapes lists and back, keeping order: flatten/unflatten,
+  filter/unfilter and group/ungroup (sorted keys, per-key input order). Each inverse
+  takes heads in one pass, with no positional ids or index lookups (ungroup keys a
+  map by the semantic key), and raises when its inputs do not fit the shape.
+  Counter rounds (`Guardian.Rules.CounterRuntime`, `Guardian.Counters.Transport`) and
+  `Guardian.Rules.Runtime` use it.
 - `Guardian.SegmentID` creates sortable 32-byte hex identifiers containing a timestamp.
 - `Guardian.Failure` owns value-free diagnostic classification and stack redaction.
   Callers keep their logging and catch/reraise policies; caller-facing query

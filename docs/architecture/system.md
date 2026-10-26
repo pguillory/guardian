@@ -525,9 +525,10 @@ writes; a completed write can subsequently be evicted without changing its reply
 The budget excludes temporary copies, mailboxes and the rest of the VM. See
 [counter-store.md](../changes/counter-store.md) for design and validation.
 
-`Guardian.Counters.Client` is the facade used by Rules and the key-machine runner.
-It delegates batch dispatch to internal `Guardian.Counters.Transport`, which owns
-routing, owner pipelines and bounded guard/worker dispatch. Internal
+`Guardian.Counters.Client` is the facade used by Rules' counter round loop
+(`Guardian.Rules.CounterRuntime`), which routes each operation (`route/2`) and groups
+a round by owner. It delegates to internal `Guardian.Counters.Transport`, which owns
+routing, owner pipelines and bounded guard/worker dispatch (`dispatch/2`). Internal
 `Guardian.Counters.Budget`, independently supervised after Store inside the counter
 subtree, enforces event deadlines and owns failed-wait reservations and cooldown ETS
 lifecycle; its admission and settlement use atomics/ETS directly, never its mailbox. Client takes
@@ -544,14 +545,19 @@ where member_name is the node's string name and breaks hash ties
 any term and distinguishes integers from floats. Signed zeros share an owner but
 remain distinct stored counters through Store's ETF keys. All buckets share one owner.
 Each dependency level expands its counter statements into bucket key machines;
-`Guardian.Counters.Machine.run_nested/3` runs them together in batched rounds and restores
-the per-counter result lists. `Guardian.Counters.KeyMachines` supplies read, native incr,
+`Guardian.Rules.CounterRuntime.run_counters/3` flattens them, runs them together in
+batched rounds (`run_state_machines/3`) and restores the per-counter lists
+(`Guardian.Lists`). Each round routes pending operations to owners
+(`Counters.Client.route/2`), groups them by owner and sends the round's owner
+batches through one `Counters.Client.dispatch/2` call, then feeds responses back in
+order. `Guardian.Counters.KeyMachines` supplies read, native incr,
 and gets/merge/CAS callbacks. Buckets combine oldest to newest, resolving once;
 any failed bucket defaults its whole statement. LOOKUP ancestors and LOOKUP levels
 drain before any TRACK level. Scalar work finishes before a level dispatches, and
 UNSETs remain last.
 
-Each round groups operations by owner into one Store.batch pipeline per owner;
+Each round groups operations by owner into one Store.batch pipeline per owner, in
+input order;
 owners run concurrently within the reservation budget. Pending owners wait for
 any completed pipeline's refund instead of defaulting while allowances are merely
 reserved. With a small remaining allowance, a slow owner can delay pending owners

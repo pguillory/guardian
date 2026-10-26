@@ -47,9 +47,17 @@ Modules:
   captures them before validation. Runner adds a typed Counters.Context under
   Event.counters on worker entry, sharing one batch atomics budget across
   replacement workers.
-- `Guardian.Rules.CounterRuntime`: expands each counter into bucket key machines and
-  combines their states chronologically after one shared run_nested per level.
-  Any failed bucket defaults its whole statement; missing buckets use empty states.
+- `Guardian.Rules.CounterRuntime`: a level's counter execution, read top-down:
+  `run_counters/3` expands each op into bucket key machines, flattens them, runs
+  them in rounds (`run_state_machines/3`), unflattens, and combines each op's
+  states chronologically. Each round routes pending operations to owners, groups
+  them by owner, dispatches the owner batches through one `Counters.Client.dispatch/2`
+  call and feeds responses back in order (`docs/changes/counter-execution-topdown.md`).
+  The list reshaping is `Guardian.Lists`. Runtime, above it, prepares each
+  statement as skipped, failed or an op, and writes results into fields.
+  Any failed bucket defaults its whole statement quietly; missing buckets use empty
+  states. Exceptions (expansion, the round, combination) come back as
+  `{:error, kind}` for Runtime to log.
   Whole intersecting buckets bias reads toward overcount: floor((arrival-W)/B)
   through floor(arrival/B), B=ceil(W/3). Native count increments and generic
   gets/merge/CAS use their returned state, never a post-update read. Only definite

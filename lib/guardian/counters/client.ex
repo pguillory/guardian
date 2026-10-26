@@ -1,6 +1,6 @@
 defmodule Guardian.Counters.Client do
   @moduledoc """
-  Availability-first facade for ephemeral counter batches.
+  Availability-first facade for routing and dispatching ephemeral counter rounds.
 
   Keep new_batch/0 outside replaceable rule workers and create one new_event/2
   per event. Errors remain fixed atoms; Rules supplies aggregate defaults. Never
@@ -15,6 +15,16 @@ defmodule Guardian.Counters.Client do
   @spec new_event(Context.batch(), [Context.option()]) :: Context.t()
   defdelegate new_event(batch, opts \\ []), to: Context, as: :new
 
-  @spec batch(map(), Context.t()) :: map()
-  defdelegate batch(operations, event), to: Transport
+  @doc "An operation's owner node, or `{:error, :invalid_request}` for a malformed one."
+  @spec route(tuple(), Context.t()) :: {:ok, node()} | {:error, :invalid_request}
+  defdelegate route(operation, event), to: Transport
+
+  @doc """
+  Runs one round's routed owner batches, `[{owner, operations}]` with owners unique
+  and in dispatch order, as concurrent owner pipelines within the shared budgets.
+  Returns `[{owner, responses}]` in the same order, one response per operation.
+  Pass only operations that `route/2` accepted, grouped under their owner.
+  """
+  @spec dispatch([{node(), [tuple()]}], Context.t()) :: [{node(), [term()]}]
+  defdelegate dispatch(batches, event), to: Transport
 end

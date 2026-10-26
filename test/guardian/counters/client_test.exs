@@ -2,6 +2,7 @@ defmodule Guardian.Counters.ClientTest do
   use ExUnit.Case, async: false
   alias Guardian.Counters.{Budget, Client, Transport}
   alias Guardian.Counters.Store
+  alias Guardian.Lists
   alias Guardian.Test.Counters.Budget, as: CounterBudgetHelper
 
   setup_all do
@@ -40,6 +41,25 @@ defmodule Guardian.Counters.ClientTest do
         opts
       )
     )
+  end
+
+  # One round through route/2 and dispatch/2, as Rules runs it, keyed like the
+  # operations map; operations go out in the map's enumeration order.
+  defp batch(operations, context) do
+    {ids, ops} = Enum.unzip(operations)
+    routes = Enum.map(ops, &Client.route(&1, context))
+    routed = for {{:ok, owner}, op} <- Enum.zip(routes, ops), do: {owner, op}
+
+    responses =
+      if routed == [],
+        do: [],
+        else:
+          routed
+          |> Lists.group()
+          |> Client.dispatch(context)
+          |> Lists.ungroup(Enum.map(routed, &elem(&1, 0)))
+
+    ids |> Enum.zip(Lists.unfilter(responses, routes, &match?({:ok, _}, &1))) |> Map.new()
   end
 
   defp route({identity, group, _bucket}) do
@@ -92,7 +112,7 @@ defmodule Guardian.Counters.ClientTest do
             members: members
           )
 
-        Client.batch(ops, context)
+        batch(ops, context)
       end)
 
     assert_receive {:pipeline, one, first, first_ops}
@@ -128,7 +148,7 @@ defmodule Guardian.Counters.ClientTest do
             members: members
           )
 
-        Client.batch(
+        batch(
           %{
             first: {:get, owned_key(earlier, members)},
             expired: {:incr, owned_key(later, members), 1, {:expires, expiry}},
@@ -155,7 +175,7 @@ defmodule Guardian.Counters.ClientTest do
             members: members
           )
 
-        Client.batch(
+        batch(
           %{
             first: {:get, owned_key(earlier, members)},
             pending: {:get, owned_key(later, members)},
@@ -206,7 +226,7 @@ defmodule Guardian.Counters.ClientTest do
       context =
         event(batch, :counter_pipeline_store, members: members)
 
-      assert Client.batch(ops, context) == Map.new(members, &{&1, :not_found})
+      assert batch(ops, context) == Map.new(members, &{&1, :not_found})
       assert CounterBudgetHelper.remaining_us(batch) == allowance
     end
 
@@ -235,7 +255,7 @@ defmodule Guardian.Counters.ClientTest do
             members: members
           )
 
-        Client.batch(ops, context)
+        batch(ops, context)
       end)
 
     started =
@@ -279,7 +299,7 @@ defmodule Guardian.Counters.ClientTest do
       context = event(:counter_partial_store, members: members)
 
       results =
-        Client.batch(
+        batch(
           %{local: {:incr, local_key, 1, 5_000}, remote: {:incr, remote_key, 1, 5_000}},
           context
         )
@@ -290,7 +310,7 @@ defmodule Guardian.Counters.ClientTest do
       assert [{^peer, _}] = :ets.lookup(:counter_client_test, peer)
       assert :ets.lookup(:counter_client_test, node()) == []
 
-      assert Client.batch(
+      assert batch(
                %{remote: {:get, remote_key}},
                event(:counter_partial_store, members: members)
              ) == %{remote: {:error, :cooldown}}
@@ -324,7 +344,7 @@ defmodule Guardian.Counters.ClientTest do
         context =
           event(batch, store, members: [node()])
 
-        Client.batch(%{a: {:incr, key(), 1, 5_000}}, context)
+        batch(%{a: {:incr, key(), 1, 5_000}}, context)
       end)
 
     try do
@@ -357,7 +377,7 @@ defmodule Guardian.Counters.ClientTest do
     for operation <-
           [nil, {:unsupported, key()}, {:get, :bad_key}, {:get, {nil, {}, 1}}] ++
             malformed_expiries do
-      assert Client.batch(%{one: operation}, context) ==
+      assert batch(%{one: operation}, context) ==
                %{one: {:error, :invalid_request}}
     end
 
@@ -377,13 +397,13 @@ defmodule Guardian.Counters.ClientTest do
     }
 
     errors = %{incr: {:error, :invalid_request}, cas: {:error, :invalid_request}}
-    assert Client.batch(operations, context) == errors
+    assert batch(operations, context) == errors
     assert CounterBudgetHelper.remaining_us(context.batch) == 0
 
     CounterBudgetHelper.batch(context.batch, 5)
     cooldown = {node(), System.monotonic_time(:microsecond) + 10_000_000}
     :ets.insert(:counter_client_test, cooldown)
-    assert Client.batch(operations, context) == errors
+    assert batch(operations, context) == errors
     assert CounterBudgetHelper.remaining_us(context.batch) == 250_000
     assert :ets.lookup(:counter_client_test, node()) == [cooldown]
   end
@@ -397,7 +417,7 @@ defmodule Guardian.Counters.ClientTest do
     incr_key = key({}, 2)
     cas_key = key({}, 3)
 
-    assert Client.batch(
+    assert batch(
              %{
                bad_incr: {:incr, key(), 1, {:expires, nil}},
                bad_cas: {:cas, key(), :missing, 1, {:expires, "bad"}},
@@ -419,6 +439,51 @@ defmodule Guardian.Counters.ClientTest do
     assert Store.get(key(), server: store) == :not_found
     assert Store.get(incr_key, server: store) == {:ok, 2}
     assert Store.get(cas_key, server: store) == {:ok, 3}
+    assert CounterBudgetHelper.remaining_us(context.batch) == 250_000
+    assert :ets.lookup(:counter_client_test, node()) == []
+  end
+
+  test "dispatch keeps each response at its operation's position around expired writes", %{
+    store: store,
+  } do
+    CounterBudgetHelper.relax()
+    context = event(store)
+    live = System.monotonic_time(:millisecond) + 60_000
+    elapsed = live - 120_000
+
+    ops = [
+      {:incr, key({}, 1), 1, {:expires, elapsed}},
+      {:incr, key({}, 2), 2, {:expires, live}},
+      {:cas, key({}, 3), :missing, 3, {:expires, elapsed}},
+      {:get, key({}, 2)},
+      {:incr, key({}, 5), 4, {:expires, elapsed}},
+    ]
+
+    assert Client.dispatch([{node(), ops}], context) ==
+             [
+               {node(),
+                [
+                  {:error, :expired},
+                  {:ok, 2},
+                  {:error, :expired},
+                  {:ok, 2},
+                  {:error, :expired},
+                ]},
+             ]
+
+    assert Store.get(key({}, 1), server: store) == :not_found
+    assert CounterBudgetHelper.remaining_us(context.batch) == 250_000
+
+    # With every write expired nothing dispatches, and the reservation is refunded.
+    expired = [
+      {:incr, key({}, 6), 1, {:expires, elapsed}},
+      {:incr, key({}, 7), 1, {:expires, elapsed}},
+    ]
+
+    assert Client.dispatch([{node(), expired}], context) ==
+             [{node(), [{:error, :expired}, {:error, :expired}]}]
+
+    assert Store.get(key({}, 6), server: store) == :not_found
     assert CounterBudgetHelper.remaining_us(context.batch) == 250_000
     assert :ets.lookup(:counter_client_test, node()) == []
   end
@@ -485,7 +550,7 @@ defmodule Guardian.Counters.ClientTest do
 
       context = event({Guardian.CounterStoreProbe, store})
 
-      assert Client.batch(%{a: {:get, key()}}, context) ==
+      assert batch(%{a: {:get, key()}}, context) ==
                %{a: {:error, :invalid_response}}
 
       assert CounterBudgetHelper.remaining_us(context.batch) < 250_000
@@ -560,7 +625,7 @@ defmodule Guardian.Counters.ClientTest do
     assert batch_one({:cas, key(), token, 8, 5_000}, context) == {:error, :conflict}
     assert batch_one({:incr, key(), 2, 5_000}, context) == {:ok, 9}
 
-    assert Client.batch(
+    assert batch(
              %{missing: {:get, key({}, 2)}, present: {:get, key()}},
              context
            ) == %{missing: :not_found, present: {:ok, 9}}
@@ -600,7 +665,7 @@ defmodule Guardian.Counters.ClientTest do
     assert batch_one({:cas, key, token, 3, 5_000}, context) == :ok
     assert batch_one({:incr, key, 2, 5_000}, context) == {:ok, 5}
 
-    assert Client.batch(%{one: {:get, key}, two: {:get, key}}, context) ==
+    assert batch(%{one: {:get, key}, two: {:get, key}}, context) ==
              %{one: {:ok, 5}, two: {:ok, 5}}
 
     assert :erpc.call(peer, Store, :get, [key]) == {:ok, 5}
@@ -929,7 +994,7 @@ defmodule Guardian.Counters.ClientTest do
   end
 
   defp batch_one(operation, event) do
-    Client.batch(%{one: operation}, event).one
+    batch(%{one: operation}, event).one
   end
 
   defp counter_helpers do

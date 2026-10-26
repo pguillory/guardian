@@ -65,13 +65,15 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    fault injection pauses callers through a libtest clock gate, not the housekeeper.
    Store validates request options explicitly (`:invalid_request`) and catches any
    other request failure as `:unavailable`; that catch is its deliberate boundary for
-   direct callers and the remote endpoint. Transport's `operation_owner/2` checks
+   direct callers and the remote endpoint. Transport's `route/2` checks
    anchored increment/CAS expiries are integers before grouping or admission, so
    malformed expiries return `:invalid_request` without reserving allowance.
+   `dispatch/2` takes only operations `route/2` accepted.
    It rescues nothing: bad membership is a programming error that Rules records
    and fails open. Translate valid anchored expiries only at actual dispatch.
 
-`Guardian.Counters.Client` is the batched facade used by Rules and Machine. It
+`Guardian.Counters.Client` is the facade Rules' round loop uses: `route/2` names an
+operation's owner and `dispatch/2` runs one round's owner batches. It
 returns a typed `Guardian.Counters.Context` nested under
 `Guardian.Rules.Event.counters`.
 Context captures the event deadline before snapshotting connected members; private
@@ -89,7 +91,12 @@ Storage readiness calls. Remote endpoints call only the owner's local store.
 `Guardian.Counters.Budget` is supervised after Store and owns cooldown ETS lifecycle,
 reservations, deadline enforcement and settlement. Its hot path uses atomics/ETS directly;
 Transport has no process. Client delegates batch dispatch to Transport, which calls
-Budget before dispatch and after normalized pipeline completion. Settlement unwraps
+Budget before dispatch and after normalized pipeline completion. A round's whole
+`[{owner, operations}]` goes to one `dispatch/2` call, which starts owners in the
+order given (Rules sorts them with `Guardian.Lists.group/1`) and answers
+`[{owner, responses}]` in that order, one response per operation and in operation
+order. Transport keeps one response list per owner, never positional ids, and puts
+operations refused at dispatch back in place with `Guardian.Lists.unfilter/3`. Settlement unwraps
 the pipeline once; successful stored values are never inspected for errors.
 `Guardian.Counters.Clock` owns the local monotonic microsecond coordinate that
 Context deadlines/timeouts, Budget reservations, settlement timestamps and
@@ -121,16 +128,21 @@ Rules arrival milliseconds.
    endpoint uses the existing cookie-authenticated, fully trusted distribution
    boundary; it is not an HTTP endpoint or a new authorization mechanism.
 
-`Guardian.Counters.Machine.run_nested/3` preserves counter/bucket nesting while executing
-every pending key machine together per round. `Guardian.Counters.KeyMachines` implements
-read, incr and gets/merge/CAS response callbacks. Machine errors remain errors:
+`Guardian.Counters.Machine` is one key's state machine: a pending operation or a
+finished result, advanced by a response callback (a raising callback finishes with
+`:invalid_state`). `Guardian.Rules.CounterRuntime` runs every pending machine of a
+level together per round. `Guardian.Counters.KeyMachines` implements
+read, incr and gets/merge/CAS response callbacks; these three always finish, in at
+most six rounds, while an arbitrary callback passed to `Machine.new/3` carries no
+such guarantee. Machine errors remain errors:
 missing keys alone default at the bucket layer; a failed bucket defaults the whole
-statement. Transport batches by owner and dispatches concurrent pipelines. Pending
+statement. Rules groups each round by owner; Transport dispatches the owner
+batches as concurrent pipelines. Pending
 owners wait for any completed call's reservation refund; cooldown, truly exhausted
 budgets or deadlines skip them. Charge failed waits once per pipeline using its
 completion timestamp. Recompute anchored mutation TTLs at actual pipeline dispatch,
-including after waiting for a reservation. Client exposes only batched operations;
-the Transport remote endpoint accepts only owner pipelines. Its renamed RPC module
+including after waiting for a reservation. Client exposes only routing and
+batched owner dispatch; the Transport remote endpoint accepts only owner pipelines. Its renamed RPC module
 requires all nodes to restart on the same build; mixed-version rolling deploys across
 this split are unsupported (`docs/changes/counter-client.md`). Store retains its
 local atomic primitives.

@@ -157,8 +157,8 @@ defmodule Guardian.Counters.RuntimeTest do
 
         key = {{"events", "hits", "hash"}, {}, 1}
 
-        assert Guardian.Counters.Client.batch(%{one: {:incr, key, 1, 1_000}}, event) ==
-                 %{one: {:error, :cooldown}}
+        assert Guardian.Counters.Client.dispatch([{node(), [{:incr, key, 1, 1_000}]}], event) ==
+                 [{node(), [{:error, :cooldown}]}]
 
         # Failed linked starts return a shutdown tuple and may deliver a stray EXIT.
         :sys.replace_state(owner, fn state ->

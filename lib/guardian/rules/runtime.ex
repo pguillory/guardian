@@ -18,7 +18,8 @@ defmodule Guardian.Rules.Runtime do
   Generated modules execute resolved counter plans through this same dispatcher.
   """
 
-  alias Guardian.Rules.RowIndex
+  alias Guardian.Lists
+  alias Guardian.Rules.{CounterRuntime, RowIndex}
   alias Guardian.Rules.Runtime.Failure
   require Logger
 
@@ -41,48 +42,58 @@ defmodule Guardian.Rules.Runtime do
 
   defp level(index, steps, event) do
     index = RowIndex.ensure(index)
-    # Complete scalar work and prepare inputs before dispatching any counter.
+    # Complete scalar work and prepare counter ops before dispatching any counter.
     {index, counters} =
       Enum.reduce(steps, {index, []}, fn step, {index, counters} ->
         case step do
           %Guardian.Rules.Step.Set{} -> {set(index, step), counters}
           %Guardian.Rules.Step.Unset{} -> {unset(index, step), counters}
-          _ -> {index, [prepare_counter(index, step, event) | counters]}
+          _ -> {index, [{step, prepare_counter(index, step)} | counters]}
         end
       end)
 
-    counters = Enum.reverse(counters)
-    results = run_counters(counters, event)
+    {steps, prepared} = counters |> Enum.reverse() |> Enum.unzip()
 
-    Enum.zip(counters, results)
-    |> Enum.reduce(index, fn
-      {{_step, _machines, :skip}, _}, index ->
-        index
+    results =
+      prepared
+      |> Lists.filter(&runnable?/1)
+      |> Enum.map(fn {:run, op} -> op end)
+      |> CounterRuntime.run_counters(event)
+      |> Lists.unfilter(prepared, &runnable?/1)
 
-      {{step, _machines, definition}, results}, index ->
-        value =
-          counter_guard(step, definition, fn ->
-            {name, _arity} = definition.operator
-            Guardian.Rules.CounterRuntime.combine(Guardian.Aggregation.fetch!(name), results)
-          end)
-
-        RowIndex.put_field(index, step.field, value)
-    end)
+    steps
+    |> Enum.zip(results)
+    |> Enum.reduce(index, fn {step, result}, index -> write_counter(index, step, result) end)
   end
 
-  defp run_counters(counters, event) do
-    Guardian.Counters.Machine.run_nested(Enum.map(counters, &elem(&1, 1)), event.counters)
-  catch
-    kind, reason ->
-      failure = Guardian.Failure.kind(kind, reason, __STACKTRACE__)
-
-      Enum.map(counters, fn {step, machines, definition} ->
-        if definition != :skip and machines != [], do: note_failure(step.file, step.line, failure)
-        Enum.map(machines, fn _ -> {:error, :unavailable} end)
-      end)
+  defp runnable?(prepared) do
+    match?({:run, _op}, prepared)
   end
 
-  defp prepare_counter(index, step, event) do
+  # Writes one statement's outcome: a preparation outcome (:skip, :failed) or, for a
+  # runnable statement, its run_counters result. A statement whose WHERE is not true
+  # leaves its field alone. A failed one writes its operator's missing result;
+  # preparation failures were logged when they happened, run failures here.
+  defp write_counter(index, _step, :skip) do
+    index
+  end
+
+  defp write_counter(index, step, :failed) do
+    RowIndex.put_field(index, step.field, CounterRuntime.missing(counter_definition(step)))
+  end
+
+  defp write_counter(index, step, {:ok, value}) do
+    RowIndex.put_field(index, step.field, value)
+  end
+
+  defp write_counter(index, step, {:error, kind}) do
+    note_failure(step.file, step.line, kind)
+    write_counter(index, step, :failed)
+  end
+
+  # The statement's counter op, :skip when its WHERE is not true, or :failed when
+  # evaluating WHERE, BY or the TRACK arguments raised.
+  defp prepare_counter(index, step) do
     # Step construction binds TRACK metadata; resolution binds LOOKUP targets.
     # Validation checks operators and windows before execution.
     definition = counter_definition(step)
@@ -96,21 +107,18 @@ defmodule Guardian.Rules.Runtime do
           |> Enum.map(&Guardian.Query.Evaluation.eval(context, &1))
           |> List.to_tuple()
 
-        machines =
-          case step do
-            %Guardian.Rules.Step.Track{} ->
-              values =
-                Enum.map(step.aggregate_expr.args, &Guardian.Query.Evaluation.eval(context, &1))
+        case step do
+          %Guardian.Rules.Step.Track{} ->
+            values =
+              Enum.map(step.aggregate_expr.args, &Guardian.Query.Evaluation.eval(context, &1))
 
-              Guardian.Rules.CounterRuntime.expand_track(definition, group, values, event)
+            {:run, {:track, definition, group, values}}
 
-            %Guardian.Rules.Step.Lookup{} ->
-              Guardian.Rules.CounterRuntime.expand_lookup(definition, group, event)
-          end
-
-        {step, machines, definition}
+          %Guardian.Rules.Step.Lookup{} ->
+            {:run, {:lookup, definition, group}}
+        end
       else
-        {step, [], :skip}
+        :skip
       end
     catch
       kind, reason ->
@@ -120,22 +128,8 @@ defmodule Guardian.Rules.Runtime do
           Guardian.Failure.kind(kind, reason, __STACKTRACE__)
         )
 
-        {step, [], definition}
+        :failed
     end
-  end
-
-  defp counter_guard(step, definition, fun) do
-    fun.()
-  catch
-    kind, reason ->
-      note_failure(
-        step.file,
-        step.line,
-        Guardian.Failure.kind(kind, reason, __STACKTRACE__)
-      )
-
-      {name, _arity} = definition.operator
-      Guardian.Rules.CounterRuntime.missing(Guardian.Aggregation.fetch!(name))
   end
 
   defp counter_definition(%Guardian.Rules.Step.Track{

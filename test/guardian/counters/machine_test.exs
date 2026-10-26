@@ -3,128 +3,23 @@ defmodule Guardian.Counters.MachineTest do
   alias Guardian.Counters.{KeyMachines, Machine}
 
   @sum Guardian.Aggregation.fetch!("sum")
-  @min Guardian.Aggregation.fetch!("min")
-  @max Guardian.Aggregation.fetch!("max")
 
-  test "nested rounds batch independent machines and preserve empty groups and result order" do
-    parent = self()
+  test "advance holds the next operation or finishes with a result" do
     expiry = System.monotonic_time(:millisecond) + 5_000
+    machine = KeyMachines.merge(@sum, :k, 2, expiry)
+    refute Machine.done?(machine)
 
-    execute = fn requests, _ ->
-      send(parent, {:round, requests})
+    machine = Machine.advance(machine, {:ok, 5, :token})
+    refute Machine.done?(machine)
+    assert {:cas, :k, :token, 7, {:expires, ^expiry}} = machine.op
 
-      Map.new(requests, fn {id, op} ->
-        response =
-          case op do
-            {:get, :a} -> {:ok, nil}
-            {:get, :b} -> :not_found
-            {:incr, :c, 1, _} -> {:ok, 4}
-            {:gets, :d} -> {:ok, 5, :token}
-            {:cas, :d, :token, 7, _} -> :ok
-          end
-
-        {id, response}
-      end)
-    end
-
-    machines = [
-      [],
-      [KeyMachines.read(:a), KeyMachines.read(:b)],
-      [],
-      [
-        KeyMachines.incr(:c, 1, expiry),
-        KeyMachines.merge(@sum, :d, 2, expiry),
-      ],
-      [],
-    ]
-
-    assert Machine.run_nested(machines, nil, execute) ==
-             [[], [{:ok, nil}, :not_found], [], [{:ok, 4}, {:ok, 7}], []]
-
-    assert_receive {:round, first}
-    assert map_size(first) == 4
-    assert_receive {:round, second}
-    assert map_size(second) == 1
-    assert {:cas, :d, :token, 7, _} = second[3]
-    refute_receive {:round, _}
-    assert Machine.run_nested([[], []], nil, execute) == [[], []]
-    refute_receive {:round, _}
+    machine = Machine.advance(machine, :ok)
+    assert Machine.done?(machine)
+    assert machine.result == {:ok, 7}
   end
 
-  test "only definite conflicts retry, with three attempts, and callback exceptions are isolated" do
-    parent = self()
-    expiry = System.monotonic_time(:millisecond) + 5_000
-
-    for failure <- [:conflict, :timeout] do
-      execute = fn requests, _ ->
-        Map.new(requests, fn {id, op} ->
-          send(parent, elem(op, 0))
-
-          {id,
-           case op do
-             {:gets, _} -> :not_found
-             {:cas, _, _, _, _} -> {:error, failure}
-           end}
-        end)
-      end
-
-      assert Machine.run_nested(
-               [
-                 [
-                   KeyMachines.merge(@sum, :k, 1, expiry),
-                 ],
-               ],
-               nil,
-               execute
-             ) ==
-               [[{:error, failure}]]
-
-      for _ <- 1..if(failure == :conflict, do: 3, else: 1) do
-        assert_receive :gets
-        assert_receive :cas
-      end
-
-      refute_receive :gets
-    end
-
-    broken = Machine.new({:get, :bad}, nil, fn _, _, _ -> raise "private" end)
-
-    assert Machine.run_nested([[broken, KeyMachines.read(:good)]], nil, fn requests, _ ->
-             Map.new(requests, fn {id, _} -> {id, {:ok, 8}} end)
-           end) ==
-             [[{:error, :invalid_state}, {:ok, 8}]]
-  end
-
-  test "strict equality preserves numeric type changes and unchanged states skip CAS" do
-    expiry = System.monotonic_time(:millisecond) + 5_000
-    parent = self()
-
-    execute = fn requests, _ ->
-      Map.new(requests, fn {id, op} ->
-        case op do
-          {:gets, _} ->
-            {id, {:ok, 1, :token}}
-
-          {:cas, _, _, value, _} ->
-            send(parent, {:write, value})
-            {id, :ok}
-        end
-      end)
-    end
-
-    assert Machine.run_nested(
-             [
-               [
-                 KeyMachines.merge(@min, :k, 1.0, expiry),
-                 KeyMachines.merge(@max, :k, 0, expiry),
-               ],
-             ],
-             nil,
-             execute
-           ) == [[{:ok, 1.0}, {:ok, 1}]]
-
-    assert_receive {:write, value}
-    assert value === 1.0
-    refute_receive {:write, _}
+  test "a raising callback finishes with a fixed error" do
+    broken = Machine.new({:get, :k}, nil, fn _, _, _ -> raise "private" end)
+    assert %Machine{op: nil, result: {:error, :invalid_state}} = Machine.advance(broken, :ok)
   end
 end

@@ -38,6 +38,17 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     )
   end
 
+  # One statement through the level runner, unwrapped to its counter value.
+  defp track(definition, group, values, event) do
+    [{:ok, value}] = CounterRuntime.run_counters([{:track, definition, group, values}], event)
+    value
+  end
+
+  defp lookup(definition, group, event) do
+    [{:ok, value}] = CounterRuntime.run_counters([{:lookup, definition, group}], event)
+    value
+  end
+
   defp plans(files) do
     preparation = Guardian.Rules.RuleSet.prepare(files)
     assert preparation.errors == []
@@ -177,8 +188,8 @@ defmodule Guardian.Rules.CounterRuntimeTest do
           identity: {plan.table, "missing", inspect(operator)},
       }
 
-      assert CounterRuntime.lookup(defn, {}, event(store)) ==
-               CounterRuntime.missing(Aggregation.fetch!(name))
+      assert lookup(defn, {}, event(store)) ==
+               Aggregation.default(Aggregation.fetch!(name))
     end
   end
 
@@ -324,13 +335,13 @@ defmodule Guardian.Rules.CounterRuntimeTest do
       assert {:ok, 1} = Store.incr({definition.identity, {}, bucket}, 1, 10_000, server: store)
     end
 
-    assert CounterRuntime.lookup(
+    assert lookup(
              definition,
              {},
              event(store, Guardian.Counters.Client.new_batch(), arrival)
            ) == current - first + 1
 
-    assert CounterRuntime.track(
+    assert track(
              definition,
              {},
              [],
@@ -342,7 +353,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     definition = definition(plan("TRACK hits = count() LAST '1s'"))
     arrival = %{Event.arrival() | monotonic_ms: System.monotonic_time(:millisecond) - 2_000}
 
-    assert CounterRuntime.track(
+    assert track(
              definition,
              {},
              [],
@@ -363,18 +374,18 @@ defmodule Guardian.Rules.CounterRuntimeTest do
         ] do
       definition = definition(plan(source))
 
-      assert CounterRuntime.track(definition, {}, [nil], event(store)) ==
-               CounterRuntime.missing(Aggregation.fetch!(elem(definition.operator, 0)))
+      assert track(definition, {}, [nil], event(store)) ==
+               Aggregation.default(Aggregation.fetch!(elem(definition.operator, 0)))
     end
 
     assert {:ok, %{keys: 0}} = Store.stats(server: store)
     definition = definition(plan("TRACK hits = max(v) LAST '1h'"))
     context = event(store)
-    assert CounterRuntime.track(definition, {}, [10], context) == 10
+    assert track(definition, {}, [10], context) == 10
     bucket = Integer.floor_div(context.arrival_ms, definition.bucket_ms)
     key = {definition.identity, {}, bucket}
     assert {:ok, 10, token} = Store.gets(key, server: store)
-    assert CounterRuntime.track(definition, {}, [1], event(store)) == 10
+    assert track(definition, {}, [1], event(store)) == 10
     assert {:ok, 10, ^token} = Store.gets(key, server: store)
   end
 
@@ -601,10 +612,10 @@ defmodule Guardian.Rules.CounterRuntimeTest do
                  server: store
                )
 
-      assert CounterRuntime.track(definition, {}, [1], context) === 1
+      assert track(definition, {}, [1], context) === 1
 
-      assert CounterRuntime.lookup(definition, {}, context) === 1
-      assert CounterRuntime.track(definition, {}, [1.0], event(store)) === 1.0
+      assert lookup(definition, {}, context) === 1
+      assert track(definition, {}, [1.0], event(store)) === 1.0
     end
   end
 
@@ -635,7 +646,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
       context =
         event(store, Guardian.Counters.Client.new_batch(), Event.arrival(), timeout_ms: 20)
 
-      assert CounterRuntime.track(definition, {}, [5], context) == nil
+      assert track(definition, {}, [5], context) == nil
       assert_receive :attempt
 
       if failure == :conflict do
@@ -673,7 +684,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
          end}
       )
 
-    assert CounterRuntime.track(definition, {}, [5], event(store)) == 10
+    assert track(definition, {}, [5], event(store)) == 10
     assert_receive {:merged, 8}
     assert_receive {:merged, 10}
     assert Agent.get(attempt, & &1) == 2
@@ -696,7 +707,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
          end}
       )
 
-    assert CounterRuntime.track(definition, {}, [], event(store)) == 0
+    assert track(definition, {}, [], event(store)) == 0
     assert_receive {:get, _}
     assert_receive {:incr, _, _, _}
   end
@@ -721,7 +732,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     # Mid-bucket: expiry is bucket_end+W, not arrival+B+W.
     arrival = %{Event.arrival() | arrival_ms: 7_800_000}
 
-    assert CounterRuntime.track(
+    assert track(
              definition,
              {},
              [],
@@ -732,7 +743,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     assert first in 4_199_000..4_200_000
     older = %{arrival | monotonic_ms: arrival.monotonic_ms - 1_000}
 
-    assert CounterRuntime.track(
+    assert track(
              definition,
              {},
              [],
@@ -767,7 +778,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
       Integer.floor_div(context.arrival_ms, definition.bucket_ms) -
         Integer.floor_div(context.arrival_ms - definition.window_ms, definition.bucket_ms)
 
-    assert CounterRuntime.track(definition, {}, [5], context) == 8 + 2 * expected_prior
+    assert track(definition, {}, [5], context) == 8 + 2 * expected_prior
     for _ <- 1..expected_prior, do: assert_receive({:get, _})
     assert_receive {:gets, _}
     assert_receive {:cas, _, :token, 8, _}
@@ -806,7 +817,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
         monotonic_ms: System.monotonic_time(:millisecond) - 1_319,
     }
 
-    assert CounterRuntime.track(
+    assert track(
              definition,
              {},
              [5],
@@ -824,7 +835,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     batch = Guardian.Counters.Client.new_batch()
 
     for n <- 1..300,
-        do: assert(CounterRuntime.track(definition, {}, [], event(store, batch)) == n)
+        do: assert(track(definition, {}, [], event(store, batch)) == n)
 
     assert CounterBudgetHelper.remaining_us(batch) == 250_000
   end
@@ -834,13 +845,13 @@ defmodule Guardian.Rules.CounterRuntimeTest do
 
     values =
       1..20
-      |> Task.async_stream(fn _ -> CounterRuntime.track(definition, {}, [], event(store)) end,
+      |> Task.async_stream(fn _ -> track(definition, {}, [], event(store)) end,
         max_concurrency: 4
       )
       |> Enum.map(fn {:ok, value} -> value end)
 
     assert Enum.sort(values) == Enum.to_list(1..20)
-    assert CounterRuntime.lookup(definition, {}, event(store)) == 20
+    assert lookup(definition, {}, event(store)) == 20
   end
 
   test "many rules across events stop waiting when the failed-call batch allowance runs out" do
@@ -890,7 +901,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
 
     values =
       1..30
-      |> Task.async_stream(fn _ -> CounterRuntime.track(definition, {}, [1], event(store)) end,
+      |> Task.async_stream(fn _ -> track(definition, {}, [1], event(store)) end,
         max_concurrency: 3
       )
       |> Enum.map(fn {:ok, value} -> value end)
@@ -898,7 +909,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
 
     assert length(values) > 0
     assert Enum.sort(values) == Enum.to_list(1..length(values))
-    assert CounterRuntime.lookup(definition, {}, event(store)) == length(values)
+    assert lookup(definition, {}, event(store)) == length(values)
   end
 
   defmodule MetadataRules do

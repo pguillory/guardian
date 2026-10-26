@@ -143,6 +143,11 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       (`docs/changes/plan-hash-determinism.md`)
 - [x] counter-event-context: type the private Client context and isolate transport
       backend injection in a test-only adapter (`docs/changes/counter-event-context.md`)
+- [x] counter-execution-topdown: counter execution reads top-down in
+      `Rules.CounterRuntime` (run_counters, run_state_machines, run_one_iteration)
+      over generic `Guardian.Lists` reshaping; Client routes and dispatches owner
+      batches; operations within an owner's pipeline now go in input order
+      (`docs/changes/counter-execution-topdown.md`)
 - [x] rules-compiler-metadata: share compiled execution levels and reconstruct
       exact flat plan metadata only for activation, without per-event rebuilding
       (`docs/changes/rules-compiler-metadata.md`)
