@@ -59,6 +59,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] local-store-lock-identity: a local folder store's write lock is keyed by the
       folder's device and inode, taken in `new/2`, so `dir`, `dir/`, a relative path
       or a symlink to one folder share it (follow-up to local-store-lock-id)
+- [x] local-store-lock-races: pin concurrent ETag puts and local lease creation/takeover;
+      document unbounded contention and defer queued locking while Rules.Server is
+      the only production writer (`docs/changes/local-store-lock-races.md`)
 - [x] ingest-rules: SET and UNSET rules stored as files (`<table>/<name>.gsql`, in a
       folder or an S3-compatible bucket), run on API ingests before storage, managed
       through MCP tools with whole-set validation and a store-held write lock
