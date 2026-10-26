@@ -50,6 +50,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] local-store-lock-id: a local folder store's conditional puts are serialized
       per folder on this node; its lock had named the folder as the requester, so
       concurrent writers all held it at once (`docs/changes/local-store-lock-id.md`)
+- [x] local-store-lock-identity: a local folder store's write lock is keyed by the
+      folder's device and inode, taken in `new/2`, so `dir`, `dir/`, a relative path
+      or a symlink to one folder share it (follow-up to local-store-lock-id)
 - [x] ingest-rules: SET and UNSET rules stored as files (`<table>/<name>.gsql`, in a
       folder or an S3-compatible bucket), run on API ingests before storage, managed
       through MCP tools with whole-set validation and a store-held write lock

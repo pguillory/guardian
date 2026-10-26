@@ -2,6 +2,9 @@
 
 Status: complete.
 
+Superseded in part by local-store-lock-identity (TODO.md): the lock resource is now the
+folder's device and inode, taken in `new/2`, not the `dir` string (points 1 and 4).
+
 ## Problem
 
 `Guardian.ObjectStore.Local` runs each `put` and `delete` inside a `:global` lock on
@@ -40,6 +43,7 @@ The practical risk was low, since every rule write goes through the one
 4. The lock is keyed by the folder path as configured, so two stores naming one folder
    differently (`dir` and `dir/`, a symlink, a relative path) do not share it. This is
    unchanged. Writers to different folders no longer exclude each other.
+   (Since fixed; see the note under the title.)
 
 ## Product spec impact
 

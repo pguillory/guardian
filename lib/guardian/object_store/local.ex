@@ -27,23 +27,32 @@ defmodule Guardian.ObjectStore.Local do
   no file for a new key. This node's writes to the folder are serialized, so
   conditional puts are atomic on one node; nothing coordinates writers on other
   machines.
+
+  The lock is keyed by the folder's identity (device and inode, through symlinks), taken once
+  in `new/2`, so stores naming one folder differently (a trailing slash, a relative
+  path, a symlink) share it. A live store needs that folder, and any symlink to it, to
+  stay in place: a folder deleted and recreated gets a new identity, and stores made
+  before and after no longer share a lock. Locking is per root folder, not per file:
+  overlapping stores (one on a folder, one on a folder inside it) or a symlink from one
+  store's folder into another's reach the same file under different locks.
   """
 
   @behaviour Guardian.ObjectStore
 
-  @enforce_keys [:dir]
-  defstruct [:dir, max_entries: 20_000]
+  @enforce_keys [:dir, :lock]
+  defstruct [:dir, :lock, max_entries: 20_000]
 
   @chunk_bytes 65_536
 
   @doc "The store for `dir`, creating the folder. `{:error, reason}` if it cannot."
   def new(dir, opts \\ []) do
-    case File.mkdir_p(dir) do
-      :ok ->
-        {:ok, {__MODULE__, struct!(%__MODULE__{dir: dir}, Keyword.take(opts, [:max_entries]))}}
-
-      {:error, posix} ->
-        {:error, {:misconfigured, "#{dir}: #{:file.format_error(posix)}"}}
+    with :ok <- File.mkdir_p(dir),
+         {:ok, %File.Stat{type: :directory} = stat} <- File.stat(dir) do
+      config = %__MODULE__{dir: dir, lock: identity(stat)}
+      {:ok, {__MODULE__, struct!(config, Keyword.take(opts, [:max_entries]))}}
+    else
+      {:ok, %File.Stat{}} -> {:error, {:misconfigured, "#{dir} is not a folder"}}
+      {:error, posix} -> {:error, {:misconfigured, "#{dir}: #{:file.format_error(posix)}"}}
     end
   end
 
@@ -245,9 +254,10 @@ defmodule Guardian.ObjectStore.Local do
 
   # A `:global` lock id is `{resource, requester}`, and the lock is granted again to its
   # own requester, so the folder is the resource and the calling process the requester.
+  # The folder is named by its identity, so every spelling of it shares the lock.
   # Do not nest: an inner call would be granted the lock and release it on return.
-  defp serialized(%__MODULE__{dir: dir}, fun) do
-    :global.trans({{__MODULE__, dir}, self()}, fun, [node()])
+  defp serialized(%__MODULE__{lock: lock}, fun) do
+    :global.trans({{__MODULE__, lock}, self()}, fun, [node()])
   end
 
   defp path(%__MODULE__{dir: dir}, key) do

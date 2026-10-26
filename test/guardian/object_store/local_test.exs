@@ -161,10 +161,43 @@ defmodule Guardian.ObjectStore.LocalTest do
   end
 
   test "concurrent :absent puts to one key: exactly one succeeds", %{dir: dir, store: store} do
-    # Each key gets several writers released at once; without serialization they all
-    # see no file and all write.
+    race_absent_puts(dir, [store])
+  end
+
+  test "stores naming one folder differently share its write lock", %{dir: dir, store: store} do
+    link = dir <> "_link"
+    File.ln_s!(dir, link)
+    on_exit(fn -> File.rm(link) end)
+    # A genuinely relative path: up from the working directory to the root, then down.
+    up = File.cwd!() |> Path.split() |> tl() |> Enum.map(fn _ -> ".." end)
+    relative = Path.join(up ++ [Path.relative(dir)])
+    assert Path.type(relative) == :relative
+
+    aliases =
+      for name <- [dir <> "/", link, relative] do
+        {:ok, alias_store} = ObjectStore.Local.new(name)
+        alias_store
+      end
+
+    stores = [store | aliases]
+
+    assert [_one_lock] =
+             stores |> Enum.map(fn {_module, config} -> config.lock end) |> Enum.uniq()
+
+    race_absent_puts(dir, stores)
+
+    {:ok, {_module, other}} = ObjectStore.Local.new(dir <> "_other")
+    on_exit(fn -> File.rm_rf!(dir <> "_other") end)
+    assert other.lock != elem(store, 1).lock
+  end
+
+  # Each key gets several writers, through `stores` in turn, released at once; without
+  # serialization they all see no file and all write.
+  defp race_absent_puts(dir, stores) do
+    writers = stores |> Stream.cycle() |> Enum.take(4 * length(stores)) |> Enum.with_index(1)
+
     tasks =
-      for key <- ~w[k0 k1 k2 k3 k4], n <- 1..4 do
+      for key <- ~w[k0 k1 k2 k3 k4], {store, n} <- writers do
         Task.async(fn ->
           receive do
             :go -> {key, n, ObjectStore.put(store, key, "#{n}", :absent)}

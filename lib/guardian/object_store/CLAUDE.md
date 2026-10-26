@@ -19,7 +19,8 @@ Modules:
   object (hidden, non-UTF-8 and `Guardian.AtomicFile` temp names skipped, the walk
   bounded by `max_entries`), with content-hash ETags, writes through
   `Guardian.AtomicFile`, and each folder's writes serialized on this node by a
-  `:global` lock held by the writing process.
+  `:global` lock held by the writing process, keyed by the folder's device and inode
+  (taken in `new/2`) so every spelling of the folder shares it.
 - `Guardian.ObjectStore.Lock`: a lease lock on one key of any store, judged by the
   store's clock, with ownership-safe release. A lease, not a fence.
 
