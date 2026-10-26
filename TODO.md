@@ -220,6 +220,9 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       `Guardian.Query.URL.parse/1`, which never converts a port of more than 20 digits,
       so a URL with a port too long for `URI.parse/1` no longer fails the query
       (`docs/changes/url-parse-totality.md`)
+- [x] url-result-copy: for a port too long to convert, `Guardian.Query.URL.parse/1`
+      copies every string field, so a short `url_*` result no longer keeps the up to
+      8 MB cut value alive (follow-up to url-parse-totality)
 - [x] format-timestamp-names-nonraising: unknown month/hour names give null through
       fallback lookups instead of a rescued `CaseClauseError`, keeping the terminal
       cap and invalid-name behavior (code review follow-up)

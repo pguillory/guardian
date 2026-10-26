@@ -86,6 +86,29 @@ defmodule Guardian.Query.URLTest do
            } = URL.parse(value)
   end
 
+  test "a long port's result holds no slice of the cut copy" do
+    [userinfo, host, path, query, fragment] =
+      for c <- ~w(u h p q f), do: String.duplicate(c, 100)
+
+    path = "/" <> path <> String.duplicate("/x", 50_000)
+    port = String.duplicate("9", 21)
+    value = "http://#{userinfo}@#{host}.com:#{port}#{path}?#{query}##{fragment}"
+    uri = URL.parse(value)
+
+    assert %URI{scheme: "http", port: nil, path: ^path, query: ^query, fragment: ^fragment} =
+             uri
+
+    assert uri.userinfo == userinfo and uri.host == host <> ".com"
+    assert uri.authority == "#{userinfo}@#{host}.com:"
+
+    fields = for {_, field} <- Map.from_struct(uri), is_binary(field), do: field
+    assert length(fields) == 7
+
+    for field <- fields do
+      assert :binary.referenced_byte_size(field) == byte_size(field)
+    end
+  end
+
   test "userinfo stops at a line feed, as URI.parse's does" do
     value = "http://h:" <> String.duplicate("9", 1_300_000) <> "\n@x:1/p#f"
     assert %URI{host: "h", port: nil, path: "/p", fragment: "f"} = URL.parse(value)

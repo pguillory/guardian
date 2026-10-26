@@ -8,7 +8,9 @@ defmodule Guardian.Query.URL do
   converts a port of more than 20 digits (leading zeros count): it parses the value with
   those digits cut out and gives `port: nil`, not the scheme's default. Every other
   field is what `URI.parse/1` gives on the whole value, except `authority`, which
-  lacks the cut digits.
+  lacks the cut digits. In that case every string field, `authority` included, is a
+  fresh copy, so a short result (a host, say) does not keep the up to 8 MB cut value
+  alive.
 
   The port is found with `URI.parse/1`'s own regular expressions, copied verbatim from
   Elixir 1.19 (the prefix of its main pattern, which captures exactly what the whole
@@ -33,10 +35,30 @@ defmodule Guardian.Query.URL do
       {at, length} ->
         rest = byte_size(value) - at - length
         cut = binary_part(value, 0, at) <> binary_part(value, at + length, rest)
-        %{URI.parse(cut) | port: nil}
+        uri = URI.parse(cut)
+
+        %URI{
+          uri
+          | scheme: copy(uri.scheme),
+            userinfo: copy(uri.userinfo),
+            host: copy(uri.host),
+            port: nil,
+            path: copy(uri.path),
+            query: copy(uri.query),
+            fragment: copy(uri.fragment),
+            authority: copy(uri.authority),
+        }
     end
   catch
     :error, :system_limit -> %URI{}
+  end
+
+  defp copy(nil) do
+    nil
+  end
+
+  defp copy(field) do
+    :binary.copy(field)
   end
 
   # The byte offset and length of the port's digits when there are more than
