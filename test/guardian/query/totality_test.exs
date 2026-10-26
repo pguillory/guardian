@@ -37,12 +37,20 @@ defmodule Guardian.Query.TotalityTest do
     "9223372036854775807s",
     "9223372036854775807w",
     "http://example.com:99999999999999999999/",
+    # A port too long to convert (Guardian.Query.URL); @huge_values has one URI.parse/1 can't.
+    "http://example.com:999999999999999999999/",
     "a",
     <<0xFF, 0xFE>>,
     # Past the string cap, ending in a character the cap can split.
     String.duplicate("a", Guardian.Query.Text.max_bytes() - 1) <> "é",
     [1, nil, "a"],
     [[1]],
+  ]
+
+  # Values too large for every pair: each runs alone, against every function.
+  @huge_values [
+    # A port URI.parse/1 can't convert (over about 1.26 million digits).
+    "http://example.com:" <> String.duplicate("9", 1_300_000) <> "/p#f",
   ]
 
   # Results depend on the clock or a random source, so the three ways can't agree.
@@ -90,7 +98,7 @@ defmodule Guardian.Query.TotalityTest do
   test "every operator is total on every pair of edge values" do
     for source <- @operators do
       expr = Guardian.AST.parse_expression(source)
-      check(source, expr, ["a", "b"], deterministic: true)
+      check(source, expr, ["a", "b"], values: @values, deterministic: true)
     end
     |> report()
   end
@@ -103,7 +111,22 @@ defmodule Guardian.Query.TotalityTest do
       expr = %Guardian.AST.Node.FunctionCall{name: name, args: args}
 
       check("#{name}/#{arity}", expr, names,
+        values: @values,
         deterministic: "#{name}/#{arity}" not in @nondeterministic
+      )
+    end
+    |> report()
+  end
+
+  test "every function is total on each huge value" do
+    for {name, arity} <- Guardian.Query.Function.names_and_arities(), name != "test_raise" do
+      args = List.duplicate(%Identifier{name: "a"}, arity)
+      expr = %Guardian.AST.Node.FunctionCall{name: name, args: args}
+      label = "#{name}/#{arity}"
+
+      check(label, expr, ["a"],
+        values: @huge_values,
+        deterministic: label not in @nondeterministic
       )
     end
     |> report()
@@ -114,8 +137,8 @@ defmodule Guardian.Query.TotalityTest do
     assert failures == [], Enum.join(Enum.take(failures, 100_000), "\n")
   end
 
-  defp check(label, expr, names, deterministic: deterministic?) do
-    pairs = for a <- @values, b <- @values, do: %{"a" => a, "b" => b}
+  defp check(label, expr, names, values: values, deterministic: deterministic?) do
+    pairs = for a <- values, b <- values, do: %{"a" => a, "b" => b}
     pairs = if "b" in names, do: pairs, else: Enum.uniq_by(pairs, & &1["a"])
 
     # Over columns: every pair at once.
@@ -130,8 +153,8 @@ defmodule Guardian.Query.TotalityTest do
       # A column of every value against `b` as a constant.
       against_constant =
         if "b" in names do
-          column_rows = Enum.map(@values, &%{"a" => &1})
-          index = Enum.find_index(@values, &(&1 === row["a"]))
+          column_rows = Enum.map(values, &%{"a" => &1})
+          index = Enum.find_index(values, &(&1 === row["a"]))
           constant_expr = substitute(expr, "b", row["b"])
           Enum.at(eval_snapshot(context, constant_expr, column_rows), index)
         else

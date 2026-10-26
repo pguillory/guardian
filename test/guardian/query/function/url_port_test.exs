@@ -22,5 +22,7 @@ defmodule Guardian.Query.Function.UrlPortTest do
     end
 
     assert eval("url_port('http://domain.com:65535/')") === 65_535
+    assert eval("url_port('http://domain.com:00000000000000000080/')") === 80
+    assert eval("url_port('http://domain.com:000000000000000000080/')") === nil
   end
 end

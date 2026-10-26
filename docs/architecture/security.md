@@ -923,8 +923,8 @@ Written from the code: the routers, `Guardian.Web.Auth`, `Guardian.Web.Logger`, 
 `Guardian.Web.QueryLog`, `Guardian.Engine`, `lib/guardian/rules`, `Guardian.Cluster`, `Guardian.Query.Limits`, `config/runtime.exs`,
 `rel/env.sh.eex`, `bin/fly-start`, `Dockerfile`, and `fly.toml` in this repository,
 and the pinned dependencies `cors_plug` 3.0.3, `anubis_mcp` 0.16.0, and `req` 0.7.5
-(its SigV4 step accepts an MFA for credentials, read from its source). Regular
-expressions run on OTP's `:re` through `Guardian.Query.Regex`. Statements about Fly's platform
+(its SigV4 step accepts an MFA for credentials, read from its source). Query
+regular expressions (`RLIKE`, `replace`) run on OTP's `:re` through `Guardian.Query.Regex`. Statements about Fly's platform
 (volume encryption, private network membership, edge behavior) come from Fly's
 tooling and documentation, not from Guardian's code. Where something was read from a
 dependency's source rather than tested, the text says so.

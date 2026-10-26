@@ -596,7 +596,7 @@ the shipped surface:
    infinity. That covers division or modulo by zero, the square root of a negative, the
    logarithm of zero or less, a float result too large to represent, a rounded float or
    an interval outside 64-bit integers, `factorial` above 20, date arithmetic outside
-   years 0000 to 9999, a port outside 0 to 65535, `ip_to_integer` of invalid UTF-8
+   years 0000 to 9999, a port outside 0 to 65535 or written with more than 20 digits, `ip_to_integer` of invalid UTF-8
    or of a string over 64 bytes, `format_timestamp` of a month or hour with no name,
    and a list nested deeper than storage holds (a list of lists).
 4. Aggregates (21 names): `count`, `count_if`, `count_distinct` (approximate,

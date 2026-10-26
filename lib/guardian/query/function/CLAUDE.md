@@ -306,6 +306,9 @@ list nested deeper than a list of lists, or a built string over 64 KiB.
   function whose result is a transformed input (`replace`, `lower`) caps it even when
   it is no longer than the input. Joining pieces stops at the first one
   `Guardian.Query.Text.form_cut/2` cut, so the result is a prefix of the whole.
+- A URL is parsed with `Guardian.Query.URL.parse/1`, never `URI.parse/1`, which raises
+  on a port of over about 1.26 million digits; the helper never converts a port of
+  more than 20 digits.
 - `Guardian.Query.ColumnOrConstant.list_or_constant_to_column_or_constant/1` turns any
   remaining unstorable value into `nil` as the result is built, a backstop rather
   than a substitute for the rules above.
@@ -313,7 +316,8 @@ list nested deeper than a list of lists, or a built string over 64 KiB.
 `test/guardian/query/totality_test.exs` runs every registered function and operator over a grid
 of edge values per event, against constants and over columns, and checks that the
 three agree. A new function is covered automatically; add an edge value there when a
-new kind of input matters.
+new kind of input matters. A value too large for the pairwise grid goes in
+`@huge_values`, which runs alone against every function.
 
 ## Type Handling
 
@@ -370,7 +374,8 @@ end
 `email_domain`, `email_username`
 
 ### URL Functions
-`url_scheme`, `url_host`, `url_port`, `url_path`, `url_fragment`
+`url_scheme`, `url_host`, `url_port`, `url_path`, `url_fragment`, all through
+`Guardian.Query.URL.parse/1`
 
 ### Hash Functions
 `md5`, `sha1`, `sha256`, `sha512`
@@ -391,9 +396,10 @@ end
 
 ### replace - Regular expression replacement
 
-Runs through `Guardian.Query.Regex`, the only place patterns are compiled and run (`:re` with
+Runs through `Guardian.Query.Regex`, the only place query patterns are compiled and run (`:re` with
 mandatory `match_limit` and `match_limit_recursion`). Never call `:re` directly from a
-function, and never reintroduce a regex NIF: the Hyperscan NIF this replaced aborted
+function (`Guardian.Query.URL`'s fixed copies of `URI.parse/1`'s patterns are the one
+exception: no user pattern runs there), and never reintroduce a regex NIF: the Hyperscan NIF this replaced aborted
 the VM on growing or overlapping matches. There is no `jq()`; the parser rejects it with a
 message.
 

@@ -203,6 +203,10 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       (a port of over about 1.26 million digits) and `cosine_similarity` returns null
       for lists of different lengths and catches only `badarith`; query results are
       unchanged (code review follow-up)
+- [x] url-parse-totality: the `url_*` functions parse through the nonraising
+      `Guardian.Query.URL.parse/1`, which never converts a port of more than 20 digits,
+      so a URL with a port too long for `URI.parse/1` no longer fails the query
+      (`docs/changes/url-parse-totality.md`)
 - [x] format-timestamp-names-nonraising: unknown month/hour names give null through
       fallback lookups instead of a rescued `CaseClauseError`, keeping the terminal
       cap and invalid-name behavior (code review follow-up)

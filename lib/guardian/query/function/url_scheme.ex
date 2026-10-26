@@ -1,6 +1,6 @@
 defmodule Guardian.Query.Function.UrlScheme do
   def eval(value) when is_binary(value) do
-    URI.parse(value).scheme
+    Guardian.Query.URL.parse(value).scheme
   end
 
   def eval(_) do

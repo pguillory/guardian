@@ -990,10 +990,12 @@ subtraction; each caller keeps its own acceptance rules and null results.
 
 ### 5.6 Regular expressions
 
-`Guardian.Query.Regex` is the one place patterns are compiled and run, on Erlang's `:re`
+`Guardian.Query.Regex` is the one place query patterns are compiled and run, on Erlang's `:re`
 (PCRE2): the parser validates `RLIKE` and `replace` patterns with it, and evaluation
 compiles them again, once per evaluation. Compiled patterns are never put in the AST,
-which travels between nodes. Patterns compile in UTF-8 mode without `ucp`, so values
+which travels between nodes. (`Guardian.Query.URL` runs `URI.parse/1`'s own fixed
+patterns directly, without UTF-8 mode, to find a URL's port; no user pattern goes there.)
+Patterns compile in UTF-8 mode without `ucp`, so values
 match by character while `\w`, `\d` and `\b` stay ASCII by default (inline `(*UCP)`
 changes that). A value that is not valid UTF-8 makes `:re.run` raise; only that call
 is rescued, and the value gives null. Every run passes `match_limit` (1,000,000, per
