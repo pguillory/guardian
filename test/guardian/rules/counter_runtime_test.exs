@@ -413,25 +413,29 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     end
   end
 
-  test "each dependency level batches every counter and bucket into the longest machine's rounds" do
+  # A store that sends each dispatched batch to the test and answers as if empty.
+  defp recording_store do
     parent = self()
 
-    store =
-      start_supervised!(
-        {ProbeStore,
-         {:pipeline,
-          fn operations ->
-            send(parent, {:pipeline_ops, operations})
+    start_supervised!(
+      {ProbeStore,
+       {:pipeline,
+        fn operations ->
+          send(parent, {:pipeline_ops, operations})
 
-            {:ok,
-             Enum.map(operations, fn
-               {:get, _} -> :not_found
-               {:gets, _} -> :not_found
-               {:incr, _, _, _} -> {:ok, 1}
-               {:cas, _, _, _, _} -> :ok
-             end)}
-          end}}
-      )
+          {:ok,
+           Enum.map(operations, fn
+             {:get, _} -> :not_found
+             {:gets, _} -> :not_found
+             {:incr, _, _, _} -> {:ok, 1}
+             {:cas, _, _, _, _} -> :ok
+           end)}
+        end}}
+    )
+  end
+
+  test "each dependency level batches every counter and bucket into the longest machine's rounds" do
+    store = recording_store()
 
     plan =
       plan("""
@@ -476,6 +480,64 @@ defmodule Guardian.Rules.CounterRuntimeTest do
     assert Enum.count(Enum.at(rounds, 1), &match?({:incr, _, _, _}, &1)) == 1
     assert Enum.count(Enum.at(rounds, 1), &match?({:gets, _}, &1)) == 1
     refute_receive {:pipeline_ops, _}, 10
+  end
+
+  test "a compiled module runs a LOOKUP before its TRACK and batches the TRACK level", %{
+    store: real_store,
+  } do
+    store = recording_store()
+
+    plan =
+      plan("""
+      TRACK c = count() BY group_key LAST '1h';
+      TRACK total = sum(v) LAST '1h';
+      LOOKUP prior = c BY group_key;
+      SET group_key = lower(ip);
+      UNSET secret
+      """)
+
+    module = __MODULE__.LevelProbe
+
+    on_exit(fn ->
+      :code.delete(module)
+      :code.soft_purge(module)
+    end)
+
+    assert Guardian.Rules.Compiler.compile(module, plan) == :ok
+
+    row = apply(module, :apply, [%{"ip" => "A", "v" => 5, "secret" => "private"}, event(store)])
+
+    assert row == %{
+             "ip" => "A",
+             "v" => 5,
+             "group_key" => "a",
+             "prior" => 0,
+             "c" => 1,
+             "total" => 5,
+           }
+
+    rounds =
+      for _ <- 1..3 do
+        assert_receive {:pipeline_ops, operations}
+        operations
+      end
+
+    # The LOOKUP's bucket reads dispatch alone, before either TRACK; both TRACKs
+    # then share one level's rounds.
+    assert Enum.map(rounds, &length/1) == [4, 8, 1]
+    assert Enum.all?(hd(rounds), &match?({:get, _}, &1))
+    assert Enum.count(Enum.at(rounds, 1), &match?({:incr, _, _, _}, &1)) == 1
+    assert Enum.count(Enum.at(rounds, 1), &match?({:gets, _}, &1)) == 1
+    assert [{:cas, _, _, _, _}] = Enum.at(rounds, 2)
+    refute_receive {:pipeline_ops, _}, 10
+
+    # Against a real store, the LOOKUP and TRACK group on the SET's output.
+    priors =
+      for ip <- ~w(A A B) do
+        apply(module, :apply, [%{"ip" => ip, "v" => 5}, event(real_store)])["prior"]
+      end
+
+    assert priors == [0, 1, 0]
   end
 
   test "a scalar failure prevents all dispatch for its level" do
