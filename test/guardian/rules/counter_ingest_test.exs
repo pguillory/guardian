@@ -1,6 +1,6 @@
 defmodule Guardian.Rules.CounterIngestTest do
   use ExUnit.Case, async: false
-  import Guardian.RulesTestHelper
+  import Guardian.Test.Rules
   alias Guardian.Counters.Store
 
   @api_key Application.compile_env!(:guardian, :api_key)
@@ -48,7 +48,7 @@ defmodule Guardian.Rules.CounterIngestTest do
   end
 
   defp await_cooldown(owner) do
-    Guardian.TestHelpers.eventually(fn ->
+    Guardian.Test.Polling.eventually(fn ->
       case :ets.lookup(Guardian.Counters.Budget, owner) do
         [] -> true
         [{_, until}] -> until <= System.monotonic_time(:microsecond)
@@ -57,7 +57,7 @@ defmodule Guardian.Rules.CounterIngestTest do
   end
 
   test "HTTP and MCP return LOOKUP=49/TRACK=50, SET decisions and historical stored fields" do
-    Guardian.CounterBudgetHelper.relax()
+    Guardian.Test.Counters.Budget.relax()
     Guardian.MCPTestClient.start()
 
     for interface <- [:http, :mcp] do
@@ -160,7 +160,7 @@ defmodule Guardian.Rules.CounterIngestTest do
   end
 
   test "cross-table lookups preserve typed/null groups and all enabled aggregate operators" do
-    Guardian.CounterBudgetHelper.relax()
+    Guardian.Test.Counters.Budget.relax()
     table = unique_table("live_aggregates")
     reader = unique_table("live_aggregate_reader")
 
@@ -201,7 +201,7 @@ defmodule Guardian.Rules.CounterIngestTest do
   end
 
   test "a count outside int64 is refused where the event is stored, keeping the rest" do
-    Guardian.CounterBudgetHelper.relax()
+    Guardian.Test.Counters.Budget.relax()
     table = unique_table("live_counter_int64")
     with_rules(%{"#{table}/r.gsql" => "TRACK hits = count() LAST '1h'; SET seen = true"})
     definition = track(table).definition
@@ -215,7 +215,7 @@ defmodule Guardian.Rules.CounterIngestTest do
   end
 
   test "unkeyed resubmissions count twice; completed HTTP/MCP keyed retries return only a receipt" do
-    Guardian.CounterBudgetHelper.relax()
+    Guardian.Test.Counters.Budget.relax()
     Guardian.MCPTestClient.start()
     table = unique_table("live_counter_retry")
     with_rules(%{"#{table}/r.gsql" => "TRACK hits = count() LAST '1h'"})
@@ -240,7 +240,7 @@ defmodule Guardian.Rules.CounterIngestTest do
   end
 
   test "a later rule or storage failure leaves earlier counter side effects without replay" do
-    Guardian.CounterBudgetHelper.relax()
+    Guardian.Test.Counters.Budget.relax()
     table = unique_table("live_counter_partial")
 
     with_rules(%{
@@ -263,7 +263,7 @@ defmodule Guardian.Rules.CounterIngestTest do
       # A fresh table guarantees the one-call fake is its only mutable segment.
       storage_table = unique_table("live_counter_storage_partial")
       with_rules(%{"#{storage_table}/r.gsql" => "TRACK hits = count() LAST '1h'"})
-      Guardian.TestHelpers.intercept_append(storage_table, reply)
+      Guardian.Test.Segments.intercept_append(storage_table, reply)
 
       ExUnit.CaptureLog.capture_log(fn ->
         assert [{:error, ^error}] = ingest(storage_table, [%{}])
@@ -395,18 +395,18 @@ defmodule Guardian.Rules.CounterIngestTest do
         "TRACK hits = count() BY g LAST '1h'; LOOKUP prior = hits BY g; UNSET secret",
     })
 
-    distributed = Guardian.TestCluster.ensure_distributed()
-    {peer, peer_node} = Guardian.TestCluster.start_peer(nil)
+    distributed = Guardian.Test.Cluster.ensure_distributed()
+    {peer, peer_node} = Guardian.Test.Cluster.start_peer(nil)
 
     on_exit(fn ->
       if Process.alive?(peer), do: :peer.stop(peer)
       if distributed, do: Node.stop()
     end)
 
-    assert {:ok, _} = :erpc.call(peer_node, Guardian.CounterClientHelper, :start_store, [])
-    Guardian.CounterClientHelper.await_ready(peer_node)
+    assert {:ok, _} = :erpc.call(peer_node, Guardian.Test.Counters.Client, :start_store, [])
+    Guardian.Test.Counters.Client.await_ready(peer_node)
     # One slow call under host load would cool the peer down and zero the burst.
-    production_budgets = Guardian.CounterBudgetHelper.relax([peer_node])
+    production_budgets = Guardian.Test.Counters.Budget.relax([peer_node])
     identity = track(table).definition.identity
 
     group =
@@ -454,8 +454,8 @@ defmodule Guardian.Rules.CounterIngestTest do
     assert [{:ok, %{"hits" => 62, "prior" => 61}}] = ingest(table, [%{"g" => group}])
     assert :ok = :erpc.call(peer_node, GenServer, :stop, [Store])
     assert [{:ok, %{"hits" => 0}}] = ingest(table, [%{"g" => group}])
-    assert {:ok, _} = :erpc.call(peer_node, Guardian.CounterClientHelper, :start_store, [])
-    Guardian.CounterClientHelper.await_ready(peer_node)
+    assert {:ok, _} = :erpc.call(peer_node, Guardian.Test.Counters.Client, :start_store, [])
+    Guardian.Test.Counters.Client.await_ready(peer_node)
     await_cooldown(peer_node)
     assert [{:ok, %{"hits" => 1, "prior" => 0}}] = ingest(table, [%{"g" => group}])
   end

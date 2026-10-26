@@ -2,10 +2,11 @@ defmodule Guardian.Cluster.QueryFailuresTest do
   # Starts and stops a peer node. While a peer is connected every query in this VM fans
   # out to it, so this module must not run concurrently with other tests.
   use ExUnit.Case, async: false
-  import Guardian.TestHelpers
+  import Guardian.Test.Query
+  import Guardian.Test.Processes
 
   setup do
-    Guardian.TestCluster.single_peer()
+    Guardian.Test.Cluster.single_peer()
   end
 
   test "the query time limit stops the query's workers on every machine",

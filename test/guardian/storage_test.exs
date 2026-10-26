@@ -1,6 +1,6 @@
 defmodule Guardian.StorageTest do
   use ExUnit.Case, async: false
-  import Guardian.TestHelpers, only: [run_sql: 1]
+  import Guardian.Test.Query, only: [run_sql: 1]
 
   alias Guardian.Storage.MutableSegments
   alias Guardian.Storage.PersistedSegments
@@ -47,19 +47,19 @@ defmodule Guardian.StorageTest do
        %{table: table} do
     refuse = fn from, _row -> GenServer.reply(from, {:error, :invalid_value}) end
 
-    Guardian.TestHelpers.intercept_append(table, refuse)
+    Guardian.Test.Segments.intercept_append(table, refuse)
 
     assert_raise ArgumentError, "value cannot be stored", fn ->
       Guardian.Storage.append(table, %{"a" => 1})
     end
 
-    Guardian.TestHelpers.intercept_append(table, refuse)
+    Guardian.Test.Segments.intercept_append(table, refuse)
 
     assert_raise ArgumentError, "value cannot be stored", fn ->
       Guardian.Storage.append_flattened(table, %{"a" => 1})
     end
 
-    Guardian.TestHelpers.intercept_append(table, refuse)
+    Guardian.Test.Segments.intercept_append(table, refuse)
 
     assert Guardian.Storage.append_flattened_result(table, %{"a" => 1}) ==
              {:error, :invalid_value}

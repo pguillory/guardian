@@ -1,7 +1,7 @@
 defmodule Guardian.Storage.ColumnReleaseTest do
   # Not async: the live-column counter is global to the VM.
   use ExUnit.Case, async: false
-  import Guardian.TestHelpers, only: [eventually_after_gc: 1]
+  import Guardian.Test.Polling, only: [eventually_after_gc: 1]
 
   alias Guardian.Storage.Column
   alias Guardian.Storage.Column.NIF

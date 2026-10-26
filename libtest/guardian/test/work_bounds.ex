@@ -1,6 +1,7 @@
-defmodule Guardian.WorkBounds do
+defmodule Guardian.Test.WorkBounds do
   @moduledoc """
   Measures synchronous work in the calling test process without scheduler delays.
+  Safe for async tests when the measured workload is async-safe.
 
   Reductions are a runtime-specific proxy, not exact CPU accounting: native calls
   may charge them approximately, and work in other processes is not included.

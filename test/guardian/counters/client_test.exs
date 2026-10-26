@@ -4,16 +4,16 @@ defmodule Guardian.Counters.ClientTest do
   alias Guardian.Counters.Store
 
   setup_all do
-    distributed = Guardian.TestCluster.ensure_distributed()
-    {peer, peer_node} = Guardian.TestCluster.start_peer(nil)
+    distributed = Guardian.Test.Cluster.ensure_distributed()
+    {peer, peer_node} = Guardian.Test.Cluster.start_peer(nil)
 
     on_exit(fn ->
       :peer.stop(peer)
       if distributed, do: Node.stop()
     end)
 
-    {:ok, _} = :erpc.call(peer_node, Guardian.CounterClientHelper, :start_store, [])
-    Guardian.CounterClientHelper.await_ready(peer_node)
+    {:ok, _} = :erpc.call(peer_node, Guardian.Test.Counters.Client, :start_store, [])
+    Guardian.Test.Counters.Client.await_ready(peer_node)
     %{peer_node: peer_node}
   end
 
@@ -70,14 +70,14 @@ defmodule Guardian.Counters.ClientTest do
         {{owner, bucket}, {:get, {identity, group, bucket}}}
       end
 
-    # Scaled budget (CounterBudgetHelper): both held owners must dispatch concurrently
+    # Scaled budget (Guardian.Test.Counters.Budget): both held owners must dispatch concurrently
     # and wait for the test's release, which under host load can outlast a 50 ms call
     # deadline. A 1 s unit with an allowance of five units keeps both reservations
     # concurrent, as production's 50 ms of 250 ms does.
     restore_scaled =
-      Guardian.CounterBudgetHelper.scale([peer])
+      Guardian.Test.Counters.Budget.scale([peer])
 
-    five = Guardian.CounterBudgetHelper.allowance_us(5)
+    five = Guardian.Test.Counters.Budget.allowance_us(5)
     batch = Client.new_batch()
     :atomics.put(batch, 1, five)
 
@@ -114,7 +114,7 @@ defmodule Guardian.Counters.ClientTest do
     # Relaxed budgets let the first owner's call reserve the batch's whole 250 ms
     # allowance, so the 15 ms hold below is far less likely to time out under host load. The expired
     # owner then reserves and refunds without dispatching, returning the full allowance.
-    restore_budgets = Guardian.CounterBudgetHelper.relax([peer])
+    restore_budgets = Guardian.Test.Counters.Budget.relax([peer])
     [earlier, later] = Enum.sort(members)
     limited = Client.new_batch()
     expiry = System.monotonic_time(:millisecond) + 10
@@ -171,14 +171,14 @@ defmodule Guardian.Counters.ClientTest do
     send(stalled, :release)
     assert :atomics.get(limited, 1) < 10_000
     refute_receive {:pipeline, _, _, _}, 10
-    Guardian.TestHelpers.eventually(fn -> counter_helpers() == [] end)
+    Guardian.Test.Polling.eventually(fn -> counter_helpers() == [] end)
     assert {:messages, []} = Process.info(self(), :messages)
   end
 
   test "pending healthy owners use refunds, even with more than five owners or a spent budget", %{
     peer_node: peer,
   } do
-    extra = for _ <- 1..4, do: Guardian.TestCluster.start_peer(nil)
+    extra = for _ <- 1..4, do: Guardian.Test.Cluster.start_peer(nil)
     on_exit(fn -> Enum.each(extra, fn {controller, _} -> :peer.stop(controller) end) end)
     members = [node(), peer | Enum.map(extra, &elem(&1, 1))]
     start_supervised!({Store, name: :counter_pipeline_store}, id: :counter_pipeline_store)
@@ -187,21 +187,21 @@ defmodule Guardian.Counters.ClientTest do
         do:
           assert(
             {:ok, _} =
-              :erpc.call(member, Guardian.CounterClientHelper, :start_store, [
+              :erpc.call(member, Guardian.Test.Counters.Client, :start_store, [
                 [name: :counter_pipeline_store],
               ])
           )
 
-    Guardian.CounterClientHelper.await_ready(tl(members), :counter_pipeline_store)
+    Guardian.Test.Counters.Client.await_ready(tl(members), :counter_pipeline_store)
 
     # Production fits five 50 ms reservations in a 250 ms allowance, but 50 ms is also
     # each call's wall-clock deadline, which host load can exceed. Scale the unit: a
     # 1 s operation budget with allowances of five units and one unit makes every
     # reservation decision the same, with a 1 s deadline per held call.
-    Guardian.CounterBudgetHelper.scale(tl(members))
-    five = Guardian.CounterBudgetHelper.allowance_us(5)
+    Guardian.Test.Counters.Budget.scale(tl(members))
+    five = Guardian.Test.Counters.Budget.allowance_us(5)
 
-    for allowance <- [five, Guardian.CounterBudgetHelper.allowance_us(1)] do
+    for allowance <- [five, Guardian.Test.Counters.Budget.allowance_us(1)] do
       batch = Client.new_batch()
       :atomics.put(batch, 1, allowance)
       ops = for owner <- members, into: %{}, do: {owner, {:get, owned_key(owner, members)}}
@@ -265,7 +265,7 @@ defmodule Guardian.Counters.ClientTest do
     assert_receive {:pipeline, ^sixth, _, [_]}
     Enum.each(probes, fn {member, pid} -> if member != later, do: send(pid, :release) end)
     assert Task.await(task) == Map.new(members, &{&1, {:ok, 1}})
-    Guardian.TestHelpers.eventually(fn -> counter_helpers() == [] end)
+    Guardian.Test.Polling.eventually(fn -> counter_helpers() == [] end)
     assert {:messages, []} = Process.info(self(), :messages)
     :erpc.call(peer, GenServer, :stop, [:counter_pipeline_store])
   end
@@ -276,7 +276,7 @@ defmodule Guardian.Counters.ClientTest do
     local = start_supervised!({Store, name: :counter_partial_store}, id: :counter_partial_store)
 
     {:ok, remote} =
-      :erpc.call(peer, Guardian.CounterClientHelper, :start_store, [
+      :erpc.call(peer, Guardian.Test.Counters.Client, :start_store, [
         [name: :counter_partial_store],
       ])
 
@@ -306,7 +306,7 @@ defmodule Guardian.Counters.ClientTest do
              ) == %{remote: {:error, :cooldown}}
 
       # A translated remote deadline may outlive the caller by transit time.
-      Guardian.TestHelpers.await_queued_call(elem(pause, 0), node: peer)
+      Guardian.Test.Processes.await_queued_call(elem(pause, 0), node: peer)
       Process.sleep(55)
     after
       :erpc.call(peer, Guardian.CounterStoreProbe, :resume, [pause])
@@ -314,18 +314,18 @@ defmodule Guardian.Counters.ClientTest do
 
     assert :erpc.call(peer, Store, :get, [remote_key, [server: remote]]) == :not_found
     :erpc.call(peer, GenServer, :stop, [remote])
-    Guardian.TestHelpers.eventually(fn -> counter_helpers() == [] end)
+    Guardian.Test.Polling.eventually(fn -> counter_helpers() == [] end)
     assert {:messages, []} = Process.info(self(), :messages)
   end
 
   test "batch caller death terminates every owner helper and retains reservations", %{
     store: store,
   } do
-    # Scaled budget (CounterBudgetHelper): under load the production 50 ms call could
+    # Scaled budget (Guardian.Test.Counters.Budget): under load the production 50 ms call could
     # time out before the test sees its helpers and kills the caller. A 1 s unit with an
     # allowance of five units keeps the reservation decision and its retention the same.
-    Guardian.CounterBudgetHelper.scale()
-    unit = Guardian.CounterBudgetHelper.allowance_us(1)
+    Guardian.Test.Counters.Budget.scale()
+    unit = Guardian.Test.Counters.Budget.allowance_us(1)
     pause = Guardian.CounterStoreProbe.pause(store)
     batch = Client.new_batch()
     :atomics.put(batch, 1, 5 * unit)
@@ -343,11 +343,11 @@ defmodule Guardian.Counters.ClientTest do
       end)
 
     try do
-      Guardian.TestHelpers.await_queued_call(elem(pause, 0))
+      Guardian.Test.Processes.await_queued_call(elem(pause, 0))
       helpers = counter_helpers()
       assert length(helpers) >= 2
       Process.exit(caller, :kill)
-      Guardian.TestHelpers.eventually(fn -> Enum.all?(helpers, &(not Process.alive?(&1))) end)
+      Guardian.Test.Polling.eventually(fn -> Enum.all?(helpers, &(not Process.alive?(&1))) end)
       assert :atomics.get(batch, 1) in (4 * unit)..(5 * unit - 1)
       # A dispatched call can survive its caller. Leave it queued past its own deadline.
       Process.sleep(Guardian.Counters.Context.operation_ms() + 5)
@@ -405,7 +405,7 @@ defmodule Guardian.Counters.ClientTest do
     # A malformed reply is charged its elapsed wait and never marks cooldown whatever
     # the call reserved, so a larger budget does not change what this checks; it keeps
     # the 2 ms reply from timing out under host load.
-    Guardian.CounterBudgetHelper.relax()
+    Guardian.Test.Counters.Budget.relax()
 
     responses = [
       {:ok, []},
@@ -488,7 +488,7 @@ defmodule Guardian.Counters.ClientTest do
   end
 
   test "atom group terms route and store", %{store: store} do
-    Guardian.CounterBudgetHelper.relax()
+    Guardian.Test.Counters.Budget.relax()
     context = event(store)
     atom_key = key({:group})
 
@@ -499,7 +499,7 @@ defmodule Guardian.Counters.ClientTest do
   test "local native operations preserve nil, tokens, colocation and definite errors", %{
     store: store,
   } do
-    Guardian.CounterBudgetHelper.relax()
+    Guardian.Test.Counters.Budget.relax()
     context = event(store)
     assert batch_one({:cas, key(), :missing, nil, 5_000}, context) == :ok
     assert {:ok, nil, token} = batch_one({:gets, key()}, context)
@@ -521,7 +521,7 @@ defmodule Guardian.Counters.ClientTest do
     store: store,
     peer_node: peer,
   } do
-    Guardian.CounterBudgetHelper.relax([peer])
+    Guardian.Test.Counters.Budget.relax([peer])
 
     for {server, members} <- [{store, [node()]}, {Store, [peer]}],
         value <- [{:error, :unavailable}, [{:error, :timeout}, {:error, :unavailable}]] do
@@ -536,7 +536,7 @@ defmodule Guardian.Counters.ClientTest do
   end
 
   test "peer get/gets/CAS/incr carry native terms and reference tokens", %{peer_node: peer} do
-    Guardian.CounterBudgetHelper.relax([peer])
+    Guardian.Test.Counters.Budget.relax([peer])
     context = event(Store, members: [peer])
     key = key({System.unique_integer([:positive])})
     value = %{nested: [nil, 1, 1.0, {"native", true}]}
@@ -561,7 +561,7 @@ defmodule Guardian.Counters.ClientTest do
 
     for {name, arity} = operator <- Aggregation.names_and_arities() do
       aggregation = Aggregation.fetch!(name)
-      args = &Guardian.AggregationTestHelper.args(name, arity, &1)
+      args = &Guardian.Test.Aggregation.args(name, arity, &1)
       empty = Aggregation.empty(aggregation)
       delta = Aggregation.start(aggregation, args.(-0.0))
 
@@ -607,12 +607,12 @@ defmodule Guardian.Counters.ClientTest do
   end
 
   test "booting and lost owners fail immediately without readiness or failover", %{store: store} do
-    {peer, booting} = Guardian.TestCluster.start_peer(nil)
+    {peer, booting} = Guardian.Test.Cluster.start_peer(nil)
     on_exit(fn -> if Process.alive?(peer), do: :peer.stop(peer) end)
     # The refusal and the cooldown it marks do not depend on the call budget; a larger
     # one only keeps a cold peer's first call from timing out under host load.
-    :ok = :erpc.call(booting, Guardian.CounterClientHelper, :preload, [])
-    Guardian.CounterBudgetHelper.relax([booting])
+    :ok = :erpc.call(booting, Guardian.Test.Counters.Client, :preload, [])
+    Guardian.Test.Counters.Budget.relax([booting])
     context = event(Store, members: [booting])
     assert batch_one({:incr, key(), 1, 5_000}, context) == {:error, :unavailable}
     assert batch_one({:get, key()}, context) == {:error, :cooldown}
@@ -673,7 +673,7 @@ defmodule Guardian.Counters.ClientTest do
   } do
     # A healthy call is refunded in full whatever it reserved, so a larger budget does
     # not change what this checks; it keeps a slow healthy call from timing out.
-    Guardian.CounterBudgetHelper.relax([peer])
+    Guardian.Test.Counters.Budget.relax([peer])
 
     for {target, members} <- [{store, [node()]}, {Store, [peer]}] do
       batch = Client.new_batch()
@@ -742,11 +742,11 @@ defmodule Guardian.Counters.ClientTest do
   test "caller death conservatively charges its reservation and terminates helpers", %{
     store: store,
   } do
-    # Scaled budget (CounterBudgetHelper): under load the production 50 ms call could
+    # Scaled budget (Guardian.Test.Counters.Budget): under load the production 50 ms call could
     # time out before the test sees its helpers and kills the caller. A 1 s unit with an
     # allowance of five units keeps the reservation decision and its retention the same.
-    Guardian.CounterBudgetHelper.scale()
-    unit = Guardian.CounterBudgetHelper.allowance_us(1)
+    Guardian.Test.Counters.Budget.scale()
+    unit = Guardian.Test.Counters.Budget.allowance_us(1)
     pause = Guardian.CounterStoreProbe.pause(store)
     batch = Client.new_batch()
     :atomics.put(batch, 1, 5 * unit)
@@ -761,11 +761,11 @@ defmodule Guardian.Counters.ClientTest do
     caller = spawn(fn -> batch_one({:incr, key(), 1, 5_000}, context) end)
 
     try do
-      Guardian.TestHelpers.await_queued_call(elem(pause, 0))
+      Guardian.Test.Processes.await_queued_call(elem(pause, 0))
       helpers = counter_helpers()
       assert length(helpers) >= 2
       Process.exit(caller, :kill)
-      Guardian.TestHelpers.eventually(fn -> Enum.all?(helpers, &(not Process.alive?(&1))) end)
+      Guardian.Test.Polling.eventually(fn -> Enum.all?(helpers, &(not Process.alive?(&1))) end)
       assert :atomics.get(batch, 1) >= 4 * unit
       assert :atomics.get(batch, 1) < 5 * unit
     after
@@ -783,7 +783,7 @@ defmodule Guardian.Counters.ClientTest do
       assert batch_one({:get, key()}, context) in [:not_found, {:error, :timeout}]
     end
 
-    Guardian.TestHelpers.eventually(fn -> counter_helpers() == [] end)
+    Guardian.Test.Polling.eventually(fn -> counter_helpers() == [] end)
     assert {:messages, []} = Process.info(self(), :messages)
   end
 
@@ -826,8 +826,8 @@ defmodule Guardian.Counters.ClientTest do
   end
 
   test "frozen peer and distribution backpressure cannot outlive the failure budget" do
-    {peer_controller, peer} = Guardian.TestCluster.start_peer(nil)
-    {:ok, _} = :erpc.call(peer, Guardian.CounterClientHelper, :start_store, [])
+    {peer_controller, peer} = Guardian.Test.Cluster.start_peer(nil)
+    {:ok, _} = :erpc.call(peer, Guardian.Test.Counters.Client, :start_store, [])
     # This PID is obtained directly from our local test peer, never discovered by
     # a process-name search. Always resume it before peer teardown.
     os_pid = :erpc.call(peer, :os, :getpid, []) |> List.to_string()
@@ -866,7 +866,7 @@ defmodule Guardian.Counters.ClientTest do
       # deadline: the stopped peer never drains, so such a call would hang. The
       # timeout count, not this bound, proves the shared cap.
       assert System.monotonic_time(:millisecond) - started < 1_500
-      Guardian.TestHelpers.eventually(fn -> counter_helpers() == [] end)
+      Guardian.Test.Polling.eventually(fn -> counter_helpers() == [] end)
       assert {:messages, []} = Process.info(self(), :messages)
     after
       {_, 0} = System.cmd("/bin/kill", ["-CONT", os_pid])
@@ -876,24 +876,24 @@ defmodule Guardian.Counters.ClientTest do
 
   test "cooldown expires without reads, departed members are pruned, absent routing fails fast",
        %{store: store} do
-    {peer, member} = Guardian.TestCluster.start_peer(nil)
+    {peer, member} = Guardian.Test.Cluster.start_peer(nil)
     on_exit(fn -> if Process.alive?(peer), do: :peer.stop(peer) end)
     future = System.monotonic_time(:microsecond) + 10_000_000
     :ets.insert(:counter_client_test, {member, future})
     :peer.stop(peer)
-    Guardian.TestHelpers.eventually(fn -> :ets.lookup(:counter_client_test, member) == [] end)
+    Guardian.Test.Polling.eventually(fn -> :ets.lookup(:counter_client_test, member) == [] end)
 
     :ets.insert(:counter_client_test, {node(), System.monotonic_time(:microsecond) - 1})
     send(Process.whereis(:counter_client_test), :cleanup)
-    Guardian.TestHelpers.eventually(fn -> :ets.tab2list(:counter_client_test) == [] end)
+    Guardian.Test.Polling.eventually(fn -> :ets.tab2list(:counter_client_test) == [] end)
 
     # Scaled budget: with an allowance of five units, a call that waited instead of
     # failing fast could take a whole 1 s call budget, so a 500 ms bound still
     # separates the two under host load. The store is healthy, so a call dispatched
     # anyway would answer :not_found quickly; the result code is the main check.
-    Guardian.CounterBudgetHelper.scale()
+    Guardian.Test.Counters.Budget.scale()
     batch = Client.new_batch()
-    :atomics.put(batch, 1, Guardian.CounterBudgetHelper.allowance_us(5))
+    :atomics.put(batch, 1, Guardian.Test.Counters.Budget.allowance_us(5))
 
     context =
       Client.new_event(batch,

@@ -2,13 +2,13 @@ defmodule Guardian.Cluster.MetadataTest do
   # Starts peer nodes. While a peer is connected every query in this VM fans out to
   # it, so this module must not run concurrently with other tests.
   use ExUnit.Case, async: false
-  import Guardian.TestHelpers, only: [run_sql: 1]
+  import Guardian.Test.Query, only: [run_sql: 1]
 
   alias Guardian.Storage.Column.Metadata
   require Metadata
 
   setup_all do
-    Guardian.TestCluster.single_peer()
+    Guardian.Test.Cluster.single_peer()
   end
 
   defp unique_table do
@@ -76,9 +76,9 @@ defmodule Guardian.Cluster.MetadataTest do
 
   describe "with a node that has not started Storage" do
     setup do
-      {peer, starting_node} = Guardian.TestCluster.start_peer(nil)
+      {peer, starting_node} = Guardian.Test.Cluster.start_peer(nil)
 
-      data_root = Guardian.TestCluster.data_root()
+      data_root = Guardian.Test.Cluster.data_root()
 
       on_exit(fn ->
         :peer.stop(peer)
@@ -103,7 +103,7 @@ defmodule Guardian.Cluster.MetadataTest do
       assert run_sql("SELECT v, count() FROM #{table} GROUP BY v") == [[1, 1]]
 
       # Its Storage finishes starting, as at the end of a boot.
-      :ok = :erpc.call(starting_node, Guardian.TestCluster, :start_storage, [data_root])
+      :ok = :erpc.call(starting_node, Guardian.Test.Cluster, :start_storage, [data_root])
       ingest_on(starting_node, table, [%{"v" => 2, "w" => true}])
 
       assert starting_node in Guardian.Cluster.connected_nodes()
@@ -114,9 +114,9 @@ defmodule Guardian.Cluster.MetadataTest do
 
   describe "with a started node that fails" do
     setup do
-      data_root = Guardian.TestCluster.data_root()
+      data_root = Guardian.Test.Cluster.data_root()
 
-      {peer, broken_node} = Guardian.TestCluster.start_peer(data_root)
+      {peer, broken_node} = Guardian.Test.Cluster.start_peer(data_root)
       # Storage stays ready, but its schema calls time out.
       :ok = :erpc.call(broken_node, :sys, :suspend, [Guardian.Storage.Schema])
 

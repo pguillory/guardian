@@ -1,6 +1,6 @@
 defmodule Guardian.Rules.CompilerTest do
   use ExUnit.Case, async: true
-  import Guardian.RulesTestHelper, only: [compile_module: 2]
+  import Guardian.Test.Rules, only: [compile_module: 2]
 
   alias Guardian.Rules.{DependencyGraph, Event, RuleSet, Runtime}
 

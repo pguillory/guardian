@@ -53,7 +53,7 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    Production calls Store directly, with no backend tuple handling or mailbox fallback.
    Context's `event_ms`/`operation_ms` application env is the other internal test
    seam: it replaces the 100/50 ms defaults and caps, including the remote endpoint
-   bound. Never set it outside tests; only `Guardian.CounterBudgetHelper` does, for
+   bound. Never set it outside tests; only `Guardian.Test.Counters.Budget` does, for
    tests not about budgets, the seam's own test, and budget tests that scale the
    operation budget (`scale/1`) and size their batch allowance in units of it
    (`allowance_us/1`), with no durations or allowances derived from 50 ms

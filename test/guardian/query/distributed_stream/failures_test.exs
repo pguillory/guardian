@@ -1,7 +1,7 @@
 defmodule Guardian.Query.DistributedStream.FailuresTest do
   # Counts live pipeline processes, so it must not run beside other pipelines.
   use ExUnit.Case, async: false
-  import Guardian.TestHelpers
+  import Guardian.Test.Processes
 
   # Crashing workers are plain processes, which log their exceptions.
   @moduletag :capture_log

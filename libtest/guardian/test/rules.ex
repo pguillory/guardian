@@ -1,7 +1,9 @@
-defmodule Guardian.RulesTestHelper do
+defmodule Guardian.Test.Rules do
   @moduledoc """
-  Helpers for rule tests. Tests using the shared `Guardian.Rules.Server` must be
-  `async: false`; compiling distinct probe modules does not use that shared state.
+  Helpers for rule tests. `with_rules/1`, `restart_server/2` and `publish_module/2`
+  use shared Rules state and require `async: false`. `compile_module/2` is safe for
+  async tests using distinct probe modules; `unique_table/1` does not use shared
+  Rules state.
   """
 
   import ExUnit.Callbacks, only: [on_exit: 1]
@@ -47,7 +49,7 @@ defmodule Guardian.RulesTestHelper do
     was_running = Process.whereis(Guardian.Rules.Server) != nil
     stop_server()
     env = if store, do: [{:rules_store, store} | app_env], else: app_env
-    restore = Guardian.TestEnv.put(env)
+    restore = Guardian.Test.Env.put(env)
 
     on_exit(fn ->
       stop_server()

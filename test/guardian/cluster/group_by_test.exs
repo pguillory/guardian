@@ -2,14 +2,15 @@ defmodule Guardian.Cluster.GroupByTest do
   # Starts a peer node. While a peer is connected every query in this VM fans out to
   # it, so this module must not run concurrently with other tests.
   use ExUnit.Case, async: false
-  import Guardian.TestHelpers, only: [eventually: 2, run_sql: 1]
+  import Guardian.Test.Polling, only: [eventually: 2]
+  import Guardian.Test.Query, only: [run_sql: 1]
 
   alias Guardian.Query.Executor
   alias Guardian.Storage.Column.Metadata
   require Metadata
 
   setup_all do
-    %{peer_node: peer_node} = context = Guardian.TestCluster.single_peer()
+    %{peer_node: peer_node} = context = Guardian.Test.Cluster.single_peer()
     eventually(fn -> partition_nodes() == Enum.sort([node(), peer_node]) end, 10_000)
     context
   end

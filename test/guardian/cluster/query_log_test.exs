@@ -4,7 +4,7 @@ defmodule Guardian.Cluster.QueryLogTest do
   use ExUnit.Case, async: false
 
   setup do
-    %{peer_node: peer_node} = context = Guardian.TestCluster.single_peer()
+    %{peer_node: peer_node} = context = Guardian.Test.Cluster.single_peer()
     # Peers run only Storage; give this one a recorder, so a row it recorded would show.
     {:ok, _} =
       :erpc.call(peer_node, GenServer, :start, [

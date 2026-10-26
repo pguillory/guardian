@@ -1,7 +1,7 @@
 defmodule Guardian.Query.LimitsTest do
   # Changes limits in the application environment, so not async.
   use ExUnit.Case, async: false
-  import Guardian.TestHelpers, only: [run_sql: 1]
+  import Guardian.Test.Query, only: [run_sql: 1]
 
   setup do
     table = "limits_#{System.unique_integer([:positive])}"
@@ -20,7 +20,7 @@ defmodule Guardian.Query.LimitsTest do
 
   describe "result cap" do
     setup do
-      Guardian.TestEnv.put(query_max_result_rows: 10)
+      Guardian.Test.Env.put(query_max_result_rows: 10)
       :ok
     end
 
@@ -40,7 +40,7 @@ defmodule Guardian.Query.LimitsTest do
     end
 
     test "bounds bytes too", %{table: table} do
-      Guardian.TestEnv.put(query_max_result_rows: 1_000, query_max_result_bytes: 200)
+      Guardian.Test.Env.put(query_max_result_rows: 1_000, query_max_result_bytes: 200)
       assert error("SELECT s FROM #{table}") =~ "query result exceeds 0 MiB"
       assert length(run_sql("SELECT s FROM #{table} LIMIT 3")) == 3
     end

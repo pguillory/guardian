@@ -1,7 +1,7 @@
 defmodule Guardian.Counters.RuntimeTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog
-  import Guardian.TestHelpers, only: [eventually: 1]
+  import Guardian.Test.Polling, only: [eventually: 1]
 
   @names [
     :counter_runtime_supervisor,

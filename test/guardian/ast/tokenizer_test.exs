@@ -1,7 +1,7 @@
 defmodule Guardian.AST.TokenizerTest do
   import Guardian.AST.Tokenizer
   alias Guardian.AST.ParseError
-  alias Guardian.WorkBounds
+  alias Guardian.Test.WorkBounds
   use ExUnit.Case, async: true
 
   test "tokenize" do

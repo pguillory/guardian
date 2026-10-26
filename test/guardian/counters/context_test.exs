@@ -69,7 +69,7 @@ defmodule Guardian.Counters.ContextTest do
     assert %Event{counters: %Context{}} = Event.new()
   end
 
-  # The one budget test that uses CounterBudgetHelper: it tests the seam itself.
+  # The one budget test that uses Guardian.Test.Counters.Budget: it tests the seam itself.
   test "the internal budget seam replaces defaults, caps and the remote endpoint bound" do
     batch = Client.new_batch()
     store = start_supervised!({Store, name: nil})
@@ -79,7 +79,7 @@ defmodule Guardian.Counters.ContextTest do
     assert Transport.remote_operation(probe, store, 50) == {:ok, [:not_found]}
     assert Transport.remote_operation(probe, store, 51) == {:error, :invalid_request}
 
-    Guardian.CounterBudgetHelper.relax()
+    Guardian.Test.Counters.Budget.relax()
     before = System.monotonic_time(:microsecond)
     relaxed = Client.new_event(batch, event_timeout_ms: 5_000)
     assert relaxed.timeout_us == 1_000_000

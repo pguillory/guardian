@@ -2,7 +2,9 @@ defmodule Guardian.Query.PipelineFailuresTest do
   # A query either returns every row or fails with an error; its workers never
   # outlive it. Counts live processes and suspends segments, so it runs alone.
   use ExUnit.Case, async: false
-  import Guardian.TestHelpers
+  import Guardian.Test.Query
+  import Guardian.Test.Processes
+  import Guardian.Test.Segments
 
   defp table do
     "pipeline_failures_#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
@@ -18,7 +20,7 @@ defmodule Guardian.Query.PipelineFailuresTest do
     rows
   end
 
-  # A full segment, loaded; see Guardian.TestHelpers.loaded_segment/2.
+  # A full segment, loaded; see Guardian.Test.Segments.loaded_segment/2.
   defp segment(table, index \\ 1) do
     loaded_segment(table, index)
   end

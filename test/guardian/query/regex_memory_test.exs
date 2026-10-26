@@ -1,10 +1,10 @@
 defmodule Guardian.Query.RegexMemoryTest do
   # Changes the global query heap limit, so it must not run beside other tests.
   use ExUnit.Case, async: false
-  import Guardian.TestHelpers, only: [run_sql: 1]
+  import Guardian.Test.Query, only: [run_sql: 1]
 
   defp set_limit(mb) do
-    Guardian.TestEnv.put(query_max_heap_mb: mb)
+    Guardian.Test.Env.put(query_max_heap_mb: mb)
   end
 
   defp replace(subject, pattern, replacement) do

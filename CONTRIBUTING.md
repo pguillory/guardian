@@ -41,6 +41,11 @@ checks that each file defines at most one module, counting nested `defmodule` an
 `defprotocol` but not quoted code or `defimpl`.
 Test files may still define small support modules inline.
 
+Put new shared test infrastructure under `Guardian.Test.*` in
+`libtest/guardian/test/`, split by concern; see the
+[test support namespace](docs/changes/test-support-namespace.md) for existing helpers
+and their concurrency requirements.
+
 Generic mechanisms belong in generic layers, not inside a feature module (for example,
 an object-store lock would be a generic lock-on-a-key in the S3/R2 client, not part of
 Rules).

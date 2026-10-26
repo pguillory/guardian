@@ -35,7 +35,7 @@ defmodule Guardian.Aggregation.CounterContractTest do
       singles =
         Enum.map(
           values,
-          &Aggregation.start(aggregation, Guardian.AggregationTestHelper.args(name, arity, &1))
+          &Aggregation.start(aggregation, Guardian.Test.Aggregation.args(name, arity, &1))
         )
 
       merged = Enum.reduce(singles, &Aggregation.merge(aggregation, &1, &2))

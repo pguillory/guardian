@@ -4,7 +4,7 @@ defmodule Guardian.Query.NumericTest do
   # (Guardian.Query.TotalityTest) covers every function and operator more broadly.
   use Guardian.Query.EvaluationTestCase, async: true
 
-  import Guardian.TestHelpers, only: [run_sql: 1]
+  import Guardian.Test.Query, only: [run_sql: 1]
 
   alias Guardian.Query.Function.Interval
 

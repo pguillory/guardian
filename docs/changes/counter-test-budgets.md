@@ -1,5 +1,8 @@
 # Counter test budgets and peer readiness
 
+The shared helpers named below now live under `Guardian.Test.*`; see
+[test support namespace](test-support-namespace.md) for the mapping.
+
 Status: implemented and validated.
 
 Product spec impact: none. No statements change in overview.md or spec.md.

@@ -392,7 +392,7 @@ defmodule Guardian.Counters.StoreTest do
           )
         end)
 
-      Guardian.TestHelpers.await_queued_call(elem(pause, 0))
+      Guardian.Test.Processes.await_queued_call(elem(pause, 0))
       Process.sleep(20)
       Guardian.CounterStoreProbe.resume(pause)
       assert Task.await(task) == {:error, :timeout}

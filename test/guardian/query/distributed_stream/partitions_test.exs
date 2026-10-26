@@ -4,7 +4,7 @@ defmodule Guardian.Query.DistributedStream.PartitionsTest do
   use ExUnit.Case, async: false
 
   setup do
-    started_distribution = Guardian.TestCluster.ensure_distributed()
+    started_distribution = Guardian.Test.Cluster.ensure_distributed()
     cookie = Node.get_cookie() |> Atom.to_charlist()
 
     # No code path: the peer doesn't have Guardian.Query.DistributedStream, so its partition lookup

@@ -3,7 +3,8 @@ defmodule Guardian.Storage.LoadedSegmentsTest do
   alias Guardian.Storage.LoadedSegments
   alias Guardian.Storage.Segment
   use ExUnit.Case, async: true
-  import Guardian.TestHelpers
+  import Guardian.Test.Polling
+  import Guardian.Test.Segments
 
   describe "rescan/0" do
     test "loads newly added segment files" do

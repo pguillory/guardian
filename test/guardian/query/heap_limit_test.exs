@@ -2,7 +2,8 @@ defmodule Guardian.Query.HeapLimitTest do
   # Changes the global heap limit and counts live query processes, and starts a peer
   # node, so it must not run beside other tests.
   use ExUnit.Case, async: false
-  import Guardian.TestHelpers
+  import Guardian.Test.Query
+  import Guardian.Test.Processes
 
   # The VM logs a report for each process its heap limit kills.
   @moduletag :capture_log
@@ -10,7 +11,7 @@ defmodule Guardian.Query.HeapLimitTest do
   alias Guardian.Query.DistributedStream
 
   defp set_limit(mb) do
-    Guardian.TestEnv.put(query_max_heap_mb: mb)
+    Guardian.Test.Env.put(query_max_heap_mb: mb)
   end
 
   # Runs a pipeline as a trapping consumer, like the query process, in a fresh process.
@@ -132,8 +133,8 @@ defmodule Guardian.Query.HeapLimitTest do
 
   describe "on a peer node" do
     setup do
-      started_distribution = Guardian.TestCluster.ensure_distributed()
-      {peer, peer_node} = Guardian.TestCluster.start_peer(nil)
+      started_distribution = Guardian.Test.Cluster.ensure_distributed()
+      {peer, peer_node} = Guardian.Test.Cluster.start_peer(nil)
 
       on_exit(fn ->
         :peer.stop(peer)
@@ -156,12 +157,12 @@ defmodule Guardian.Query.HeapLimitTest do
 
       # Off here, on there: the remote worker is killed.
       set_limit(0)
-      Guardian.TestEnv.put([query_max_heap_mb: 1], [peer_node])
+      Guardian.Test.Env.put([query_max_heap_mb: 1], [peer_node])
       assert run.() == {:exit, :killed}
 
       # On here, off there: it finishes.
       set_limit(1)
-      Guardian.TestEnv.put([query_max_heap_mb: 0], [peer_node])
+      Guardian.Test.Env.put([query_max_heap_mb: 0], [peer_node])
       assert run.() == {:ok, [200_000]}
     end
   end

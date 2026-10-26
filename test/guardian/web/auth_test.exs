@@ -21,7 +21,7 @@ defmodule Guardian.Web.AuthTest do
 
   describe "check_conn/1 with query keys allowed" do
     setup do
-      Guardian.TestEnv.put(allow_query_api_key: true)
+      Guardian.Test.Env.put(allow_query_api_key: true)
       :ok
     end
 
@@ -74,12 +74,12 @@ defmodule Guardian.Web.AuthTest do
 
   test "note_query_key_use/1 logs the path at most once a minute, never a key" do
     log =
-      Guardian.QueryApiKeys.capture_query_key_log(fn ->
+      Guardian.Test.QueryApiKeys.capture_query_key_log(fn ->
         Auth.note_query_key_use("/mcp")
         Auth.note_query_key_use("/mcp")
       end)
 
-    assert Guardian.QueryApiKeys.query_key_log_lines(log) == [
+    assert Guardian.Test.QueryApiKeys.query_key_log_lines(log) == [
              "A request on /mcp authenticated with the api_key query parameter",
            ]
 

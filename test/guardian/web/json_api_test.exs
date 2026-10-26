@@ -2,7 +2,7 @@ defmodule Guardian.Web.JsonApiTest do
   # async: false because some tests switch query-parameter keys on.
   use ExUnit.Case, async: false
 
-  import Guardian.QueryApiKeys
+  import Guardian.Test.QueryApiKeys
 
   @api_key Application.compile_env!(:guardian, :api_key)
 

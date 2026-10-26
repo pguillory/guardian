@@ -1533,9 +1533,9 @@ About 150 test files cover:
    and the MCP endpoint end to end through a real MCP client (`Guardian.MCPTestClient`
    in `libtest/guardian/`, an Anubis client started by `Guardian.MCPTestClient.start/0`) against the
    test listener on an OS-chosen port, including sessions, the 404 and 405 rules, and
-   authentication with query keys allowed and refused (`Guardian.QueryApiKeys` in `libtest/guardian/`
+   authentication with query keys allowed and refused (`Guardian.Test.QueryApiKeys` in `libtest/guardian/test/`
    switches the setting for `async: false` tests).
-4. Clustering: `Guardian.TestCluster` (in `libtest/guardian/`) starts peer BEAM nodes on the same host,
+4. Clustering: `Guardian.Test.Cluster` (in `libtest/guardian/test/`) starts peer BEAM nodes on the same host,
    each running only Storage in its own data directory, and connects them, so schema
    merging, GROUP BY merging of groups split across nodes, node failures, a peer whose
    Storage has not started, and errors on a peer are tested with real distribution.
@@ -1552,7 +1552,7 @@ About 150 test files cover:
    client's S3 and folder implementations, their shared contract and the key lock
    have their own tests. `Guardian.FakeS3` (in
    `libtest/guardian/`) is a small S3 server that checks every request's SigV4 signature with
-   its own implementation of the canonical request; `Guardian.RulesTestHelper` restarts the
+   its own implementation of the canonical request; `Guardian.Test.Rules` restarts the
    shared Guardian.Rules.Server on a test store.
 6. Configuration and deployment: `config/runtime.exs` and the production config are
    evaluated in tests, as are the release environment script's three naming modes and
@@ -1563,35 +1563,40 @@ Rules: tests use no external services; each `mix test` run stores segments in a 
 directory under the system temp directory (set in `config/config.exs`, removed when
 the run's VM exits, once Guardian has stopped), so no run sees tables an earlier run
 left; `:large` tests (gigabytes of memory) are excluded by default. `Guardian.Query.EvaluationTestCase` is the helper for function
-tests; `Guardian.TestHelpers` (in `libtest/guardian/`) resolves and runs SQL (`resolve_sql/1`,
-`run_sql/1`), holds shared polling (`eventually/2`, and `eventually_after_gc/1` for
-released NIF resources), waits for a call queued at a suspended process
-(`await_queued_call/2`, on any node), sets the query time limit for a test
-(`with_time_limit/2`), finds processes running pipeline code, picks a full segment's loaded copy
-(`loaded_segment/2`, for tests that suspend or kill the segment a query reads),
-appends a nested row straight to a segment (`segment_append/2`), writes a segment file
-from rows (`write_segment_file/2`), and registers a
-one-call fake segment to inject an append's reply (`intercept_append/2`), and
-`Guardian.TestCluster.data_root/0` gives a peer a fresh data directory.
-`Guardian.TestCluster.single_peer/0` shares a single Storage peer's setup and cleanup
+tests. Shared infrastructure lives under `Guardian.Test.*` in `libtest/guardian/test/`:
+`Guardian.Test.Query` resolves and runs SQL (`resolve_sql/1`, `run_sql/1`) and scopes
+query time limits (`with_time_limit/2`, serial tests only). `Guardian.Test.Polling`
+holds `eventually/2` and `eventually_after_gc/1`; the latter requests GC throughout
+the VM, so global resource-count assertions require serial tests.
+`Guardian.Test.Processes` observes queued calls and pipeline worker stacks on this
+node or peers. `Guardian.Test.Segments` picks a full segment's loaded copy
+(`loaded_segment/2`), appends nested rows (`segment_append/2`), writes segment files
+(`write_segment_file/2`) and injects one-call append replies (`intercept_append/2`).
+Callers isolate observed processes, files, segments and tables; shared Storage
+process manipulation requires serial tests. `Guardian.Test.Aggregation` supplies
+pure representative aggregate arguments. Specialized clients, fake servers,
+counter probes/backends and the evaluation test case retain their existing homes.
+`Guardian.Test.Cluster.data_root/0` gives a peer a fresh data directory.
+`Guardian.Test.Cluster.single_peer/0` shares a single Storage peer's setup and cleanup
 across query and Rules tests, preserving the calling setup's test or module lifetime.
 Its `await_query_node/1` startup barrier waits for Storage readiness and a GROUP BY
 partition lookup; GROUP BY's executor and routing tests share
 `Guardian.Query.Executor.group_by_partitions/0`.
-`Guardian.TestEnv` (in `libtest/guardian/`) puts `:guardian` application env for an
+`Guardian.Test.Env` (in `libtest/guardian/test/`) puts `:guardian` application env for an
 `async: false` test, on this node or on named peers, and restores it when the test or a
-block ends; `with_time_limit/2`, `Guardian.QueryApiKeys.with_query_api_keys/2`,
-and `Guardian.CounterBudgetHelper.relax/1` and `scale/1` delegate to it.
-`Guardian.WorkBounds` measures caller reductions for synchronous CPU guards, with
+block ends; `Guardian.Test.Query.with_time_limit/2`, `Guardian.Test.QueryApiKeys.with_query_api_keys/2`,
+and `Guardian.Test.Counters.Budget.relax/1` and `scale/1` delegate to it.
+`Guardian.Test.WorkBounds` measures caller reductions for synchronous CPU guards, with
 bounds calibrated against representative regressions rather than host-dependent
 elapsed time (see [unit-test work bounds](../changes/unit-test-work-bounds.md)).
-`Guardian.RulesTestHelper.restart_server/2` stops the test server before restoring
-the previous store and extra settings through TestEnv. It restarts a previously
+`Guardian.Test.Rules.restart_server/2` stops the test server before restoring
+the previous store and extra settings through `Guardian.Test.Env`. It restarts a previously
 running server, leaving a previous failed start stopped until its outer cleanup
 restores the original working configuration.
-`Guardian.RulesTestHelper.compile_module/2` asserts successful compilation and
+`Guardian.Test.Rules.compile_module/2` asserts successful compilation and
 registers module deletion and soft purge on exit; tests compiling distinct probe
-modules can use it asynchronously without touching the shared Rules server.
+modules can use it asynchronously without touching the shared Rules server. Its `with_rules/1`, `restart_server/2`
+and `publish_module/2` helpers use shared Rules state and require serial tests.
 Tests do not use `:global` names: `Guardian.Query.DistributedStream.ClusterTest`
 suspends `:global` and checks on teardown that it still registers names. A bare
 `assert_receive` waits up to 5 s

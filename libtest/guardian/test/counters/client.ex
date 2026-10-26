@@ -1,5 +1,8 @@
-defmodule Guardian.CounterClientHelper do
-  @moduledoc false
+defmodule Guardian.Test.Counters.Client do
+  @moduledoc """
+  Starts and warms counter stores for peer tests. Tests using connected peers or
+  shared named stores require `async: false`; callers own the peer lifecycle.
+  """
 
   @doc """
   Loads the counter endpoint's call path and test doubles on this node. Peers load

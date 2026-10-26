@@ -6,7 +6,7 @@ defmodule Guardian.Counters.Context do
 
   # Internal test seam, not an operator setting: `config :guardian, __MODULE__,
   # event_ms: _, operation_ms: _` replaces both the default and the cap. Only tests
-  # set it, through Guardian.CounterBudgetHelper; production uses these defaults.
+  # set it, through Guardian.Test.Counters.Budget; production uses these defaults.
   @event_ms 100
   @operation_ms 50
 

@@ -3,7 +3,8 @@ defmodule Guardian.Storage.PersistedSegmentRetirementTest do
   # PersistedSegments stops the in-memory process instead of leaving it running
   # unregistered, which would leak it.
   use ExUnit.Case, async: false
-  import Guardian.TestHelpers
+  import Guardian.Test.Query
+  import Guardian.Test.Processes
 
   alias Guardian.Storage.BlobStore
   alias Guardian.Storage.Column
@@ -327,7 +328,7 @@ defmodule Guardian.Storage.PersistedSegmentRetirementTest do
 
   test "an invalid cache window stops the persister from starting" do
     for invalid <- [0, -1, 1.5, "600000", nil] do
-      Guardian.TestEnv.put(persisted_segment_cache_ms: invalid)
+      Guardian.Test.Env.put(persisted_segment_cache_ms: invalid)
 
       assert_raise ArgumentError, "persisted_segment_cache_ms must be a positive integer", fn ->
         PersistedSegments.init([])
@@ -336,7 +337,7 @@ defmodule Guardian.Storage.PersistedSegmentRetirementTest do
   end
 
   test "the configured cache window ends with the in-memory copy stopped" do
-    Guardian.TestEnv.put(persisted_segment_cache_ms: 50)
+    Guardian.Test.Env.put(persisted_segment_cache_ms: 50)
 
     :ok = :sys.resume(PersistedSegments)
     table = table()

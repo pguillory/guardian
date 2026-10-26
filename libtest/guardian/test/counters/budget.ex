@@ -1,4 +1,4 @@
-defmodule Guardian.CounterBudgetHelper do
+defmodule Guardian.Test.Counters.Budget do
   @moduledoc """
   Gives one test larger counter event and call budgets than production's 100 ms and
   50 ms: `relax/1` so host load is far less likely to turn healthy counter calls into
@@ -64,6 +64,6 @@ defmodule Guardian.CounterBudgetHelper do
   end
 
   defp put(budgets, peers) do
-    Guardian.TestEnv.put([{@context, budgets}], [node() | peers])
+    Guardian.Test.Env.put([{@context, budgets}], [node() | peers])
   end
 end

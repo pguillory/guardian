@@ -4,7 +4,7 @@ defmodule Guardian.Query.TextTest do
   use Guardian.Query.EvaluationTestCase, async: true
 
   alias Guardian.Query.Text
-  alias Guardian.WorkBounds
+  alias Guardian.Test.WorkBounds
 
   @max Text.max_bytes()
 

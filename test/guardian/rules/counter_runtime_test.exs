@@ -1,6 +1,6 @@
 defmodule Guardian.Rules.CounterRuntimeTest do
   use ExUnit.Case, async: false
-  import Guardian.RulesTestHelper
+  import Guardian.Test.Rules
   alias Guardian.Aggregation
   alias Guardian.Counters.Store
   alias Guardian.Rules.{CounterRuntime, DependencyGraph, Event, Runtime}
@@ -11,7 +11,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
   # including a cold first call, from timing out under host load and setting a
   # cooldown that fails later calls open.
   setup do
-    Guardian.CounterBudgetHelper.relax()
+    Guardian.Test.Counters.Budget.relax()
     store = start_supervised!({Store, name: nil})
     start_supervised!({Guardian.Counters.Budget, name: :rules_counter_runtime_test})
     %{store: store}
@@ -919,7 +919,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
   test "Runner preserves batch reservations and arrival coordinates through worker replacement" do
     table = unique_table("counter_worker_metadata")
     publish_module(table, MetadataRules)
-    Guardian.TestEnv.put(counter_metadata_observer: self())
+    Guardian.Test.Env.put(counter_metadata_observer: self())
     first = Event.arrival()
     second = %{first | arrival_ms: first.arrival_ms + 1}
 
@@ -948,7 +948,7 @@ defmodule Guardian.Rules.CounterRuntimeTest do
   test "Engine arrival metadata stays outside caller rows and is never stored" do
     table = unique_table("counter_engine_metadata")
     publish_module(table, MetadataRules)
-    Guardian.TestEnv.put(counter_metadata_observer: self())
+    Guardian.Test.Env.put(counter_metadata_observer: self())
     spoofed = %{"arrival_ms" => 1, "monotonic_ms" => 1, "timestamp" => "old", "counters" => 99}
     before = System.system_time(:millisecond)
 

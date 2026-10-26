@@ -5,7 +5,7 @@ defmodule Guardian.Web.AuthRoutesTest do
   # refused, a global setting, so this module is not async.
   use ExUnit.Case, async: false
 
-  import Guardian.QueryApiKeys
+  import Guardian.Test.QueryApiKeys
 
   @api_key Application.compile_env!(:guardian, :api_key)
 

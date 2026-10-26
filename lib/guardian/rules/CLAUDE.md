@@ -116,6 +116,6 @@ Modules:
    rollback is allowed. GUARDIAN_COUNTER_MEMORY_MB maps positive MiB to Store's
    byte budget. Read the reviewed design before changing counter semantics.
 
-Tests use `Guardian.RulesTestHelper`; its shared-server helpers require `async: false`,
+Tests use `Guardian.Test.Rules`; its shared-server helpers require `async: false`,
 while `compile_module/2` is async-safe for distinct probe modules. `Guardian.FakeS3`
 checks SigV4 with its own implementation of the canonical request.

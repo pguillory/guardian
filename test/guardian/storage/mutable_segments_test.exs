@@ -3,7 +3,7 @@ defmodule Guardian.Storage.MutableSegmentsTest do
   alias Guardian.Storage.Segment.Registration
   require Registration
   use ExUnit.Case, async: false
-  import Guardian.TestHelpers
+  import Guardian.Test.Polling
 
   test "append" do
     :ok = append("MutableSegmentsTest", a: 1)

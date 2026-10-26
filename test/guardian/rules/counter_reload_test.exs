@@ -1,11 +1,11 @@
 defmodule Guardian.Rules.CounterReloadTest do
   use ExUnit.Case, async: false
-  import Guardian.RulesTestHelper
+  import Guardian.Test.Rules
 
   setup do
     # No test here is about budgets: a larger one keeps healthy counter calls from
     # timing out under load.
-    Guardian.CounterBudgetHelper.relax()
+    Guardian.Test.Counters.Budget.relax()
     s3 = Guardian.FakeS3.start()
     on_exit(fn -> Guardian.FakeS3.stop(s3) end)
     {:ok, _} = restart_server(Guardian.FakeS3.store(s3))

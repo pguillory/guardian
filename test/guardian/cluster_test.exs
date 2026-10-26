@@ -11,7 +11,7 @@ defmodule Guardian.ClusterTest do
 
   describe "with a DNS query" do
     setup do
-      Guardian.TestEnv.put(dns_cluster_query: "my-app.internal")
+      Guardian.Test.Env.put(dns_cluster_query: "my-app.internal")
       :ok
     end
 

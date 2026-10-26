@@ -1,7 +1,7 @@
 defmodule Guardian.Storage.MmapTest do
   # Not async: the live-mapping counter and the open-descriptor count are global.
   use ExUnit.Case, async: false
-  import Guardian.TestHelpers, only: [eventually_after_gc: 1]
+  import Guardian.Test.Polling, only: [eventually_after_gc: 1]
 
   alias Guardian.Storage.Mmap
 

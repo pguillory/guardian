@@ -2,7 +2,7 @@ defmodule Guardian.Storage.SegmentTest do
   alias Guardian.Storage.Segment
   # Segment.append/2 takes flat rows; these tests append nested ones.
   import Segment, except: [append: 2]
-  import Guardian.TestHelpers, only: [segment_append: 2]
+  import Guardian.Test.Segments, only: [segment_append: 2]
   use ExUnit.Case, async: true
 
   @dir "/tmp/SegmentTest"

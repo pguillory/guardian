@@ -3,7 +3,7 @@ defmodule Guardian.Rules.RowIndexTest do
 
   alias Guardian.Rules.RowIndex
   alias Guardian.Storage.Flattening
-  alias Guardian.WorkBounds
+  alias Guardian.Test.WorkBounds
 
   describe "against the scan-every-key implementation it replaced" do
     # The reference: what Guardian.Rules.Runtime did before the index, one pass over the row

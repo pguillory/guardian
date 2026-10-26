@@ -1,6 +1,6 @@
 defmodule Guardian.Rules.CounterPlanTest do
   use ExUnit.Case, async: true
-  import Guardian.RulesTestHelper, only: [compile_module: 2]
+  import Guardian.Test.Rules, only: [compile_module: 2]
 
   alias Guardian.Rules.RuleSet
 
@@ -94,7 +94,7 @@ defmodule Guardian.Rules.CounterPlanTest do
 
   test "counter operators are every registered aggregate, with scalar arguments" do
     for {name, arity} <- Guardian.Aggregation.names_and_arities() do
-      args = Guardian.AggregationTestHelper.source_args(name, arity, "amount")
+      args = Guardian.Test.Aggregation.source_args(name, arity, "amount")
       [track] = plan(%{"t/a.gsql" => "TRACK c = #{name}(#{args}) LAST '1h'"}).steps
       assert track.definition.operator == {name, arity}
     end
@@ -175,7 +175,7 @@ defmodule Guardian.Rules.CounterPlanTest do
       Guardian.Aggregation.names_and_arities()
       |> Enum.with_index()
       |> Enum.map_join("; ", fn {{name, arity}, i} ->
-        args = Guardian.AggregationTestHelper.source_args(name, arity, "amount")
+        args = Guardian.Test.Aggregation.source_args(name, arity, "amount")
         "TRACK c#{i} = #{name}(#{args}) LAST '1h'; LOOKUP prior#{i} = c#{i}"
       end)
 

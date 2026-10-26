@@ -3,7 +3,7 @@ defmodule Guardian.AST.Node.Operators.LikeOperatorTest do
 
   alias Guardian.AST.Node.Operators.LikeOperator
   alias Guardian.Storage.Column
-  alias Guardian.WorkBounds
+  alias Guardian.Test.WorkBounds
 
   test "like operator" do
     assert eval("'' like ''") == true

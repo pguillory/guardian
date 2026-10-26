@@ -1,4 +1,4 @@
-defmodule Guardian.QueryApiKeys do
+defmodule Guardian.Test.QueryApiKeys do
   @moduledoc """
   Runs a test body with the `api_key` query parameter allowed or refused
   (`:guardian, :allow_query_api_key`), restoring the setting afterwards. The setting is
@@ -29,6 +29,6 @@ defmodule Guardian.QueryApiKeys do
 
   @doc "Runs `fun` with the `api_key` query parameter allowed or refused."
   def with_query_api_keys(allowed?, fun) when is_boolean(allowed?) do
-    Guardian.TestEnv.with_env([allow_query_api_key: allowed?], fun)
+    Guardian.Test.Env.with_env([allow_query_api_key: allowed?], fun)
   end
 end

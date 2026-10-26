@@ -3,7 +3,10 @@ defmodule Guardian.Query.SegmentReaderContractTest do
   # query time limit stops whatever is left. Suspends segments and changes the time
   # limit, so it runs alone.
   use ExUnit.Case, async: false
-  import Guardian.TestHelpers
+  import Guardian.Test.Query
+  import Guardian.Test.Polling
+  import Guardian.Test.Processes
+  import Guardian.Test.Segments
 
   alias Guardian.Storage.Segment
 
@@ -21,7 +24,7 @@ defmodule Guardian.Query.SegmentReaderContractTest do
     rows
   end
 
-  # Full segments only (index 0 to 2), loaded; see Guardian.TestHelpers.loaded_segment/2.
+  # Full segments only (index 0 to 2), loaded; see Guardian.Test.Segments.loaded_segment/2.
   defp segment(table, index) do
     loaded_segment(table, index)
   end

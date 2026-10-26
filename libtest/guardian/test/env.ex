@@ -1,4 +1,4 @@
-defmodule Guardian.TestEnv do
+defmodule Guardian.Test.Env do
   @moduledoc """
   Puts `:guardian` application env for a test and restores each key's previous value
   (or removes the key if it had none) afterwards, on this node or on peers.

@@ -1,5 +1,8 @@
 # Shared test environment and query peer helpers
 
+The shared helpers named below now live under `Guardian.Test.*`; see
+[test support namespace](test-support-namespace.md) for the mapping.
+
 Status: implemented and validated.
 
 Product spec impact: none. No statements change in `docs/product/overview.md` or

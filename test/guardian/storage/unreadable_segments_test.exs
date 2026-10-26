@@ -2,7 +2,8 @@ defmodule Guardian.Storage.UnreadableSegmentsTest do
   # Not async: capture_log sees every process's log events, and the skipped-file
   # state and the segment directory are shared with every other test's rescans.
   use ExUnit.Case, async: false
-  import Guardian.TestHelpers
+  import Guardian.Test.Polling
+  import Guardian.Test.Segments
 
   import ExUnit.CaptureLog
 

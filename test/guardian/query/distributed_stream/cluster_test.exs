@@ -7,7 +7,7 @@ defmodule Guardian.Query.DistributedStream.ClusterTest do
   @moduletag :capture_log
 
   import Guardian.Query.DistributedStream
-  import Guardian.TestHelpers
+  import Guardian.Test.Polling
   alias Guardian.DistributedStreamTestStages, as: Stages
 
   # Keeps :global from disconnecting the other nodes when two peers lose their
@@ -16,9 +16,9 @@ defmodule Guardian.Query.DistributedStream.ClusterTest do
   @no_partition_prevention [~c"-kernel", ~c"prevent_overlapping_partitions", ~c"false"]
 
   setup_all do
-    started_distribution = Guardian.TestCluster.ensure_distributed()
-    {peer_a, a} = Guardian.TestCluster.start_peer(nil, @no_partition_prevention)
-    {peer_b, b} = Guardian.TestCluster.start_peer(nil, @no_partition_prevention)
+    started_distribution = Guardian.Test.Cluster.ensure_distributed()
+    {peer_a, a} = Guardian.Test.Cluster.start_peer(nil, @no_partition_prevention)
+    {peer_b, b} = Guardian.Test.Cluster.start_peer(nil, @no_partition_prevention)
     true = :erpc.call(a, Node, :connect, [b])
 
     on_exit(fn ->

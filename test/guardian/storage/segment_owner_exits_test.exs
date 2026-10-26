@@ -3,7 +3,8 @@ defmodule Guardian.Storage.SegmentOwnerExitsTest do
   # unregistered without taking its manager down, and a manager that stops or deletes
   # a segment stops its process.
   use ExUnit.Case, async: false
-  import Guardian.TestHelpers
+  import Guardian.Test.Query
+  import Guardian.Test.Polling
   import ExUnit.CaptureLog
 
   alias Guardian.Storage.FullSegments

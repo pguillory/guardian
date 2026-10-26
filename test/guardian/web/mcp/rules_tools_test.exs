@@ -1,6 +1,6 @@
 defmodule Guardian.Web.MCP.RulesToolsTest do
   use ExUnit.Case, async: false
-  import Guardian.RulesTestHelper
+  import Guardian.Test.Rules
 
   defp call(tool, arguments) do
     {:ok, response} = Guardian.MCPTestClient.call_tool(tool, arguments)
@@ -62,7 +62,7 @@ defmodule Guardian.Web.MCP.RulesToolsTest do
 
   test "counter writes reject invalid definitions and later rule failures preserve prior increments" do
     # Not about budgets: a larger one keeps healthy counter calls from timing out under load.
-    Guardian.CounterBudgetHelper.relax()
+    Guardian.Test.Counters.Budget.relax()
     Guardian.MCPTestClient.start()
     table = unique_table("mcp_counter_validation")
 

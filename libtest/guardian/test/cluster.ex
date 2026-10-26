@@ -1,4 +1,4 @@
-defmodule Guardian.TestCluster do
+defmodule Guardian.Test.Cluster do
   @moduledoc """
   Starts extra Guardian nodes for multi-node tests.
 
@@ -48,7 +48,7 @@ defmodule Guardian.TestCluster do
   node's partitions. It does not start Storage on peers that intentionally lack it.
   """
   def await_query_node(peer_node) do
-    Guardian.TestHelpers.eventually(
+    Guardian.Test.Polling.eventually(
       fn ->
         peer_node in Guardian.Cluster.connected_nodes() and
           Enum.any?(Guardian.Query.Executor.group_by_partitions(), fn {node, _} ->

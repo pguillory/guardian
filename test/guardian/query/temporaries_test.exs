@@ -2,7 +2,7 @@ defmodule Guardian.Query.TemporariesTest do
   # Query temporaries (SELECT without FROM, the schema table, reassembled GROUP BY
   # output) are plain data, not Segment processes.
   use ExUnit.Case, async: false
-  import Guardian.TestHelpers, only: [run_sql: 1]
+  import Guardian.Test.Query, only: [run_sql: 1]
 
   alias Guardian.Query.Constant
   alias Guardian.Query.Evaluation

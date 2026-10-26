@@ -1,6 +1,6 @@
 defmodule Guardian.EngineTest do
   use ExUnit.Case, async: false
-  import Guardian.TestHelpers, only: [intercept_append: 2]
+  import Guardian.Test.Segments, only: [intercept_append: 2]
 
   test "ingests storage-safe event values without transformation" do
     table = "engine_ingest_#{System.unique_integer([:positive])}"

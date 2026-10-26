@@ -1,6 +1,6 @@
 defmodule Guardian.Rules.PublisherTest do
   use ExUnit.Case, async: false
-  import Guardian.RulesTestHelper
+  import Guardian.Test.Rules
 
   alias Guardian.Rules
   alias Guardian.Rules.Publisher

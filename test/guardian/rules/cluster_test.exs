@@ -1,7 +1,7 @@
 defmodule Guardian.Rules.ClusterTest do
   # Starts a peer node, so this module must not run concurrently with other tests.
   use ExUnit.Case, async: false
-  import Guardian.RulesTestHelper
+  import Guardian.Test.Rules
 
   # Existing custom stores need not implement the optional shared?/1 callback.
   defmodule LegacyStore do
@@ -40,7 +40,7 @@ defmodule Guardian.Rules.ClusterTest do
   end
 
   setup do
-    Guardian.TestCluster.single_peer()
+    Guardian.Test.Cluster.single_peer()
   end
 
   defp s3_cluster(peer_node, peer_env \\ []) do
@@ -48,7 +48,7 @@ defmodule Guardian.Rules.ClusterTest do
     on_exit(fn -> Guardian.FakeS3.stop(s3) end)
     store = Guardian.FakeS3.store(s3)
     {:ok, _} = restart_server(store)
-    :ok = :erpc.call(peer_node, Guardian.TestCluster, :start_rules, [store, peer_env])
+    :ok = :erpc.call(peer_node, Guardian.Test.Cluster, :start_rules, [store, peer_env])
     s3
   end
 

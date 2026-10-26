@@ -349,12 +349,16 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 
 ## Tests
 
+- [x] test-support-namespace: consolidate common helpers under `Guardian.Test.*` and
+      split SQL, polling, process and segment helpers by concern without changing
+      test behavior or coverage (`docs/changes/test-support-namespace.md`)
+
 - [x] rules-test-helper-follow-ups: share Rules cluster Storage-peer setup and
       successful probe compilation and cleanup
       (`docs/changes/test-infrastructure-helpers.md`)
 
 - [x] test-infrastructure-helpers: migrate remaining scoped environment cleanup to
-      TestEnv, restore Rules server settings, and share single-peer query setup,
+      `Guardian.Test.Env`, restore Rules server settings, and share single-peer query setup,
       readiness and GROUP BY partitions (`docs/changes/test-infrastructure-helpers.md`)
 
 - [x] formatter-convergence: one `mix format` invocation handles newly wrapped
@@ -402,6 +406,6 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       now scale the budget and allowance together, budget-independent assertions relax,
       and duration bounds are loosened only as far as they still separate the behavior
       they guard against (`docs/changes/counter-test-budgets.md`, second follow-up)
-- [x] test-env-helper: one generic test helper, `Guardian.TestEnv`, puts and restores
+- [x] test-env-helper: one generic test helper, `Guardian.Test.Env`, puts and restores
       `:guardian` application env on this node or on peers; four helpers that copied that
       code now delegate to it, and a fifth copy in the S3 tests was replaced by it

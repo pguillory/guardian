@@ -1,5 +1,8 @@
 # One module per file
 
+The shared helper path named below now lives under `libtest/guardian/test/`; see
+[test support namespace](test-support-namespace.md) for the mapping.
+
 Status: complete.
 
 Each file under `lib/` and `libtest/` defines one module or protocol, at the path

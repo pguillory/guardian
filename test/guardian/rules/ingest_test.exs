@@ -1,6 +1,6 @@
 defmodule Guardian.Rules.IngestTest do
   use ExUnit.Case, async: false
-  import Guardian.RulesTestHelper
+  import Guardian.Test.Rules
 
   defp ingest(table, events) do
     Guardian.Engine.ingest_events(table, events)
@@ -202,7 +202,7 @@ defmodule Guardian.Rules.IngestTest do
   test "an event over its time or heap limit fails alone; outcomes stay in order" do
     table = unique_table("rules_limits")
     publish_module(table, SlowRules)
-    Guardian.TestEnv.put(rules_time_limit_ms: 200, query_max_heap_mb: 4)
+    Guardian.Test.Env.put(rules_time_limit_ms: 200, query_max_heap_mb: 4)
 
     log =
       ExUnit.CaptureLog.capture_log(fn ->

@@ -1,11 +1,11 @@
 defmodule Guardian.Rules.ServerTest do
   use ExUnit.Case, async: false
-  import Guardian.RulesTestHelper
+  import Guardian.Test.Rules
 
   test "the default save margin exceeds the S3 write deadline" do
-    # TestEnv records prior values (or absence) and restores them on exit. Delete
+    # Guardian.Test.Env records prior values (or absence) and restores them on exit. Delete
     # these throwaway placeholders immediately so the defaults apply.
-    Guardian.TestEnv.put(rules_save_margin_ms: 1, object_store_s3_write_deadline_ms: 1)
+    Guardian.Test.Env.put(rules_save_margin_ms: 1, object_store_s3_write_deadline_ms: 1)
     Application.delete_env(:guardian, :rules_save_margin_ms)
     Application.delete_env(:guardian, :object_store_s3_write_deadline_ms)
 
@@ -137,7 +137,7 @@ defmodule Guardian.Rules.ServerTest do
 
   test "invalid counter writes save nothing and valid counters execute through generated modules" do
     # Not about budgets: a larger one keeps healthy counter calls from timing out under load.
-    Guardian.CounterBudgetHelper.relax()
+    Guardian.Test.Counters.Budget.relax()
     table = unique_table("counter_reject")
     {_s3, store} = s3_server()
 
@@ -681,7 +681,7 @@ defmodule Guardian.Rules.ServerTest do
 
   test "a save whose outcome is unknown reports it and leaves the lock held" do
     {s3, store} = s3_server()
-    Guardian.TestEnv.put(object_store_s3_write_deadline_ms: 300)
+    Guardian.Test.Env.put(object_store_s3_write_deadline_ms: 300)
     table = unique_table("rules_unknown")
 
     # Faults apply to requests in order: the lock create, the list, then the save.
@@ -698,7 +698,7 @@ defmodule Guardian.Rules.ServerTest do
 
   test "after a delete whose outcome is unknown, the next reload unpublishes the rule" do
     {s3, _store} = s3_server()
-    Guardian.TestEnv.put(object_store_s3_write_deadline_ms: 300)
+    Guardian.Test.Env.put(object_store_s3_write_deadline_ms: 300)
     table = unique_table("rules_unknown_delete")
     Guardian.FakeS3.put_object(s3, "#{table}/a.gsql", "SET x = 1")
     assert :ok = Guardian.Rules.reload()
@@ -719,7 +719,7 @@ defmodule Guardian.Rules.ServerTest do
 
   test "a write refuses to save with too little lease left" do
     {_s3, _store} = s3_server()
-    Guardian.TestEnv.put(rules_save_margin_ms: 200_000)
+    Guardian.Test.Env.put(rules_save_margin_ms: 200_000)
 
     assert Guardian.Rules.write_rule(unique_table("rules_margin"), "a", "SET x = 1") ==
              {:error, "the write lock's lease ran short; retry"}

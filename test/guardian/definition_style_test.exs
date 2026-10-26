@@ -73,7 +73,7 @@ defmodule Guardian.DefinitionStyleTest do
     assert Path.join(@root, "lib/guardian/rules/step.ex") in paths,
            "Source scan must include lib/"
 
-    assert Path.join(@root, "libtest/guardian/counter_client_helper.ex") in paths,
+    assert Path.join(@root, "libtest/guardian/test/counters/client.ex") in paths,
            "Source scan must include libtest/"
 
     violations =

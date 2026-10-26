@@ -1,6 +1,7 @@
 defmodule Guardian.Storage.HandoffVisibilityTest do
   use ExUnit.Case, async: false
-  import Guardian.TestHelpers
+  import Guardian.Test.Query
+  import Guardian.Test.Processes
 
   alias Guardian.Storage.BlobStore
   alias Guardian.Storage.FullSegments

@@ -1,5 +1,7 @@
-defmodule Guardian.AggregationTestHelper do
-  @moduledoc "Representative aggregate arguments for tests that cover every registered aggregate."
+defmodule Guardian.Test.Aggregation do
+  @moduledoc """
+  Pure, async-safe representative arguments for tests covering every registered aggregate.
+  """
 
   @doc """
   Arguments for one row of `name/arity` built from `value`: the value itself, the

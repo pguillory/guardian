@@ -29,7 +29,7 @@
 
 defmodule Guardian.QueryTest do
   import Guardian.Query, except: [run: 1]
-  import Guardian.TestHelpers, only: [run_sql: 1]
+  import Guardian.Test.Query, only: [run_sql: 1]
   # import QueryTestHelper
   # require QueryTestHelper
   use ExUnit.Case, async: false

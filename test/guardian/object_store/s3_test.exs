@@ -47,7 +47,7 @@ defmodule Guardian.ObjectStore.S3Test do
   end
 
   test "S3 failures are classified by kind", %{s3: s3, store: store} do
-    Guardian.TestEnv.put(
+    Guardian.Test.Env.put(
       object_store_s3_receive_timeout_ms: 200,
       object_store_s3_write_deadline_ms: 300
     )
