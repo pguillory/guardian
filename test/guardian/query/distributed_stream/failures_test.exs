@@ -365,13 +365,15 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
     :sys.resume(agent)
   end
 
-  test "killing the consumer mid-run leaves no pipeline process alive" do
-    {:ok, agent} = Agent.start_link(fn -> :ok end)
-    :sys.suspend(agent)
+  # Spawns a consumer that runs `consume` over a two-stage pipeline in which the worker
+  # given 2 blocks on the suspended `agent`, and returns the consumer, monitored, and
+  # that worker once it is blocked. The odd values keep flowing in their own chunks,
+  # so the consumer still receives rows meanwhile.
+  defp spawn_blocked_consumer(agent, consume) do
     parent = self()
 
-    consumer =
-      spawn(fn ->
+    {consumer, ref} =
+      spawn_monitor(fn ->
         1..1_000
         |> fan_out(&by_parity/1)
         |> map(fn
@@ -385,11 +387,42 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
         |> fan_out(&by_parity/1)
         |> map(& &1)
         |> fan_in()
-        |> Enum.to_list()
+        |> consume.()
       end)
 
     assert_receive {:blocked, blocked}, 5_000
+    {consumer, ref, blocked}
+  end
+
+  test "killing the consumer mid-run leaves no pipeline process alive" do
+    {:ok, agent} = Agent.start_link(fn -> :ok end)
+    :sys.suspend(agent)
+    {consumer, _ref, blocked} = spawn_blocked_consumer(agent, &Enum.to_list/1)
     Process.exit(consumer, :kill)
+    assert_no_pipeline_left()
+    refute Process.alive?(blocked)
+    :sys.resume(agent)
+  end
+
+  # Suspending enumeration and returning skips the stream's after-cleanup, so only the
+  # routers' handling of the consumer's normal EXIT stops the pipeline. The consumer
+  # returns only when told to, after the worker is known to be blocked.
+  test "a consumer that exits normally mid-run leaves no pipeline process alive" do
+    {:ok, agent} = Agent.start_link(fn -> :ok end)
+    :sys.suspend(agent)
+
+    {consumer, ref, blocked} =
+      spawn_blocked_consumer(agent, fn stream ->
+        {:suspended, _row, _continuation} =
+          Enumerable.reduce(stream, {:cont, nil}, fn row, _acc -> {:suspend, row} end)
+
+        receive do
+          :return -> :ok
+        end
+      end)
+
+    send(consumer, :return)
+    assert_receive {:DOWN, ^ref, :process, ^consumer, :normal}, 5_000
     assert_no_pipeline_left()
     refute Process.alive?(blocked)
     :sys.resume(agent)

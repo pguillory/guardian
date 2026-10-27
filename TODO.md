@@ -369,10 +369,19 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [ ] function-behaviour: an optional `Guardian.Query.Function` behaviour for function
       modules, with `eval2/2` as an optional callback, so the compiler checks a
       module's entry points (`lib/guardian/query/function/CLAUDE.md`)
-- [ ] test-only-labels: `Guardian.Query.labels/1` (SQL text) and the SHOW/DESC clauses of
+- [x] test-only-labels: `Guardian.Query.labels/1` (SQL text) and the SHOW/DESC clauses of
       `Guardian.Query.Resolver.labels/1` are reached only from tests, since the Resolver
       rewrites SHOW and DESC first; drop them and test SHOW/DESC labels through
-      `Guardian.Query.Resolver.resolve/1`
+      `Guardian.Query.Resolver.resolve/1` (`docs/changes/query-tidy.md`)
+- [x] query-tidy: declare Query's public boundary, move `merge_take/4` to
+      `Guardian.Lists`, and test a consumer's normal exit mid-pipeline
+      (`docs/changes/query-tidy.md`)
+- [ ] resolver-test-only-functions: `Guardian.Query.Resolver.unresolve_statement_index/2,3`
+      has no caller outside tests, and the binary clause of `resolve_aliases/1` and the
+      public `resolve_show_desc/1` are reached only from tests or the module itself;
+      drop them or make them private, testing through `resolve/1`. Likewise
+      `Guardian.Query.Function.Interval.from_seconds/1` has no caller but its test;
+      drop it with its test
 
 ## Interfaces and operations
 

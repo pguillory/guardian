@@ -1581,8 +1581,9 @@ directory under the system temp directory (set in `config/config.exs`, removed w
 the run's VM exits, once Guardian has stopped), so no run sees tables an earlier run
 left; `:large` tests (gigabytes of memory) are excluded by default. `Guardian.Query.EvaluationTestCase` is the helper for function
 tests. Shared infrastructure lives under `Guardian.Test.*` in `libtest/guardian/test/`:
-`Guardian.Test.Query` resolves and runs SQL (`resolve_sql/1`, `run_sql/1`) and scopes
-query time limits (`with_time_limit/2`, serial tests only). `Guardian.Test.Polling`
+`Guardian.Test.Query` resolves and runs SQL (`resolve_sql/1`, `run_sql/1`), scopes
+query time limits (`with_time_limit/2`, serial tests only) and names a query's
+process modules (`query_modules/0`). `Guardian.Test.Polling`
 holds `eventually/2` and `eventually_after_gc/1`; the latter requests GC throughout
 the VM, so global resource-count assertions require serial tests.
 `Guardian.Test.Processes` observes queued calls and pipeline worker stacks on this

@@ -34,7 +34,7 @@ defmodule Guardian.Cluster.QueryFailuresTest do
         assert [_ | _] =
                  remote =
                  processes_running(
-                   [Guardian.Query.DistributedStream, Guardian.Query, Guardian.Query.Executor],
+                   query_modules(),
                    peer_node
                  )
 
@@ -42,7 +42,7 @@ defmodule Guardian.Cluster.QueryFailuresTest do
         assert message =~ "time limit of 1 second"
 
         await_no_processes_running(
-          [Guardian.Query.DistributedStream, Guardian.Query, Guardian.Query.Executor],
+          query_modules(),
           node: peer_node,
           timeout_ms: 15_000
         )

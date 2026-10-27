@@ -31,7 +31,7 @@ defmodule Guardian.Query.HeapLimitTest do
   end
 
   defp assert_no_query_processes_left do
-    await_no_processes_running([DistributedStream, Guardian.Query, Guardian.Query.Executor],
+    await_no_processes_running(query_modules(),
       except: [self()]
     )
   end

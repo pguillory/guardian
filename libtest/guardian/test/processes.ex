@@ -49,8 +49,7 @@ defmodule Guardian.Test.Processes do
 
   @doc """
   The processes on `node` whose current stack runs code from any of `modules`, such
-  as a query's pipeline workers
-  (`[Guardian.Query.DistributedStream, Guardian.Query, Guardian.Query.Executor]`).
+  as a query's pipeline workers (`Guardian.Test.Query.query_modules/0`).
   """
   def processes_running(modules, node \\ node()) do
     processes_where(node, fn stack -> Enum.any?(modules, &(&1 in stack)) end)

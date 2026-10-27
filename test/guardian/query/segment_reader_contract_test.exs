@@ -31,7 +31,7 @@ defmodule Guardian.Query.SegmentReaderContractTest do
 
   defp assert_no_query_processes_left do
     await_no_processes_running(
-      [Guardian.Query.DistributedStream, Guardian.Query, Guardian.Query.Executor],
+      query_modules(),
       except: [self()]
     )
   end

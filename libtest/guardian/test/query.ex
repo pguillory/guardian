@@ -1,9 +1,19 @@
 defmodule Guardian.Test.Query do
   @moduledoc """
-  Resolves and runs SQL for tests. Query helpers are as async-safe as the
-  workload and shared state they use. `with_time_limit/2` changes node-wide
-  application env, so it requires `async: false`.
+  Resolves and runs SQL for tests, and names a query's process modules. Query
+  helpers are as async-safe as the workload and shared state they use.
+  `with_time_limit/2` changes node-wide application env, so it requires
+  `async: false`.
   """
+
+  @doc """
+  The modules a query's processes run code from: the query process and its pipeline
+  workers. Pass it to `Guardian.Test.Processes.processes_running/2` or
+  `await_no_processes_running/2` to find or await them.
+  """
+  def query_modules do
+    [Guardian.Query.DistributedStream, Guardian.Query, Guardian.Query.Executor]
+  end
 
   @doc """
   Resolves SQL text that holds exactly one executable statement and returns that
