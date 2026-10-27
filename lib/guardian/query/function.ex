@@ -1,4 +1,10 @@
 defmodule Guardian.Query.Function do
+  @moduledoc """
+  The scalar function registry: every name and arity, mapped to its module under
+  `Guardian.Query.Function.*` (`lib/guardian/query/function/CLAUDE.md`). The parser
+  checks calls against it and `Guardian.AST.Node.FunctionCall` dispatches through it.
+  """
+
   @names_and_mods [
     {"abs", 1, Guardian.Query.Function.Abs},
     {"adddate", 2, Guardian.Query.Function.DateAdd},

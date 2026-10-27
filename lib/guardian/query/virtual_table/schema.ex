@@ -1,4 +1,6 @@
 defmodule Guardian.Query.VirtualTable.Schema do
+  @moduledoc false
+
   alias Guardian.Query.Evaluation.SegmentSnapshot
   alias Guardian.Storage.Column
   alias Guardian.Storage.Column.Metadata

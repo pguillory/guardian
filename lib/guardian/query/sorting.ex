@@ -1,4 +1,6 @@
 defmodule Guardian.Query.Sorting do
+  @moduledoc false
+
   # Rows sort by their leading values, one direction (`:asc` or `:desc`) per value; the
   # rest of the row follows unchanged (`drop_prefix/2` removes the sort values).
   @min_chunk_rows 1024

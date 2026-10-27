@@ -1,4 +1,6 @@
 defmodule Guardian.Query.Planner do
+  @moduledoc false
+
   alias Guardian.AST
   alias Guardian.AST.Node.AggregateFunctionCall
   alias Guardian.AST.Node.Identifier

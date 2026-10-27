@@ -1,4 +1,10 @@
 defmodule Guardian.Query.Constant do
+  @moduledoc """
+  One value repeated `count` times: how evaluation represents a constant column
+  without building it. `Guardian.Query.ColumnOrConstant` treats it and a
+  `Guardian.Storage.Column` alike.
+  """
+
   alias Guardian.Storage.Column.Metadata
   alias Guardian.Storage.Value
   require Metadata

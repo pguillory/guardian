@@ -81,3 +81,27 @@ Raise `Guardian.Query.Error` with an actionable message for failures caused by t
 itself (result and time limits); the JSON API answers it with 400. Functions and
 operators never raise on a value: they give null, and strings they build are cut to
 `Guardian.Query.Text`'s cap (`lib/guardian/query/function/CLAUDE.md`, "Totality").
+
+## Public boundary
+
+Three tiers, by who may call them. There is no xref check: keep to this by convention
+and in review. Tests may use any Query module.
+
+1. The rest of Guardian (Web, Rules, Aggregation) may call `Guardian.Query`
+   (`execute/2`; `run/1` runs an already-resolved statement, for tests),
+   `Guardian.Query.Error`, `Limits`, `Evaluation`, `Numeric`, `Text`, and
+   `Function.Interval.to_seconds/1` (Rules' interval parsing).
+2. `Guardian.AST`, the parser and the nodes that evaluate themselves, is the other
+   half of the engine and may also call `Eval`, `Constant`, `ColumnOrConstant`,
+   `NativeDispatch`, `Regex`, `Evaluation.SegmentSnapshot`, the `Function` registry,
+   and the function modules its operators share (`Function.Concat`,
+   `Function.DateAdd`, `Function.DateSub`).
+3. Everything else is internal to Query: `Planner`, `Executor`, `Resolver`,
+   `Sorting`, `DistributedStream`, `Failure`, `WorkerErrors`, `AmbiguousColumnError`,
+   `URL` and `VirtualTable.Schema`.
+
+Modules in tiers 1 and 2 carry a moduledoc. Internal modules that carry one keep it
+(for example DistributedStream's failure contract and Failure's message bounds); the
+rest are `@moduledoc false`. The function modules under `function/`, including
+`Function.Interval`, are documented together by the registry and `function/CLAUDE.md`
+rather than one moduledoc each.

@@ -1,4 +1,11 @@
 defmodule Guardian.Query.ColumnOrConstant do
+  @moduledoc """
+  An evaluated expression's value: a `Guardian.Storage.Column` or a
+  `Guardian.Query.Constant`. Functions and operators map over it, build it from lists
+  (replacing unstorable results with nil) and read its count and metadata without
+  caring which of the two it is.
+  """
+
   alias Guardian.Query.Constant
   alias Guardian.Storage.Column
   alias Guardian.Storage.Column.Metadata
