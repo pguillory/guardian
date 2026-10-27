@@ -28,7 +28,6 @@
 # end
 
 defmodule Guardian.QueryTest do
-  import Guardian.Query, except: [run: 1]
   import Guardian.Test.Query, only: [run_sql: 1]
   # import QueryTestHelper
   # require QueryTestHelper
@@ -373,6 +372,12 @@ defmodule Guardian.QueryTest do
     assert_raise Guardian.AST.ParseError, ~r/Number out of range/, fn ->
       run("select -9223372036854775808")
     end
+  end
+
+  # A statement's column labels as the query interfaces return them.
+  defp labels(sql) do
+    [{_statement, labels}] = Guardian.Query.Resolver.resolve(sql)
+    labels
   end
 
   test "labels" do

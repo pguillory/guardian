@@ -833,7 +833,7 @@ SQL text
   -> Guardian.Query.Resolver (SHOW/DESC, LET, columns, SELECT *)  uses Guardian.Cluster.Metadata
   -> Guardian.Query.Planner (list of plan steps)
   -> Guardian.Query.run: Guardian.Query.DistributedStream over every node, Guardian.Query.Evaluation per segment
-  -> rows (lists of values), labeled by Guardian.Query.Resolver.labels/1
+  -> rows (lists of values), with the labels Guardian.Query.Resolver.resolve/1 gave
 ```
 
 ### 5.1 Parsing
@@ -864,8 +864,9 @@ them, and the same structs serve parsing, printing, and evaluation.
 4. `SELECT *` expands to the table's columns across all machines.
 
 It returns each statement paired with its column labels, taken from the statement
-before LET substitution (`Guardian.Query.Resolver.labels/1`). Resolution needs schemas, so it
-is the one step before execution that talks to other machines (section 7).
+before LET substitution: an alias where one is given, else the expression as
+written. Resolution needs schemas, so it is the one step before execution that talks
+to other machines (section 7).
 
 ### 5.3 Planning
 

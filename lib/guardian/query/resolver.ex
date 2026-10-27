@@ -7,7 +7,7 @@ defmodule Guardian.Query.Resolver do
   - LET substitutions
   - Match column names to stored column names ignoring case
   - Convert splat (SELECT *) into list of fields
-  - Label each statement's columns (`labels/1`)
+  - Label each statement's columns
   """
 
   alias Guardian.AST
@@ -25,7 +25,8 @@ defmodule Guardian.Query.Resolver do
 
   @doc """
   Resolves SQL text into its executable statements, each paired with its column labels
-  (`labels/1` of the statement before LET substitution, so the labels name columns in
+  (an alias where one is given, else the expression as written, taken from the
+  statement before LET substitution, so the labels name columns in
   their stored spelling and keep LET names as written). LET and empty statements yield
   no pair.
   """
@@ -71,21 +72,11 @@ defmodule Guardian.Query.Resolver do
     SuperList.zip(statements, labels)
   end
 
-  @doc """
-  The column labels of a statement: an alias where one is given, else the expression
-  as written back by `Guardian.AST.unparse/1`.
-  """
-  @spec labels(struct()) :: [String.t()]
-  def labels(%SelectStatement{} = statement) do
+  # The column labels of a SELECT: an alias where one is given, else the expression
+  # as written back by `Guardian.AST.unparse/1`. SHOW TABLES and DESC are SELECTs by
+  # now (`resolve_show_desc/1`).
+  defp labels(%SelectStatement{} = statement) do
     statement.select_exprs |> Enum.map(&label/1)
-  end
-
-  def labels(%ShowTablesStatement{}) do
-    ["table"]
-  end
-
-  def labels(%DescStatement{}) do
-    ["key"]
   end
 
   defp label(%As{right: %Identifier{name: name}}) do

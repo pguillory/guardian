@@ -98,16 +98,6 @@ defmodule Guardian.Query do
   end
 
   @doc """
-  The column labels of one statement of SQL text, parsed without resolution; see
-  `Guardian.Query.Resolver.labels/1`.
-  """
-  @spec labels(String.t()) :: [String.t()]
-  def labels(source) when is_binary(source) do
-    [statement] = Guardian.AST.parse_statements(source)
-    Guardian.Query.Resolver.labels(statement)
-  end
-
-  @doc """
   Runs a SELECT and returns its rows.
 
   The query runs in its own process, the consumer of its DistributedStream pipeline.

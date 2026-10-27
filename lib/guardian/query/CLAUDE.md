@@ -65,7 +65,7 @@ Query code reads stored segments only by ID, and only in `Guardian.Query.Evaluat
 AST nodes read columns through `read_column/2`, never from Guardian.Storage. Query code never
 holds a segment PID or calls a Storage internal module (`lib/guardian/storage/CLAUDE.md`,
 "Public boundary").
-`Guardian.Query` keeps the API (`execute/2`, `labels/1`, `run/1`) and the query process's
+`Guardian.Query` keeps the API (`execute/2`, `run/1`) and the query process's
 lifecycle (the caller watch, the time limit). `Guardian.Query.Executor` (internal) plans the
 statement and runs each step in the query process; its closures are what run in
 workers. `Guardian.Query.Failure` turns a worker's caught exception, a pipeline exit reason, or
