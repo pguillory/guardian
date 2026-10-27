@@ -1,7 +1,9 @@
 defmodule Guardian.Lists do
   @moduledoc """
-  Generic list reshaping that keeps items in order: each inverse walks its shape
-  once, taking heads, with no positional ids or index lookups.
+  Generic list helpers that keep items in order.
+
+  Reshaping and back: each inverse walks its shape once, taking heads, with no
+  positional ids or index lookups, and raises when its inputs do not fit the shape.
 
   - `flatten/1` and `unflatten/2`: concatenate a list of lists, then rebuild that
     nesting from a flat list of the same total length.
@@ -11,7 +13,7 @@ defmodule Guardian.Lists do
     with keys sorted and values in input order, then walk a key sequence taking the
     head of each key's values.
 
-  Each inverse raises when its inputs do not fit the shape.
+  Merging: `merge_take/4` merges two lists already in order and keeps the first `n`.
   """
 
   @doc "Concatenates a list of lists."
@@ -83,5 +85,30 @@ defmodule Guardian.Lists do
 
     true = Enum.all?(rest, &match?({_, []}, &1))
     values
+  end
+
+  @doc """
+  Merges two lists, each already in order, and keeps the first `n` elements.
+  `first?.(a, b)` says whether `a` (from `list1`) goes before `b` (from `list2`); when
+  it returns false, as on a tie under a strict comparison, `b` goes first.
+  """
+  def merge_take(_list1, _list2, 0, _first?) do
+    []
+  end
+
+  def merge_take([a | rest1] = list1, [b | rest2] = list2, n, first?) when n > 0 do
+    if first?.(a, b) do
+      [a | merge_take(rest1, list2, n - 1, first?)]
+    else
+      [b | merge_take(list1, rest2, n - 1, first?)]
+    end
+  end
+
+  def merge_take([], list2, n, _first?) do
+    Enum.take(list2, n)
+  end
+
+  def merge_take(list1, [], n, _first?) do
+    Enum.take(list1, n)
   end
 end

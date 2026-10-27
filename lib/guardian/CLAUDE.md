@@ -73,9 +73,10 @@ to the file's directory. Run the full suite afterward.
 
 Utilities are leaf helpers: atomic file replacement (`Guardian.AtomicFile`), build
 information (`Guardian.Build`), safe failure labels and stack redaction
-(`Guardian.Failure`), order-keeping list reshaping (`Guardian.Lists`), rendezvous hashing (`Guardian.Rendezvous`), segment IDs
-(`Guardian.SegmentID`), `Guardian.SortedSet`, timestamps (`Guardian.Timestamp`), and
-`Guardian.Utils` (hostname, ETS streaming). They call no other Guardian subsystem
+(`Guardian.Failure`), order-keeping list helpers (`Guardian.Lists`), rendezvous
+hashing (`Guardian.Rendezvous`), segment IDs (`Guardian.SegmentID`),
+`Guardian.SortedSet`, timestamps (`Guardian.Timestamp`), and `Guardian.Utils`
+(hostname, ETS streaming). They call no other Guardian subsystem
 (Engine, Storage, Query, AST, Web, Cluster); keep it that way, and put a helper with a
 single user next to that user instead.
 
@@ -88,12 +89,15 @@ single user next to that user instead.
   segment files (`Guardian.Storage.BlobStore`) and the folder object store
   (`Guardian.ObjectStore.Local`). The directory entry is not fsynced. `temp_file?/1`
   recognizes its temp names, which the folder store's listing skips.
-- `Guardian.Lists` reshapes lists and back, keeping order: flatten/unflatten,
-  filter/unfilter and group/ungroup (sorted keys, per-key input order). Each inverse
-  takes heads in one pass, with no positional ids or index lookups (ungroup keys a
-  map by the semantic key), and raises when its inputs do not fit the shape.
+- `Guardian.Lists` holds order-keeping list helpers. It reshapes lists and back:
+  flatten/unflatten, filter/unfilter and group/ungroup (sorted keys, per-key input
+  order). Each inverse takes heads in one pass, with no positional ids or index
+  lookups (ungroup keys a map by the semantic key), and raises when its inputs do not
+  fit the shape. `merge_take/4` merges two ordered lists, keeping the first `n`.
   Counter rounds (`Guardian.Counters.Execution`, `Guardian.Counters.Transport`) and
-  `Guardian.Rules.Runtime` use it.
+  `Guardian.Rules.Runtime` use the reshaping; ORDER BY with LIMIT
+  (`Guardian.Query.Sorting`) and the `_n` aggregates (`Guardian.Aggregation.Ordering`)
+  use `merge_take/4`.
 - `Guardian.SegmentID` creates sortable 32-byte hex identifiers containing a timestamp.
 - `Guardian.Failure` owns value-free diagnostic classification and stack redaction.
   Callers keep their logging and catch/reraise policies; caller-facing query

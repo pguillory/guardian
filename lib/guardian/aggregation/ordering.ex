@@ -40,7 +40,7 @@ defmodule Guardian.Aggregation.Ordering do
   end
 
   def merge_n(_name, {list1, n}, {list2, n}, wins?) do
-    {Guardian.Query.Sorting.merge_take(list1, list2, n, wins?), n}
+    {Guardian.Lists.merge_take(list1, list2, n, wins?), n}
   end
 
   def merge_n(name, _acc1, _acc2, _wins?) do

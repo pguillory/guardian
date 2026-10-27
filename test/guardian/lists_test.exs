@@ -42,4 +42,20 @@ defmodule Guardian.ListsTest do
       Lists.ungroup([{:a, [2, 5, 7]}, {:b, [1, 3, 6]}, {:c, [4]}], keys)
     end
   end
+
+  test "merge_take" do
+    asc = &(&1 <= &2)
+    assert Lists.merge_take([1, 2], [3, 4], 5, asc) == [1, 2, 3, 4]
+    assert Lists.merge_take([1, 2], [3, 4], 4, asc) == [1, 2, 3, 4]
+    assert Lists.merge_take([1, 3], [2, 4], 3, asc) == [1, 2, 3]
+    assert Lists.merge_take([3, 4], [1, 2], 2, asc) == [1, 2]
+    assert Lists.merge_take([1, 2], [3, 4], 1, asc) == [1]
+    assert Lists.merge_take([1, 2], [3, 4], 0, asc) == []
+    assert Lists.merge_take([], [3, 4], 1, asc) == [3]
+  end
+
+  test "merge_take breaks ties by first?" do
+    assert Lists.merge_take([1], [1.0], 2, &(&1 <= &2)) === [1, 1.0]
+    assert Lists.merge_take([1], [1.0], 2, &(&1 < &2)) === [1.0, 1]
+  end
 end

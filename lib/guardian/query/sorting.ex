@@ -23,33 +23,13 @@ defmodule Guardian.Query.Sorting do
     |> Stream.chunk_every(max(limit, @min_chunk_rows))
     |> Enum.reduce([], fn chunk, top ->
       # The rows kept so far came first, so they go on the left to win ties.
-      merge_take(top, sort(chunk, directions), limit, &(compare(&1, &2, directions) == :row1))
+      Guardian.Lists.merge_take(
+        top,
+        sort(chunk, directions),
+        limit,
+        &(compare(&1, &2, directions) == :row1)
+      )
     end)
-  end
-
-  @doc """
-  Merges two lists, each already in order, and keeps the first `n` elements.
-  `first?.(a, b)` says whether `a` (from `list1`) goes before `b` (from `list2`); when
-  it returns false, as on a tie under a strict comparison, `b` goes first.
-  """
-  def merge_take(_list1, _list2, 0, _first?) do
-    []
-  end
-
-  def merge_take([a | rest1] = list1, [b | rest2] = list2, n, first?) when n > 0 do
-    if first?.(a, b) do
-      [a | merge_take(rest1, list2, n - 1, first?)]
-    else
-      [b | merge_take(list1, rest2, n - 1, first?)]
-    end
-  end
-
-  def merge_take([], list2, n, _first?) do
-    Enum.take(list2, n)
-  end
-
-  def merge_take(list1, [], n, _first?) do
-    Enum.take(list1, n)
   end
 
   defp compare([value1 | rest1], [value2 | rest2], [:asc | directions]) do
