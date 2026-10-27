@@ -66,7 +66,7 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       folder or an S3-compatible bucket), run on API ingests before storage, managed
       through MCP tools with whole-set validation and a store-held write lock
       (`docs/changes/ingest-rules.md`)
-- [ ] rules-rollout: put rules into the maintainer's deployment (`fly.toml`), each
+- [x] rules-rollout: put rules into the maintainer's deployment (`fly.toml`), each
       step only on the maintainer's go, and each after the one before is checked
       1. Deploy done (2026-10-24, `c5df444`): no `GUARDIAN_RULES_*` settings or
          secrets, empty local `/data/rules`, and no rules written. The `:re` hold
@@ -128,6 +128,15 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
          own network as `docs/guides/rules.md` ("Switching an existing deployment to
          a bucket") describes, conditional writes included (a second
          `If-None-Match: *` create gets 412).
+         Done (2026-10-26 evening Pacific): an R2 bucket on the maintainer's account
+         with a bucket-scoped object read/write token. Checked from the running
+         machine with Guardian's own S3 client in a one-off `guardian eval` VM, the
+         key passed over the SSH session's stdin into that VM's environment only:
+         the first `If-None-Match: *` create succeeded, the second got 412, an
+         `If-Match` with a wrong ETag got 412 and with the right one succeeded, then
+         delete and list (empty) succeeded. The four settings (bucket, endpoint, key
+         ID, secret; default region, no prefix) were staged as Fly secrets without
+         a restart.
       3. Switch: stage every `GUARDIAN_RULES_S3_*` setting (bucket, `https://`
          endpoint, key ID and secret, plus a prefix if used) and apply them in one
          restart.
@@ -135,6 +144,18 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
          names the bucket, `list_rules` shows the copied rules, and a test write and
          delete through the MCP tools succeed. Rollback: remove them all together,
          in one restart (removing some refuses startup); `/data/rules` stays.
+         Done (2026-10-26 evening Pacific, v46: `fly secrets deploy`, same image as
+         v45, `c7e2218`). `/data/rules` was empty, so nothing was copied. Checked:
+         `/health` ok; the boot line was outside Fly's log buffer, so the store was
+         confirmed on the running node instead (the bucket at the R2 endpoint);
+         `list_rules` empty; a throwaway `rollout_probe_test/rollout_check` rule
+         written and deleted through MCP, its object present in the bucket in
+         between and gone after (the lock's released `_write.lock` object stays);
+         new rows kept arriving after the restart in `desktop_events` and
+         `system_stats` (`counters_available=true`). The log showed no Guardian
+         errors, with `server/discover` warnings, Cloudflare's disabled ICMP proxy
+         warnings and restart-window Fly proxy errors. Rollback target: v45's image
+         (remove all four `GUARDIAN_RULES_S3_*` secrets in one restart).
 - [x] rules-track-lookup: TRACK (counters) and LOOKUP statements; settled v1 design
       and reviewed four-piece plan in `docs/changes/ingest-rules.md`
       1. [x] C1: node-local ETS get/gets/cas/incr, per-key TTLs, memory
