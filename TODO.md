@@ -169,6 +169,34 @@ when it needs one. This file is public: see the change-tracking rules in AGENTS.
          warnings and restart-window Fly proxy errors. No rule settings, secrets or
          rules changed. Rollback target: v48's image
          (`deployment-01M60CGDBXJN8NHCQ2RQ10HTNW`).
+         `b54b3aa` (2026-10-28 morning Pacific, v50: split API keys into the
+         insert-only `GUARDIAN_INGEST_API_KEY` and the full-access
+         `GUARDIAN_ADMIN_API_KEY`, legacy `GUARDIAN_API_KEY` kept, `POST
+         /api/json/query` removed; the full pre-commit gate passed on that main,
+         1349 tests, 0 failures). Before the deploy, v49's `priv/commit` was
+         confirmed as `9403ef6`. Both new keys were staged with `fly secrets import
+         --stage` (no other secret pending) and went live with this deploy.
+         Checked: the image's `priv/commit`; `/health` ok; 401 without a key on
+         `/mcp` and `send_events`; an MCP initialize plus query and `list_rules`
+         (still empty) with both the legacy and the admin key; 403 for the ingest
+         key on `/mcp`, `GET /api/json/send_events` and `/api/json/query`; 404 for
+         `/api/json/query` with the full-access keys. The connector registered four
+         tunnel connections; no read-only request uses the Workers VPC path, so none
+         was made, and Stumpy worker sends kept landing in `stumpy_events`. New rows
+         kept arriving in `stumpy_events` and `desktop_events`. The boot (about a
+         minute) showed no Guardian errors, with a `server/discover` warning,
+         Cloudflare's disabled ICMP proxy warnings and restart-window Fly proxy
+         errors. Callers moved after the deploy, each checked before the next: the
+         Stumpy worker's `GUARDIAN_API_KEY` secret and Stumpy Desktop's
+         `guardianApiKey` to the ingest key (their `send_events` requests now log
+         `auth_key=ingest`), and the Codex and Claude Code MCP configs (the default
+         profile and both account profiles) to the admin key, each checked with a
+         fresh MCP connection. No Stumpy cloud agent has a Guardian MCP server.
+         Already-running MCP clients keep the legacy key until they restart. No rule
+         settings or rules changed; the legacy key is still set (retiring it is a
+         separate step). Rollback target: v49's image
+         (`deployment-01M60EJCEHMKW3S0KWQ3DM1DKB`); roll the callers back to the
+         legacy key first.
       2. Bucket: an R2 bucket and a bucket-scoped object read/write token, made by
          the maintainer; the secret goes straight into the deployment's secrets,
          never printed or stored here. Check the credentials from the deployment's
