@@ -122,6 +122,18 @@ when it needs one. This file is public: see the change-tracking rules in AGENTS.
          errors, with a `server/discover` warning, Cloudflare's disabled ICMP
          proxy warnings and restart-window Fly proxy errors. Rollback target:
          v44's image.
+         `5e326f1` (2026-10-27 evening Pacific, v47: query boundary and list-helper
+         refactors and test cleanup, behavior unchanged; the full pre-commit gate
+         passed on that main, 1337 tests, 0 failures, 3 excluded). The intervening
+         v46 was the config-only rules-to-R2 switch in step 3, using v45's image.
+         Checked: `/health` ok, the image's `priv/commit`, MCP SHOW TABLES and
+         queries returning data, and `list_rules` still empty (no counter rules to
+         exercise). New rows kept arriving after the full restart in
+         `desktop_events` and `system_stats`; fresh stats reported
+         `counters_available=true`. The inspected boot tail showed no Guardian
+         errors, with Cloudflare's disabled ICMP proxy warnings and restart-window
+         Fly proxy errors. No rule settings, secrets or rules changed. Rollback
+         target: v45/v46's image.
       2. Bucket: an R2 bucket and a bucket-scoped object read/write token, made by
          the maintainer; the secret goes straight into the deployment's secrets,
          never printed or stored here. Check the credentials from the deployment's
