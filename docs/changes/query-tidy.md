@@ -21,11 +21,11 @@ or the MCP tool returns.
 
 ## Behavior after the change
 
-1. `lib/guardian/query/CLAUDE.md` has a "Public boundary" section in three tiers:
+1. `lib/guardian/query/AGENTS.md` has a "Public boundary" section in three tiers:
    what the rest of Guardian may call, what the AST may also call, and what is
    internal. Planner, Sorting and VirtualTable.Schema are `@moduledoc false`;
    Function, Constant and ColumnOrConstant have moduledocs. The function modules are
-   documented together by the registry and `function/CLAUDE.md`.
+   documented together by the registry and `function/AGENTS.md`.
 2. `merge_take/4` lives in the leaf `Guardian.Lists`, unchanged; Sorting and
    Ordering call it there.
 3. `Guardian.Query.labels/1` is gone, and `Resolver.labels` is private and handles

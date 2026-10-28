@@ -64,7 +64,7 @@ arrival coordinates into Counters was TODO `counter-definition-layer`, since don
 
 ## Docs
 
-`lib/guardian/counters/CLAUDE.md`, `lib/guardian/rules/CLAUDE.md`,
-`lib/guardian/CLAUDE.md`, `docs/architecture/system.md` section 3.5, the
+`lib/guardian/counters/AGENTS.md`, `lib/guardian/rules/AGENTS.md`,
+`lib/guardian/AGENTS.md`, `docs/architecture/system.md` section 3.5, the
 superseded placement note in `docs/changes/counter-execution-topdown.md`, and
 TODO.md.

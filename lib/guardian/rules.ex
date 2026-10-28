@@ -15,7 +15,7 @@ defmodule Guardian.Rules do
   lock policy (files are read and written through `Guardian.ObjectStore`, and the
   write lock is a `Guardian.ObjectStore.Lock`); its synchronous
   `Guardian.Rules.Publisher` owns activation, publication and the module pool. See
-  `docs/architecture/system.md` ("Rules") and `lib/guardian/rules/CLAUDE.md`.
+  `docs/architecture/system.md` ("Rules") and `lib/guardian/rules/AGENTS.md`.
   """
 
   @tables_key {__MODULE__, :tables}

@@ -41,7 +41,7 @@ either name (it matches `_write.lock` exactly and `*/*.gsql`).
 
 None in `docs/product/overview.md` or `docs/product/spec.md`: the spec makes no claim
 about rule-file durability, and rule writes were and stay atomic. Architecture:
-system.md sections 3.4 and 4.3 and `lib/guardian/CLAUDE.md` name the helper.
+system.md sections 3.4 and 4.3 and `lib/guardian/AGENTS.md` name the helper.
 Security architecture: none.
 
 ## Validation

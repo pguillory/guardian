@@ -57,7 +57,7 @@ defmodule Guardian.Test.Segments do
   (or fails) as the test needs. The fake unregisters itself before calling back, so
   later rows use real segments. Call it from the test process: cleanup is `on_exit`.
   It writes MutableSegments' registry directly, which test code may do to inject
-  faults (`lib/guardian/storage/CLAUDE.md`).
+  faults (`lib/guardian/storage/AGENTS.md`).
   """
   def intercept_append(table, callback) do
     segment_id = Guardian.SegmentID.generate()

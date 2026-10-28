@@ -53,7 +53,7 @@ sequence, taking the head of each key's values). No positional id maps or
 index lookups. `group/1` and `ungroup/2` key a map by the semantic key (the owner
 node), which is allowed; each runs in one pass plus map updates, never a list
 search per item. It has three users (CounterRuntime, Rules.Runtime and Transport) and calls no
-subsystem, so it is a leaf utility (listed in `lib/guardian/CLAUDE.md`).
+subsystem, so it is a leaf utility (listed in `lib/guardian/AGENTS.md`).
 
 Placement trade-off: the round loop (`run_state_machines`, `run_one_iteration`)
 contains no Rules concepts and could live in Counters. It stays in
@@ -90,7 +90,7 @@ rendezvous owner over the event's member snapshot). `dispatch/2` takes
 `[{owner, [op]}]` and returns `[{owner, [response]}]` in the same order, one
 response per op. The whole round goes to one `dispatch/2` call, never one call
 per owner. It accepts only ops that `route/2` accepted (documented on Client and
-in `lib/guardian/counters/CLAUDE.md`); an unrouted malformed expiry would raise
+in `lib/guardian/counters/AGENTS.md`); an unrouted malformed expiry would raise
 inside dispatch, which cleans up its calls and fails the level open. Dispatch
 runs owners in the order given; `Lists.group/1` is the one place that sorts them.
 Everything that paces dispatch stays behind it in Transport: reservations, refunds, pending admission (owners without a
@@ -181,7 +181,7 @@ level open, as today. No new round cap is added.
 
 ## Docs
 
-`lib/guardian/counters/CLAUDE.md` (route/dispatch replacing the batched facade,
-`operation_owner` wording, run_nested), `lib/guardian/rules/CLAUDE.md`,
-`lib/guardian/CLAUDE.md` (leaf utility), `docs/architecture/system.md` (counter
+`lib/guardian/counters/AGENTS.md` (route/dispatch replacing the batched facade,
+`operation_owner` wording, run_nested), `lib/guardian/rules/AGENTS.md`,
+`lib/guardian/AGENTS.md` (leaf utility), `docs/architecture/system.md` (counter
 execution paragraph) and TODO.md.

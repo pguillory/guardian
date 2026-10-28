@@ -98,12 +98,12 @@ apply these rules. `list_rules` (MCP) still shows only valid rule files.
   the folder are trusted operator configuration.
 - `docs/architecture/system.md` rules section and testing section; the config table if
   it names the module.
-- `lib/guardian/CLAUDE.md`, `lib/guardian/object_store/CLAUDE.md` (the new module; rule
-  1 notes that Local, unlike S3, refuses unsafe keys), `lib/guardian/rules/CLAUDE.md`
+- `lib/guardian/AGENTS.md`, `lib/guardian/object_store/AGENTS.md` (the new module; rule
+  1 notes that Local, unlike S3, refuses unsafe keys), `lib/guardian/rules/AGENTS.md`
   (the store entry).
 - `docs/changes/object-store-lock.md`: the "Not in this change" item points here.
 - References to `Guardian.Rules.Store.Local` from the atomic-write-helper change
-  (`Guardian.AtomicFile`'s docs, `lib/guardian/CLAUDE.md`, `system.md`).
+  (`Guardian.AtomicFile`'s docs, `lib/guardian/AGENTS.md`, `system.md`).
 - TODO.md: close `object-store-local`.
 
 Product spec impact: [Files item 3](../product/spec.md#511-files) gains the stray-file

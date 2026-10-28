@@ -77,7 +77,7 @@ Same test count and assertions; the CounterRulesTest moduledoc pointer names bot
 | `Guardian.EngineTestKey` | `Guardian.Test.EngineKey` |
 
 Each moves to the matching path under `libtest/guardian/test/`, with references in
-tests, subsystem CLAUDE.md files and `docs/architecture/system.md` updated.
+tests, subsystem AGENTS.md files and `docs/architecture/system.md` updated.
 
 Not moved, because they are not cheap:
 
@@ -96,10 +96,12 @@ captured log names `Guardian.Query.Error`.
 
 ## Docs
 
-`docs/architecture/system.md`'s testing section and the subsystem CLAUDE.md files
+`docs/architecture/system.md`'s testing section and the subsystem AGENTS.md files
 name the new modules; `docs/changes/test-support-namespace.md` gets a note that this
 change moved the helpers it left in place. Historical change documents keep the
-names they used. TODO.md records the change.
+helper module names they used. Instruction-file paths use the current filenames
+from [the later filename migration](canonical-agent-instructions.md).
+TODO.md records the change.
 
 ## Validation
 

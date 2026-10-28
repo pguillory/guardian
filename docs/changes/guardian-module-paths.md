@@ -16,7 +16,7 @@ steps, generated protocol implementations, and the vendored DistributedStream
 Enumerable implementation; `one-module-per-file.md` later split the typed rule
 steps into one file each. The vendored implementation's license and
 instructions move with it. The small utilities guide is folded into
-`lib/guardian/CLAUDE.md`, beside its leaf modules.
+`lib/guardian/AGENTS.md`, beside its leaf modules.
 
 Tests mirror their subjects under `test/guardian/`, preserving existing subsystem
 grouping and module declarations. Compiled test helpers live in

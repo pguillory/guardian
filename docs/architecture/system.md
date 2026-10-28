@@ -12,7 +12,7 @@ How this fits with the other docs:
    cites its sections instead of repeating behavior.
 2. Trust boundaries, the API key, secrets, and logging exposure are the [security architecture](security.md). This document links
    to it rather than restating it.
-3. Rules for editing a subsystem are in the `CLAUDE.md` file in each `lib/` directory.
+3. Rules for editing a subsystem are in the `AGENTS.md` file in each `lib/` directory.
    Those files are the working notes for agents changing that code; this document is
    the map that connects them.
 4. Known limits are named where they arise and collected in section 12.
@@ -183,7 +183,7 @@ Two C components live in `src/` and are built by the Makefile through
 Native code is used where it pays: columns because evaluation runs over every value of
 a column. A NIF runs inside the VM, so a NIF bug can abort the whole node; the column
 NIF validates every value before it can reach a C `assert`
-(`lib/guardian/storage/column/CLAUDE.md`), but packed binaries it is handed are trusted. No
+(`lib/guardian/storage/column/AGENTS.md`), but packed binaries it is handed are trusted. No
 dependency brings native code of its own and no system library is linked, so the
 build needs only a C toolchain and nothing in it is x86-only. Regular expressions
 (`RLIKE`, `replace`) run on Erlang's built-in `:re` (section 5.6; `LIKE` is matched in
@@ -306,7 +306,7 @@ locks and reallocates buffers as it grows, so a column must be touched by exactl
 process. Making that process the segment itself gives atomic rows and simple
 visibility. The cost is that a table's ingest rate is bounded by one process, and an
 append waits behind any reads queued on that segment (each read of a mutable column
-packs a snapshot of it; `lib/guardian/storage/CLAUDE.md` covers the costs).
+packs a snapshot of it; `lib/guardian/storage/AGENTS.md` covers the costs).
 
 ### 3.3 What the ingest path does not do
 
@@ -323,7 +323,7 @@ packs a snapshot of it; `lib/guardian/storage/CLAUDE.md` covers the costs).
 ### 3.4 Rules
 
 Rules ([spec section 5.1](../product/spec.md#51-rules)) are files of SET, UNSET, TRACK and LOOKUP statements, `<table>/<name>.gsql`,
-in a rule store: a local folder or an S3-compatible bucket (`lib/guardian/rules/CLAUDE.md`;
+in a rule store: a local folder or an S3-compatible bucket (`lib/guardian/rules/AGENTS.md`;
 the design and its reviews are `docs/changes/ingest-rules.md`).
 
 1. Parsing and validation: `Guardian.AST.Parser.parse_rules/1` parses a file (statement words
@@ -619,7 +619,7 @@ restart and true after recovery. `/health` continues to depend only on Guardian.
 
 ## 4. Storage engine
 
-`lib/guardian/storage/CLAUDE.md` is the authoritative description of the segment lifecycle
+`lib/guardian/storage/AGENTS.md` is the authoritative description of the segment lifecycle
 rules. This section explains the structure and the reasons.
 
 `Guardian.Storage` is the subsystem's only public module (besides the data modules `Column`,
@@ -744,7 +744,7 @@ Limits:
    parse as segments, so they are ignored without a warning.
 
 Changing the format or filename scheme needs an explicit migration plan
-(`lib/guardian/storage/CLAUDE.md`). Files in the older `{user_id}.{table}.{segment_id}.seg`
+(`lib/guardian/storage/AGENTS.md`). Files in the older `{user_id}.{table}.{segment_id}.seg`
 format are ignored with one startup warning and never deleted.
 
 ### 4.4 Loading, mmap, and rescans
@@ -846,7 +846,7 @@ for nodes with children); column
 labels are the source text of each select expression, which is why round-trip printing
 matters (a label from `INTERVAL n WEEK` that cannot be re-parsed is one gap). Function and aggregate names are
 checked against their registries during parsing, so an unknown function is a parse
-error. Errors carry "Expected X, got Y" messages. See `lib/guardian/ast/CLAUDE.md`.
+error. Errors carry "Expected X, got Y" messages. See `lib/guardian/ast/AGENTS.md`.
 
 Why hand-written: the language is small, error messages matter to agents that read
 them, and the same structs serve parsing, printing, and evaluation.
@@ -896,7 +896,7 @@ not call it; constants are evaluated per segment as constant columns, which is c
 `Guardian.Query.run/1` executes the plan (through `Guardian.Query.Executor`) with `Guardian.Query.DistributedStream`
 (`lib/guardian/query/distributed_stream.ex`, vendored from the `distributed_stream` 0.1.4 Hex
 package). Its moduledoc is the contract (API, failure
-model, exit reasons) and `lib/guardian/query/distributed_stream/CLAUDE.md` holds the protocol's
+model, exit reasons) and `lib/guardian/query/distributed_stream/AGENTS.md` holds the protocol's
 editing rules.
 DistributedStream builds a pipeline of stages; each stage is a set of worker processes
 spread over nodes by a fan-out function, and a router process per stage on the
@@ -916,7 +916,7 @@ How Guardian's plan maps onto stages:
    (`Guardian.Rendezvous`, highest 32-bit phash2 score, ties broken by partition), so all
    rows of one group meet in one process. Each partition
    aggregates into an ETS table with the aggregation's `start`, `merge`, and `finish`
-   functions (`lib/guardian/aggregation/CLAUDE.md`; merge must be associative because partial
+   functions (`lib/guardian/aggregation/AGENTS.md`; merge must be associative because partial
    results combine across segments and nodes).
 3. ORDER BY ... LIMIT n sorts and truncates to n on each worker, then merges on the
    coordinator. ORDER BY without LIMIT collects everything on the coordinator and sorts
@@ -991,7 +991,7 @@ key to packed binary, with no process behind it, freed when the last stage drops
    has a scalar `eval/N`, which `Guardian.AST.Node.FunctionCall` maps over the argument columns,
    and only the few that need more (short circuits, literal compilation, NIF paths)
    define their own columnar `eval2/2`. Most return null on wrong-type input instead
-   of failing (`lib/guardian/query/function/CLAUDE.md`).
+   of failing (`lib/guardian/query/function/AGENTS.md`).
 3. Aggregates are registered in `Guardian.Aggregation` and planned, not evaluated as functions.
 4. Regular expressions compile once per evaluation (per segment), not per row, when
    the pattern is a literal (section 5.6).
@@ -1165,7 +1165,7 @@ The MCP endpoint uses the Anubis library, pinned at 0.16.0 (reasons in
    bodies on newlines (so pretty-printed JSON now works).
 
 Steps 2 to 4 work around Anubis 0.16 behavior and depend on its internals
-(`lib/guardian/web/mcp/CLAUDE.md`); recheck them on any upgrade.
+(`lib/guardian/web/mcp/AGENTS.md`); recheck them on any upgrade.
 
 `Guardian.Web.MCP.Server` defines the `query` and `send_events` tools and the
 `guardian://query-language` resource, which serves `lib/guardian/web/mcp/query_language.md`. A
@@ -1174,7 +1174,7 @@ It registers them on Anubis's frame before every request: Anubis 0.16 keeps
 runtime-registered components in its one frame shared by all sessions and clears them
 when a DELETEd session it served last ends, so registering once at a client's
 `notifications/initialized` left other sessions without tools. This relies on Anubis
-internals (`lib/guardian/web/mcp/CLAUDE.md`); recheck on any upgrade.
+internals (`lib/guardian/web/mcp/AGENTS.md`); recheck on any upgrade.
 
 Anubis 0.16 runs every tool call inside its one server process. A slow query therefore
 blocks the execution of every other MCP tool call and protocol request on the machine

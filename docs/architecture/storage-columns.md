@@ -1,9 +1,9 @@
 # Storage columns
 
 This reference describes the native column API, metadata and usage patterns.
-The [column editing rules](../../lib/guardian/storage/column/CLAUDE.md) are
+The [column editing rules](../../lib/guardian/storage/column/AGENTS.md) are
 authoritative for native safety, numerical limits, compatibility and tests;
-the [parent storage rules](../../lib/guardian/storage/CLAUDE.md) govern ownership
+the [parent storage rules](../../lib/guardian/storage/AGENTS.md) govern ownership
 and segment files.
 
 `lib/guardian/storage/column/` contains support modules for Guardian's native
@@ -55,7 +55,7 @@ Column states:
 2. Packed: Binary type, immutable, compact storage, used in queries
 
 Numerical limits, allocation failures, validation before mutation and nested-layer
-copying requirements are in the [size and validation rules](../../lib/guardian/storage/column/CLAUDE.md#sizes-and-validation).
+copying requirements are in the [size and validation rules](../../lib/guardian/storage/column/AGENTS.md#sizes-and-validation).
 
 ### metadata.ex
 
@@ -179,7 +179,7 @@ The parent `lib/guardian/storage/column.ex` module:
 - Re-exports all NIF functions via `defdelegate`
 - Adds higher-level utilities like `resize`, `duplicate`, `generate`
 
-The [API rules](../../lib/guardian/storage/column/CLAUDE.md#api-and-native-boundary)
+The [API rules](../../lib/guardian/storage/column/AGENTS.md#api-and-native-boundary)
 cover the public Column interface, direct NIF access and metadata-only operations.
 
 ## Performance Notes
@@ -205,9 +205,9 @@ cover the public Column interface, direct NIF access and metadata-only operation
 
 A native operation spans the C implementation, NIF stub list and parent delegation;
 an Elixir operation lives in the parent module. The exact requirements are in the
-[API rules](../../lib/guardian/storage/column/CLAUDE.md#api-and-native-boundary).
+[API rules](../../lib/guardian/storage/column/AGENTS.md#api-and-native-boundary).
 Metadata layout changes need a coordinated format migration; see
-[metadata and compatibility](../../lib/guardian/storage/column/CLAUDE.md#metadata-and-compatibility).
+[metadata and compatibility](../../lib/guardian/storage/column/AGENTS.md#metadata-and-compatibility).
 
 ### Debugging NIF issues
 

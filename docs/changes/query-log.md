@@ -94,7 +94,7 @@ fail to parse, capped at 60 an hour.
   it); spec sections 2 (table of Guardian's tables), 3
   (query text kept for retention), 4.1/4.2 (queries recorded), 8 (fields); overview;
   `docs/architecture/system.md` 6.5 and the supervision tree; security.md (data at
-  rest and B7, query text in `queries`); `lib/guardian/web/CLAUDE.md`, `lib/guardian/CLAUDE.md`.
+  rest and B7, query text in `queries`); `lib/guardian/web/AGENTS.md`, `lib/guardian/AGENTS.md`.
 
 ## Product spec impact
 

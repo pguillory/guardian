@@ -1,7 +1,7 @@
 defmodule Guardian.Query.Function do
   @moduledoc """
   The scalar function registry: every name and arity, mapped to its module under
-  `Guardian.Query.Function.*` (`lib/guardian/query/function/CLAUDE.md`). The parser
+  `Guardian.Query.Function.*` (`lib/guardian/query/function/AGENTS.md`). The parser
   checks calls against it and `Guardian.AST.Node.FunctionCall` dispatches through it.
   """
 

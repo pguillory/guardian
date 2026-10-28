@@ -16,7 +16,7 @@ Invariants 1–7 retain their numbers and text. The reviewed-design requirement 
 applies to all counter semantics.
 
 The coherent-reload reference in [the ingest-rules history](ingest-rules.md#compilation)
-now names invariant 11. The [Rules instructions](../../lib/guardian/rules/CLAUDE.md#rules-to-keep)
+now names invariant 11. The [Rules instructions](../../lib/guardian/rules/AGENTS.md#rules-to-keep)
 remain the implementation requirements' home.
 
 ## Spec links

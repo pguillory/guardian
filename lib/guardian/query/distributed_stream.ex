@@ -2,7 +2,7 @@
 # commit 65ee210e3a49bc707a4effde2845c46342bdf3ce, identical to the Hex release) by
 # Preston Guillory, MIT license: see lib/guardian/query/distributed_stream/LICENSE. Guardian has
 # since rewritten its failure model (see "Failure model" below) and added the worker
-# heap limit. Rules for editing it: lib/guardian/query/distributed_stream/CLAUDE.md.
+# heap limit. Rules for editing it: lib/guardian/query/distributed_stream/AGENTS.md.
 defmodule Guardian.Query.DistributedStream do
   @moduledoc """
   A lazy, backpressured pipeline whose stages run as worker processes spread over the

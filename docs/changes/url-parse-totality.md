@@ -28,7 +28,7 @@ takes about half a second to three quarters of a second per value (separate runs
 
 `docs/product/spec.md` section 7 adds a port written with more than 20 digits to the
 values that give null, and the change restores its promise that functions give null
-rather than fail. The function totality rule in `lib/guardian/query/function/CLAUDE.md`
+rather than fail. The function totality rule in `lib/guardian/query/function/AGENTS.md`
 names the helper.
 
 ## Validation

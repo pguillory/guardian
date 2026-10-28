@@ -51,7 +51,7 @@ The practical risk was low, since every rule write goes through the one
 
 None. The product spec says nothing about this node-local `:global` lock; the fix
 makes the module's documented per-node serialization true.
-`lib/guardian/object_store/CLAUDE.md` now says the `:global` lock, not
+`lib/guardian/object_store/AGENTS.md` now says the `:global` lock, not
 `Guardian.AtomicFile`, serializes writes.
 
 ## Validation

@@ -13,7 +13,7 @@ selected were removed. Rollout to a deployment is separate.
 This document records the original phase designs, decisions and validation, not a
 second current contract. Current behavior lives in
 [spec section 5.1](../product/spec.md#51-rules); examples and store setup are in the
-[rules guide](../guides/rules.md). The [Rules instructions](../../lib/guardian/rules/CLAUDE.md#rules-to-keep)
+[rules guide](../guides/rules.md). The [Rules instructions](../../lib/guardian/rules/AGENTS.md#rules-to-keep)
 hold mandatory implementation invariants, and the
 [rules architecture](../architecture/system.md#34-rules) describes the current
 mechanism. The historical C1–C4 plans below retain their original contracts, with
@@ -314,9 +314,9 @@ JSON API rule endpoints in phase 1.
    [architecture section 3.4, item 2](../architecture/system.md#34-rules).
 2. The original pool sizing allowed two generations of the table limit plus
    reclamation slack. Bounded atoms and immutable module names are maintained by
-   [Rules invariants 2–3](../../lib/guardian/rules/CLAUDE.md#rules-to-keep).
+   [Rules invariants 2–3](../../lib/guardian/rules/AGENTS.md#rules-to-keep).
 3. Publication and compile-failure rollback follow
-   [Rules invariant 2](../../lib/guardian/rules/CLAUDE.md#rules-to-keep) and
+   [Rules invariant 2](../../lib/guardian/rules/AGENTS.md#rules-to-keep) and
    [architecture section 3.4, item 3](../architecture/system.md#34-rules).
 4. Reclamation's grace period and soft-purge mechanism are described in that same
    architecture item; the prohibition on forced purge is Rules invariant 2.
@@ -325,7 +325,7 @@ JSON API rule endpoints in phase 1.
    than freed, so a restart cannot reuse a name still callable by an old worker.
 6. Counter v1 extended activation to dependent LOOKUP plans in C4b/C4c1, enabled
    in C4c3 below. Current coherent reload requirements are
-   [Rules invariant 11](../../lib/guardian/rules/CLAUDE.md#rules-to-keep).
+   [Rules invariant 11](../../lib/guardian/rules/AGENTS.md#rules-to-keep).
 7. Running a statement does not scan the row. At the first statement the runtime
    indexes the event's flattened row once: a trie of its keys by lowercase
    top-level object path, and each lowercase spelling's present keys in byte order.
@@ -840,7 +840,7 @@ The complete C4 contract:
    section 10's ownership/loss behavior, section 11's counter non-feature and
    section 1's formerly stateless-only ingestion commitment.
    Update rules/API/MCP references, the rules guide, architecture/security,
-   limitations, configuration and applicable CLAUDE.md files together. Do not
+   limitations, configuration and applicable AGENTS.md files together. Do not
    claim TRACK/LOOKUP are available in earlier pieces.
 7. Test parser round trips/contextual names; rejected definitions/dependencies;
    statement-order independence; the 50th-event example and LOOKUP=49/TRACK=50;
@@ -879,9 +879,10 @@ in [shared-aggregates.md](shared-aggregates.md).
    before storage; `return_keys` returns null for missing keys), the MCP tool list,
    Non-features item 1 (rules exist; still no alerting, counters, or enrichment from
    services), configuration.
-3. Also: `CLAUDE.md`, `lib/guardian/CLAUDE.md`, `lib/guardian/engine/CLAUDE.md`, `lib/guardian/ast/CLAUDE.md`,
-   `lib/guardian/ast/node/CLAUDE.md` (LOOKUP line), `lib/guardian/web/CLAUDE.md`, `lib/guardian/web/mcp/CLAUDE.md`
-   (drop "Do not add ... rule-management tools"), a new `lib/guardian/rules/CLAUDE.md`,
+3. Also: `AGENTS.md`, `lib/guardian/AGENTS.md`, `lib/guardian/engine/AGENTS.md`, `lib/guardian/ast/AGENTS.md`,
+   `lib/guardian/ast/node/AGENTS.md` (LOOKUP line), `lib/guardian/web/AGENTS.md`, `lib/guardian/web/mcp/AGENTS.md`
+   (drop "Do not add ... rule-management tools"), the new Rules instruction file
+   (now `lib/guardian/rules/AGENTS.md`; originally CLAUDE.md),
    `docs/architecture/system.md` (supervision tree, ingest path, a rules section),
    `docs/architecture/security.md` (rules can rewrite or drop any incoming field at
    the key holder's trust level; their cost on the ingest path; generated code from

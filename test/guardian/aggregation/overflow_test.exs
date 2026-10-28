@@ -1,5 +1,5 @@
 defmodule Guardian.Aggregation.OverflowTest do
-  # A float overflow while merging is sticky (lib/guardian/aggregation/CLAUDE.md): merged with
+  # A float overflow while merging is sticky (lib/guardian/aggregation/AGENTS.md): merged with
   # anything, in either order, and however many times, it finishes as null.
   use ExUnit.Case, async: true
 

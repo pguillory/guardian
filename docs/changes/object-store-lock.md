@@ -50,11 +50,13 @@ New generic layer, `lib/guardian/object_store/` (no Rules references in it):
    says every contender on a key must use the same lease (the body does not carry
    it), and that checking the remaining lease before a write and handling an unknown
    write outcome are the caller's job.
-4. `lib/guardian/object_store/CLAUDE.md` (plus `AGENTS.md` symlink): the layer's
+4. The layer's instruction file (now `lib/guardian/object_store/AGENTS.md`):
    rules, taking over Rules rule 4 (credentials live only in a closure, requests
    carry an MFA for signing, results name only a kind; never log a body, header,
    request or exception message) and stating that the layer knows nothing about its
-   callers' keys.
+   callers' keys. This change originally created CLAUDE.md plus an AGENTS.md
+   symlink; instruction-file paths here use the current canonical names from
+   [the filename migration](canonical-agent-instructions.md).
 
 What stays in Rules (rule policy only):
 
@@ -113,8 +115,8 @@ What stays in Rules (rule policy only):
 - `docs/architecture/security.md`: the rule-store credential rows name
   `Guardian.ObjectStore.S3` as the holder of the signing closure where they describe
   it; no behavior change.
-- `lib/guardian/CLAUDE.md` gains a `Guardian.ObjectStore` entry; `lib/guardian/rules/CLAUDE.md`
-  points to it; root CLAUDE.md lists the new subsystem doc. ARCHITECTURE.md already
+- `lib/guardian/AGENTS.md` gains a `Guardian.ObjectStore` entry; `lib/guardian/rules/AGENTS.md`
+  points to it; root AGENTS.md lists the new subsystem doc. ARCHITECTURE.md already
   indexes subsystem docs generically.
 - TODO.md: this change's entry.
 

@@ -18,7 +18,7 @@ key scope and request matching, receipt/conflict behavior, retention, capacity a
 best-effort limits. [The API reference](../reference/api.md#retrying-a-batch) keeps
 the request/receipt examples and retry guidance. The coordinator mechanism is in
 the [ingest architecture](../architecture/system.md#3-ingest-path), and its mandatory
-lifecycle and privacy rules are in [Web instructions](../../lib/guardian/web/CLAUDE.md).
+lifecycle and privacy rules are in [Web instructions](../../lib/guardian/web/AGENTS.md).
 
 The design chose compact receipts instead of caching whole replies to bound memory
 without retaining event payloads. Remembering mixed and failed batches prevents a

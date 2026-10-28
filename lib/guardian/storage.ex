@@ -18,7 +18,7 @@ defmodule Guardian.Storage do
   functions documented here (and the data modules `Guardian.Storage.Column`,
   `Guardian.Storage.Column.Metadata`, `Guardian.Storage.Value` and `Guardian.Storage.Flattening`), names segments
   by ID, and never holds a segment's PID. The segment processes, their managers and
-  `Guardian.Storage.Schema` are internal (see `lib/guardian/storage/CLAUDE.md`).
+  `Guardian.Storage.Schema` are internal (see `lib/guardian/storage/AGENTS.md`).
 
   - `append/2`, `append_flattened/2`, `append_flattened_result/2` - Store a row
   - `segment_ids/1` - The IDs of a table's segments on this node

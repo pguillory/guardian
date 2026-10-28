@@ -7,7 +7,7 @@ defmodule Guardian.Storage.SegmentFileGoldenTest do
   # test/fixtures/segment_file.seg is the segment file that `rows/0` produced on
   # 2026-10-18. Persisted segments must keep
   # reading the same and new ones must be written byte-for-byte the same; changing the
-  # format needs an explicit migration plan (lib/guardian/storage/CLAUDE.md). Packed columns are
+  # format needs an explicit migration plan (lib/guardian/storage/AGENTS.md). Packed columns are
   # in host byte order, so the fixture matches only on little-endian machines (arm64
   # Macs and x86_64 Fly machines are).
   @fixture Path.expand("../../fixtures/segment_file.seg", __DIR__)

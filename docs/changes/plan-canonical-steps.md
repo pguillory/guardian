@@ -34,7 +34,7 @@ value can drift, and every consumer has to know which field is authoritative.
    so every pinned hash is byte-identical. Flat metadata order is untouched.
 4. Tests and helpers that read `plan.levels` derive levels from `plan.steps`
    through `DependencyGraph.levels/1`. Docs (Plan moduledoc, Compiler moduledoc,
-   `lib/guardian/rules/CLAUDE.md`, `docs/architecture/system.md`) say the plan
+   `lib/guardian/rules/AGENTS.md`, `docs/architecture/system.md`) say the plan
    holds only flat steps and levels are compile-time derived.
 
 Levels are now derived only for tables that actually compile (new, or with a changed hash), not

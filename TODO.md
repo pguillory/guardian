@@ -1,7 +1,7 @@
 # TODO
 
 Planned changes and known gaps. A change's design goes in `docs/changes/<id>.md`
-when it needs one. This file is public: see the change-tracking rules in CLAUDE.md.
+when it needs one. This file is public: see the change-tracking rules in AGENTS.md.
 
 ## Storage and ingestion
 
@@ -368,7 +368,7 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       not parse (INTERVAL is a keyword), so its column label cannot be re-parsed
 - [ ] function-behaviour: an optional `Guardian.Query.Function` behaviour for function
       modules, with `eval2/2` as an optional callback, so the compiler checks a
-      module's entry points (`lib/guardian/query/function/CLAUDE.md`)
+      module's entry points (`lib/guardian/query/function/AGENTS.md`)
 - [x] test-only-labels: `Guardian.Query.labels/1` (SQL text) and the SHOW/DESC clauses of
       `Guardian.Query.Resolver.labels/1` are reached only from tests, since the Resolver
       rewrites SHOW and DESC first; drop them and test SHOW/DESC labels through
@@ -410,11 +410,14 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
       (`docs/changes/guardian-namespace.md`)
 - [x] guardian-test-module-names: align legacy test declarations with their subsystem
       paths (`docs/changes/guardian-module-paths.md`)
-- [x] agent-instruction-link-regression: check tracked canonical instruction files
-      have adjacent relative AGENTS.md symlinks in the normal suite
+- [x] canonical-agent-instructions: use real AGENTS.md files throughout, remove
+      the former instruction filename and symlinks, and check required subsystem
+      coverage (`docs/changes/canonical-agent-instructions.md`)
+- [x] agent-instruction-link-regression: originally checked instruction symlinks;
+      superseded by canonical-agent-instructions
       (`docs/changes/nested-agent-instructions.md`)
-- [x] nested-agent-instructions: expose every nested CLAUDE.md through a relative
-      AGENTS.md symlink and require reading all applicable ancestor instructions
+- [x] nested-agent-instructions: originally exposed nested rules through symlinks;
+      canonical-agent-instructions replaces the links and retains the ancestor read rule
       (`docs/changes/nested-agent-instructions.md`)
 
 - [x] guardian-module-paths: align source, test and compiled-helper paths under
@@ -498,7 +501,7 @@ when it needs one. This file is public: see the change-tracking rules in CLAUDE.
 - [x] no-ci: remove hosted CI; the local pre-commit hook checks formatting,
       compilation, and the full suite (`docs/changes/no-ci.md`)
 - [x] dev-docs-consolidate: the check commands, setup and hook installation were
-      repeated in CLAUDE.md, CONTRIBUTING.md, system.md and the development guide, and
+      repeated in AGENTS.md, CONTRIBUTING.md, system.md and the development guide, and
       arm64 status in README.md, the single-node guide, the Dockerfile and system.md;
       the development guide and system.md 10.1 are now their one homes
 - [ ] peer-start-stall: a test peer's `:peer.start` has occasionally exceeded its 15 s

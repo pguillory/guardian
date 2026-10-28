@@ -13,9 +13,9 @@ Runtime behavior is unchanged.
 - [The API reference](../reference/api.md#retrying-a-batch) keeps interface examples
   and client retry guidance. The [rules guide](../guides/rules.md) keeps worked
   examples, safe editing steps and store setup, with links for detailed semantics.
-- [Rules instructions](../../lib/guardian/rules/CLAUDE.md#rules-to-keep) (with a
+- [Rules instructions](../../lib/guardian/rules/AGENTS.md#rules-to-keep) (with a
   heading added for direct links) and
-  [Web instructions](../../lib/guardian/web/CLAUDE.md) own mandatory implementation
+  [Web instructions](../../lib/guardian/web/AGENTS.md) own mandatory implementation
   requirements. The [ingest architecture](../architecture/system.md#3-ingest-path)
   describes the mechanisms, including coordinator lifecycle and rule compilation.
 - [The rules change](ingest-rules.md) preserves phase plans, decisions and validation

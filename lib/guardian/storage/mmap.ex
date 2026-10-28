@@ -1,5 +1,5 @@
 defmodule Guardian.Storage.Mmap do
-  # Internal to Storage; see lib/guardian/storage/CLAUDE.md, "Public boundary".
+  # Internal to Storage; see lib/guardian/storage/AGENTS.md, "Public boundary".
   #
   # Maps whole files read-only into memory as binaries (`src/mmap.c`).
   #

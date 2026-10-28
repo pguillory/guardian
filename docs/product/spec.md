@@ -12,7 +12,7 @@ detailed references instead of repeating them:
 - Deployment, configuration, and operations procedures: the guides in
   [docs/guides/](../guides/) and the [configuration reference](../reference/configuration.md).
 - Internals: the [system architecture](../architecture/system.md) and the
-  per-subsystem `CLAUDE.md` files under `lib/`.
+  per-subsystem `AGENTS.md` files under `lib/`.
 - Trust boundaries: the [security architecture](../architecture/security.md).
 - Known gaps: [section 12](#12-known-gaps).
 

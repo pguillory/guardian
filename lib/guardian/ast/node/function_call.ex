@@ -11,7 +11,7 @@ defmodule Guardian.AST.Node.FunctionCall do
   defimpl Guardian.Query.Eval do
     # A function module that defines `eval2/2` evaluates the call itself; otherwise the
     # call is evaluated row by row with the module's `eval/N`
-    # (lib/guardian/query/function/CLAUDE.md).
+    # (lib/guardian/query/function/AGENTS.md).
     def eval(%@for{name: name, args: args} = expr, context) do
       arity = length(args)
 

@@ -2,10 +2,33 @@ defmodule Guardian.AgentInstructionsTest do
   use ExUnit.Case, async: true
 
   @root Path.expand("../..", __DIR__)
+  # Keep established coverage explicit: deleting a subsystem's instructions must
+  # not make that subsystem disappear from the scan.
+  @instruction_directories ~w(
+    .
+    lib/guardian
+    lib/guardian/aggregation
+    lib/guardian/ast
+    lib/guardian/ast/node
+    lib/guardian/ast/node/operators
+    lib/guardian/ast/node/statements
+    lib/guardian/counters
+    lib/guardian/engine
+    lib/guardian/object_store
+    lib/guardian/query
+    lib/guardian/query/distributed_stream
+    lib/guardian/query/function
+    lib/guardian/query/virtual_table
+    lib/guardian/rules
+    lib/guardian/storage
+    lib/guardian/storage/column
+    lib/guardian/web
+    lib/guardian/web/mcp
+  )
 
-  test "tracked CLAUDE.md files have adjacent relative AGENTS.md symlinks" do
+  test "AGENTS.md is the sole real instruction file in every subsystem" do
     # The index includes new staged instructions, without walking dependencies or
-    # other worktrees. Untracked instruction files enter coverage when staged.
+    # other worktrees. Untracked files are intentionally out of scope until staged.
     {output, status} = System.cmd("git", ["ls-files", "--stage", "-z"], cd: @root)
     assert status == 0, "Could not list repository instruction files"
 
@@ -18,28 +41,23 @@ defmodule Guardian.AgentInstructionsTest do
         {path, mode}
       end)
 
-    paths =
-      files
-      |> Map.keys()
-      |> Enum.filter(&(Path.basename(&1) == "CLAUDE.md"))
+    refute Enum.any?(files, fn {path, _mode} -> Path.basename(path) == "CLAUDE.md" end),
+           "Remove CLAUDE.md files; AGENTS.md is canonical throughout the repository"
 
-    assert "CLAUDE.md" in paths
-    assert "lib/guardian/CLAUDE.md" in paths, "Scan must include nested instructions"
+    for directory <- @instruction_directories do
+      path = if directory == ".", do: "AGENTS.md", else: Path.join(directory, "AGENTS.md")
+      assert Map.has_key?(files, path), "#{directory} needs a tracked AGENTS.md"
+    end
 
-    for path <- paths do
-      canonical = Path.join(@root, path)
-      agent = Path.join(Path.dirname(canonical), "AGENTS.md")
+    for {path, mode} <- files, Path.basename(path) == "AGENTS.md" do
+      assert mode == "100644", "#{path} must be tracked as a regular instruction file"
+      absolute = Path.join(@root, path)
 
-      assert files[Path.relative_to(agent, @root)] == "120000",
-             "#{path}'s AGENTS.md must be tracked as a symlink"
+      assert {:ok, %File.Stat{type: :regular}} = File.lstat(absolute),
+             "#{path} must be a real file, never a symlink"
 
-      assert {:ok, %File.Stat{type: :symlink}} = File.lstat(agent),
-             "#{path} needs an adjacent AGENTS.md symlink"
-
-      assert {:ok, "CLAUDE.md"} = File.read_link(agent),
-             "#{path}'s AGENTS.md must point to relative CLAUDE.md"
-
-      assert File.regular?(canonical), "#{path}'s symlink target must exist"
+      assert String.starts_with?(File.read!(absolute), "# "),
+             "#{path} needs instruction content beginning with a heading"
     end
   end
 end

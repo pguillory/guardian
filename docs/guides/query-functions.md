@@ -1,7 +1,7 @@
 # Implementing query functions
 
 This contributor guide explains function dispatch and implementation patterns.
-The [query function editing rules](../../lib/guardian/query/function/CLAUDE.md)
+The [query function editing rules](../../lib/guardian/query/function/AGENTS.md)
 are authoritative for registration, evaluation contracts, totality, native dispatch,
 regex safety and tests. Read the applicable ancestor instructions before editing.
 
@@ -106,7 +106,7 @@ end
 ### Pattern 4: Non-Deterministic Function
 
 For functions that need a different value per row (random, UUIDs), the default
-evaluation calls `eval/0` once per row, so `eval/0` is all they need. The [registration rules](../../lib/guardian/query/function/CLAUDE.md#registration-and-evaluation)
+evaluation calls `eval/0` once per row, so `eval/0` is all they need. The [registration rules](../../lib/guardian/query/function/AGENTS.md#registration-and-evaluation)
 cover the non-deterministic function list:
 
 ```elixir
@@ -120,7 +120,7 @@ end
 ### Pattern 5: Variable Arity (One Call Over Every Argument)
 
 For functions that accept many arities, evaluate every argument and combine each row's
-values in one call with `ColumnOrConstant.map_n/2`. The [whole-join rule](../../lib/guardian/query/function/CLAUDE.md#registration-and-evaluation)
+values in one call with `ColumnOrConstant.map_n/2`. The [whole-join rule](../../lib/guardian/query/function/AGENTS.md#registration-and-evaluation)
 keeps a capped string's result a prefix of the whole join.
 
 ```elixir
@@ -211,7 +211,7 @@ Handles dual representation of columnar data:
 
 - `evaluate(operation, col, fun)` / `evaluate(operation, col1, col2, fun)` - Shared
   scalar/native selection for supported native-backed operations; see the
-  [dispatch rules](../../lib/guardian/query/function/CLAUDE.md#registration-and-evaluation).
+  [dispatch rules](../../lib/guardian/query/function/AGENTS.md#registration-and-evaluation).
 
 ### Guardian.Query.Eval and Guardian.Query.Evaluation
 
@@ -256,7 +256,7 @@ Then register in `lib/guardian/query/function.ex`:
 
 ## Type handling and totality
 
-The [Totality rules](../../lib/guardian/query/function/CLAUDE.md#totality)
+The [Totality rules](../../lib/guardian/query/function/AGENTS.md#totality)
 cover numeric bounds, null fallbacks, string cuts and URL/regex safety. The Abs
 example above illustrates guarded types and a nil fallback. The registered functions
 are also exercised across rows, constants and columns by the totality grid.
@@ -303,7 +303,7 @@ are also exercised across rows, constants and columns by the totality grid.
 ## Specialized evaluation
 
 `replace` compiles literal patterns once through `Guardian.Query.Regex`; its bounded
-execution policy is in the [editing rules](../../lib/guardian/query/function/CLAUDE.md#totality).
+execution policy is in the [editing rules](../../lib/guardian/query/function/AGENTS.md#totality).
 There is no `jq()`; the parser rejects it with a message.
 `cosine_similarity` computes similarity between two list vectors.
 

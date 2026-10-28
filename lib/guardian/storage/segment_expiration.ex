@@ -1,5 +1,5 @@
 defmodule Guardian.Storage.SegmentExpiration do
-  # Internal to Storage; see lib/guardian/storage/CLAUDE.md, "Public boundary".
+  # Internal to Storage; see lib/guardian/storage/AGENTS.md, "Public boundary".
   @moduledoc false
 
   alias Guardian.Storage.LoadedSegments

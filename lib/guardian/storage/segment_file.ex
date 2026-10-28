@@ -1,12 +1,12 @@
 defmodule Guardian.Storage.SegmentFile do
-  # Internal to Storage; see lib/guardian/storage/CLAUDE.md, "Public boundary".
+  # Internal to Storage; see lib/guardian/storage/AGENTS.md, "Public boundary".
   @moduledoc false
 
   # The on-disk segment format: file names and contents. No process logic; Segment
   # writes and loads through here. The layout is described in
   # docs/architecture/system.md section 4.3 and pinned by
   # test/guardian/storage/segment_file_golden_test.exs. Don't change it as a side effect of other
-  # work (lib/guardian/storage/CLAUDE.md).
+  # work (lib/guardian/storage/AGENTS.md).
   #
   # A file is a primary header of nine big-endian 64-bit integers (the row count, then
   # the byte size of each secondary-header column), the secondary header (the keys,
