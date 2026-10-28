@@ -445,6 +445,42 @@ defmodule Guardian.Web.JsonApiTest do
     end
   end
 
+  test "the real HTTP listener accepts a JSON query sent as one-byte chunks" do
+    {:ok, socket} =
+      :gen_tcp.connect({127, 0, 0, 1}, Guardian.Web.bound_port(), [:binary, active: false], 2000)
+
+    on_exit(fn -> :gen_tcp.close(socket) end)
+    body = Jason.encode!(%{query: "SHOW TABLES"})
+    chunks = for <<byte <- body>>, do: ["1\r\n", <<byte>>, "\r\n"]
+
+    log =
+      ExUnit.CaptureLog.capture_log([level: :error], fn ->
+        :ok =
+          :gen_tcp.send(socket, [
+            "POST /api/json/query HTTP/1.1\r\nHost: localhost\r\n",
+            "x-api-key: ",
+            @api_key,
+            "\r\nContent-Type: application/json\r\n",
+            "Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
+            chunks,
+            "0\r\n\r\n",
+          ])
+
+        response = receive_until_closed(socket, "")
+        [headers, response_body] = String.split(response, "\r\n\r\n", parts: 2)
+        assert headers =~ "HTTP/1.1 200 OK\r\n"
+
+        assert %{"status" => 200, "columns" => ["table"], "rows" => rows} =
+                 Jason.decode!(response_body)
+
+        assert is_list(rows)
+        Logger.flush()
+      end)
+
+    refute log =~ "JSON API failure"
+    refute log =~ "** ("
+  end
+
   test "a split malformed body with Expect closes promptly on the real HTTP listener" do
     {:ok, socket} =
       :gen_tcp.connect({127, 0, 0, 1}, Guardian.Web.bound_port(), [:binary, active: false], 2000)

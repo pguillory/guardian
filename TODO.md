@@ -444,6 +444,8 @@ when it needs one. This file is public: see the change-tracking rules in AGENTS.
       release's remote IEx shell (`docs/changes/remove-console.md`)
 - [x] plug-crypto-221: update the crypto dependency to 2.2.1 for CVE-2026-105963
       (`docs/changes/plug-crypto-221.md`)
+- [x] bandit-114: update Bandit to 1.14.0 for HTTP parser and resource-limit fixes,
+      preserving Guardian's API behavior (`docs/changes/bandit-114.md`)
 - [ ] mcp-serialized-tool-calls: Anubis 0.16 runs tool calls in its one server
       process, so a slow MCP query blocks every MCP session for up to the 30 s query
       time limit. Options: answer `query` calls in `Guardian.Web.MCP.Router` before Anubis, or
