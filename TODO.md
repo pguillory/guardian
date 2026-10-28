@@ -149,6 +149,26 @@ when it needs one. This file is public: see the change-tracking rules in AGENTS.
          warnings and restart-window Fly proxy errors. No rule settings, secrets or
          rules changed. Rollback target: v47's image
          (`deployment-01M60B03V0PQK1AH0ZZ21YE9TS`).
+         `9403ef6` (2026-10-27 night Pacific, v49: image refresh, cloudflared
+         2026.10.1 to 2026.10.5 and Debian trixie-20261020 to trixie-20261027; the
+         full pre-commit gate passed on that main, 1338 tests, 0 failures). Before
+         the deploy, v48's `priv/commit` was confirmed as `8963584`. Checked: the
+         build log's builder and runner bases at `trixie-20261027-slim` and its
+         `cloudflared --version` step printing 2026.10.5; on the running machine,
+         `priv/commit` and `cloudflared version 2026.10.5`; `/health` ok, a request
+         without a key getting 401, an authenticated JSON query and an MCP
+         initialize plus query returning data, and `list_rules` still empty, as
+         before (no counter rules to exercise). The connector registered four
+         tunnel connections. No read-only request uses the Workers VPC path (the
+         Stumpy worker only sends through it), so none was made; a send from the
+         Stumpy worker, which binds that path, landed in `stumpy_events` after the
+         restart. New rows kept arriving
+         in `desktop_events` and `system_stats`; fresh stats reported
+         `counters_available=true`. The inspected boot tail showed no Guardian
+         errors, with `server/discover` warnings, Cloudflare's disabled ICMP proxy
+         warnings and restart-window Fly proxy errors. No rule settings, secrets or
+         rules changed. Rollback target: v48's image
+         (`deployment-01M60CGDBXJN8NHCQ2RQ10HTNW`).
       2. Bucket: an R2 bucket and a bucket-scoped object read/write token, made by
          the maintainer; the secret goes straight into the deployment's secrets,
          never printed or stored here. Check the credentials from the deployment's
