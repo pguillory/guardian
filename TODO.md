@@ -134,6 +134,21 @@ when it needs one. This file is public: see the change-tracking rules in AGENTS.
          errors, with Cloudflare's disabled ICMP proxy warnings and restart-window
          Fly proxy errors. No rule settings, secrets or rules changed. Rollback
          target: v45/v46's image.
+         `8963584` (2026-10-27 evening Pacific, v48: Bandit 1.13.1 to 1.14.0 for
+         its HTTP/1.1 denial-of-service and request smuggling fixes, plus the
+         docs-only AGENTS.md change; the full pre-commit gate passed on that main,
+         1338 tests, 0 failures). Checked: `/health` ok, the image's `priv/commit`
+         and `bandit-1.14.0` in the release, the boot log's "Running
+         Guardian.Web.MainRouter with Bandit 1.14.0", a request without a key
+         getting 401, an authenticated JSON query and an MCP initialize plus query
+         returning data, and `list_rules` still empty (no counter rules to
+         exercise). New rows kept arriving after the full restart in
+         `desktop_events` and `system_stats`; fresh stats reported
+         `counters_available=true`. The inspected boot tail showed no Guardian
+         errors, with `server/discover` warnings, Cloudflare's disabled ICMP proxy
+         warnings and restart-window Fly proxy errors. No rule settings, secrets or
+         rules changed. Rollback target: v47's image
+         (`deployment-01M60B03V0PQK1AH0ZZ21YE9TS`).
       2. Bucket: an R2 bucket and a bucket-scoped object read/write token, made by
          the maintainer; the secret goes straight into the deployment's secrets,
          never printed or stored here. Check the credentials from the deployment's
