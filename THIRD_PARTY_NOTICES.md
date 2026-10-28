@@ -67,5 +67,5 @@ release image (or from your OS for development) and linked at build time:
 | Elixir | Apache-2.0 | the standard library, bundled into the release |
 | OpenSSL (`libssl3t64`) | Apache-2.0 | the runtime's crypto |
 
-The image also downloads cloudflared 2026.10.1 (https://github.com/cloudflare/cloudflared,
+The image also downloads cloudflared 2026.10.5 (https://github.com/cloudflare/cloudflared,
 Apache-2.0), pinned by checksum, for the optional Cloudflare Tunnel connector.

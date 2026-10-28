@@ -461,6 +461,9 @@ when it needs one. This file is public: see the change-tracking rules in AGENTS.
       (`docs/changes/plug-crypto-221.md`)
 - [x] bandit-114: update Bandit to 1.14.0 for HTTP parser and resource-limit fixes,
       preserving Guardian's API behavior (`docs/changes/bandit-114.md`)
+- [x] image-refresh-1027: update cloudflared to 2026.10.5 (Go 1.27.3) and the Debian
+      base to trixie-20261027 for upstream fixes, and delete the stale branch `11642`
+      (`docs/changes/image-refresh-1027.md`)
 - [ ] mcp-serialized-tool-calls: Anubis 0.16 runs tool calls in its one server
       process, so a slow MCP query blocks every MCP session for up to the 30 s query
       time limit. Options: answer `query` calls in `Guardian.Web.MCP.Router` before Anubis, or

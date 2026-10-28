@@ -13,7 +13,7 @@
 
 ARG ELIXIR_VERSION=1.19.6
 ARG OTP_VERSION=28.5.0.8
-ARG DEBIAN_VERSION=trixie-20261020-slim
+ARG DEBIAN_VERSION=trixie-20261027-slim
 
 # Set by BuildKit for the target platform: selects the cloudflared stage below.
 ARG TARGETARCH
@@ -27,15 +27,15 @@ ARG RUNNER_IMAGE="debian:${DEBIAN_VERSION}"
 # sets the mode itself. The version and hashes are written here, not as build args, so
 # they change together: a bump edits all of these lines.
 FROM scratch AS cloudflared-amd64
-ADD --checksum=sha256:3bfc539f45d2620c71debb7a86be0efa737ed5ccbad9eb85c787116900e5c586 \
+ADD --checksum=sha256:e1bc0cf084fd9e590554fe769a86b1db46701c3f847a43d902f7b974a4e16298 \
   --chmod=0755 \
-  https://github.com/cloudflare/cloudflared/releases/download/2026.10.1/cloudflared-linux-amd64 \
+  https://github.com/cloudflare/cloudflared/releases/download/2026.10.5/cloudflared-linux-amd64 \
   /cloudflared
 
 FROM scratch AS cloudflared-arm64
-ADD --checksum=sha256:2c65dfabf616c40efc7545d107d7a57ad5e21377e2964b7e88af19a238074a46 \
+ADD --checksum=sha256:72e0d05a67e09da87cf495e409a28c3cc5994dd23fc66a982eebea6a55923b7d \
   --chmod=0755 \
-  https://github.com/cloudflare/cloudflared/releases/download/2026.10.1/cloudflared-linux-arm64 \
+  https://github.com/cloudflare/cloudflared/releases/download/2026.10.5/cloudflared-linux-arm64 \
   /cloudflared
 
 FROM cloudflared-${TARGETARCH} AS cloudflared
