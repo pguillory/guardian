@@ -197,6 +197,25 @@ when it needs one. This file is public: see the change-tracking rules in AGENTS.
          separate step). Rollback target: v49's image
          (`deployment-01M60EJCEHMKW3S0KWQ3DM1DKB`); roll the callers back to the
          legacy key first.
+         Config only (2026-10-28 afternoon Pacific, v51: the deprecated
+         `GUARDIAN_API_KEY` secret unset, retiring the legacy key; v50's image,
+         `b54b3aa`). Before: the last 6 hours of `web_requests` showed only
+         `auth_key=ingest`, the Fly logs had no legacy-key line, and every MCP
+         config on the maintainer's machine (Codex, Claude Code's default profile
+         and both account profiles) held the admin key and Stumpy Desktop the
+         ingest key, so no copy of the legacy key needed replacing; no other secret
+         was pending. The restart took about a minute. Checked: `/health` ok; an
+         MCP initialize plus queries with the admin key; 403 for the ingest key on
+         `/mcp`; 401 for a random 64-hex key on `/mcp` and `send_events` (no local
+         copy of the legacy key was left to test with); `send_events` requests kept
+         arriving with `auth_key=ingest` and new rows in `stumpy_events` and
+         `desktop_events`. The boot tail showed no Guardian errors, with
+         Cloudflare's disabled ICMP proxy warnings and restart-window Fly proxy
+         errors. MCP clients started before the morning's switch still hold the
+         legacy key and lose Guardian until they restart. No rule settings or rules
+         changed. Rollback: the legacy key's value is gone; a caller still needing
+         full access gets the admin key. v50's image stays the code rollback target
+         (`deployment-01M61D3RSNC82HR49JHK94EFCY`).
       2. Bucket: an R2 bucket and a bucket-scoped object read/write token, made by
          the maintainer; the secret goes straight into the deployment's secrets,
          never printed or stored here. Check the credentials from the deployment's
@@ -465,8 +484,8 @@ when it needs one. This file is public: see the change-tracking rules in AGENTS.
       (`GUARDIAN_ADMIN_API_KEY`) is for MCP; `POST /api/json/query` is removed; the
       single `GUARDIAN_API_KEY` stays full access, deprecated, until it is retired
       (`docs/changes/split-api-keys.md`)
-- [ ] drop-legacy-api-key: once the deployment has retired `GUARDIAN_API_KEY`, remove
-      its support; the boot error for a deployment that still sets only it must name
+- [ ] drop-legacy-api-key: the maintainer's deployment retired `GUARDIAN_API_KEY` on
+      2026-10-28 (v51), so its support can now be removed; the boot error for a deployment that still sets only it must name
       the replacement variables, with a README note (`docs/changes/split-api-keys.md`)
 - [ ] query-api-key-off: no known caller sends the `api_key` query parameter; the
       maintainer's deployment could turn `GUARDIAN_ALLOW_QUERY_API_KEY` off once
