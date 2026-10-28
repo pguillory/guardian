@@ -34,7 +34,7 @@ a particular deployment belong with that deployment, not here.
 
 Guardian is a single-tenant, self-hosted, schemaless event store with a SQL-like query
 engine, licensed MIT. It ingests JSON events into a custom columnar format and supports
-interactive analysis through JSON and MCP interfaces. It runs as one node or as a
+interactive analysis through MCP; HTTP JSON is for ingestion only. It runs as one node or as a
 cluster (DNS discovery on any machines, with Fly.io as a preset).
 
 Product docs, in tiers that each extend the one above: the one-sentence, one-paragraph,
@@ -56,10 +56,14 @@ SET/UNSET are stateless. TRACK/LOOKUP use ephemeral counters on Guardian nodes,
 bounded peer calls and aggregate defaults on failure; final UNSETs still run.
 Counters are advisory, lose state on restart/eviction/cluster changes and use private
 arrival metadata, never caller timestamps. There is no PostgreSQL metadata store, Memcached
-runtime, or MaxMind service. Guardian is single-user: authentication is one environment-configured API key
-(at least 32 bytes, in the `x-api-key` header; the `api_key` query parameter only with
-`GUARDIAN_ALLOW_QUERY_API_KEY=true`), and a valid key grants access to the whole event
-store. There is no user namespace.
+runtime, or MaxMind service. Guardian is single-user: authentication is by environment-configured API keys (each at
+least 32 bytes and all distinct, in the `x-api-key` header; the `api_key` query
+parameter only with `GUARDIAN_ALLOW_QUERY_API_KEY=true`). The insert-only
+`GUARDIAN_INGEST_API_KEY` is accepted only by `POST /api/json/send_events`; the
+full-access `GUARDIAN_ADMIN_API_KEY` grants the whole event store through MCP (queries,
+rules, ingestion) and `send_events`. The deprecated `GUARDIAN_API_KEY` has full access
+like the admin key while set. Boot needs at least one full-access key. Queries run only
+through MCP; there is no HTTP query endpoint. There is no user namespace.
 
 ## Design Principles
 
@@ -115,7 +119,9 @@ SQL -> Guardian.AST -> Guardian.Query.Resolver -> Guardian.Query.Planner
 Storage uses mutable, full, persisted, and loaded segment managers. Files are named
 `{table}.{segment_id}.seg`.
 
-Authentication reads only `GUARDIAN_API_KEY`, which may rotate freely.
+Authentication reads only `GUARDIAN_INGEST_API_KEY`, `GUARDIAN_ADMIN_API_KEY` and the
+deprecated `GUARDIAN_API_KEY` (`Guardian.Web.Auth.check_conn/2`); each may rotate
+freely and independently.
 
 Node naming (`rel/env.sh.eex`) has three modes: Fly.io (`FLY_PRIVATE_IP`), a cluster
 member elsewhere (`GUARDIAN_NODE_HOST`), and a single node (`guardian@localhost`, with
@@ -127,8 +133,9 @@ pins it.
 Fly.io is the best-supported deploy path (`Dockerfile`, `fly.toml`, `docs/guides/fly.md`).
 The `fly.toml` in the tree is the maintainer's own deployment, including a marked block
 of overrides (`GUARDIAN_ALLOW_QUERY_API_KEY`, `GUARDIAN_QUERY_MAX_HEAP_MB`) that a test
-keeps active; don't drop them without the maintainer's say-so. `GUARDIAN_API_KEY` and
-`RELEASE_COOKIE` are Fly secrets, plus the optional `TUNNEL_TOKEN` that starts the
+keeps active; don't drop them without the maintainer's say-so. The API keys
+(`GUARDIAN_ADMIN_API_KEY`, `GUARDIAN_INGEST_API_KEY`, and the deprecated
+`GUARDIAN_API_KEY` while set) and `RELEASE_COOKIE` are Fly secrets, plus the optional `TUNNEL_TOKEN` that starts the
 Cloudflare Tunnel connector (`bin/fly-start`, the image's entry point); segments live on
 a per-machine volume at `GUARDIAN_DATA_DIR=/data`. Keep Fly's `kill_timeout` above
 Storage's shutdown budget plus the connector's drain (20 s at worst). The rest of

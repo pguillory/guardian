@@ -15,7 +15,9 @@ defmodule Guardian.Web.Logger do
     referer = Plug.Conn.get_req_header(conn, "referer") |> List.first()
     user_agent = Plug.Conn.get_req_header(conn, "user-agent") |> List.first()
     # Where the key was found ("header" or "query"), never the key itself.
-    auth_method = conn.private |> Map.get(:guardian_auth_method) |> auth_method_name()
+    auth_method = conn.private |> Map.get(:guardian_auth_method) |> atom_name()
+    # Which key ("ingest", "admin" or "legacy"), never the key itself.
+    auth_key = conn.private |> Map.get(:guardian_auth_key) |> atom_name()
 
     # The fields `web_requests` and `web_responses` share. Host, port, method and path
     # are read from the conn at hand: the request's, then the one being sent.
@@ -34,6 +36,7 @@ defmodule Guardian.Web.Logger do
         referer: referer,
         user_agent: user_agent,
         auth_method: auth_method,
+        auth_key: auth_key,
       ]
     end
 
@@ -59,12 +62,12 @@ defmodule Guardian.Web.Logger do
     end)
   end
 
-  defp auth_method_name(nil) do
+  defp atom_name(nil) do
     nil
   end
 
-  defp auth_method_name(method) when is_atom(method) do
-    Atom.to_string(method)
+  defp atom_name(atom) when is_atom(atom) do
+    Atom.to_string(atom)
   end
 
   # A request must not fail because its log event could not be written (Storage

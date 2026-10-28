@@ -19,7 +19,8 @@ query language. Its producers are the operator's own services, applications, and
 agents, plus Guardian's own metrics and request logs; its readers are the operator and
 their agents, mostly through the MCP `query` tool. Guardian is schemaless: any JSON
 object can go into any table, nested objects become dotted columns, and a column can
-hold mixed types. One API key grants access to everything. Events land in Guardian's
+hold mixed types. An insert-only key lets applications send events and nothing else;
+a full-access key, used through MCP, runs queries and manages rules. Events land in Guardian's
 own columnar segment format (after the table's rules, if any, compute or remove
 fields, including ephemeral window-counter results), are queryable as soon as they are stored, start moving to
 disk within about an hour, and expire after about 15 days. It runs as a single node or
@@ -44,18 +45,24 @@ queries.
    Guardian itself writes `system_stats` once a second, a
    `web_requests`/`web_responses` pair for every authenticated JSON API request, and
    a `query_parse_errors` row for each query that fails to parse, and a `queries` row
-   for every query run over the JSON API or MCP.
+   for every query run over MCP.
 2. Readers: the operator and their agents (for example, Claude or Codex coding
    sessions) query through MCP, which also serves the full query-language reference.
-   Scripts can use the JSON API, and an operator can use the Erlang remote console.
+   There is no HTTP query endpoint, so scripts use MCP too, and an operator can use the
+   Erlang remote console.
 
 ### How it behaves
 
-1. Trust: there is one API key, set in the environment and at least 32 bytes long. Any
-   request carrying it can read and write every table. There are no users, roles, or
-   namespaces. The key goes in the `x-api-key` header; the operator can also allow it
-   as a URL query parameter, which is off by default. Guardian records which of the
-   two each JSON API request used, never the key. Without a key, only the `/health`
+1. Trust: keys are set in the environment, each at least 32 bytes long.
+   The ingest key (`GUARDIAN_INGEST_API_KEY`) is insert-only: it works on the HTTP
+   event endpoint and nowhere else, so an application holding it can add events but
+   not query them or change rules. The admin key (`GUARDIAN_ADMIN_API_KEY`) has full
+   access, through MCP, to every table and the rules. The older single key
+   (`GUARDIAN_API_KEY`) is deprecated; while set it still has full access, so callers
+   can move over without being refused. There are no users or namespaces. A key goes
+   in the `x-api-key` header; the operator can also allow it as a URL query parameter,
+   which is off by default. Guardian records, for each JSON API request, which key was
+   used and where it was found, never the key. Without a key, only the `/health`
    liveness check works.
 2. Writing: a request names a table and carries a list of events. Each event succeeds
    or fails on its own, and the response reports one ordered result per event. Values

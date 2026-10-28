@@ -28,12 +28,17 @@ fly auth login
 fly apps create <app-name>
 
 fly secrets set --stage \
-  GUARDIAN_API_KEY="$(openssl rand -hex 32)" \
+  GUARDIAN_ADMIN_API_KEY="$(openssl rand -hex 32)" \
+  GUARDIAN_INGEST_API_KEY="$(openssl rand -hex 32)" \
   RELEASE_COOKIE="$(openssl rand -base64 48 | tr -d '\n/+=')"
 
 fly deploy --ha=false --wait-timeout 15m \
   --build-arg GIT_COMMIT="$(git rev-parse HEAD)"
 ```
+
+The admin key is for you and your agents over MCP; the ingest key is for the
+applications that send events, and can do nothing else. A deployment that still
+sets the deprecated `GUARDIAN_API_KEY` keeps working with it.
 
 The first deploy creates one machine and its `guardian_data` volume. Make sure the app
 has public addresses (a first `fly deploy` normally allocates them), then check it:
@@ -67,15 +72,18 @@ Later deploys run the same `fly deploy` command. With one machine, each deploy b
 stops ingestion, because the volume attaches to only one machine: the old release stops
 before the new one starts, so producers must retry. A new release that fails its health
 check stops the deploy but doesn't roll back. To roll back, find the previous image with
-`fly releases --image` and run `fly deploy --image <image>`. The health check allows 10
+`fly releases --image` and run `fly deploy --image <image>`. Releases from before the
+admin and ingest keys know only `GUARDIAN_API_KEY`, so rolling back to one refuses
+callers that have moved to the new keys. The health check allows 10
 minutes for segments to load; keep `--wait-timeout` above that, and raise both if boots
 get slower.
 
 ## Operating it
 
 The remote console is `fly ssh console --pty -C "/app/bin/guardian remote"`. Inside it,
-`Node.list()` shows the connected peers. Rotate the key with
-`fly secrets set GUARDIAN_API_KEY=...`, which restarts the machine.
+`Node.list()` shows the connected peers. Rotate a key with, for example,
+`fly secrets set GUARDIAN_INGEST_API_KEY=...`, which restarts the machine; each key
+rotates independently of the others.
 
 ## Scaling
 
@@ -96,7 +104,7 @@ events drop out of queries until a machine uses that volume again.
 When the `TUNNEL_TOKEN` secret is set, the image's entry point (`bin/fly-start`)
 starts a cloudflared connector beside Guardian. The connector opens an outbound
 Cloudflare Tunnel, so Cloudflare Workers can reach Guardian through a Workers VPC
-binding instead of the public edge. The same API key applies. Without the token, the
+binding instead of the public edge. The same API keys apply. Without the token, the
 entry point is exactly `guardian start`. Import the token from a protected source
 (`fly secrets import --stage`) rather than typing it on a command line.
 

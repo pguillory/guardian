@@ -3,7 +3,6 @@ defmodule Guardian.Web.QueryParseErrorsTest do
 
   import ExUnit.CaptureLog
 
-  alias Guardian.Test.JsonApiClient
   alias Guardian.Web.QueryParseErrors
 
   # Malformed SQL unique to one test, so rows can be told apart in the shared table.
@@ -28,53 +27,67 @@ defmodule Guardian.Web.QueryParseErrorsTest do
     end
   end
 
-  describe "JSON API" do
-    test "a parse error returns the same 500 and records one row" do
+  # A caller as the MCP query tool builds it (QueryParseErrors.mcp_caller/1).
+  @caller %{
+    "interface" => "mcp",
+    "remote_ip" => "127.0.0.1",
+    "x_forwarded_for" => "9.9.9.9",
+    "user_agent" => "test-agent/1",
+    "mcp_client_name" => "client",
+    "mcp_client_version" => "1.0",
+  }
+
+  # Runs a query the way the MCP tool does, through Guardian.Web.Query.execute/3; a
+  # raise comes back as {:raised, exception}.
+  defp run(sql) do
+    Guardian.Web.Query.execute(sql, fn -> @caller end)
+  rescue
+    error -> {:raised, error}
+  end
+
+  describe "recording through Guardian.Web.Query" do
+    test "a parse error is reraised unchanged and records one row" do
       sql = bad_sql()
 
-      assert {500, %{"status" => 500}} =
-               JsonApiClient.query(sql, [
-                 {"user-agent", "test-agent/1"},
-                 {"x-forwarded-for", "9.9.9.9"},
-               ])
+      assert {:raised, %Guardian.AST.ParseError{}} = run(sql)
 
       assert [row] = rows_for(sql)
-      assert row["interface"] == "http"
+      assert row["interface"] == "mcp"
       assert row["error"] == parse_message(sql)
       assert row["error"] =~ "Parse error on line 1"
       assert row["user_agent"] == "test-agent/1"
       assert row["x_forwarded_for"] == "9.9.9.9"
       assert row["remote_ip"] == "127.0.0.1"
+      assert row["mcp_client_name"] == "client"
       assert row["sql_bytes"] == byte_size(sql)
       assert row["sql_truncated"] == false
       assert row["dropped_before"] == 0
       assert row["hostname"] == Guardian.Utils.hostname()
       assert row["timestamp"] =~ ~r/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/
-      refute Map.has_key?(row, "mcp_client_name")
     end
 
     test "valid queries and statement-count rejections record nothing" do
       marker = "valid_#{System.unique_integer([:positive])}_end"
 
-      assert {200, _} = JsonApiClient.query("SELECT 1 FROM #{marker}")
-      assert {400, _} = JsonApiClient.query("SELECT 1 FROM #{marker}; SELECT 2")
+      assert {:ok, _, _} = run("SELECT 1 FROM #{marker}")
+      assert {:error, _} = run("SELECT 1 FROM #{marker}; SELECT 2")
       :ok = QueryParseErrors.sync()
 
       rows = Guardian.Storage.dump_table(QueryParseErrors.table())
       refute Enum.any?(rows, &String.contains?(&1["sql"] || "", marker))
     end
 
-    test "a stopped recorder is logged and the caller still gets the parse error 500" do
+    test "a stopped recorder is logged and the caller still gets the parse error" do
       sql = bad_sql()
       :ok = Supervisor.terminate_child(Guardian.Application, QueryParseErrors)
 
       try do
         log =
           capture_log(fn ->
-            assert {500, %{"status" => 500}} = JsonApiClient.query(sql)
+            assert {:raised, %Guardian.AST.ParseError{}} = run(sql)
           end)
 
-        assert log =~ "Failed to record a http query parse error: the recorder is not running"
+        assert log =~ "Failed to record a mcp query parse error: the recorder is not running"
       after
         {:ok, _} = Supervisor.restart_child(Guardian.Application, QueryParseErrors)
       end
@@ -82,14 +95,14 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       assert rows_for(sql) == []
     end
 
-    test "a stalled recorder does not delay the response; the row lands when it resumes" do
+    test "a stalled recorder does not delay the error; the row lands when it resumes" do
       sql = bad_sql()
       pid = Process.whereis(QueryParseErrors)
       :ok = :sys.suspend(pid)
 
       try do
-        {micros, result} = :timer.tc(fn -> JsonApiClient.query(sql) end)
-        assert {500, %{"status" => 500}} = result
+        {micros, result} = :timer.tc(fn -> run(sql) end)
+        assert {:raised, %Guardian.AST.ParseError{}} = result
         assert micros < 1_000_000
       after
         :ok = :sys.resume(pid)
@@ -100,23 +113,21 @@ defmodule Guardian.Web.QueryParseErrorsTest do
 
     test "the table is queryable like other built-in tables" do
       sql = bad_sql()
-      JsonApiClient.query(sql)
+      run(sql)
       :ok = QueryParseErrors.sync()
 
-      assert {200, %{"rows" => tables}} = JsonApiClient.query("SHOW TABLES")
+      assert {:ok, _, tables} = run("SHOW TABLES")
       assert ["query_parse_errors"] in tables
 
-      assert {200, %{"rows" => keys}} = JsonApiClient.query("DESC query_parse_errors")
+      assert {:ok, _, keys} = run("DESC query_parse_errors")
 
       for key <-
             ~w(timestamp hostname interface remote_ip sql sql_bytes sql_truncated error dropped_before) do
         assert [key] in keys
       end
 
-      assert {200, %{"rows" => [["http", ^sql]]}} =
-               JsonApiClient.query(
-                 "SELECT interface, sql FROM query_parse_errors WHERE sql = '#{sql}'"
-               )
+      assert {:ok, _, [["mcp", ^sql]]} =
+               run("SELECT interface, sql FROM query_parse_errors WHERE sql = '#{sql}'")
     end
 
     test "a failure while building the row is logged by kind only and returns :ok" do
@@ -195,7 +206,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       # "é" is two bytes after an odd-length prefix, so the cap splits a character.
       sql = "SELECT FROM x WHERE " <> String.duplicate("é", 10_000)
       error = %Guardian.AST.ParseError{reason: "test", row: 0, col: 0}
-      row = QueryParseErrors.row(sql, error, %{"interface" => "http"})
+      row = QueryParseErrors.row(sql, error, %{"interface" => "mcp"})
 
       assert row["sql_truncated"] == true
       assert row["sql_bytes"] == byte_size(sql)
@@ -243,17 +254,17 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       log =
         capture_log(fn ->
           :ok =
-            QueryParseErrors.record(lost, error, fn -> %{"interface" => "http"} end,
+            QueryParseErrors.record(lost, error, fn -> %{"interface" => "mcp"} end,
               server: server
             )
 
           :ok = QueryParseErrors.sync(server)
         end)
 
-      assert log =~ "Failed to record a http query parse error: RuntimeError"
+      assert log =~ "Failed to record a mcp query parse error: RuntimeError"
 
       :ok =
-        QueryParseErrors.record(kept, error, fn -> %{"interface" => "http"} end, server: server)
+        QueryParseErrors.record(kept, error, fn -> %{"interface" => "mcp"} end, server: server)
 
       assert rows_for(lost, server) == []
       assert [%{"dropped_before" => 1}] = rows_for(kept, server)
@@ -292,7 +303,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
         QueryParseErrors.record(
           sql,
           error,
-          fn -> %{"interface" => "http", "user_agent" => agent} end,
+          fn -> %{"interface" => "mcp", "user_agent" => agent} end,
           server: server
         )
 
@@ -321,7 +332,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
           for sql <- sqls do
             error = %Guardian.AST.ParseError{reason: "test", row: 0, col: 0}
 
-            assert QueryParseErrors.record(sql, error, fn -> %{"interface" => "http"} end,
+            assert QueryParseErrors.record(sql, error, fn -> %{"interface" => "mcp"} end,
                      server: server
                    ) == :ok
           end
@@ -338,7 +349,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       error = %Guardian.AST.ParseError{reason: "test", row: 0, col: 0}
 
       :ok =
-        QueryParseErrors.record(sql, error, fn -> %{"interface" => "http"} end, server: server)
+        QueryParseErrors.record(sql, error, fn -> %{"interface" => "mcp"} end, server: server)
 
       assert [%{"dropped_before" => 3}] = rows_for(sql, server)
     end

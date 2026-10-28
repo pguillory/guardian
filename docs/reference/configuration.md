@@ -1,13 +1,19 @@
 # Configuration
 
-Everything is set through environment variables. Only `GUARDIAN_API_KEY` is required.
+Everything is set through environment variables. Only a full-access key is required:
+`GUARDIAN_ADMIN_API_KEY`, or the deprecated `GUARDIAN_API_KEY`. Each key that is set
+must be at least 32 bytes (generate one with `openssl rand -hex 32`), and no two may be
+the same; startup refuses otherwise, naming the variable but never its value. Each key
+rotates independently: a change takes effect at restart and doesn't affect stored data.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `GUARDIAN_API_KEY` | (required) | The one API key. At least 32 bytes; generate it with `openssl rand -hex 32`. Rotating it takes effect at restart and doesn't affect stored data. |
+| `GUARDIAN_ADMIN_API_KEY` | (unset) | The full-access key: MCP (queries, rules, ingestion) and `POST /api/json/send_events`. For the operator and their agents. Required unless `GUARDIAN_API_KEY` is set. |
+| `GUARDIAN_INGEST_API_KEY` | (unset) | Optional insert-only key, accepted only by `POST /api/json/send_events`; anywhere else it gets 403. For the applications that produce events. |
+| `GUARDIAN_API_KEY` | (unset) | Deprecated. While set, it has full access like `GUARDIAN_ADMIN_API_KEY`, so existing callers keep working until they move to the new keys; a later release removes it. Once insert-only callers use the ingest key, rolling back to a release without it refuses them, since older releases only know `GUARDIAN_API_KEY`. |
 | `GUARDIAN_DATA_DIR` | `/data` in the image, `/root/data` for a bare release | Where segments are stored. Startup refuses a directory it can't write, so set it when running a bare release as a non-root user. On Fly it must be the mounted volume. |
 | `GUARDIAN_PORT` | `8080` | The HTTP port. |
-| `GUARDIAN_ALLOW_QUERY_API_KEY` | `false` | `true` also accepts the key as an `api_key` query parameter. URLs end up in logs and history more readily than headers, so leave it off unless a client can't send the `x-api-key` header. |
+| `GUARDIAN_ALLOW_QUERY_API_KEY` | `false` | `true` also accepts a key (any of the three) as an `api_key` query parameter. URLs end up in logs and history more readily than headers, so leave it off unless a client can't send the `x-api-key` header. |
 | `GUARDIAN_QUERY_MAX_HEAP_MB` | `256` | The heap limit for each process a query runs in. `0` turns it off. See [Known limitations](limitations.md). |
 | `GUARDIAN_COUNTER_MEMORY_MB` | `64` | Positive integer MiB for the asynchronous resident counter memory target on this node; empty, zero, negative or non-integer values refuse startup. Excludes mailboxes, temporary copies and other VM memory. Housekeeping runs about every second; writes can temporarily overshoot. Expired keys are reclaimed first, then a sampled earliest-expiry cutoff evicts live buckets (possibly all when expiries tie). Restart to change; counts are ephemeral. See [counters](../guides/rules.md#counters-with-track-and-lookup). |
 | `GUARDIAN_MUTABLE_SEGMENT_MAX_AGE_MS` | `3600000` | How long an in-memory segment collects events before it's handed off to disk. |

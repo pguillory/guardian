@@ -2,7 +2,8 @@
 #
 # Unverified: this file is a starting point and is not run by Guardian's own checks.
 #
-#   export GUARDIAN_API_KEY="$(openssl rand -hex 32)"
+#   export GUARDIAN_ADMIN_API_KEY="$(openssl rand -hex 32)"
+#   export GUARDIAN_INGEST_API_KEY="$(openssl rand -hex 32)"
 #   export RELEASE_COOKIE="$(openssl rand -base64 48 | tr -d '\n/+=')"
 #   docker compose -f examples/docker-compose.yml up -d --build
 #
@@ -28,7 +29,8 @@ x-guardian: &guardian
   stop_grace_period: 120s
 
 x-guardian-env: &guardian-env
-  GUARDIAN_API_KEY: ${GUARDIAN_API_KEY:?set GUARDIAN_API_KEY}
+  GUARDIAN_ADMIN_API_KEY: ${GUARDIAN_ADMIN_API_KEY:?set GUARDIAN_ADMIN_API_KEY}
+  GUARDIAN_INGEST_API_KEY: ${GUARDIAN_INGEST_API_KEY:?set GUARDIAN_INGEST_API_KEY}
   RELEASE_COOKIE: ${RELEASE_COOKIE:?set RELEASE_COOKIE}
   DNS_CLUSTER_QUERY: guardian-peers
   GUARDIAN_DIST_PORT: "9100"

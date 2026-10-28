@@ -1,7 +1,7 @@
 defmodule Guardian.Web.Query do
   @moduledoc """
-  Runs SQL for the JSON `/query` endpoint and the MCP `query` tool, as `Guardian.Web.Ingest`
-  does ingestion for both. Don't resolve or run queries in Web any other way.
+  Runs SQL for the MCP `query` tool, Guardian's one query interface. Don't resolve or
+  run queries in Web any other way.
 
   It calls `Guardian.Query.execute/2` and records every query, whatever its outcome, with
   `Guardian.Web.QueryLog.record/4` (the `queries` table). It also hands any `Guardian.AST.ParseError` to
@@ -12,8 +12,8 @@ defmodule Guardian.Web.Query do
 
   @doc """
   Runs `sql` with `Guardian.Query.execute/2` and returns its result. `caller_fun` returns the
-  caller fields of a recorded row (`Guardian.Web.QueryParseErrors.http_caller/1` or
-  `mcp_caller/1`). Options: `:server` names the parse-error recorder, `:query_log`
+  caller fields of a recorded row
+  (`Guardian.Web.QueryParseErrors.mcp_caller/1`). Options: `:server` names the parse-error recorder, `:query_log`
   the query recorder, and `:execute` replaces `Guardian.Query.execute/2` (for tests).
   """
   @spec execute(String.t(), (-> map()), keyword()) ::

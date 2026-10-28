@@ -3,7 +3,6 @@ defmodule Guardian.Web.QueryLogTest do
 
   import ExUnit.CaptureLog
 
-  alias Guardian.Test.JsonApiClient
   alias Guardian.Web.QueryLog
 
   @api_key Application.compile_env!(:guardian, :api_key)
@@ -26,29 +25,45 @@ defmodule Guardian.Web.QueryLogTest do
     response.result
   end
 
-  defp info(caller \\ %{"interface" => "http"}) do
+  # A caller as the MCP query tool builds it (QueryParseErrors.mcp_caller/1), with the
+  # headers that must not be recorded.
+  @caller %{
+    "interface" => "mcp",
+    "remote_ip" => "127.0.0.1",
+    "x_forwarded_for" => "9.9.9.9",
+    "user_agent" => "secret-agent",
+    "mcp_client_name" => "client",
+    "mcp_client_version" => "1.0",
+  }
+
+  # Runs a query the way the MCP tool does, through Guardian.Web.Query.execute/3; a
+  # raise comes back as {:raised, exception}.
+  defp run(sql) do
+    Guardian.Web.Query.execute(sql, fn -> @caller end)
+  rescue
+    error -> {:raised, error}
+  end
+
+  defp info(caller \\ %{"interface" => "mcp"}) do
     %{timestamp: Guardian.Timestamp.now(), duration_native: 0, caller_fun: fn -> caller end}
   end
 
-  describe "JSON API" do
-    test "a successful query records one row, without the key or headers" do
+  describe "recording through Guardian.Web.Query" do
+    test "a successful query records one row, without headers" do
       table = marker()
       Guardian.Engine.ingest_events(table, [%{"v" => 1}, %{"v" => 2}])
       sql = "SELECT v FROM #{table}"
 
-      assert {200, %{"rows" => [[1], [2]]}} =
-               JsonApiClient.query(sql, [
-                 {"user-agent", "secret-agent"},
-                 {"x-forwarded-for", "9.9.9.9"},
-               ])
+      assert {:ok, _labels, [[1], [2]]} = run(sql)
 
       assert [row] = rows_for(sql)
-      assert row["interface"] == "http"
+      assert row["interface"] == "mcp"
       assert row["outcome"] == "ok"
       assert row["row_count"] == 2
       assert row["error_kind"] == nil
       assert row["error"] == nil
       assert row["remote_ip"] == "127.0.0.1"
+      assert row["mcp_client_name"] == "client"
       assert is_float(row["duration_ms"]) and row["duration_ms"] >= 0
       assert row["sql_bytes"] == byte_size(sql)
       assert row["sql_truncated"] == false
@@ -57,16 +72,15 @@ defmodule Guardian.Web.QueryLogTest do
       assert row["timestamp"] =~ ~r/^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d$/
 
       values = row |> Map.values() |> Enum.map(&inspect/1) |> Enum.join(" ")
-      refute values =~ @api_key
       refute values =~ "secret-agent"
       refute values =~ "9.9.9.9"
       refute Map.has_key?(row, "user_agent")
       refute Map.has_key?(row, "x_forwarded_for")
     end
 
-    test "a query error (400) records outcome error, kind query" do
+    test "a query error records outcome error, kind query" do
       sql = "SELECT max_n(1, -1) AS #{marker()}"
-      assert {400, %{"info" => info}} = JsonApiClient.query(sql)
+      assert {:error, info} = run(sql)
 
       assert [row] = rows_for(sql)
       assert row["outcome"] == "error"
@@ -77,34 +91,25 @@ defmodule Guardian.Web.QueryLogTest do
 
     test "a statement-count rejection records kind query" do
       sql = "SELECT 1 FROM #{marker()}; SELECT 2"
-      assert {400, _} = JsonApiClient.query(sql)
+      assert {:error, _} = run(sql)
       assert [%{"error_kind" => "query", "outcome" => "error"}] = rows_for(sql)
     end
 
-    test "a parse error returns the same 500 and records kind parse" do
+    test "a parse error is reraised unchanged and records kind parse" do
       sql = "SELECT FROM #{marker()} WHERE"
-      assert {500, %{"status" => 500}} = JsonApiClient.query(sql)
-
-      # Resolve independently: the JSON boundary no longer exposes the exception.
-      error = assert_raise Guardian.AST.ParseError, fn -> Guardian.Query.Resolver.resolve(sql) end
+      assert {:raised, %Guardian.AST.ParseError{} = error} = run(sql)
 
       assert [row] = rows_for(sql)
       assert row["error_kind"] == "parse"
       assert row["error"] == Exception.message(error)
     end
 
-    test "an internal error (500) records kind internal with the unsent message" do
+    test "an internal error is reraised unchanged and records kind internal with its message" do
       table = marker()
       Guardian.Engine.ingest_event(table, %{"a" => 1, "A" => 2})
       sql = "SELECT a FROM #{table}"
 
-      assert {500, %{"status" => 500}} = JsonApiClient.query(sql)
-
-      # Resolve independently to retain the exact recorded-message assertion.
-      error =
-        assert_raise Guardian.Query.AmbiguousColumnError, fn ->
-          Guardian.Query.Resolver.resolve(sql)
-        end
+      assert {:raised, %Guardian.Query.AmbiguousColumnError{} = error} = run(sql)
 
       assert [row] = rows_for(sql)
       assert row["error_kind"] == "internal"
@@ -112,14 +117,14 @@ defmodule Guardian.Web.QueryLogTest do
       assert row["error"] =~ "ambiguous column"
     end
 
-    test "a stalled recorder does not delay the response; the row lands when it resumes" do
+    test "a stalled recorder does not delay the result; the row lands when it resumes" do
       sql = "SELECT 1 FROM #{marker()}"
       pid = Process.whereis(QueryLog)
       :ok = :sys.suspend(pid)
 
       try do
-        {micros, result} = :timer.tc(fn -> JsonApiClient.query(sql) end)
-        assert {200, _} = result
+        {micros, result} = :timer.tc(fn -> run(sql) end)
+        assert {:ok, _, _} = result
         assert micros < 1_000_000
       after
         :ok = :sys.resume(pid)
@@ -133,7 +138,7 @@ defmodule Guardian.Web.QueryLogTest do
       :ok = Supervisor.terminate_child(Guardian.Application, QueryLog)
 
       try do
-        log = capture_log(fn -> assert {200, _} = JsonApiClient.query(sql) end)
+        log = capture_log(fn -> assert {:ok, _, _} = run(sql) end)
         assert log =~ "Failed to record a query in queries: the recorder is not running"
         refute log =~ sql
       after
@@ -145,17 +150,17 @@ defmodule Guardian.Web.QueryLogTest do
 
     test "a query on the queries table logs exactly one row" do
       sql = "SELECT count() FROM queries WHERE sql = '#{marker()}'"
-      assert {200, _} = JsonApiClient.query(sql)
-      assert {200, _} = JsonApiClient.query(sql)
+      assert {:ok, _, _} = run(sql)
+      assert {:ok, _, _} = run(sql)
       assert [_, _] = rows_for(sql)
     end
 
     test "the table is queryable" do
       sql = "SELECT 1 FROM #{marker()}"
-      JsonApiClient.query(sql)
+      run(sql)
       :ok = QueryLog.sync()
 
-      assert {200, %{"rows" => keys}} = JsonApiClient.query("DESC queries")
+      assert {:ok, _, keys} = run("DESC queries")
 
       for key <-
             ~w(timestamp hostname interface remote_ip sql sql_bytes sql_truncated duration_ms outcome row_count error_kind error dropped_before) do
@@ -245,7 +250,7 @@ defmodule Guardian.Web.QueryLogTest do
 
         assert {^kind, ^reason, ^stacktrace} =
                  (try do
-                    Guardian.Web.Query.execute(sql, fn -> %{"interface" => "http"} end, opts)
+                    Guardian.Web.Query.execute(sql, fn -> %{"interface" => "mcp"} end, opts)
                   catch
                     caught_kind, caught_reason -> {caught_kind, caught_reason, __STACKTRACE__}
                   end)

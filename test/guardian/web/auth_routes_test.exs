@@ -1,6 +1,8 @@
 defmodule Guardian.Web.AuthRoutesTest do
   # Each well-formed credential form against both authenticated routers, with the
-  # exact 401 responses, so how a key is accepted cannot drift between them.
+  # exact 401 and 403 responses, so how a key is accepted cannot drift between them.
+  # Both requests need full access (a JSON path other than POST /send_events, and
+  # /mcp), so the ingest key is forbidden on both.
   # The credential forms are checked with query-parameter keys both allowed and
   # refused, a global setting, so this module is not async.
   use ExUnit.Case, async: false
@@ -8,11 +10,15 @@ defmodule Guardian.Web.AuthRoutesTest do
   import Guardian.Test.QueryApiKeys
 
   @api_key Application.compile_env!(:guardian, :api_key)
+  @admin_api_key Application.compile_env!(:guardian, :admin_api_key)
+  @ingest_api_key Application.compile_env!(:guardian, :ingest_api_key)
 
   @json_missing ~s({"info":"api_key required","status":401}\n)
   @json_unauthorized ~s({"info":"unauthorized","status":401}\n)
   @mcp_missing ~s({"error":"api_key required"})
   @mcp_unauthorized ~s({"error":"unauthorized"})
+  @json_forbidden ~s({"info":"this key can only send events","status":403}\n)
+  @mcp_forbidden ~s({"error":"this key can only send events"})
 
   # {description, query string, x-api-key headers in order, expected outcome}, with
   # query keys allowed.
@@ -34,6 +40,10 @@ defmodule Guardian.Web.AuthRoutesTest do
       {"an empty header", "", [""], :unauthorized},
       {"a wrong header", "", ["wrong"], :unauthorized},
       {"a valid header", "", [@api_key], :ok},
+      {"a valid admin header", "", [@admin_api_key], :ok},
+      {"a valid ingest header", "", [@ingest_api_key], :forbidden},
+      {"a valid ingest query parameter", "api_key=#{@ingest_api_key}", [], :forbidden},
+      {"a valid admin query parameter", "api_key=#{@admin_api_key}", [], :ok},
       {"a valid query parameter", "api_key=#{@api_key}", [], :ok},
       {"a wrong query parameter", "api_key=wrong", [], :unauthorized},
       {"an empty query parameter", "api_key=", [], :unauthorized},
@@ -42,6 +52,7 @@ defmodule Guardian.Web.AuthRoutesTest do
       {"a valid header over a wrong query parameter", "api_key=wrong", [@api_key], :ok},
       {"a wrong first header before a valid one", "", ["wrong", @api_key], :unauthorized},
       {"a valid first header before a wrong one", "", [@api_key, "wrong"], :ok},
+      {"an ingest header before an admin one", "", [@ingest_api_key, @admin_api_key], :forbidden},
       {"a list-shaped query parameter", "api_key[]=#{@api_key}", [], :unauthorized},
       {"a map-shaped query parameter", "api_key[a]=#{@api_key}", [], :unauthorized},
       {"another query parameter only", "key=#{@api_key}", [], :missing},
@@ -70,6 +81,9 @@ defmodule Guardian.Web.AuthRoutesTest do
 
         :unauthorized ->
           assert {conn.status, conn.resp_body} == {401, @json_unauthorized}, description
+
+        :forbidden ->
+          assert {conn.status, conn.resp_body} == {403, @json_forbidden}, description
       end
 
       if expected != :ok do
@@ -96,6 +110,9 @@ defmodule Guardian.Web.AuthRoutesTest do
 
         :unauthorized ->
           assert {conn.status, conn.resp_body} == {401, @mcp_unauthorized}, description
+
+        :forbidden ->
+          assert {conn.status, conn.resp_body} == {403, @mcp_forbidden}, description
       end
 
       if expected != :ok do
@@ -108,7 +125,7 @@ defmodule Guardian.Web.AuthRoutesTest do
 
   test "MCP logs a query-parameter key's use, never the key; a header key logs nothing" do
     log =
-      capture_query_key_log(fn ->
+      capture_auth_note_log(fn ->
         with_query_api_keys(true, fn ->
           assert request("/mcp", "", [@api_key]).status == 405
           assert request("/mcp", "api_key=#{@api_key}", []).status == 405
@@ -122,11 +139,64 @@ defmodule Guardian.Web.AuthRoutesTest do
     refute log =~ @api_key
 
     log =
-      capture_query_key_log(fn ->
+      capture_auth_note_log(fn ->
         assert request("/mcp", "", [@api_key]).status == 405
       end)
 
     assert query_key_log_lines(log) == []
+  end
+
+  test "MCP logs a legacy key's use, never the key; the admin key logs nothing" do
+    pattern = ~r/A request on \S+ authenticated with the legacy GUARDIAN_API_KEY/
+
+    log =
+      capture_auth_note_log(fn ->
+        assert request("/mcp", "", [@admin_api_key]).status == 405
+        assert request("/mcp", "", [@api_key]).status == 405
+      end)
+
+    assert Regex.scan(pattern, log) ==
+             [["A request on /mcp authenticated with the legacy GUARDIAN_API_KEY"]]
+
+    refute log =~ @api_key
+
+    log =
+      capture_auth_note_log(fn ->
+        assert request("/mcp", "", [@admin_api_key]).status == 405
+      end)
+
+    assert Regex.scan(pattern, log) == []
+  end
+
+  test "MCP logs both notes for a legacy key in the query parameter" do
+    log =
+      capture_auth_note_log(fn ->
+        with_query_api_keys(true, fn ->
+          assert request("/mcp", "api_key=#{@api_key}", []).status == 405
+        end)
+      end)
+
+    assert query_key_log_lines(log) == [
+             "A request on /mcp authenticated with the api_key query parameter",
+           ]
+
+    assert log =~ "A request on /mcp authenticated with the legacy GUARDIAN_API_KEY"
+    refute log =~ @api_key
+  end
+
+  test "an ingest key naming a session is forbidden before the session check" do
+    conn = Plug.Test.conn(:post, "https://localhost/mcp", "{}")
+
+    conn = %{
+      conn
+      | req_headers: [
+          {"x-api-key", @ingest_api_key},
+          {"mcp-session-id", "any"} | conn.req_headers,
+        ],
+    }
+
+    conn = Guardian.Web.MainRouter.call(conn, nil)
+    assert {conn.status, conn.resp_body} == {403, @mcp_forbidden}
   end
 
   test "with query keys refused, MCP answers 401 whatever the query string" do

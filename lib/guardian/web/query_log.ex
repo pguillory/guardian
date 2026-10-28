@@ -1,7 +1,7 @@
 defmodule Guardian.Web.QueryLog do
   @moduledoc """
-  Records every query the query APIs run in the built-in `queries` table: the JSON
-  `/query` endpoint and the MCP `query` tool, each through `Guardian.Web.Query.execute/3`.
+  Records every query the MCP `query` tool runs, through `Guardian.Web.Query.execute/3`,
+  in the built-in `queries` table.
 
   `Guardian.Web.Query.execute/3` runs on the machine that received the request, which
   coordinates the query, so each query is recorded once there; peers running parts of
@@ -63,7 +63,7 @@ defmodule Guardian.Web.QueryLog do
 
   `info` holds `:timestamp` (when the query started), `:duration_native` (its run
   time in native time units) and `:caller_fun` (returns the caller fields, see
-  `Guardian.Web.QueryParseErrors.http_caller/1` and `mcp_caller/1`; only `interface`,
+  `Guardian.Web.QueryParseErrors.mcp_caller/1`; only `interface`,
   `remote_ip` and the MCP client name and version are kept). Never raises, throws, or
   exits; always returns `:ok`. Options: `:server` names the recorder.
   """

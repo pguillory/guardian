@@ -2,7 +2,9 @@
 
 1. No replication. A node's events live only on its own volume, so a lost volume loses
    them. On Fly, volume snapshots run daily (kept 14 days per `fly.toml`).
-2. One key, one principal. Every key holder can read and write everything.
+2. One principal. A full-access key holder can read and write everything; the
+   insert-only ingest key can only send events, but can still read what its own
+   ingests return and write any table, Guardian's built-in ones included.
 3. Recent events can be lost in a crash. In-memory segments go to disk an hour after
    their first event by default, and queue or disk delays can stretch that. A hard
    crash loses what isn't on disk yet. A normal stop persists everything within the

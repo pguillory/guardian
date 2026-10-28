@@ -400,8 +400,8 @@ when it needs one. This file is public: see the change-tracking rules in AGENTS.
 - [ ] list-field-paths: let `users.name` find the list column `users..name`
 - [ ] statement-node-set: compute a statement's node set once, so a hung peer's 5 s
       readiness check is paid once per query and resolve and FROM see the same nodes
-- [ ] json-query-error-responses: JSON `/query` returns a bare 500 for parse and
-      resolve errors, where MCP reports the message; return 400 with `info`
+- [x] json-query-error-responses: obsolete; split-api-keys removed JSON `/query`
+      (`docs/changes/split-api-keys.md`)
 - [x] integer-literal-range: an integer literal outside int64
       (`99999999999999999999`, or `-9223372036854775808`, which is minus applied to
       2^63) parsed, then failed evaluation; it is now the parse error "Number out of
@@ -431,6 +431,21 @@ when it needs one. This file is public: see the change-tracking rules in AGENTS.
       drop it with its test
 
 ## Interfaces and operations
+
+- [x] split-api-keys: an insert-only ingest key (`GUARDIAN_INGEST_API_KEY`) works
+      only on `POST /api/json/send_events`; a full-access admin key
+      (`GUARDIAN_ADMIN_API_KEY`) is for MCP; `POST /api/json/query` is removed; the
+      single `GUARDIAN_API_KEY` stays full access, deprecated, until it is retired
+      (`docs/changes/split-api-keys.md`)
+- [ ] drop-legacy-api-key: once the deployment has retired `GUARDIAN_API_KEY`, remove
+      its support; the boot error for a deployment that still sets only it must name
+      the replacement variables, with a README note (`docs/changes/split-api-keys.md`)
+- [ ] query-api-key-off: no known caller sends the `api_key` query parameter; the
+      maintainer's deployment could turn `GUARDIAN_ALLOW_QUERY_API_KEY` off once
+      `web_requests.auth_method` and the MCP log confirm it (maintainer's call)
+- [ ] reserve-builtin-tables: refuse built-in table names (`queries`, `web_requests`,
+      `system_stats`, ...) on API ingest, so the ingest key cannot forge Guardian's
+      own rows (`docs/changes/split-api-keys.md`)
 
 - [x] rules-docs-structure: split Rules invariants into single-purpose requirements
       and add stable spec subsection links (`docs/changes/rules-docs-structure.md`)

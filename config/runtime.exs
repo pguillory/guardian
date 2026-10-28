@@ -27,16 +27,49 @@ if config_env() != :test do
       end
   end
 
-  api_key = System.fetch_env!("GUARDIAN_API_KEY")
+  # API keys: GUARDIAN_INGEST_API_KEY may only send events; GUARDIAN_ADMIN_API_KEY
+  # grants everything, as does the deprecated GUARDIAN_API_KEY while it is set. Each is
+  # optional, but at least one full-access key is required. Values are never printed.
+  api_keys =
+    for name <- ~w(GUARDIAN_INGEST_API_KEY GUARDIAN_ADMIN_API_KEY GUARDIAN_API_KEY) do
+      case System.get_env(name) do
+        nil ->
+          {name, nil}
 
-  if api_key == "", do: raise("GUARDIAN_API_KEY must not be empty")
+        "" ->
+          raise "#{name} must not be empty"
 
-  # A length policy, not an entropy check: generate the key (openssl rand -hex 32).
-  if byte_size(api_key) < 32 do
-    raise "GUARDIAN_API_KEY must be at least 32 bytes; generate one with: openssl rand -hex 32"
+        # A length policy, not an entropy check: generate the key (openssl rand -hex 32).
+        key when byte_size(key) < 32 ->
+          raise "#{name} must be at least 32 bytes; generate one with: openssl rand -hex 32"
+
+        key ->
+          {name, key}
+      end
+    end
+
+  %{
+    "GUARDIAN_INGEST_API_KEY" => ingest_api_key,
+    "GUARDIAN_ADMIN_API_KEY" => admin_api_key,
+    "GUARDIAN_API_KEY" => legacy_api_key,
+  } = Map.new(api_keys)
+
+  if admin_api_key == nil and legacy_api_key == nil do
+    raise "GUARDIAN_ADMIN_API_KEY must be set (or the deprecated GUARDIAN_API_KEY); " <>
+            "generate one with: openssl rand -hex 32"
   end
 
-  config :guardian, api_key: api_key
+  # A shared value would give the ingest key full access, and make keys indistinguishable.
+  set_keys = for {_name, key} <- api_keys, key != nil, do: key
+
+  if length(Enum.uniq(set_keys)) != length(set_keys) do
+    raise "GUARDIAN_INGEST_API_KEY, GUARDIAN_ADMIN_API_KEY and GUARDIAN_API_KEY must all differ"
+  end
+
+  config :guardian,
+    ingest_api_key: ingest_api_key,
+    admin_api_key: admin_api_key,
+    api_key: legacy_api_key
 
   # The api_key query parameter is accepted only when this is "true": URLs end up in
   # logs and history more readily than the x-api-key header.

@@ -1,25 +1,30 @@
 defmodule Guardian.Web.JsonApi do
   @moduledoc """
-  JSON HTTP API for Guardian event ingestion and queries.
+  JSON HTTP API for Guardian event ingestion. Its one endpoint is `POST
+  /send_events`; queries and rules go through MCP (`Guardian.Web.MCP.Router`).
 
-  All endpoints require the API key (see "Authentication"). CORSPlug runs first
+  Every request needs an API key (see "Authentication"). CORSPlug runs first
   and answers CORS preflight `OPTIONS` requests with 204 before authentication.
   Plug.Parsers reads and decodes the body only after the key check, so a request
-  without a valid key gets 401 (or 400 for an undecodable query string) without its
+  without a valid key gets 401 (or 400 for an undecodable query string, or 403 for the
+  ingest key on a path that needs full access) without its
   body being read; with a key, malformed JSON gets 400, a body over 8 MB 413, and a
   declared non-JSON content type 415. The unauthenticated liveness check is
   `GET /health` in `Guardian.Web.MainRouter`, outside this API.
 
   ## Authentication
 
-  All requests must include the API key in a header:
+  All requests must include an API key in a header:
 
       x-api-key: your_api_key_here
 
   Only when query keys are allowed (`GUARDIAN_ALLOW_QUERY_API_KEY=true`, off by
   default) may it come as a query parameter instead, `?api_key=your_api_key_here`;
-  the header takes precedence if both are present. `Guardian.Web.Auth.check_conn/1` decides. A
-  valid key grants access to the whole event store.
+  the header takes precedence if both are present. `Guardian.Web.Auth.check_conn/2` decides.
+  `POST /send_events` accepts the insert-only ingest key (`GUARDIAN_INGEST_API_KEY`) as
+  well as the full-access admin key (`GUARDIAN_ADMIN_API_KEY`) and the deprecated
+  `GUARDIAN_API_KEY`. Any other path needs a full-access key, so the ingest key gets
+  403 there.
 
   ## Endpoints
 
@@ -65,37 +70,16 @@ defmodule Guardian.Web.JsonApi do
   non-list events, and malformed return_keys or idempotency_key return 400 before
   any event is stored.
 
-  ### POST /query
-
-  Execute one SQL statement, optionally preceded by LET statements. The query is
-  resolved like an MCP query, so `SELECT *`, SHOW TABLES, and DESC are supported.
-
-  **Request Body**:
-  ```json
-  {
-    "query": "SELECT ip, count() FROM requests WHERE status = 404 GROUP BY ip LIMIT 10"
-  }
-  ```
-
-  **Response**:
-  ```json
-  {
-    "status": 200,
-    "columns": ["ip", "count()"],
-    "rows": [
-      ["1.2.3.4", 5],
-      ["5.6.7.8", 3]
-    ]
-  }
-  ```
-
-  The `columns` field contains the column labels, and `rows` contains the result rows.
-
   ## Error Responses
 
   **401 Unauthorized**:
   ```json
   {"status": 401, "info": "api_key required"}
+  ```
+
+  **403 Forbidden** (the ingest key on any path but `POST /send_events`):
+  ```json
+  {"status": 403, "info": "this key can only send events"}
   ```
 
   **400 Bad Request** (`send_events` invalid table, events, return_keys or idempotency_key):
@@ -107,26 +91,6 @@ defmodule Guardian.Web.JsonApi do
   ```json
   {"status": 409, "info": "idempotency_key is still in flight; retry the same request promptly"}
   ```
-
-  **400 Bad Request** (the `query` body is not a JSON object with a string `query`):
-  ```json
-  {"status": 400, "info": "the body must be a JSON object with a string \"query\""}
-  ```
-
-  **400 Bad Request** (`query` resolves to zero or several statements):
-  ```json
-  {"status": 400, "info": "Only single-statement queries are supported"}
-  ```
-
-  **400 Bad Request** (`query` fails with a `Guardian.Query.Error`, such as a resource limit or
-  a regular expression over its backtracking limit; `info` says what to change):
-  ```json
-  {"status": 400, "info": "..."}
-  ```
-
-  Other query errors, such as parse errors, return 500. Parse errors are also recorded
-  in the `query_parse_errors` table, and every query, whatever its outcome, in the
-  `queries` table; recording never changes the response.
 
   **400 Bad Request** (a query string that cannot be decoded: invalid UTF-8, or
   nesting deeper than 32; checked before the key when there is no `x-api-key`
@@ -144,12 +108,6 @@ defmodule Guardian.Web.JsonApi do
   ```json
   {"status": 500}
   ```
-
-  ## Future Direction
-
-  This API is a proof-of-concept. Future versions will:
-  - Improve ingestion and query error responses
-  - Expand MCP integration for event analysis
 
   See `ARCHITECTURE.md` for API architecture details.
   """
@@ -231,9 +189,11 @@ defmodule Guardian.Web.JsonApi do
   end
 
   defp auth(conn, _opts) do
-    case Guardian.Web.Auth.check_conn(conn) do
-      {:ok, method} ->
-        put_private(conn, :guardian_auth_method, method)
+    case Guardian.Web.Auth.check_conn(conn, required_access(conn)) do
+      {:ok, method, key} ->
+        conn
+        |> put_private(:guardian_auth_method, method)
+        |> put_private(:guardian_auth_key, key)
 
       {:error, :unauthorized} ->
         send_json_resp(conn, 401, %{status: 401, info: "unauthorized"})
@@ -243,10 +203,24 @@ defmodule Guardian.Web.JsonApi do
         send_json_resp(conn, 401, %{status: 401, info: "api_key required"})
         |> halt()
 
+      {:error, :forbidden} ->
+        send_json_resp(conn, 403, %{status: 403, info: "this key can only send events"})
+        |> halt()
+
       {:error, {:invalid_query, status}} ->
         send_json_resp(conn, status, %{status: status, info: "invalid query string"})
         |> halt()
     end
+  end
+
+  # The ingest key is accepted for sending events and nothing else: every other path
+  # and method, including any route added later, needs a full-access key.
+  defp required_access(%Plug.Conn{method: "POST", path_info: ["send_events"]}) do
+    :ingest
+  end
+
+  defp required_access(_conn) do
+    :full
   end
 
   post "/send_events" do
@@ -259,35 +233,6 @@ defmodule Guardian.Web.JsonApi do
 
       {:error, status, message} ->
         send_json_resp(conn, status, %{status: status, info: message})
-    end
-  end
-
-  post "/query" do
-    case conn.body_params do
-      %{"query" => query_string} when is_binary(query_string) ->
-        run_query(conn, query_string)
-
-      # A missing or non-string query, a non-object body, or no content type (so no
-      # body was parsed). The body is not echoed or logged.
-      _ ->
-        info = ~s(the body must be a JSON object with a string "query")
-        send_json_resp(conn, 400, %{status: 400, info: info})
-    end
-  end
-
-  # Runs like MCP (`Guardian.Query.execute/2`). Every query is recorded in
-  # queries; parse failures also in query_parse_errors, and reraised unchanged. A
-  # failure of the query itself (statement count, or a `Guardian.Query.Error` while running) is
-  # a 400; other exceptions are 500s.
-  defp run_query(conn, query_string) do
-    caller_fun = fn -> Guardian.Web.QueryParseErrors.http_caller(conn) end
-
-    case Guardian.Web.Query.execute(query_string, caller_fun) do
-      {:ok, columns, rows} ->
-        send_json_resp(conn, 200, %{status: 200, columns: columns, rows: rows})
-
-      {:error, info} ->
-        send_json_resp(conn, 400, %{status: 400, info: info})
     end
   end
 

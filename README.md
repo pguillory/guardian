@@ -1,8 +1,8 @@
 # Guardian
 
 Guardian is a self-hosted event store for you and your agents. Your services and
-scripts send it JSON events, and you or your agents query them in a SQL-like language,
-over HTTP or MCP.
+scripts send it JSON events over HTTP, and you or your agents query them in a SQL-like
+language over MCP.
 
 It's built for one job: keeping a record of what your own systems did, with the
 context they had at the time, so you can decide later what to ask. A producer puts
@@ -36,8 +36,9 @@ producer saw at that moment.
 
 Guardian stays small on purpose, and these are the trade-offs:
 
-- Single-tenant. One API key reads and writes every table. There are no users, roles
-  or namespaces, so it suits an operator's own systems, not analytics shared across a
+- Single-tenant. An admin key reads and writes every table; an insert-only ingest key
+  for your applications can send events and nothing else. There are no users or
+  namespaces, so it suits an operator's own systems, not analytics shared across a
   team.
 - Short-lived data. Events expire after about 15 days, with no per-table retention.
   Each machine keeps its own events, with no replication, and a hard crash loses
@@ -51,12 +52,13 @@ The details are in [Known limitations](docs/reference/limitations.md).
 
 ## What using it looks like
 
-Send events over HTTP. Each one is any JSON object; Guardian adds nothing, so stamp
-your own UTC `timestamp` as `YYYY-MM-DD HH:MM:SS`, without an offset:
+Send events over HTTP with the insert-only ingest key. Each one is any JSON object;
+Guardian adds nothing, so stamp your own UTC `timestamp` as `YYYY-MM-DD HH:MM:SS`,
+without an offset:
 
 ```sh
 curl -s https://guardian.example.com/api/json/send_events \
-  -H "x-api-key: $GUARDIAN_API_KEY" -H 'content-type: application/json' \
+  -H "x-api-key: $GUARDIAN_INGEST_API_KEY" -H 'content-type: application/json' \
   -d '{"table": "requests", "events": [{
         "timestamp": "2026-10-23 06:40:12",
         "method": "POST", "path": "/checkout", "status": 502, "duration_ms": 3011,
@@ -65,17 +67,19 @@ curl -s https://guardian.example.com/api/json/send_events \
       }]}'
 ```
 
-Then query them. The results here and below come from a table of six such
-requests:
+Then query them through MCP with the admin key ([set up below](#let-your-agent-use-it)).
+The results here and below come from a table of six such requests:
 
-```sh
-curl -s https://guardian.example.com/api/json/query \
-  -H "x-api-key: $GUARDIAN_API_KEY" -H 'content-type: application/json' \
-  -d '{"query": "SELECT user.plan, count() AS requests, count_if(status >= 500) AS errors FROM requests GROUP BY user.plan"}'
+```sql
+SELECT user.plan, count() AS requests, count_if(status >= 500) AS errors
+FROM requests
+GROUP BY user.plan
 ```
 
-```json
-{"status": 200, "columns": ["user.plan", "requests", "errors"], "rows": [["pro", 4, 1], ["free", 2, 1]]}
+```text
+user.plan | requests | errors
+pro       | 4        | 1
+free      | 2        | 1
 ```
 
 The slowest endpoints over the last hour (timestamps are UTC strings by convention,
@@ -160,7 +164,7 @@ A login comes in, asking for the decision back:
 
 ```sh
 curl -s https://guardian.example.com/api/json/send_events \
-  -H "x-api-key: $GUARDIAN_API_KEY" -H 'content-type: application/json' \
+  -H "x-api-key: $GUARDIAN_INGEST_API_KEY" -H 'content-type: application/json' \
   -d '{"table": "logins", "return_keys": ["is_blocked", "is_suspicious"], "events": [{
         "timestamp": "2026-10-23 06:40:12", "user": "dana", "ip": "203.0.113.9",
         "risk_score": 0.97, "message": "Send the WIRE TRANSFER today", "password": "hunter2"
@@ -217,11 +221,12 @@ grouping, window semantics, safe edits and memory configuration.
 
 ## Let your agent use it
 
-Guardian serves MCP (Streamable HTTP) at `/mcp`. Connect Claude Code:
+Guardian serves MCP (Streamable HTTP) at `/mcp`, which needs the admin key (the
+ingest key gets 403 there). Connect Claude Code:
 
 ```sh
 claude mcp add --transport http guardian https://guardian.example.com/mcp \
-  --header "x-api-key: $GUARDIAN_API_KEY"
+  --header "x-api-key: $GUARDIAN_ADMIN_API_KEY"
 ```
 
 Or Codex, in `~/.codex/config.toml`, reading the key from your environment:
@@ -229,7 +234,7 @@ Or Codex, in `~/.codex/config.toml`, reading the key from your environment:
 ```toml
 [mcp_servers.guardian]
 url = "https://guardian.example.com/mcp"
-env_http_headers = { "x-api-key" = "GUARDIAN_API_KEY" }
+env_http_headers = { "x-api-key" = "GUARDIAN_ADMIN_API_KEY" }
 ```
 
 The agent gets a `query` tool, which takes `sql`, one statement, and returns the rows
@@ -266,32 +271,34 @@ is untested (see [system.md 10.1](docs/architecture/system.md#101-build)).
 ```sh
 docker build -t guardian .
 
-export GUARDIAN_API_KEY="$(openssl rand -hex 32)"
+export GUARDIAN_ADMIN_API_KEY="$(openssl rand -hex 32)"
+export GUARDIAN_INGEST_API_KEY="$(openssl rand -hex 32)"
 
 docker run -d --name guardian \
   --stop-timeout 120 \
   -p 127.0.0.1:8080:8080 \
   -v guardian_data:/data \
-  -e GUARDIAN_API_KEY \
+  -e GUARDIAN_ADMIN_API_KEY \
+  -e GUARDIAN_INGEST_API_KEY \
   guardian
 
 curl http://127.0.0.1:8080/health
 ```
 
-Then send an event and query it:
+Then send an event:
 
 ```sh
 curl -s http://127.0.0.1:8080/api/json/send_events \
-  -H "x-api-key: $GUARDIAN_API_KEY" -H 'content-type: application/json' \
+  -H "x-api-key: $GUARDIAN_INGEST_API_KEY" -H 'content-type: application/json' \
   -d '{"table": "requests", "events": [{"path": "/", "status": 200, "timestamp": "2026-10-22 12:00:00"}]}'
-
-curl -s http://127.0.0.1:8080/api/json/query \
-  -H "x-api-key: $GUARDIAN_API_KEY" -H 'content-type: application/json' \
-  -d '{"query": "SELECT status, count() FROM requests GROUP BY status"}'
 ```
 
+and query it by connecting an MCP client to `http://127.0.0.1:8080/mcp` with the
+admin key, as [above](#let-your-agent-use-it), and asking for
+`SELECT status, count() FROM requests GROUP BY status`.
+
 Guardian speaks plain HTTP. Put TLS in front of it before you expose it beyond the
-machine; the API key travels in every request.
+machine; a key travels in every request.
 
 ## Elixir callers
 

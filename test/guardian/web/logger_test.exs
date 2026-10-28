@@ -5,6 +5,9 @@ defmodule Guardian.Web.LoggerTest do
 
   @api_key Application.compile_env!(:guardian, :api_key)
 
+  # A valid send_events body that stores nothing.
+  @empty_batch ~s({"table": "logger_test", "events": []})
+
   test "a request succeeds when its log events cannot be written" do
     log =
       capture_log(fn ->
@@ -15,13 +18,13 @@ defmodule Guardian.Web.LoggerTest do
         end)
 
         conn =
-          Plug.Test.conn(:post, "https://localhost/api/json/query", ~s({"query": "SELECT 1"}))
+          Plug.Test.conn(:post, "https://localhost/api/json/send_events", @empty_batch)
           |> Plug.Conn.put_req_header("content-type", "application/json")
           |> Plug.Conn.put_req_header("x-api-key", @api_key)
           |> Guardian.Web.MainRouter.call(nil)
 
         assert conn.status == 200
-        assert Jason.decode!(conn.resp_body)["rows"] == [[1]]
+        assert Jason.decode!(conn.resp_body)["results"] == []
         {:ok, _pid} = Supervisor.restart_child(Guardian.Storage, Guardian.Storage.MutableSegments)
       end)
 
@@ -30,7 +33,7 @@ defmodule Guardian.Web.LoggerTest do
   end
 
   @shared_fields ~w(timestamp hostname host port method path plug_route scheme remote_ip
-                    x_forwarded_for referer user_agent auth_method)
+                    x_forwarded_for referer user_agent auth_method auth_key)
 
   defp logged(table, user_agent) do
     {:ok, labels, rows} =
@@ -43,7 +46,7 @@ defmodule Guardian.Web.LoggerTest do
     user_agent = "logger-test-#{System.unique_integer([:positive])}"
 
     conn =
-      Plug.Test.conn(:post, "https://localhost/api/json/query", ~s({"query": "SELECT 1"}))
+      Plug.Test.conn(:post, "https://localhost/api/json/send_events", @empty_batch)
       |> Plug.Conn.put_req_header("content-type", "application/json")
       |> Plug.Conn.put_req_header("x-api-key", @api_key)
       |> Plug.Conn.put_req_header("user-agent", user_agent)
@@ -69,8 +72,10 @@ defmodule Guardian.Web.LoggerTest do
 
     assert %{
              "method" => "POST",
-             "path" => "/api/json/query",
-             "plug_route" => "/api/json/*glob/query",
+             "path" => "/api/json/send_events",
+             "plug_route" => "/api/json/*glob/send_events",
+             "auth_method" => "header",
+             "auth_key" => "legacy",
            } =
              request
 

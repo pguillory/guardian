@@ -16,7 +16,8 @@ defmodule Guardian.Test.MCPClient do
     protocol_version: "2025-03-26",
     capabilities: []
 
-  @api_key Application.compile_env!(:guardian, :api_key)
+  # The full-access admin key, as MCP clients are meant to use.
+  @api_key Application.compile_env!(:guardian, :admin_api_key)
 
   @doc """
   Starts a client connected to this node's MCP endpoint under the calling test's

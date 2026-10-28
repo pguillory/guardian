@@ -10,7 +10,7 @@ How this fits with the other docs:
 1. What Guardian does, as a caller sees it, is the [product spec](../product/spec.md),
    which extends the [overview](../product/overview.md). This document assumes it and
    cites its sections instead of repeating behavior.
-2. Trust boundaries, the API key, secrets, and logging exposure are the [security architecture](security.md). This document links
+2. Trust boundaries, the API keys, secrets, and logging exposure are the [security architecture](security.md). This document links
    to it rather than restating it.
 3. Rules for editing a subsystem are in the `AGENTS.md` file in each `lib/` directory.
    Those files are the working notes for agents changing that code; this document is
@@ -1065,7 +1065,7 @@ BY with a LIMIT above the row cap is refused. Strings that functions build are c
 64 KiB (`Guardian.Query.Text`), never refused. A query may run for 30 seconds:
 `Guardian.Query.run/1` then kills its process, whose links stop every router and worker on
 every machine, and raises. Exceeding a cap or the time limit raises `Guardian.Query.Error`,
-which both interfaces report with its message. The caps are application environment
+which the MCP `query` tool reports with its message. The caps are application environment
 values (section 9).
 
 Each process a query runs in also carries a heap limit: `Guardian.Query.Limits.limit_heap/0`
@@ -1104,7 +1104,7 @@ memory on every machine at once (security.md section 5.2).
 ## 6. Interfaces
 
 Authentication, CORS, and what each surface reveals without a key are in
-[security.md section 4](security.md#4-b2-api-key). Product behavior is spec section 4.
+[security.md section 4](security.md#4-b2-api-keys). Product behavior is spec section 4.
 
 ### 6.1 HTTP server and routing
 
@@ -1115,31 +1115,27 @@ in front of it (on Fly, Fly's edge).
 
 ### 6.2 JSON API
 
-`Guardian.Web.JsonApi` is a Plug router. Plug order is the important part: CORS (which answers
-preflights), then the key check (which notes whether the key came from the header or
-the query parameter), then body parsing (JSON only, 8 MB limit), then
-routing, then `Guardian.Web.Logger`, then the handler. Checking the key before reading the body
-means an anonymous client cannot make the server parse anything.
+`Guardian.Web.JsonApi` is a Plug router for ingestion only; queries and rules are MCP
+only (6.3). Plug order is the important part: CORS (which answers preflights), then
+the key check (`Guardian.Web.Auth.check_conn/2`, which notes where the key came from
+and which key it was), then body parsing (JSON only, 8 MB limit), then routing, then
+`Guardian.Web.Logger`, then the handler. Checking the key before reading the body
+means an anonymous client cannot make the server parse anything. The key check asks
+for `:ingest` access only for `POST /send_events` and `:full` for every other path
+and method, so the insert-only ingest key gets 403 anywhere else; a route added later
+is full-access unless it opts in.
 
-1. `/send_events` calls `Guardian.Web.Ingest.send_events/1`, shared with MCP, so both
-   interfaces validate requests and shape results identically.
-2. `/query` calls `Guardian.Web.Query.execute/3` (which has `Guardian.Web.QueryLog` record every query
-   and `Guardian.Web.QueryParseErrors` parse failures, section 6.5) around `Guardian.Query.execute/2`, the SQL entry point the MCP tool also uses.
-   It resolves the SQL, requires exactly one statement, calls
-   `Guardian.Query.run/1` from the request process (which runs the query in its own process),
-   and returns labels and rows, which `/query` sends as `{columns, rows}`. A wrong
-   statement count or a `Guardian.Query.Error` from running comes back as an error message and
-   becomes 400; other exceptions become a bare 500 and log only the failure kind
-   and a generated error ID. The JSON router catches application failures before Bandit can
-   print their messages or stacks. Unwrapped failures before routing close HTTP/1
-   connections rather than draining a body whose reader state is no longer current.
-3. `Guardian.Web.Logger` writes a `web_requests` row before the handler and a `web_responses`
+1. `/send_events`, the only route, calls `Guardian.Web.Ingest.send_events/1`, shared
+   with MCP, so both interfaces validate requests and shape results identically. Any
+   other path is 404 with a full-access key (the former `/query` included). The JSON
+   router catches application failures before Bandit can print their messages or
+   stacks; they become a bare 500 and log only the failure kind and a generated error
+   ID. Unwrapped failures before routing close HTTP/1 connections rather than
+   draining a body whose reader state is no longer current.
+2. `Guardian.Web.Logger` writes a `web_requests` row before the handler and a `web_responses`
    row before the response is sent, for authenticated requests only. Both carry
-   `auth_method`, `header` or `query`, from the key check.
-
-Each HTTP request is its own Bandit process, so JSON queries run concurrently. Each
-query stops at the 30-second query time limit (5.7); resolving it, which comes first,
-is not covered.
+   `auth_method`, `header` or `query`, and `auth_key`, `ingest`, `admin` or `legacy`,
+   from the key check, never the key.
 
 ### 6.3 MCP
 
@@ -1147,10 +1143,13 @@ The MCP endpoint uses the Anubis library, pinned at 0.16.0 (reasons in
 [dependency pins](#104-dependency-pins)), over Streamable HTTP.
 `Guardian.Web.MCP.Router` runs four plugs before handing the request to Anubis's transport:
 
-1. The key check, on every request, so an MCP session carries no authority of its own.
-   MCP requests are not recorded in `web_requests`, so when one authenticates with
-   the query parameter, the router logs one info line naming the path (never the
-   key), at most once a minute per node (`Guardian.Web.Auth.note_query_key_use/1`).
+1. The key check (`Guardian.Web.Auth.check_conn/2` with `:full`), on every request,
+   so an MCP session carries no authority of its own and the insert-only ingest key
+   gets 403. MCP requests are not recorded in `web_requests`, so when one
+   authenticates with the query parameter, or with the deprecated `GUARDIAN_API_KEY`,
+   the router logs one info line naming the path (never the key), at most once a
+   minute per node for each of the two (`Guardian.Web.Auth.note_query_key_use/1`,
+   `Guardian.Web.Auth.note_legacy_key_use/1`).
 2. A 404 for an unknown or expired `mcp-session-id`, which Anubis 0.16 would
    otherwise accept as a new uninitialized session.
 3. A 405 for `GET`, so Guardian never opens a server-push stream and every result
@@ -1228,7 +1227,8 @@ Guardian observes itself by writing ordinary tables through `Guardian.Engine.log
    the GenServer re-arms that log once its mailbox falls to half the cap.
    Building, handing off and writing never raise into the request, and failures are
    logged by kind only. Request headers are never recorded: the caller fields are
-   `interface`, `remote_ip` and MCP client info. `query_parse_errors` is conceptually
+   `interface` (always `mcp` now; older rows may say `http`), `remote_ip` and MCP
+   client info. `query_parse_errors` is conceptually
    redundant with it (TODO.md `drop-query-parse-errors`).
 
 ## 7. Clustering
@@ -1362,8 +1362,10 @@ Environment variables:
 
 | Variable | Read by | Meaning |
 | --- | --- | --- |
-| `GUARDIAN_API_KEY` | `config/runtime.exs` | The API key. Required outside tests, at least 32 bytes. |
-| `GUARDIAN_ALLOW_QUERY_API_KEY` | `config/runtime.exs` | `true` also accepts the key as the `api_key` query parameter; `false` or unset (the default) never decodes the query string for a key. Any other value fails boot. |
+| `GUARDIAN_ADMIN_API_KEY` | `config/runtime.exs` | The full-access key (MCP and `send_events`). At least 32 bytes when set. Outside tests, it or `GUARDIAN_API_KEY` is required. |
+| `GUARDIAN_INGEST_API_KEY` | `config/runtime.exs` | Optional insert-only key, accepted only by `POST /api/json/send_events`. At least 32 bytes when set. |
+| `GUARDIAN_API_KEY` | `config/runtime.exs` | Deprecated full-access key, accepted like the admin key while set. At least 32 bytes when set. The three keys must all differ; boot errors name the variable, never the value. |
+| `GUARDIAN_ALLOW_QUERY_API_KEY` | `config/runtime.exs` | `true` also accepts any of the keys as the `api_key` query parameter; `false` or unset (the default) never decodes the query string for a key. Any other value fails boot. |
 | `GUARDIAN_PORT` | `config/runtime.exs`, `bin/fly-start` | HTTP port, 1 to 65535. Default 8080. Tests use an OS-chosen port. |
 | `GUARDIAN_QUERY_MAX_HEAP_MB` | `config/runtime.exs` | Heap limit of each query process, in MiB (5.7). Default 256; `0` turns it off. |
 | `GUARDIAN_COUNTER_MEMORY_MB` | `config/runtime.exs` | Positive integer MiB for the asynchronous resident counter memory target (3.5), default 64; empty/invalid refuses startup. |
@@ -1384,7 +1386,7 @@ these except through the variables above:
 
 | Key | Default | Used by |
 | --- | --- | --- |
-| `api_key`, `allow_query_api_key`, `http_port`, `query_max_heap_mb`, `data_dir`, `dns_cluster_query`, `mutable_segment_max_age_ms` | from the variables above | as above |
+| `ingest_api_key`, `admin_api_key`, `api_key` (legacy; each nil when unset), `allow_query_api_key`, `http_port`, `query_max_heap_mb`, `data_dir`, `dns_cluster_query`, `mutable_segment_max_age_ms` | from the variables above | as above |
 | `query_max_result_rows` | 100,000 | `Guardian.Query.Limits` |
 | `query_max_result_bytes` | 64 MiB | `Guardian.Query.Limits` |
 | `query_time_limit_ms` | 30,000 | `Guardian.Query.run/1` (`Guardian.Query.Limits`) |
@@ -1488,8 +1490,10 @@ operational decisions:
    health check stops the deploy without rollback; roll back by redeploying the
    previous image. Elsewhere, replace the container or release and restart it; the
    stop must allow the shutdown budget (section 8).
-2. Secrets: set the key, cookie, or optional tunnel token in the environment and
-   restart (on Fly, `fly secrets set`, which restarts the machine).
+2. Secrets: set a key, the cookie, or the optional tunnel token in the environment
+   and restart (on Fly, `fly secrets set`, which restarts the machine). Each key
+   rotates independently. Rolling back to a release without the ingest key refuses
+   callers that have moved to it, since older releases only know `GUARDIAN_API_KEY`.
 3. Observing: the built-in tables (`system_stats`, `web_requests`, `web_responses`,
    `query_parse_errors`, `queries`) and stdout (on Fly, `fly logs` and `fly status`). Nothing
    alerts.
@@ -1546,11 +1550,12 @@ About 150 test files cover:
    column release, and a segment column race run in a child VM
    (`test/fixtures/segment_column_race.exs`).
 3. Interfaces: the JSON API through `Plug.Test` connections against the real router
-   stack (`Guardian.Test.JsonApiClient.query/2` in `libtest/guardian/test/` posts a query),
-   and the MCP endpoint end to end through a real MCP client (`Guardian.Test.MCPClient`
-   in `libtest/guardian/test/`, an Anubis client started by `Guardian.Test.MCPClient.start/0`) against the
+   stack, query recording by calling `Guardian.Web.Query.execute/3` directly, and the
+   MCP endpoint end to end through a real MCP client (`Guardian.Test.MCPClient`
+   in `libtest/guardian/test/`, an Anubis client started by `Guardian.Test.MCPClient.start/0`,
+   using the admin key) against the
    test listener on an OS-chosen port, including sessions, the 404 and 405 rules, and
-   authentication with query keys allowed and refused (`Guardian.Test.QueryApiKeys` in `libtest/guardian/test/`
+   authentication with each key and with query keys allowed and refused (`Guardian.Test.QueryApiKeys` in `libtest/guardian/test/`
    switches the setting for `async: false` tests).
 4. Clustering: `Guardian.Test.Cluster` (in `libtest/guardian/test/`) starts peer BEAM nodes on the same host,
    each running only Storage in its own data directory, and connects them, so schema
@@ -1651,8 +1656,7 @@ The limits named above, in one place:
 7. Query: no bound on a query's total memory (the heap limit is per process) and no
    concurrency limit (5.7).
 8. MCP: one slow MCP call blocks all MCP calls on the machine (6.3).
-9. JSON API: parse and resolve errors are a bare 500 (6.2).
-10. Parser: a label from `INTERVAL n WEEK` cannot be re-parsed (5.1).
+9. Parser: a label from `INTERVAL n WEEK` cannot be re-parsed (5.1).
 
 Design limits: one writable segment per table bounds per-table ingest rate (3.2); one
 scan worker per node per query (5.4); no replication (7); no directory fsync (4.3);

@@ -2,15 +2,29 @@
 
 ## Authentication
 
-All `/api/json` and `/mcp` requests need the key in the `x-api-key` header, or in the
-`api_key` query parameter when `GUARDIAN_ALLOW_QUERY_API_KEY=true`. Without a key, only
-`GET /health` and CORS preflight (`OPTIONS`) requests to `/api/json` succeed. The JSON
-API checks the key before reading the request body. With a valid key, a malformed body
-gets a 400, a body over 8 MB a 413, and an unsupported content type a 415.
+All `/api/json` and `/mcp` requests need a key in the `x-api-key` header, or in the
+`api_key` query parameter when `GUARDIAN_ALLOW_QUERY_API_KEY=true`. There are two
+keys, plus a deprecated one:
+
+- The ingest key (`GUARDIAN_INGEST_API_KEY`) is insert-only: it is accepted by
+  `POST /api/json/send_events` and nothing else. Give it to the applications that
+  produce events.
+- The admin key (`GUARDIAN_ADMIN_API_KEY`) has full access: `/mcp` (queries, rules,
+  ingestion) and `send_events`. It is for the operator and their agents.
+- `GUARDIAN_API_KEY` is deprecated. While set, it has full access like the admin key,
+  so existing callers keep working; a later release removes it.
+
+A missing key gets 401 `api_key required`, a wrong key 401 `unauthorized`, and the
+ingest key anywhere but `POST /api/json/send_events` 403 `this key can only send
+events`. Without a key, only `GET /health` and CORS preflight (`OPTIONS`) requests to
+`/api/json` succeed. The JSON API checks the key before reading the request body. With
+an accepted key, a malformed body gets a 400, a body over 8 MB a 413, and an
+unsupported content type a 415.
 
 ## Sending events
 
-`POST /api/json/send_events` ingests events:
+`POST /api/json/send_events`, the only JSON endpoint, ingests events. It takes the
+ingest key or a full-access key:
 
 ```json
 {
@@ -130,21 +144,9 @@ operation and restarts can allow duplicates; this is not an exactly-once guarant
 
 ## Querying
 
-`POST /api/json/query` runs a query:
-
-```json
-{
-  "query": "SELECT status, count() FROM requests GROUP BY status"
-}
-```
-
-The response carries the column names and the rows:
-
-```json
-{"status": 200, "columns": ["status", "count()"], "rows": [[200, 1]]}
-```
-
-Guardian supports `SELECT`, `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT`,
+Queries run only through the MCP `query` tool, below; there is no HTTP query endpoint
+(`POST /api/json/query` was removed and is now an unknown path: 404 with a full-access
+key). Guardian supports `SELECT`, `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY`, `LIMIT`,
 `SHOW TABLES` and `DESC`, along with query-time aggregations and scalar functions
 (including `RLIKE` and `replace()` with Perl-compatible regular expressions). Queries
 are read-only: there's no `INSERT` or `DELETE`. The full reference is
@@ -153,7 +155,9 @@ serves as the resource `guardian://query-language`.
 
 ## MCP
 
-The MCP endpoint at `/mcp` (Streamable HTTP) exposes these tools:
+The MCP endpoint at `/mcp` (Streamable HTTP) takes only a full-access key: the
+ingest key gets 403 `{"error": "this key can only send events"}` on every request. It
+exposes these tools:
 
 - `query`: runs one SQL query, given as `sql`, and returns rows as JSON objects.
 - `send_events`: ingests a `table`, an `events` list of JSON objects, and optional
@@ -172,7 +176,7 @@ For example, a Claude Code client:
 
 ```sh
 claude mcp add --transport http guardian https://<your-host>/mcp \
-  --header "x-api-key: $GUARDIAN_API_KEY"
+  --header "x-api-key: $GUARDIAN_ADMIN_API_KEY"
 ```
 
 ## Built-in tables
@@ -181,13 +185,15 @@ Guardian writes some tables of its own:
 
 - `system_stats`: Erlang VM metrics, once a second.
 - `web_requests` and `web_responses`: one pair per authenticated JSON API request.
-  `auth_method` says whether the key came from the header or the query parameter; the
-  key itself isn't recorded, with one exception: the `referer` header is stored
+  `auth_method` says whether the key came from the header or the query parameter, and
+  `auth_key` which key it was (`ingest`, `admin` or `legacy`); the key itself isn't
+  recorded, with one exception: the `referer` header is stored
   verbatim, so a referring URL that carries `?api_key=` records the key (see the
   [security architecture](../architecture/security.md)). MCP calls aren't logged here.
-- `query_parse_errors`: one row for each query that fails to parse, over JSON or MCP.
-- `queries`: one row for every query run over JSON or MCP, written on the machine that
-  received it: the query text (first 16 KiB), `interface` (`http` or `mcp`), start
+- `query_parse_errors`: one row for each MCP query that fails to parse.
+- `queries`: one row for every query run over MCP, written on the machine that
+  received it: the query text (first 16 KiB), `interface` (`mcp`; rows from before
+  the JSON query endpoint was removed say `http`), start
   `timestamp`, `duration_ms`, `row_count`, and `outcome` (`ok` or `error`, with
   `error_kind` and `error`). The key and request headers are never recorded. Fields
   are listed in [spec section 8](../product/spec.md#8-built-in-tables).

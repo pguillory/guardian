@@ -3,6 +3,7 @@ defmodule Guardian.Web.MCP.ClientTest do
   import Guardian.Test.MCPClient
 
   @api_key Application.compile_env!(:guardian, :api_key)
+  @ingest_api_key Application.compile_env!(:guardian, :ingest_api_key)
 
   setup_all do
     wait_for_server()
@@ -464,7 +465,7 @@ defmodule Guardian.Web.MCP.ClientTest do
       end
     end
 
-    test "existing router authentication rejects ingestion before it reaches the tool" do
+    test "router authentication rejects ingestion, including with the ingest key, before the tool" do
       table = "mcp_auth_#{System.unique_integer([:positive])}"
 
       body =
@@ -478,7 +479,7 @@ defmodule Guardian.Web.MCP.ClientTest do
           },
         })
 
-      for headers <- [[], [{"x-api-key", "wrong"}]] do
+      for headers <- [[], [{"x-api-key", "wrong"}], [{"x-api-key", @ingest_api_key}]] do
         conn =
           Enum.reduce(headers, Plug.Test.conn(:post, "/mcp", body), fn {key, value}, conn ->
             Plug.Conn.put_req_header(conn, key, value)
@@ -486,7 +487,7 @@ defmodule Guardian.Web.MCP.ClientTest do
           |> Plug.Conn.put_req_header("content-type", "application/json")
           |> Guardian.Web.MainRouter.call(nil)
 
-        assert conn.status == 401
+        assert conn.status == if(headers == [{"x-api-key", @ingest_api_key}], do: 403, else: 401)
         assert Guardian.Storage.dump_table(table) == []
       end
     end
@@ -510,7 +511,7 @@ defmodule Guardian.Web.MCP.ClientTest do
       Jason.decode!(content["text"])
     end
 
-    test "events sent through the JSON API are visible to MCP and JSON queries" do
+    test "events sent through the JSON API are visible to MCP queries" do
       Guardian.Test.MCPClient.start()
       table = "single_store_#{System.unique_integer([:positive])}"
 
@@ -526,34 +527,26 @@ defmodule Guardian.Web.MCP.ClientTest do
                %{"name" => "alice", "score" => 10},
                %{"name" => "bob", "score" => 20},
              ]
-
-      assert %{"rows" => [["alice", 10], ["bob", 20]]} =
-               json_request("/api/json/query", %{query: sql})
     end
 
-    test "system_stats is queryable through MCP and the JSON API" do
+    test "system_stats is queryable through MCP" do
       Guardian.Test.MCPClient.start()
       :ok = Guardian.SystemStats.record_metrics()
 
       assert [%{"count()" => mcp_count}] = mcp_query("SELECT count() FROM system_stats")
       assert mcp_count > 0
-
-      assert %{"rows" => [[json_count]]} =
-               json_request("/api/json/query", %{query: "SELECT count() FROM system_stats"})
-
-      assert json_count > 0
     end
 
     test "request logs are queryable and carry no user namespace" do
       Guardian.Test.MCPClient.start()
       # web_requests outlives a test run, and other tests share the default user agent.
       user_agent = "request-log-test-#{Base.encode16(:crypto.strong_rand_bytes(8))}"
-      json_request("/api/json/query", %{query: "SELECT 1"}, user_agent)
+      json_request("/api/json/send_events", %{table: "request_log_test", events: []}, user_agent)
 
       rows =
         mcp_query("SELECT path FROM web_requests WHERE user_agent = '#{user_agent}'")
 
-      assert [%{"path" => "/api/json/query"}] = rows
+      assert [%{"path" => "/api/json/send_events"}] = rows
       refute Map.has_key?(Guardian.Storage.schema("web_requests"), "user_id")
       refute Map.has_key?(Guardian.Storage.schema("web_responses"), "user_id")
     end

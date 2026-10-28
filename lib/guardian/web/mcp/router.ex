@@ -3,9 +3,11 @@ defmodule Guardian.Web.MCP.Router do
   Router for MCP (Model Context Protocol) server.
 
   Handles authentication and forwards requests to the Anubis MCP server.
-  Uses the same authentication as the JSON API (`Guardian.Web.Auth.check_conn/1`): the
+  Uses the same key check as the JSON API (`Guardian.Web.Auth.check_conn/2`): the
   `x-api-key` header, or the `api_key` query parameter only when
-  `GUARDIAN_ALLOW_QUERY_API_KEY=true`.
+  `GUARDIAN_ALLOW_QUERY_API_KEY=true`. Every request needs a full-access key (the
+  admin key, or the deprecated `GUARDIAN_API_KEY`); the insert-only ingest key gets
+  403.
   """
 
   use Plug.Router
@@ -33,16 +35,17 @@ defmodule Guardian.Web.MCP.Router do
   plug(:match)
   plug(:dispatch)
 
+  # Every MCP request needs a full-access key, checked before the session lookup and
+  # body decoding, including requests on an existing session.
   defp auth(conn, _opts) do
-    case Guardian.Web.Auth.check_conn(conn) do
-      {:ok, :header} ->
-        conn
-
-      # MCP requests are not recorded in web_requests, so a query-parameter key is
-      # logged here instead (never the key itself), at most once a minute, as evidence
-      # for whether GUARDIAN_ALLOW_QUERY_API_KEY is still needed.
-      {:ok, :query} ->
-        Guardian.Web.Auth.note_query_key_use("/mcp")
+    case Guardian.Web.Auth.check_conn(conn, :full) do
+      {:ok, method, key} ->
+        # MCP requests are not recorded in web_requests, so a query-parameter key and
+        # the legacy key are logged here instead (never the key itself), each at most
+        # once a minute, as evidence for whether GUARDIAN_ALLOW_QUERY_API_KEY and
+        # GUARDIAN_API_KEY are still needed.
+        if method == :query, do: Guardian.Web.Auth.note_query_key_use("/mcp")
+        if key == :legacy, do: Guardian.Web.Auth.note_legacy_key_use("/mcp")
         conn
 
       {:error, :unauthorized} ->
@@ -50,6 +53,9 @@ defmodule Guardian.Web.MCP.Router do
 
       {:error, :missing} ->
         send_json_error(conn, 401, %{error: "api_key required"})
+
+      {:error, :forbidden} ->
+        send_json_error(conn, 403, %{error: "this key can only send events"})
 
       {:error, {:invalid_query, status}} ->
         send_json_error(conn, status, %{error: "invalid query string"})

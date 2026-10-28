@@ -8,13 +8,15 @@ Supported architecture: linux/amd64; arm64 is untested (details in
 ```sh
 docker build -t guardian .
 
-export GUARDIAN_API_KEY="$(openssl rand -hex 32)"
+export GUARDIAN_ADMIN_API_KEY="$(openssl rand -hex 32)"
+export GUARDIAN_INGEST_API_KEY="$(openssl rand -hex 32)"
 
 docker run -d --name guardian \
   --stop-timeout 120 \
   -p 127.0.0.1:8080:8080 \
   -v guardian_data:/data \
-  -e GUARDIAN_API_KEY \
+  -e GUARDIAN_ADMIN_API_KEY \
+  -e GUARDIAN_INGEST_API_KEY \
   guardian
 ```
 
@@ -32,18 +34,22 @@ volume, so the first check after a restart can take a while on a large volume.
 curl http://127.0.0.1:8080/health
 
 curl -s http://127.0.0.1:8080/api/json/send_events \
-  -H "x-api-key: $GUARDIAN_API_KEY" -H 'content-type: application/json' \
+  -H "x-api-key: $GUARDIAN_INGEST_API_KEY" -H 'content-type: application/json' \
   -d '{"table": "requests", "events": [{"path": "/", "status": 200, "timestamp": "2026-10-22 12:00:00"}]}'
+```
 
-curl -s http://127.0.0.1:8080/api/json/query \
-  -H "x-api-key: $GUARDIAN_API_KEY" -H 'content-type: application/json' \
-  -d '{"query": "SELECT status, count() FROM requests GROUP BY status"}'
+The ingest key can only send events. Queries go through MCP at
+`http://127.0.0.1:8080/mcp` with the admin key, for example from Claude Code:
+
+```sh
+claude mcp add --transport http guardian http://127.0.0.1:8080/mcp \
+  --header "x-api-key: $GUARDIAN_ADMIN_API_KEY"
 ```
 
 ## TLS
 
 Guardian speaks plain HTTP. Put TLS in front of it (a reverse proxy, a load balancer, or
-Fly's edge) before you expose it beyond the machine; the API key travels in every
+Fly's edge) before you expose it beyond the machine; a key travels in every
 request.
 
 ## The operator's console

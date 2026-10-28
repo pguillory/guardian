@@ -28,7 +28,8 @@ recording something. A producer picks a table name and sends objects; a reader a
 
 Design commitments that shape every feature below:
 
-1. Single tenant: One API key, full access, no identities.
+1. Single tenant: No identities. A full-access key reads and writes everything; an
+   insert-only key can only send events.
 2. Schemaless: Tables and columns appear when written; columns are untyped.
 3. Predictable ingestion: The write path makes no calls to external services. Events
    change on the way in only by the operator's own rules ([section 5.1](#51-rules)),
@@ -44,8 +45,9 @@ Design commitments that shape every feature below:
 ### Producers
 
 Producers are the operator's own systems: services, applications, and agents that
-record what happens (sessions, tool calls, requests, metrics). A producer holds the key
-and writes the tables it chooses; any key holder can create a table by writing to it.
+record what happens (sessions, tool calls, requests, metrics). A producer holds a key
+(normally the insert-only ingest key) and writes the tables it chooses; any key holder
+can create a table by writing to it.
 By convention each producer writes its own table, puts the event name in a `type`
 field, and stamps its own `timestamp` (UTC, `YYYY-MM-DD HH:MM:SS`) and `time_ms`, and
 each producer documents its own events. These are conventions; Guardian enforces none
@@ -57,34 +59,52 @@ Guardian is also a producer of its own tables:
 | --- | --- | --- |
 | `system_stats` | once a second per machine | [section 8](#8-built-in-tables) |
 | `web_requests`, `web_responses` | per authenticated JSON API request | [section 8](#8-built-in-tables) |
-| `query_parse_errors` | per query that fails to parse (JSON API or MCP) | [section 8](#8-built-in-tables) |
-| `queries` | per query run (JSON API or MCP) | [section 8](#8-built-in-tables) |
+| `query_parse_errors` | per MCP query that fails to parse | [section 8](#8-built-in-tables) |
+| `queries` | per MCP query run | [section 8](#8-built-in-tables) |
 
 ### Readers
 
 1. Agents (for example, Claude or Codex coding sessions) use the MCP endpoint. The
    `query` tool's description summarizes the language and points at the full
    reference resource.
-2. Scripts use the JSON query endpoint.
+2. There is no HTTP query endpoint: scripts query through MCP too.
 3. An operator can run queries from the Erlang remote console with
    `Guardian.Query.execute("SELECT ...")`, which returns labels and rows.
 
 ## 3. Access and trust
 
-1. One key: Every request to `/api/json/*` and `/mcp` must carry the key configured
-   in `GUARDIAN_API_KEY` in the `x-api-key` header. The `api_key` query parameter is
+1. Keys: Every request to `/api/json/*` and `/mcp` must carry a key in the
+   `x-api-key` header. Keys are of two kinds, each set in its own environment
+   variable, plus a deprecated one:
+   - The ingest key (`GUARDIAN_INGEST_API_KEY`, optional) is insert-only: it is
+     accepted by `POST /api/json/send_events` and nothing else. It is meant for the
+     applications that produce events, so a compromised application can add events
+     but cannot query or change rules.
+   - The admin key (`GUARDIAN_ADMIN_API_KEY`) has full access: MCP (queries, rules,
+     ingestion) and `send_events`. It is meant for the operator and their agents.
+   - `GUARDIAN_API_KEY` is deprecated: while set, it has full access like the admin
+     key, so existing callers keep working until they move to the new keys. A later
+     release removes it.
+
+   The `api_key` query parameter is
    accepted too, but only when the operator sets `GUARDIAN_ALLOW_QUERY_API_KEY=true`,
    because URLs end up in logs and history more readily than headers; it is off by
    default. The header wins if both are present. The comparison does not
-   short-circuit on matching prefixes (the
+   short-circuit on matching prefixes, and every configured key is compared, so
+   timing does not reveal which one matched (the
    [security architecture](../architecture/security.md) covers the details).
-2. Full access: A valid key can read every table and write any valid table name. No
+2. Full access: A full-access key can read every table and write any valid table
+   name. The ingest key can write any valid table name, but cannot run queries or
+   read or change rules. It can still read what ingestion returns: `return_keys`
+   gives back the stored event after rules, including a counter value a `TRACK` or
+   `LOOKUP` rule wrote into it. It can also write rows into Guardian's built-in
+   tables, since those take ingestion like any other table. No
    identity is recorded and there is no namespace or per-table permission.
-   Built-in tables are no exception: any key holder can read `queries`, which keeps
-   the text of every query run over the JSON API or MCP, and `query_parse_errors`,
+   Built-in tables are no exception: any full-access key holder can read `queries`,
+   which keeps the text of every query run over MCP, and `query_parse_errors`,
    which keeps the text of every query that failed to parse (up to 16 KiB each), for
    the retention period. Callers should not put secrets in query text. Since there is
-   one key and one user, this stores a caller's data for the same principal, not for
+   one tenant and one principal, this stores a caller's data for the same principal, not for
    someone else. These are meant to be the only places Guardian keeps query text.
    Application failures caught inside the JSON API log at most their kind and a
    server-generated error ID, without printing query text, exception messages, or
@@ -92,8 +112,8 @@ Guardian is also a producer of its own tables:
    logging limits described in the security architecture.
    Production logs at info, so MCP messages (query text, event payloads) are not
    logged.
-3. Rotation: The key can change at any time without touching stored data; a node
-   reads it at startup, so the change takes effect when the node restarts with the new
+3. Rotation: Each key can change at any time, independently of the others, without
+   touching stored data; a node reads them at startup, so the change takes effect when the node restarts with the new
    value. On Fly.io, changing the secret restarts the machine.
 4. Unauthenticated surface: `GET /health` answers without a key; it returns `200 ok`,
    or `503 storage unavailable` while storage restarts, and reveals nothing else. CORS
@@ -104,8 +124,11 @@ Guardian is also a producer of its own tables:
    key gets 401 whatever its body. No data is read or written without a key. Paths
    outside `/health`, `/api/json`, and `/mcp` answer 404.
 5. Failures: A missing key returns 401 with the message `api_key required`; a wrong
-   key returns 401 with `unauthorized`. The JSON API puts the message in `info`
-   (`{"status": 401, "info": ...}`); MCP puts it in `error` (`{"error": ...}`).
+   key returns 401 with `unauthorized`. The ingest key anywhere but
+   `POST /api/json/send_events` (any other `/api/json` path or method, or `/mcp`)
+   returns 403 with `this key can only send events`. The JSON API puts the message in
+   `info` (`{"status": 401, "info": ...}`, or 403); MCP puts it in `error`
+   (`{"error": ...}`).
    Rejected requests are not logged to `web_requests`. With query keys off (the
    default), a request without an `x-api-key` header gets 401 `api_key required`
    whatever its query string, even one that cannot be decoded. With query keys on, a
@@ -115,15 +138,21 @@ Guardian is also a producer of its own tables:
    "invalid query string", from MCP with `{"error": "invalid query string"}`. With a
    header the key is checked first, so a wrong key gets 401; after a valid key the
    JSON API gives the same 400.
-6. Startup: Guardian refuses to start without a `GUARDIAN_API_KEY` of at least 32
-   bytes (generate one with `openssl rand -hex 32`; the length is checked, not the
-   randomness), or with a `GUARDIAN_ALLOW_QUERY_API_KEY` other than `true` or `false`.
-7. Where the key came from: `web_requests` and `web_responses` record `auth_method`,
-   `header` or `query`, for each JSON API request, never the key itself. MCP requests
-   are not recorded there, so when an MCP request authenticates with the query
-   parameter, Guardian writes one line to the server log naming the path, never the
-   key, at most once a minute per machine. Together these show whether query keys are
-   still in use before turning them off.
+6. Startup: Guardian refuses to start without a full-access key
+   (`GUARDIAN_ADMIN_API_KEY`, or the deprecated `GUARDIAN_API_KEY`); with any of the
+   three key variables set but empty or shorter than 32 bytes (generate keys with
+   `openssl rand -hex 32`; the length is checked, not the randomness); with two of
+   them set to the same value; or with a `GUARDIAN_ALLOW_QUERY_API_KEY` other than
+   `true` or `false`. The error names the variable, never its value.
+7. Which key, and where it came from: `web_requests` and `web_responses` record
+   `auth_method`, `header` or `query`, and `auth_key`, `ingest`, `admin` or `legacy`,
+   for each JSON API request, never the key itself. MCP requests are not recorded
+   there, so when an MCP request authenticates with the query parameter, or with the
+   deprecated `GUARDIAN_API_KEY`, Guardian writes one line to the server log naming
+   the path, never the key, at most once a minute per machine for each of the two.
+   Together these show whether query keys and the deprecated key are still in use
+   before turning them off. They are evidence, not proof: a client that has been idle
+   leaves no trace, and an ingest-key holder can write forged `web_requests` rows.
 
 How these properties are enforced, and where they fall short, is in the
 [security architecture](../architecture/security.md), not this spec.
@@ -160,7 +189,7 @@ CORS is enabled on these routes.
   400 with `{"status": 400, "info": "..."}` before any event is stored. A body that is
   malformed JSON gets 400 (`info` "malformed JSON body"), one over 8 MB gets 413, and
   one declared with a non-JSON content type gets 415. A request with no content type is not parsed, so
-  `send_events` sees no fields and returns 400, and so does `query`.
+  `send_events` sees no fields and returns 400.
 - An idempotency conflict (changed contents, in-flight processing or an unknown
   outcome) returns 409 with `{"status":409,"info":"..."}` without another write.
 - Otherwise a new batch's response is 200 with one result per input event, in order, even if
@@ -171,37 +200,18 @@ CORS is enabled on these routes.
                             {"success": false, "error": "event is not a JSON object"}]}
 ```
 
-`POST /api/json/query` runs one statement:
+`send_events` is the only JSON endpoint. Queries and rules are MCP only
+([section 4.2](#42-mcp)); there is no `POST /api/json/query`.
 
-```json
-{"query": "SELECT status, count() FROM requests GROUP BY status"}
-```
-
-- A body that is not a JSON object with a string `query` returns 400 with `info`
-  saying so; the body is not echoed or logged.
-- Success returns `{"status": 200, "columns": [...], "rows": [[...], ...]}`. Column
-  labels are the `AS` alias or the expression's source text.
-- `LET` prefixes are allowed; after them, exactly one statement must remain, or the
-  response is 400 with `info`.
-- A failure while evaluating the query (an expression that fails on some row, or a
-  query that fails inside distributed execution) returns 400 with
-  `{"status": 400, "info": "..."}` naming the problem.
-- Parse errors, unknown functions, ambiguous columns, and a machine failing the schema
-  lookup that resolves the query return a bare 500 `{"status": 500}` with no message.
-  Use MCP to see the message. Parse errors (which
-  include unknown function names) are also recorded in `query_parse_errors` ([section 8](#8-built-in-tables)), with the message
-  the parser produced; recording never changes the response.
-- Every query that reaches the query engine, whatever its outcome, is recorded in
-  `queries` ([section 8](#8-built-in-tables)); recording never changes or delays the
-  response.
-
-With a valid key, unknown paths under `/api/json` return 404 `{"status": 404}`;
-without one they return 401 like any other path.
+With a full-access key, unknown paths under `/api/json` (including the removed
+`/api/json/query`) return 404 `{"status": 404}`; with the ingest key they return 403,
+and without a key 401, like any other path.
 
 ### 4.2 MCP
 
 `/mcp` is a Model Context Protocol server named `guardian` over Streamable HTTP,
-authenticated like the JSON API. It offers:
+authenticated like the JSON API but only with a full-access key: the ingest key gets
+403 on every MCP request. It offers:
 
 1. Tool `query` with one argument, `sql`. It runs one statement (with optional `LET`
    prefixes) and returns the rows as a JSON list of objects keyed by column label.
@@ -275,7 +285,7 @@ An operator with a shell on a node can run `/app/bin/guardian remote` (on Fly, t
 `fly ssh console --pty -C "/app/bin/guardian remote"`) and call
 `Guardian.Query.execute("SELECT ...")` from IEx. It returns `{:ok, columns, rows}` or
 `{:error, message}`; parse and resolution errors can raise. Direct IEx queries are
-not recorded in `queries`. The shell has full VM access and bypasses the API key.
+not recorded in `queries`. The shell has full VM access and bypasses the API keys.
 
 ### 4.5 Elixir callers
 
@@ -691,18 +701,19 @@ they follow the same retention and query rules as producer tables.
 2. `web_requests`: one row per authenticated JSON API request, written before the
    request runs: `timestamp`, `hostname`, `host`, `port`, `method`, `path` (no query
    string), `plug_route`, `scheme`, `remote_ip`, `x_forwarded_for`, `referer`,
-   `user_agent`, and `auth_method` (`header` or `query`: where the key was found,
-   never the key).
+   `user_agent`, `auth_method` (`header` or `query`: where the key was found), and
+   `auth_key` (`ingest`, `admin` or `legacy`: which key it was), never the key.
 3. `web_responses`: the same fields plus `response_time_ms`, `response_size`, and
    `status`, written when the response is sent.
-4. `query_parse_errors`: one row per query that fails to parse, from `POST
-   /api/json/query` or the MCP `query` tool, written on the machine that handled it,
+4. `query_parse_errors`: one row per query that fails to parse, from the MCP `query`
+   tool, written on the machine that handled it,
    so wording of parse errors can be improved from real cases. "Fails to parse" means
    the message starts `Parse error on line`; that includes unknown function names.
    Other query errors (ambiguous columns, too many statements, node failures) and the
    remote console are not recorded. Fields:
    - `timestamp`, `hostname`.
-   - `interface`: `http` or `mcp`.
+   - `interface`: `mcp` (rows from before the JSON query endpoint was removed say
+     `http`).
    - Caller, as far as the request reveals one (there are no identities):
      `remote_ip`, `x_forwarded_for`, `user_agent`, and for MCP the client's
      self-reported `mcp_client_name` and `mcp_client_version` from `initialize`
@@ -712,7 +723,7 @@ they follow the same retention and query rules as producer tables.
      boundary. `sql_bytes` is the full length sent and `sql_truncated` says whether it
      was cut.
    - `error`: the parse error message, cut to 1 KiB. MCP returned this message in
-     full; the JSON API returned a bare 500.
+     full.
    - `dropped_before`: how many rows this machine dropped (rate cap, or a write that
      failed) since its previous recorded row (normally 0).
 
@@ -725,15 +736,14 @@ they follow the same retention and query rules as producer tables.
    is never delayed or changed by it, and a row normally appears within milliseconds
    of the error. A failure to record is written to the server log, not to the caller.
 
-5. `queries`: one row per query run through `POST /api/json/query` or the MCP `query`
+5. `queries`: one row per query run through the MCP `query`
    tool, whatever its outcome, written on the machine that received it. That machine
    coordinates the query, so a query that fans out across a cluster is recorded once;
    the machines that run parts of it record nothing. The remote console is not
-   recorded, and neither is a JSON request rejected before its query runs (a body
-   without a string `query`). Fields:
+   recorded. Fields:
    - `timestamp` (when the query started; the row is written when it ends, so a
      long query appears late), `hostname`.
-   - `interface`: `http` or `mcp`.
+   - `interface`: `mcp` (older rows may say `http`).
    - Caller: `remote_ip`, and for MCP the client's self-reported
      `mcp_client_name` and `mcp_client_version` from `initialize` (null when
      unknown), each cut to 256 bytes. No request header is recorded: not the key,
@@ -759,8 +769,7 @@ they follow the same retention and query rules as producer tables.
    There is no rate cap. Recording is handed off without waiting, so the response is
    never delayed or changed by it, and writing a row never runs a query, so querying
    `queries` records one row like any other query. A query whose request process is
-   killed before it ends (an HTTP client that disconnects) is not recorded; an MCP
-   query that outlives the MCP request timeout is recorded when it ends. A failure to
+   killed before it ends is not recorded; an MCP query that outlives the MCP request timeout is recorded when it ends. A failure to
    record is written to the server log, naming only its kind, never query text. Rows
    follow normal 15-day retention.
 
@@ -872,24 +881,22 @@ These are deliberately absent.
 
 Listed here because they change what a user sees:
 
-1. JSON query errors (parse errors, unknown functions, ambiguous columns, node
-   failures during resolution) are a bare 500.
-2. One segment that fails to pack at shutdown can lose the remaining unpersisted
+1. One segment that fails to pack at shutdown can lose the remaining unpersisted
    segments.
-3. One slow MCP tool call delays other MCP tool calls on that machine (a query for up
+2. One slow MCP tool call delays other MCP tool calls on that machine (a query for up
    to its 30-second limit, after up to 60 seconds per table of schema lookup when a
    machine doesn't answer; an ingest until it finishes).
-4. Results, some function sizes, query time, and each query process's heap are
+3. Results, some function sizes, query time, and each query process's heap are
    capped, but a query's total memory is not: GROUP BY state, column data, and many
    processes together can still exhaust a machine's memory and lose its unpersisted
    events.
-5. A column labeled from `INTERVAL n WEEK` cannot be re-parsed.
-6. `users.name` does not find the list column `users..name`.
-7. Edge cases in value handling, flattening, and corrupt-file handling, such as a
+4. A column labeled from `INTERVAL n WEEK` cannot be re-parsed.
+5. `users.name` does not find the list column `users..name`.
+6. Edge cases in value handling, flattening, and corrupt-file handling, such as a
    list holding null beside a list of objects (`[null, [{"a": 1}]]`), which cannot be
    rebuilt for the result, slow flattening of lists of objects with many distinct
    keys, and a corrupt segment file that aborts the VM.
-8. The rule write lock is a lease in the store. A writer that stalls for more than a
+7. The rule write lock is a lease in the store. A writer that stalls for more than a
    minute after checking its lease, or a write the store applies more than a minute
    after the writer gave up, can leave a rule set that validation would have refused;
    loading then fails the affected table's events until it is fixed.

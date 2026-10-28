@@ -4,6 +4,8 @@ defmodule Guardian.Config.RuntimeTest do
   @runtime_config Path.expand("../../../config/runtime.exs", __DIR__)
   @environment_variables [
     "GUARDIAN_API_KEY",
+    "GUARDIAN_INGEST_API_KEY",
+    "GUARDIAN_ADMIN_API_KEY",
     "GUARDIAN_USER_ID",
     "GUARDIAN_DATA_DIR",
     "GUARDIAN_MUTABLE_SEGMENT_MAX_AGE_MS",
@@ -35,6 +37,8 @@ defmodule Guardian.Config.RuntimeTest do
     on_exit(fn -> File.rm_rf!(directory) end)
 
     System.delete_env("GUARDIAN_USER_ID")
+    System.delete_env("GUARDIAN_INGEST_API_KEY")
+    System.delete_env("GUARDIAN_ADMIN_API_KEY")
     System.delete_env("DNS_CLUSTER_QUERY")
     System.delete_env("FLY_PRIVATE_IP")
     System.delete_env("GUARDIAN_MUTABLE_SEGMENT_MAX_AGE_MS")
@@ -65,14 +69,87 @@ defmodule Guardian.Config.RuntimeTest do
     refute Keyword.has_key?(config[:guardian], :user_id)
   end
 
-  test "rejects missing or empty API keys" do
+  test "rejects a configuration without a full-access key" do
     System.delete_env("GUARDIAN_API_KEY")
-    assert_raise System.EnvError, fn -> read_runtime_config() end
 
-    System.put_env("GUARDIAN_API_KEY", "")
+    message =
+      "GUARDIAN_ADMIN_API_KEY must be set (or the deprecated GUARDIAN_API_KEY); " <>
+        "generate one with: openssl rand -hex 32"
 
-    assert_raise RuntimeError, "GUARDIAN_API_KEY must not be empty", fn ->
-      read_runtime_config()
+    assert_raise RuntimeError, message, fn -> read_runtime_config() end
+
+    # The ingest key alone grants no full access.
+    System.put_env("GUARDIAN_INGEST_API_KEY", @key)
+    assert_raise RuntimeError, message, fn -> read_runtime_config() end
+  end
+
+  test "rejects an empty API key" do
+    for name <- ~w(GUARDIAN_API_KEY GUARDIAN_ADMIN_API_KEY GUARDIAN_INGEST_API_KEY) do
+      System.put_env("GUARDIAN_API_KEY", @key)
+      System.put_env(name, "")
+
+      assert_raise RuntimeError, "#{name} must not be empty", fn ->
+        read_runtime_config()
+      end
+
+      System.delete_env(name)
+    end
+  end
+
+  test "loads the ingest and admin keys, each optional beside a full-access key" do
+    ingest = String.duplicate("i", 32)
+    admin = String.duplicate("a", 32)
+
+    System.delete_env("GUARDIAN_API_KEY")
+    System.put_env("GUARDIAN_ADMIN_API_KEY", admin)
+    config = read_runtime_config()[:guardian]
+
+    assert {config[:admin_api_key], config[:ingest_api_key], config[:api_key]} ==
+             {admin, nil, nil}
+
+    System.put_env("GUARDIAN_INGEST_API_KEY", ingest)
+    config = read_runtime_config()[:guardian]
+
+    assert {config[:admin_api_key], config[:ingest_api_key], config[:api_key]} ==
+             {admin, ingest, nil}
+
+    System.put_env("GUARDIAN_API_KEY", @key)
+    config = read_runtime_config()[:guardian]
+
+    assert {config[:admin_api_key], config[:ingest_api_key], config[:api_key]} ==
+             {admin, ingest, @key}
+
+    System.delete_env("GUARDIAN_ADMIN_API_KEY")
+    config = read_runtime_config()[:guardian]
+
+    assert {config[:admin_api_key], config[:ingest_api_key], config[:api_key]} ==
+             {nil, ingest, @key}
+  end
+
+  test "rejects two API keys with the same value, never printing it" do
+    message =
+      "GUARDIAN_INGEST_API_KEY, GUARDIAN_ADMIN_API_KEY and GUARDIAN_API_KEY must all differ"
+
+    pairs = [
+      {"GUARDIAN_INGEST_API_KEY", "GUARDIAN_ADMIN_API_KEY"},
+      {"GUARDIAN_INGEST_API_KEY", "GUARDIAN_API_KEY"},
+      {"GUARDIAN_ADMIN_API_KEY", "GUARDIAN_API_KEY"},
+    ]
+
+    for {first, second} <- pairs do
+      for name <- ~w(GUARDIAN_API_KEY GUARDIAN_ADMIN_API_KEY GUARDIAN_INGEST_API_KEY) do
+        System.delete_env(name)
+      end
+
+      if first != "GUARDIAN_ADMIN_API_KEY" and second != "GUARDIAN_API_KEY" do
+        System.put_env("GUARDIAN_API_KEY", String.duplicate("l", 32))
+      end
+
+      System.put_env(first, @key)
+      System.put_env(second, @key)
+      error = assert_raise RuntimeError, fn -> read_runtime_config() end
+      assert error.message == message
+      refute error.message =~ @key
     end
   end
 
@@ -149,13 +226,21 @@ defmodule Guardian.Config.RuntimeTest do
   end
 
   test "rejects an API key shorter than 32 bytes" do
-    for key <- ["k", String.duplicate("k", 31)] do
-      System.put_env("GUARDIAN_API_KEY", key)
+    for name <- ~w(GUARDIAN_API_KEY GUARDIAN_ADMIN_API_KEY GUARDIAN_INGEST_API_KEY),
+        key <- ["k", String.duplicate("k", 31)] do
+      for other <- ~w(GUARDIAN_ADMIN_API_KEY GUARDIAN_INGEST_API_KEY),
+          do: System.delete_env(other)
 
-      assert_raise RuntimeError, ~r/GUARDIAN_API_KEY must be at least 32 bytes/, fn ->
+      System.put_env("GUARDIAN_API_KEY", @key)
+      System.put_env(name, key)
+
+      assert_raise RuntimeError, ~r/^#{name} must be at least 32 bytes/, fn ->
         read_runtime_config()
       end
     end
+
+    System.delete_env("GUARDIAN_ADMIN_API_KEY")
+    System.delete_env("GUARDIAN_INGEST_API_KEY")
 
     # Bytes, not characters: 11 three-byte characters are 33 bytes.
     System.put_env("GUARDIAN_API_KEY", String.duplicate("€", 11))

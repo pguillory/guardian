@@ -3,7 +3,7 @@ defmodule Guardian.Web.QueryParseErrors do
   Records query-API parse failures in the built-in `query_parse_errors` table, so real
   failing queries can guide better parse error messages.
 
-  `Guardian.Web.Query.execute/3`, the JSON and MCP query path, hands each `Guardian.AST.ParseError` to
+  `Guardian.Web.Query.execute/3`, the MCP query path, hands each `Guardian.AST.ParseError` to
   `record/4`, which hands one row to this GenServer; the original error is then
   reraised, so the caller's response is exactly what it would have been. The handoff
   is a cast: the request never waits on the recorder or Guardian.Storage. Rows are written by
@@ -45,7 +45,7 @@ defmodule Guardian.Web.QueryParseErrors do
 
   @doc """
   Hands one parse failure to the recorder. `caller_fun` returns the caller fields
-  (see `http_caller/1` and `mcp_caller/1`). Never raises, throws, or exits; always
+  (see `mcp_caller/1`). Never raises, throws, or exits; always
   returns `:ok`. Options: `:server` names the recorder.
   """
   def record(sql, %Guardian.AST.ParseError{} = error, caller_fun, opts \\ []) do
@@ -100,7 +100,7 @@ defmodule Guardian.Web.QueryParseErrors do
   end
 
   @doc """
-  Bounds each caller field (see `http_caller/1` and `mcp_caller/1`) to
+  Bounds each caller field (see `mcp_caller/1`) to
   #{@max_caller_field_bytes} bytes; a non-string value becomes nil.
   """
   def bound_caller_fields(caller) do
@@ -114,18 +114,6 @@ defmodule Guardian.Web.QueryParseErrors do
 
   defp bound_caller_field(_value) do
     nil
-  end
-
-  @doc """
-  Caller fields from a Plug connection (the JSON API).
-  """
-  def http_caller(conn) do
-    %{
-      "interface" => "http",
-      "remote_ip" => format_ip(conn.remote_ip),
-      "x_forwarded_for" => header(conn.req_headers, "x-forwarded-for"),
-      "user_agent" => header(conn.req_headers, "user-agent"),
-    }
   end
 
   @doc """

@@ -14,10 +14,12 @@ defmodule Guardian.Config.ConfigTest do
     assert level == :info
   end
 
-  test "tests log warnings and use the test key" do
+  test "tests log warnings and use the test keys" do
     config = read(:test)
     assert config[:logger][:level] == :warning
     assert config[:guardian][:api_key] == "guardian_test_api_key"
+    assert config[:guardian][:admin_api_key] == "guardian_test_admin_api_key"
+    assert config[:guardian][:ingest_api_key] == "guardian_test_ingest_api_key"
   end
 
   test "there is no environment config file that config.exs would silently skip" do

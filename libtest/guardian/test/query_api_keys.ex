@@ -6,12 +6,16 @@ defmodule Guardian.Test.QueryApiKeys do
   """
 
   @doc """
-  Runs `fun` with Logger at info and `Guardian.Web.Auth`'s once-a-minute query-key log reset,
-  and returns what was logged.
+  Runs `fun` with Logger at info and every `Guardian.Web.Auth` once-a-minute note (the
+  query-parameter key and the legacy key) reset, and returns what was logged.
   """
-  def capture_query_key_log(fun) do
+  def capture_auth_note_log(fun) do
     previous_level = Logger.level()
-    :persistent_term.erase({Guardian.Web.Auth, :query_key_logged_at})
+
+    for reason <- [:query_key, :legacy_key] do
+      :persistent_term.erase({Guardian.Web.Auth, :noted_at, reason})
+    end
+
     Logger.configure(level: :info)
 
     try do
