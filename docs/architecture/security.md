@@ -219,7 +219,8 @@ Argument: `secure_compare` examines every byte of equal-length inputs regardless
 where they differ, and every configured key is compared whatever the earlier results,
 so response timing reveals neither how much of a guess is correct nor which key
 matched. The comparison is exact bytes: no trimming, case folding, or decoding beyond
-what Plug does to headers and query strings. Scope is checked only after a key is
+what Bandit and Plug do to headers and query strings (Bandit drops leading and trailing
+whitespace from HTTP/1 header values). Scope is checked only after a key is
 identified, so a 403 tells the caller nothing it did not already know: it holds the
 ingest key.
 

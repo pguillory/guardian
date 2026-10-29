@@ -429,6 +429,12 @@ defmodule Guardian.Web.JsonApiTest do
         error <- [
           %Bandit.TransportError{message: "client closed", error: :closed},
           %Bandit.HTTPError{message: "read timed out", plug_status: :request_timeout},
+          %Bandit.HTTP2.Errors.StreamError{
+            message: "stream reset",
+            error_code: 0x1,
+            stream_id: 1,
+          },
+          %Bandit.HTTP2.Errors.ConnectionError{message: "connection reset", error_code: 0x1},
         ] do
       conn = Plug.Test.conn(:get, "/status")
 
