@@ -1134,8 +1134,7 @@ is full-access unless it opts in.
    draining a body whose reader state is no longer current.
 2. `Guardian.Web.Logger` writes a `web_requests` row before the handler and a `web_responses`
    row before the response is sent, for authenticated requests only. Both carry
-   `auth_method`, `header` or `query`, and `auth_key`, `ingest`, `admin` or `legacy`,
-   from the key check, never the key.
+   `auth_key`, `ingest`, `admin` or `legacy`, from the key check, never the key.
 
 ### 6.3 MCP
 
@@ -1145,11 +1144,10 @@ The MCP endpoint uses the Anubis library, pinned at 0.16.0 (reasons in
 
 1. The key check (`Guardian.Web.Auth.check_conn/2` with `:full`), on every request,
    so an MCP session carries no authority of its own and the insert-only ingest key
-   gets 403. MCP requests are not recorded in `web_requests`, so when one
-   authenticates with the query parameter, or with the deprecated `GUARDIAN_API_KEY`,
-   the router logs one info line naming the path (never the key), at most once a
-   minute per node for each of the two (`Guardian.Web.Auth.note_query_key_use/1`,
-   `Guardian.Web.Auth.note_legacy_key_use/1`).
+   gets 403. The key is read only from the `x-api-key` header. MCP requests are not
+   recorded in `web_requests`, so when one authenticates with the deprecated
+   `GUARDIAN_API_KEY`, the router logs one info line naming the path (never the
+   key), at most once a minute per node (`Guardian.Web.Auth.note_legacy_key_use/1`).
 2. A 404 for an unknown or expired `mcp-session-id`, which Anubis 0.16 would
    otherwise accept as a new uninitialized session.
 3. A 405 for `GET`, so Guardian never opens a server-push stream and every result
@@ -1365,7 +1363,6 @@ Environment variables:
 | `GUARDIAN_ADMIN_API_KEY` | `config/runtime.exs` | The full-access key (MCP and `send_events`). At least 32 bytes when set. Outside tests, it or `GUARDIAN_API_KEY` is required. |
 | `GUARDIAN_INGEST_API_KEY` | `config/runtime.exs` | Optional insert-only key, accepted only by `POST /api/json/send_events`. At least 32 bytes when set. |
 | `GUARDIAN_API_KEY` | `config/runtime.exs` | Deprecated full-access key, accepted like the admin key while set. At least 32 bytes when set. The three keys must all differ; boot errors name the variable, never the value. |
-| `GUARDIAN_ALLOW_QUERY_API_KEY` | `config/runtime.exs` | `true` also accepts any of the keys as the `api_key` query parameter; `false` or unset (the default) never decodes the query string for a key. Any other value fails boot. |
 | `GUARDIAN_PORT` | `config/runtime.exs`, `bin/fly-start` | HTTP port, 1 to 65535. Default 8080. Tests use an OS-chosen port. |
 | `GUARDIAN_QUERY_MAX_HEAP_MB` | `config/runtime.exs` | Heap limit of each query process, in MiB (5.7). Default 256; `0` turns it off. |
 | `GUARDIAN_COUNTER_MEMORY_MB` | `config/runtime.exs` | Positive integer MiB for the asynchronous resident counter memory target (3.5), default 64; empty/invalid refuses startup. |
@@ -1386,7 +1383,7 @@ these except through the variables above:
 
 | Key | Default | Used by |
 | --- | --- | --- |
-| `ingest_api_key`, `admin_api_key`, `api_key` (legacy; each nil when unset), `allow_query_api_key`, `http_port`, `query_max_heap_mb`, `data_dir`, `dns_cluster_query`, `mutable_segment_max_age_ms` | from the variables above | as above |
+| `ingest_api_key`, `admin_api_key`, `api_key` (legacy; each nil when unset), `http_port`, `query_max_heap_mb`, `data_dir`, `dns_cluster_query`, `mutable_segment_max_age_ms` | from the variables above | as above |
 | `query_max_result_rows` | 100,000 | `Guardian.Query.Limits` |
 | `query_max_result_bytes` | 64 MiB | `Guardian.Query.Limits` |
 | `query_time_limit_ms` | 30,000 | `Guardian.Query.run/1` (`Guardian.Query.Limits`) |
@@ -1481,8 +1478,7 @@ operational decisions:
 7. VM size `shared-cpu-1x` with 1 GB, one machine; `fly deploy` keeps the current
    machine count.
 8. A block of this deployment's overrides, marked for a new deploy to delete:
-   `GUARDIAN_ALLOW_QUERY_API_KEY=true` (kept until `web_requests.auth_method` shows
-   nothing uses query keys) and `GUARDIAN_QUERY_MAX_HEAP_MB=0`.
+   `GUARDIAN_QUERY_MAX_HEAP_MB=0`.
 
 ### 10.3 Operating
 
@@ -1555,8 +1551,9 @@ About 150 test files cover:
    in `libtest/guardian/test/`, an Anubis client started by `Guardian.Test.MCPClient.start/0`,
    using the admin key) against the
    test listener on an OS-chosen port, including sessions, the 404 and 405 rules, and
-   authentication with each key and with query keys allowed and refused (`Guardian.Test.QueryApiKeys` in `libtest/guardian/test/`
-   switches the setting for `async: false` tests).
+   authentication with each key, and a key in the URL refused
+   (`Guardian.Test.AuthNotes` in `libtest/guardian/test/` captures the legacy-key log
+   note for `async: false` tests).
 4. Clustering: `Guardian.Test.Cluster` (in `libtest/guardian/test/`) starts peer BEAM nodes on the same host,
    each running only Storage in its own data directory, and connects them, so schema
    merging, GROUP BY merging of groups split across nodes, node failures, a peer whose
@@ -1617,7 +1614,7 @@ partition lookup; GROUP BY's executor and routing tests share
 `Guardian.Query.Executor.group_by_partitions/0`.
 `Guardian.Test.Env` (in `libtest/guardian/test/`) puts `:guardian` application env for an
 `async: false` test, on this node or on named peers, and restores it when the test or a
-block ends; `Guardian.Test.Query.with_time_limit/2`, `Guardian.Test.QueryApiKeys.with_query_api_keys/2`,
+block ends; `Guardian.Test.Query.with_time_limit/2`
 and `Guardian.Test.Counters.Budget.relax/1` and `scale/1` delegate to it.
 `Guardian.Test.WorkBounds` measures caller reductions for synchronous CPU guards, with
 bounds calibrated against representative regressions rather than host-dependent

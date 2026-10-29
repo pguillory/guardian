@@ -6,8 +6,8 @@ defmodule Guardian.Web.JsonApi do
   Every request needs an API key (see "Authentication"). CORSPlug runs first
   and answers CORS preflight `OPTIONS` requests with 204 before authentication.
   Plug.Parsers reads and decodes the body only after the key check, so a request
-  without a valid key gets 401 (or 400 for an undecodable query string, or 403 for the
-  ingest key on a path that needs full access) without its
+  without a valid key gets 401 (or 403 for the ingest key on a path that needs full
+  access) without its
   body being read; with a key, malformed JSON gets 400, a body over 8 MB 413, and a
   declared non-JSON content type 415. The unauthenticated liveness check is
   `GET /health` in `Guardian.Web.MainRouter`, outside this API.
@@ -18,9 +18,8 @@ defmodule Guardian.Web.JsonApi do
 
       x-api-key: your_api_key_here
 
-  Only when query keys are allowed (`GUARDIAN_ALLOW_QUERY_API_KEY=true`, off by
-  default) may it come as a query parameter instead, `?api_key=your_api_key_here`;
-  the header takes precedence if both are present. `Guardian.Web.Auth.check_conn/2` decides.
+  A key in the URL (`?api_key=...`) is never accepted. `Guardian.Web.Auth.check_conn/2`
+  decides.
   `POST /send_events` accepts the insert-only ingest key (`GUARDIAN_INGEST_API_KEY`) as
   well as the full-access admin key (`GUARDIAN_ADMIN_API_KEY`) and the deprecated
   `GUARDIAN_API_KEY`. Any other path needs a full-access key, so the ingest key gets
@@ -93,8 +92,7 @@ defmodule Guardian.Web.JsonApi do
   ```
 
   **400 Bad Request** (a query string that cannot be decoded: invalid UTF-8, or
-  nesting deeper than 32; checked before the key when there is no `x-api-key`
-  header):
+  nesting deeper than 32; checked only after a valid key, so without one it is 401):
   ```json
   {"status": 400, "info": "invalid query string"}
   ```
@@ -190,10 +188,8 @@ defmodule Guardian.Web.JsonApi do
 
   defp auth(conn, _opts) do
     case Guardian.Web.Auth.check_conn(conn, required_access(conn)) do
-      {:ok, method, key} ->
-        conn
-        |> put_private(:guardian_auth_method, method)
-        |> put_private(:guardian_auth_key, key)
+      {:ok, key} ->
+        put_private(conn, :guardian_auth_key, key)
 
       {:error, :unauthorized} ->
         send_json_resp(conn, 401, %{status: 401, info: "unauthorized"})
@@ -205,10 +201,6 @@ defmodule Guardian.Web.JsonApi do
 
       {:error, :forbidden} ->
         send_json_resp(conn, 403, %{status: 403, info: "this key can only send events"})
-        |> halt()
-
-      {:error, {:invalid_query, status}} ->
-        send_json_resp(conn, status, %{status: status, info: "invalid query string"})
         |> halt()
     end
   end
@@ -243,8 +235,8 @@ defmodule Guardian.Web.JsonApi do
   # Kept public for direct redaction coverage; no longer a Plug.ErrorHandler callback.
   @doc false
   # A query string Plug cannot decode (invalid UTF-8, nesting deeper than 32), raised
-  # by Plug.Parsers after a valid key header (without a header, the key check answers
-  # it with the same body). Its status is 400, or 414 over the parser's length limit
+  # by Plug.Parsers after a valid key header (without one, the request already got
+  # 401). Its status is 400, or 414 over the parser's length limit
   # (Bandit's request-line limit, or HTTP/2's header-block limit, rejects that before
   # Plug runs). Nothing is printed.
   def handle_errors(conn, %{kind: :error, reason: %Plug.Conn.InvalidQueryError{} = error}) do

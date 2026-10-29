@@ -496,9 +496,9 @@ when it needs one. This file is public: see the change-tracking rules in AGENTS.
 - [ ] drop-legacy-api-key: the maintainer's deployment retired `GUARDIAN_API_KEY` on
       2026-10-28 (v51), so its support can now be removed; the boot error for a deployment that still sets only it must name
       the replacement variables, with a README note (`docs/changes/split-api-keys.md`)
-- [ ] query-api-key-off: no known caller sends the `api_key` query parameter; the
-      maintainer's deployment could turn `GUARDIAN_ALLOW_QUERY_API_KEY` off once
-      `web_requests.auth_method` and the MCP log confirm it (maintainer's call)
+- [x] query-api-key-off: keys are accepted only in the `x-api-key` header;
+      `GUARDIAN_ALLOW_QUERY_API_KEY` and `web_requests.auth_method` are gone
+      (`docs/changes/query-api-key-off.md`)
 - [ ] reserve-builtin-tables: refuse built-in table names (`queries`, `web_requests`,
       `system_stats`, ...) on API ingest, so the ingest key cannot forge Guardian's
       own rows (`docs/changes/split-api-keys.md`)

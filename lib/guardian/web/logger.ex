@@ -14,8 +14,6 @@ defmodule Guardian.Web.Logger do
     x_forwarded_for = Plug.Conn.get_req_header(conn, "x-forwarded-for") |> List.first()
     referer = Plug.Conn.get_req_header(conn, "referer") |> List.first()
     user_agent = Plug.Conn.get_req_header(conn, "user-agent") |> List.first()
-    # Where the key was found ("header" or "query"), never the key itself.
-    auth_method = conn.private |> Map.get(:guardian_auth_method) |> atom_name()
     # Which key ("ingest", "admin" or "legacy"), never the key itself.
     auth_key = conn.private |> Map.get(:guardian_auth_key) |> atom_name()
 
@@ -35,7 +33,6 @@ defmodule Guardian.Web.Logger do
         x_forwarded_for: x_forwarded_for,
         referer: referer,
         user_agent: user_agent,
-        auth_method: auth_method,
         auth_key: auth_key,
       ]
     end

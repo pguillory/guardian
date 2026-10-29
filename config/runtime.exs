@@ -71,14 +71,6 @@ if config_env() != :test do
     admin_api_key: admin_api_key,
     api_key: legacy_api_key
 
-  # The api_key query parameter is accepted only when this is "true": URLs end up in
-  # logs and history more readily than the x-api-key header.
-  case System.get_env("GUARDIAN_ALLOW_QUERY_API_KEY") do
-    value when value in [nil, "", "false"] -> config :guardian, allow_query_api_key: false
-    "true" -> config :guardian, allow_query_api_key: true
-    _ -> raise "GUARDIAN_ALLOW_QUERY_API_KEY must be true or false"
-  end
-
   # Each query process's heap limit in MiB (Guardian.Query.Limits); 0 turns it off.
   case System.get_env("GUARDIAN_QUERY_MAX_HEAP_MB") do
     value when value in [nil, ""] ->

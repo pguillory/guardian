@@ -72,8 +72,8 @@ network), the build toolchain and Hex dependencies (pinned in `mix.lock`; see th
         |      HTTP to the node                v       on the node
         v
  Bandit HTTP server (GUARDIAN_PORT, default 8080)  -- GET /health, CORS preflight
-        |  B2: API key check and scope (x-api-key header; api_key query parameter
-        |      only if allowed; the ingest key reaches only send_events)
+        |  B2: API key check and scope (x-api-key header only; the ingest key
+        |      reaches only send_events)
         v
  key holder: JSON API send_events (any key), MCP server (full-access key)
         |  B3: query engine and ingestion (one principal; availability limits)
@@ -164,15 +164,9 @@ Guarantee (spec section 3): no event data is read or written without a key, and 
 ingest key reaches only `POST /api/json/send_events`: no query, no rule read or
 change, no MCP (section 4.6 says what it can still do through ingestion). Besides
 401s, 403s and 404s, the only responses the application serves without a key are
-`GET /health` and CORS preflight answers, plus, only when query-parameter keys are
-allowed, the failure of a query string Plug cannot decode (invalid UTF-8, nesting
-deeper than 32, or over Plug's length limit). With query keys allowed, the key check
-decodes the query string when the request has no `x-api-key` header, so such a
-request gets 400 (or 414 over the length limit) instead of 401: the JSON API answers
-with the fixed `info` "invalid query string" and `/mcp` with
-`{"error": "invalid query string"}`, and neither prints anything. With query keys off
-(the default), the query string is never decoded before the key check, and a request
-without the header is 401. None of these reads or writes data.
+`GET /health` and CORS preflight answers. The query string is never decoded before
+the key check, so a request without the header is 401 whatever its query string.
+None of these reads or writes data.
 
 ### 4.1 Where the keys live
 
@@ -186,11 +180,9 @@ without the header is 401. None of these reads or writes data.
    variable, never the value. It stores them in the application environment
    (`:guardian, :ingest_api_key`, `:admin_api_key`, `:api_key`), nil when unset.
 2. Tests use fixed keys in `config/config.exs`; they protect nothing.
-3. Guardian does not record a key itself: the `x-api-key` header and the `api_key`
-   query parameter are not in `web_requests` (which records `path`, the request path
-   without the query string, selected headers, `auth_method`, which says only
-   whether the key came from the header or the query parameter, and `auth_key`, which
-   says only which key it was: `ingest`, `admin` or `legacy`), not in
+3. Guardian does not record a key itself: the `x-api-key` header is not in
+   `web_requests` (which records `path`, the request path without the query string,
+   selected headers, and `auth_key`, which says only which key it was: `ingest`, `admin` or `legacy`), not in
    `query_parse_errors` (caller fields are remote IP, `x-forwarded-for`, user agent,
    and MCP client info), not in `queries` (remote IP and MCP client info only, no
    request header), and not in any log line of a well-formed request found in the
@@ -201,27 +193,21 @@ without the header is 401. None of these reads or writes data.
 ### 4.2 How the keys are checked
 
 Both routers call `Guardian.Web.Auth.check_conn/2`, the one place a key is found and
-checked, with the access the request needs: `:ingest` or `:full`. It reads the first
-`x-api-key` header if present. Otherwise, only when
-`GUARDIAN_ALLOW_QUERY_API_KEY=true` (which applies to all three keys), it decodes the
-query string and reads the `api_key` parameter. A valid key with enough access returns
-`{:ok, method, key}`: `method` is `:header` or `:query`, where it was found, and `key`
-is `:ingest`, `:admin` or `:legacy`, which one it was. The ingest key where `:full` is
-needed is `{:error, :forbidden}`, which each router answers with 403 `this key can
-only send events`. No key is `{:error, :missing}`; a wrong key is
-`{:error, :unauthorized}`; with query keys allowed, a query string that cannot be
-decoded is `{:error, {:invalid_query, status}}` (400, or 414 over Plug's length
-limit). Each router sends its own body for these, pinned for each credential form by
-`test/guardian/web/auth_routes_test.exs` (an undecodable query string is covered at
-`check_conn/2` in `test/guardian/web/auth_test.exs`, MCP's answer to it in
-`auth_routes_test.exs`, and the JSON API's in `test/guardian/web/json_api_test.exs`).
+checked, with the access the request needs: `:ingest` or `:full`. It reads only the
+first `x-api-key` header and never decodes the query string, so a key in the URL is
+never accepted, and an undecodable query string cannot fail authentication. A valid
+key with enough access returns `{:ok, key}`, `key` being `:ingest`, `:admin` or
+`:legacy`, which one it was. The ingest key where `:full` is needed is
+`{:error, :forbidden}`, which each router answers with 403 `this key can only send
+events`. No header is `{:error, :missing}`, whatever the query string; a wrong key is
+`{:error, :unauthorized}`. Each router sends its own body for these, pinned for each
+credential form by `test/guardian/web/auth_routes_test.exs`.
 `Guardian.Web.Auth.identify_api_key/1` compares the supplied key with every
 configured key, each with `byte_size(supplied) == byte_size(configured)` and
 `Plug.Crypto.secure_compare(supplied, configured)`, with no early return, and returns
 `{:ok, key}` or `{:error, :unauthorized}`. Boot guarantees the configured keys are
-distinct, so at most one matches. A structured parameter, which Plug decodes from
-`?api_key[]=x` to a list or from `?api_key[a]=x` to a map, is not a key: it is
-rejected like a wrong one, with 401 and nothing printed.
+distinct, so at most one matches. A value that is not a string is rejected like a
+wrong key, with nothing printed.
 
 Which access a request needs is decided per route. The JSON API asks for `:ingest`
 only for `POST /send_events` (`required_access/1` in `Guardian.Web.JsonApi`); every
@@ -244,23 +230,18 @@ Gaps:
 2. The minimum is a length policy, not an entropy check. Startup refuses a key shorter
    than 32 bytes, but a long guessable key passes. The docs and the startup error
    say to generate one with `openssl rand -hex 32`; nothing checks that it was.
-3. Query-parameter keys put the key in the URL. They are off by default; with
-   `GUARDIAN_ALLOW_QUERY_API_KEY=true`, URLs carrying the key end up in client-side
-   logs, shell history, proxy logs, and browser history more readily than headers.
-   Guardian does not store request URLs (only the `referer` header, item 4.1.3). To
-   show whether the setting is still needed, `web_requests.auth_method` records
-   `query` for each JSON API request that used it, and, since MCP requests are not
-   recorded in `web_requests`, `Guardian.Web.MCP.Router` logs one info line naming the path
-   (never the key) when an MCP request uses it, at most once a minute per node
-   (`Guardian.Web.Auth.note_query_key_use/1`). The deprecated legacy key is tracked
-   the same way: `web_requests.auth_key` records `legacy`, and an MCP request using it
-   logs its own line, "A request on /mcp authenticated with the legacy
-   GUARDIAN_API_KEY", under its own once-a-minute limit
-   (`Guardian.Web.Auth.note_legacy_key_use/1`), so one note cannot suppress the
-   other. Both are evidence, not proof: an idle client leaves no trace, and an
-   ingest-key holder can write forged `web_requests` rows (4.6).
-   Because of CORS (section 4.4), the query parameter is the only way a browser page
-   can send the key, so a browser client needs the setting on.
+3. Keys never travel in URLs: only the header is read, since URLs end up in
+   client-side logs, shell history, proxy logs, and browser history more readily
+   than headers. Guardian does not store request URLs (only the `referer` header,
+   item 4.1.3). The deprecated legacy key's remaining use is tracked:
+   `web_requests.auth_key` records `legacy`, and, since MCP requests are not recorded
+   in `web_requests`, `Guardian.Web.MCP.Router` logs one info line naming the path
+   (never the key), "A request on /mcp authenticated with the legacy
+   GUARDIAN_API_KEY", at most once a minute per node
+   (`Guardian.Web.Auth.note_legacy_key_use/1`). This is evidence, not proof: an idle
+   client leaves no trace, and an ingest-key holder can write forged `web_requests`
+   rows (4.6). Because of CORS (section 4.4), a browser page cannot send the key at
+   all, so Guardian has no browser clients.
 4. Failed attempts leave no trace. A request with a wrong or missing key is rejected
    with 401, and the ingest key outside `send_events` with 403, before
    `Guardian.Web.Logger` runs (JSON API) or before Anubis sees it (MCP), and nothing
@@ -276,8 +257,8 @@ JSON API (`Guardian.Web.JsonApi`), plug order:
    `Access-Control-Request-Method`) with 204 and halts.
 2. `:auth`: the key check, with `:ingest` for `POST /send_events` and `:full` for
    everything else; 401 (or 403 for the ingest key) and halt on failure. It reads only
-   the method, path, headers and, when query keys are allowed, the query string. It
-   records where the key was found and which key it was for `Guardian.Web.Logger`.
+   the method, path and headers. It records which key it was for
+   `Guardian.Web.Logger`.
 3. `Plug.Parsers` (JSON only, Plug's default 8 MB body limit): reads and decodes the
    body. Failures get 400, 413, or 415 with a fixed message and are not printed.
 4. `:match`, `Guardian.Web.Logger`, `:dispatch`. `POST /send_events` is the only
@@ -341,8 +322,8 @@ credentials, so a hostile page cannot borrow a visitor's authority; it can only 
 requests carrying a key it already knows. Open CORS lets pages read responses, which
 matters only if the page holds the key.
 
-Side effect: a browser page cannot send `x-api-key` cross-origin, so browser clients
-must put the key in the URL, which works only with query keys allowed (gap 4.2.3).
+Side effect: a browser page cannot send `x-api-key` cross-origin, and a key in the URL
+is not accepted, so a browser page cannot call the authenticated routes (4.2.3).
 
 ### 4.5 Unauthenticated responses
 
@@ -370,7 +351,7 @@ all". Through `send_events` it can:
 2. Write any valid table name, including Guardian's built-in tables (`queries`,
    `query_parse_errors`, `web_requests`, `web_responses`, `system_stats`), since
    those take ingestion like any other table. It can append forged rows, including
-   rows with a forged `auth_key` or `auth_method`, but it cannot hide, change or
+   rows with a forged `auth_key`, but it cannot hide, change or
    delete real rows, and it cannot read any table back. Treat built-in rows as
    evidence a key holder could have forged.
 3. Create new tables and send 8 MB bodies, like any key, within the ingestion limits
@@ -840,7 +821,7 @@ Where data goes:
 1. `web_requests` and `web_responses` record authenticated JSON API requests only,
    with the fields listed in spec section 8, among them the path without query
    string, method, host, remote IP, `x-forwarded-for`, referer, user agent,
-   `auth_method` (`header` or `query`), `auth_key` (`ingest`, `admin` or `legacy`),
+   `auth_key` (`ingest`, `admin` or `legacy`),
    and for responses status, size, and timing. There are no body or key fields; the
    one way a key can land there is the verbatim `referer` header (4.1.3). Any key
    holder, the ingest key included, can also append rows to these tables (4.6).
@@ -923,9 +904,8 @@ Where data goes:
      messages to the authenticated caller.
    - A query process killed by the heap guard produces the VM's kill report, which
      names the process and its heap sizes, not its contents (5.2.2).
-   - With query keys allowed, an MCP request that uses one logs one info line naming
-     the path, never the key, at most once a minute per node (4.2.3). An MCP request
-     with the deprecated legacy key does the same, under its own limit.
+   - An MCP request with the deprecated legacy key logs one info line naming the
+     path, never the key, at most once a minute per node (4.2.3).
 
 Caller-supplied fields are not identities. `remote_ip` is the address of whatever
 connected to Guardian (on Fly, Fly's proxy; for tunnel traffic, `127.0.0.1`), and
@@ -975,34 +955,33 @@ Open gaps named above, by boundary:
    operator's Cloudflare account reaches the deployment's private network (3).
 4. B2: the keys' lengths are observable through timing (4.2.1).
 5. B2: the 32-byte minimum is a length policy, not an entropy check (4.2.2).
-6. B2: with `GUARDIAN_ALLOW_QUERY_API_KEY=true`, keys travel in URLs (4.2.3).
-7. B2: failed authentication is not logged, rate-limited, or alerted on (4.2.4).
-8. B3: no bound on a query's total memory. The heap guard limits each query process's
+6. B2: failed authentication is not logged, rate-limited, or alerted on (4.2.4).
+7. B3: no bound on a query's total memory. The heap guard limits each query process's
    own heap but not ETS, native column memory, or shared binaries, and can
    overshoot; a deliberate or exotic query can still exhaust memory on every node and
    lose unpersisted events (5.2.2).
-9. B3: one slow MCP call blocks other MCP requests on that machine (a query for up to
+8. B3: one slow MCP call blocks other MCP requests on that machine (a query for up to
    its 30 s limit plus its schema lookup, an ingest until done) (5.2.3).
-10. B3: MCP error messages can carry internal detail such as node names (5.2.4).
-11. B3, B6: a corrupt segment file aborts the VM (5.2.5).
-12. B3: some event shapes are slow to flatten (5.2.6).
-13. B3: a segment that never stores holds its memory and is lost at shutdown (5.2.7).
-14. B4: distribution traffic is unencrypted; the cookie is the only authority, with no
+9. B3: MCP error messages can carry internal detail such as node names (5.2.4).
+10. B3, B6: a corrupt segment file aborts the VM (5.2.5).
+11. B3: some event shapes are slow to flatten (5.2.6).
+12. B3: a segment that never stores holds its memory and is lost at shutdown (5.2.7).
+13. B4: distribution traffic is unencrypted; the cookie is the only authority, with no
     member allowlist (6.5).
-15. B4: the image carries a build-time cookie, used by a single node (6.5.3).
-16. B5: secrets end up in any Erlang crash dump (7.2), the rule store's S3 secret
+14. B4: the image carries a build-time cookie, used by a single node (6.5.3).
+15. B5: secrets end up in any Erlang crash dump (7.2), the rule store's S3 secret
     included.
-17. B7: caller data can reach stdout in failures outside the JSON application
+16. B7: caller data can reach stdout in failures outside the JSON application
     boundary and OTP crash reports, and the `referer` header is stored verbatim
     (4.1.3, 8).
-18. B3: rules can slow a table's ingestion by up to a second per event; the rule
+17. B3: rules can slow a table's ingestion by up to a second per event; the rule
     write lock is a lease, not a fence; direct writers to the rule store bypass the
     API keys (5.2.8).
-19. B2: the ingest key can read counter values (and other rule outputs) for keys it
+18. B2: the ingest key can read counter values (and other rule outputs) for keys it
     chooses through `return_keys` (4.6).
-20. B2: the ingest key can append forged rows to any table, built-in ones included,
+19. B2: the ingest key can append forged rows to any table, built-in ones included,
     so `web_requests.auth_key` and other built-in rows are evidence, not proof (4.6).
-21. B2: rolling back to a release without the ingest key refuses callers that use it
+20. B2: rolling back to a release without the ingest key refuses callers that use it
     (4.6).
 
 ## 10. How this was checked

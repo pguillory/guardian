@@ -195,7 +195,6 @@ defmodule Guardian.DeploymentTest do
   # dropping one by accident would change production at the next deploy.
   test "fly.toml keeps this deployment's overrides active" do
     fly_toml = File.read!(Path.expand("../../fly.toml", __DIR__))
-    assert fly_toml =~ ~r/^  GUARDIAN_ALLOW_QUERY_API_KEY = "true"$/m
     assert fly_toml =~ ~r/^  GUARDIAN_QUERY_MAX_HEAP_MB = "0"$/m
     assert fly_toml =~ ~r/^kill_timeout = 150$/m
   end

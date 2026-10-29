@@ -13,17 +13,12 @@ header. `Guardian.Web.Auth.identify_api_key/1` compares the supplied key with ev
 configured key (`:guardian, :ingest_api_key`, `:admin_api_key`, and the deprecated
 `:api_key`; unset is nil) in constant time with no early return, so timing reveals
 neither how much of a guess is right nor which key matched. The ingest key grants
-`:ingest` only; the admin and legacy keys grant `:full`. The `api_key` query parameter
-is opt-in for all three keys: only with `:guardian, :allow_query_api_key`
-(`GUARDIAN_ALLOW_QUERY_API_KEY=true`, default off) is it read when there is no header.
-With it off the query string is never decoded, so a request without the header is
-`{:error, :missing}` whatever its query string. `check_conn/2` returns
-`{:ok, method, key}` (`method` `:header` or `:query`, where the valid key was found;
-`key` `:ingest`, `:admin` or `:legacy`), `{:error, :missing}`,
-`{:error, :unauthorized}`, `{:error, :forbidden}` (the ingest key where `:full` is
-needed), or, with query keys on, `{:error, {:invalid_query, status}}` when there is
-no header and the query string cannot be decoded (status 400, or 414 over the length
-limit); each router keeps its own error bodies, 403 `this key can only send events`
+`:ingest` only; the admin and legacy keys grant `:full`. A key in the URL is never
+accepted: the query string is never decoded for a key, so a request without the
+header is `{:error, :missing}` whatever its query string. `check_conn/2` returns
+`{:ok, key}` (`key` `:ingest`, `:admin` or `:legacy`), `{:error, :missing}`,
+`{:error, :unauthorized}`, or `{:error, :forbidden}` (the ingest key where `:full` is
+needed); each router keeps its own error bodies, 403 `this key can only send events`
 for `:forbidden` (`test/guardian/web/auth_routes_test.exs` pins both). No identity is
 attached to a request.
 
@@ -34,13 +29,11 @@ the body is read. A JSON route added later is full-access unless it opts in to
 before the session lookup and body decoding, including requests on an existing
 session.
 
-The JSON API stores the method and key in the conn's private `:guardian_auth_method`
-and `:guardian_auth_key`, and `Guardian.Web.Logger` writes them to `web_requests` and
-`web_responses` rows as `auth_method` ("header" or "query") and `auth_key`
-("ingest", "admin" or "legacy"), never the key. MCP requests are not logged there, so
-the MCP router calls `Guardian.Web.Auth.note_query_key_use/1` on a query-parameter key
-and `Guardian.Web.Auth.note_legacy_key_use/1` on the legacy key: each one Logger line
-naming the path, at most once a minute per node, in its own rate-limit cell.
+The JSON API stores the key in the conn's private `:guardian_auth_key`, and
+`Guardian.Web.Logger` writes it to `web_requests` and `web_responses` rows as
+`auth_key` ("ingest", "admin" or "legacy"), never the key. MCP requests are not
+logged there, so the MCP router calls `Guardian.Web.Auth.note_legacy_key_use/1` on
+the legacy key: one Logger line naming the path, at most once a minute per node.
 
 `send_events` validates table, events list, and return_keys before storing anything.
 HTTP invalid requests return 400 with an `info` message; MCP returns a tool error.

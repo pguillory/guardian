@@ -26,11 +26,9 @@ kill_timeout = 150
 [env]
   GUARDIAN_DATA_DIR = "/data"
 
-  # This deployment's overrides of Guardian's defaults; omit them for a new deploy.
-  # They keep the maintainer's deployment behaving as it did before these settings
-  # existed: the api_key query parameter stays accepted until web_requests.auth_method
-  # shows nothing uses it, and the per-process query heap limit stays off.
-  GUARDIAN_ALLOW_QUERY_API_KEY = "true"
+  # This deployment's override of Guardian's defaults; omit it for a new deploy.
+  # It keeps the maintainer's deployment behaving as it did before the setting
+  # existed: the per-process query heap limit stays off.
   GUARDIAN_QUERY_MAX_HEAP_MB = "0"
 
 [http_service]
