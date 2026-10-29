@@ -10,6 +10,7 @@ priv/*.so
 priv/commit
 erl_crash.dump
 fly.toml
+fly.example.toml
 .dockerignore
 .elixir_ls
 cover

@@ -130,8 +130,12 @@ through `DNS_CLUSTER_QUERY` (on Fly, `<app>.internal` by default). Keep Fly's ou
 `rel/env.sh.eex` unchanged unless the change is meant for Fly: `test/guardian/deployment_test.exs`
 pins it.
 
-Fly.io is the best-supported deploy path (`Dockerfile`, `fly.toml`, `docs/guides/fly.md`).
-The `fly.toml` in the tree is the maintainer's own deployment. The API keys
+Fly.io is the best-supported deploy path (`Dockerfile`, `fly.example.toml`,
+`docs/guides/fly.md`). `fly.example.toml` is a template; a deployment's own `fly.toml` is
+gitignored or kept outside the repository, and no deployment's configuration belongs
+in the tree. Keep the example free of `[build]` (flyctl resolves its Dockerfile path
+against the config's directory) and of Guardian settings beyond `GUARDIAN_DATA_DIR`;
+`test/guardian/deployment_test.exs` checks both. The API keys
 (`GUARDIAN_ADMIN_API_KEY`, `GUARDIAN_INGEST_API_KEY`, and the deprecated
 `GUARDIAN_API_KEY` while set) and `RELEASE_COOKIE` are Fly secrets, plus the optional `TUNNEL_TOKEN` that starts the
 Cloudflare Tunnel connector (`bin/fly-start`, the image's entry point); segments live on

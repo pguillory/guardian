@@ -146,7 +146,7 @@ reloads what is on disk. Shutdown needs the managers' budgets in sequence: up to
 for MutableSegments, 90 s for PersistedSegments, and the default 5 s each for
 FullSegments and LoadedSegments (stopping about 1,100 loaded segments took 12 ms on the
 development Mac), 110 s in all. A deployment must give the VM longer than that between
-SIGTERM and a kill: on Fly, `fly.toml`'s 150-second `kill_timeout` covers it after
+SIGTERM and a kill: on Fly, `fly.example.toml`'s 150-second `kill_timeout` covers it after
 `bin/fly-start` has drained the tunnel connector (up to 10 s, and 20 s at worst before
 it is killed; section 10.1), leaving at least 20 s for the processes that stop before
 Guardian.Storage.
@@ -775,7 +775,7 @@ expires, it rewrites the file once from the in-memory segment and, if that fails
 keeps serving the segment from memory and retries every 10 minutes.
 
 Why mmap: a machine's stored data can be larger than its memory (the repository's
-`fly.toml` pairs a 10 GB volume with a 1 GB machine). Mapping lets every segment be registered and queryable
+`fly.example.toml` pairs a 10 GB volume with a 1 GB machine). Mapping lets every segment be registered and queryable
 without reading it, and lets the kernel evict cold columns.
 
 Cost: loading still starts a process per file and computes its schema, so boot time
@@ -1314,7 +1314,7 @@ requests.
    writable segment (10 s budget), PersistedSegments writes everything queued (90 s
    budget), and FullSegments and LoadedSegments stop their segments (5 s each), about
    110 s in all. Whatever stops the VM must wait longer than that before killing it:
-   on Fly, `fly.toml`'s 150-second `kill_timeout`, which must stay above the budgets
+   on Fly, `fly.example.toml`'s 150-second `kill_timeout`, which must stay above the budgets
    plus the tunnel connector's drain (10 seconds, 20 at worst).
 4. Crash: a VM crash or out-of-memory kill loses everything not yet written: normally
    about the last hour of each table on that machine plus any persistence lag, with no
@@ -1410,8 +1410,8 @@ Tests log at `warning`.
 
 Procedures are in the guides under `docs/guides/`; this section explains how the pieces fit. Guardian is
 one release, built into one Docker image, that runs as a single node or as a cluster
-(section 7). Fly.io is the best-supported deployment: the repository carries its
-`fly.toml`, and on a Fly machine the cluster settings need no configuration beyond the
+(section 7). Fly.io is the best-supported deployment: the repository carries an
+example `fly.example.toml`, and on a Fly machine the cluster settings need no configuration beyond the
 cookie.
 
 ### 10.1 Build
@@ -1462,7 +1462,8 @@ tested (TODO.md arm64-image).
 
 ### 10.2 Fly configuration
 
-The repository's `fly.toml` is the maintainer's own deployment and encodes the
+The repository's `fly.example.toml` is a template for a deployment's own `fly.toml`
+(which git ignores; no deployment's configuration is tracked) and encodes the
 operational decisions:
 
 1. One HTTP service on internal port 8080, HTTPS forced at the edge, request
@@ -1480,7 +1481,10 @@ operational decisions:
 
 ### 10.3 Operating
 
-1. Deploys: `fly deploy` builds remotely and replaces machines in place. A failed
+1. Deploys: `fly deploy` from the checkout builds remotely and replaces machines in
+   place. A configuration kept outside the checkout is passed with `-c` (the example
+   has no `[build]` section, since flyctl resolves its Dockerfile path against the
+   configuration's directory). A failed
    health check stops the deploy without rollback; roll back by redeploying the
    previous image. Elsewhere, replace the container or release and restart it; the
    stop must allow the shutdown budget (section 8).
@@ -1662,7 +1666,7 @@ synchronous request logging (3.3).
 Written from the code: `lib/guardian/application.ex`, every module under `lib/guardian/storage/`,
 `lib/guardian/engine.ex`, `lib/guardian/query.ex` and `lib/guardian/query/`, `lib/guardian/web/` and `lib/guardian/web/mcp/`,
 `lib/guardian/cluster.ex` and `lib/guardian/cluster/`, `src/*.c` (headers and setup paths of `mmap.c`), `config/`, `rel/`, `bin/fly-start`, `Dockerfile`,
-`fly.toml`, `Makefile`, and the test helpers.
+`fly.example.toml`, `Makefile`, and the test helpers.
 
 When a change alters a structure described here (the supervision tree, the segment
 lifecycle or file format, the query pipeline, the interfaces' plug order, clustering,

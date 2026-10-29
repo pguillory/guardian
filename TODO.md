@@ -499,6 +499,9 @@ when it needs one. This file is public: see the change-tracking rules in AGENTS.
 - [ ] drop-legacy-api-key: the maintainer's deployment retired `GUARDIAN_API_KEY` on
       2026-10-28 (v51), so its support can now be removed; the boot error for a deployment that still sets only it must name
       the replacement variables, with a README note (`docs/changes/split-api-keys.md`)
+- [x] fly-example-config: the repository carries `fly.example.toml`, a template;
+      a deployment's own `fly.toml` is gitignored or kept outside the tree
+      (`docs/changes/fly-example-config.md`)
 - [x] query-api-key-off: keys are accepted only in the `x-api-key` header;
       `GUARDIAN_ALLOW_QUERY_API_KEY` and `web_requests.auth_method` are gone
       (`docs/changes/query-api-key-off.md`)

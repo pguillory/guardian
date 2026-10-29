@@ -4,7 +4,7 @@ Fly is Guardian's best-supported deployment, and a preset of
 [the general cluster setup](cluster.md). On a Fly machine the node host defaults to its
 private IPv6 address and `DNS_CLUSTER_QUERY` to `<app>.internal`, so a cluster needs
 no configuration beyond the cookie. The `Dockerfile` builds the release (including
-the column and mmap NIFs), and `fly.toml` runs
+the column and mmap NIFs), and `fly.example.toml` runs
 it with:
 
 - a volume at `/data`
@@ -14,12 +14,29 @@ it with:
 
 ## First deploy
 
-The `fly.toml` in this repository is the maintainer's own deployment. Before your
-first deploy:
+The repository carries a template, `fly.example.toml`. Before your first deploy, copy
+it to `fly.toml` in your checkout (git ignores that file, so your configuration is
+never committed):
+
+```sh
+cp fly.example.toml fly.toml
+```
+
+Then, in your `fly.toml`:
 
 1. Set `app` to your app's name and `primary_region` to your region (for example
    `sjc`).
 2. Adjust `[[vm]]` or the volume's `initial_size` (10 GB) if needed.
+
+Run every `fly` command below from the checkout, so it finds your `fly.toml` and builds
+the checkout's `Dockerfile`. To keep your configuration elsewhere instead (outside the
+checkout, so every checkout and worktree shares it), pass it to `fly deploy` with
+`-c` and name the checkout as the working directory,
+`fly deploy . -c /path/to/fly.toml ...`, and pass `-a <app-name>` (or the same
+`-c`) to the other commands. Don't add a `[build]` section to such a copy: flyctl
+reads its Dockerfile path relative to the configuration's directory, not the
+checkout. If you lose your copy, `fly config save -a <app-name> -c <path>` writes the
+deployed configuration back, without its comments.
 
 ```sh
 fly auth login
@@ -117,7 +134,7 @@ than 20), so new requests can go to another machine's connector in the meantime.
 To keep one machine out of tunnel traffic, set `GUARDIAN_TUNNEL=off` in that
 machine's own environment (`fly machine update <id> --env GUARDIAN_TUNNEL=off`, which
 restarts it). A later `fly deploy` that includes the machine rebuilds its environment
-from `fly.toml` and drops the setting, so exclude it (`--exclude-machines <id>`) for as
+from your `fly.toml` and drops the setting, so exclude it (`--exclude-machines <id>`) for as
 long as it should stay out.
 
 See also the [configuration reference](../reference/configuration.md) and
