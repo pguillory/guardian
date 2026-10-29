@@ -268,9 +268,9 @@ data. Because the web server starts only after Storage has loaded every segment 
 machine's volume, a passing check at startup also means the machine's data is loaded
 (except segment files that cannot be read, which are skipped and logged).
 After startup, if storage restarts, the check returns `503 storage unavailable` until
-storage has started again and reloaded every readable segment. The Fly.io deployment
-uses it to gate rolling deploys, and any load balancer or orchestrator can use it the
-same way.
+storage has started again and reloaded every readable segment. A Fly.io deployment
+with several machines, set up as the Fly guide's Scaling section describes, uses it to
+gate rolling deploys, and any load balancer or orchestrator can use it the same way.
 
 ### 4.4 Remote console
 
@@ -837,11 +837,12 @@ Product-level behavior:
    worker, a node that disconnects or loses traffic to another node) fails the
    whole query with an error. It never returns a partial answer.
 7. Single-node deploys stop ingestion briefly; producers must retry. Multi-node
-   deploys on Fly roll one machine at a time: ingestion continues on the other
-   machines, queries miss the replaced machine's events until it has started, a query
-   running as a machine shuts down can fail, and queries spanning old and new releases
-   can fail; retry them.
-8. On Fly, a failed deploy health check stops the deploy without rolling back.
+   deploys on Fly, set up as the Fly guide's Scaling section describes, roll one
+   machine at a time and wait for each to load its segments: ingestion continues on
+   the other machines, queries miss the replaced machine's events until it has
+   started, a query running as a machine shuts down can fail, and queries spanning old
+   and new releases can fail; retry them.
+8. On Fly, a failed deploy stops without rolling back.
 9. Counters choose one owner per definition and typed group from the event's
    connected-node snapshot, with all buckets on that owner. There is no replication,
    state migration or recovery after a partition. Node joins/leaves, different

@@ -195,29 +195,22 @@ defmodule Guardian.DeploymentTest do
     setup do
       guide = File.read!(Path.expand("../../docs/guides/fly.md", __DIR__))
 
-      # The fenced block after the marker holds the guide's fly.toml additions.
-      additions = Regex.run(~r/<!-- fly-toml-additions -->\n```sh\n(.*?)\n```/s, guide)
-      assert additions, "the guide lost its marked fly.toml additions block"
+      # The fenced block after the marker holds the settings the reader adds to the
+      # fly.toml that fly launch writes.
+      settings = Regex.run(~r/<!-- fly-toml-settings -->\n```toml\n(.*?)\n```/s, guide)
+      assert settings, "the guide lost its marked fly.toml settings block"
 
       launch = Regex.run(~r/^fly launch (?:.*\\\n)*.*$/m, guide)
       assert launch, "the guide lost its fly launch command"
 
-      %{guide: guide, additions: Enum.at(additions, 1), launch: hd(launch)}
+      %{guide: guide, settings: Enum.at(settings, 1), launch: hd(launch)}
     end
 
     # Fly's kill_timeout must stay above Storage's shutdown budget plus the tunnel
-    # connector's drain (bin/fly-start).
-    test "its kill_timeout covers the shutdown", %{additions: additions} do
-      # The lines are written with printf, so the newline is a literal backslash-n.
-      assert additions =~ ~r/kill_timeout = 150\\n/
-      assert additions =~ ~r/kill_signal = "SIGTERM"/
-    end
-
-    # A volume attaches to one machine, and bin/fly-start relies on the machine
-    # restarting when Guardian exits.
-    test "it deploys one machine at a time and always restarts", %{additions: additions} do
-      assert additions =~ ~r/^\[deploy\]\n  strategy = "rolling"\n  max_unavailable = 1\n/m
-      assert additions =~ ~r/^\[\[restart\]\]\n  policy = "always"$/m
+    # connector's drain (bin/fly-start), and Guardian saves its in-memory segments only
+    # on SIGTERM.
+    test "its kill_timeout covers the shutdown", %{settings: settings} do
+      assert settings == ~s(kill_signal = "SIGTERM"\nkill_timeout = 150)
     end
 
     # Without the flag, fly launch in a GitHub clone writes a deploy workflow and can
@@ -226,32 +219,12 @@ defmodule Guardian.DeploymentTest do
       assert launch =~ "--no-github-workflow"
     end
 
-    # The README's Run it copies the guide's first deploy; the copies must not drift.
-    test "the README has the guide's commands", %{guide: guide} do
-      readme = File.read!(Path.expand("../../README.md", __DIR__))
-
-      copied = [
-        ~r/^fly launch (?:.*\\\n)*.*$/m,
-        ~r/^fly volumes create (?:.*\\\n)*.*$/m,
-        ~r/<!-- fly-toml-additions -->\n```sh\n(.*?)\n```/s,
-        ~r/### 4\..*?```sh\n(.*?)\n```/s,
-        ~r/^fly deploy --ha=false.*$/m,
-      ]
-
-      for pattern <- copied do
-        # The commands are the pattern's group when it has one, else its whole match.
-        match = Regex.run(pattern, guide)
-        assert match, "the guide lost the commands matching " <> inspect(pattern)
-        commands = List.last(match)
-        assert String.contains?(readme, commands), "README lacks: " <> commands
-      end
-    end
-
-    # A deployment gets Guardian's defaults: the image sets the data directory, and
-    # neither fly launch nor the additions set environment variables.
-    test "it sets no Guardian setting", %{launch: launch, additions: additions} do
+    # A deployment gets Guardian's defaults: the image sets the data directory,
+    # fly launch sets no environment variables, and nothing in the guide adds an
+    # [env] section to fly.toml.
+    test "it sets no Guardian setting", %{launch: launch, guide: guide} do
       refute launch =~ ~r/(--env|\s-e)[ =]/
-      refute additions =~ ~r/\[env\]|GUARDIAN_/
+      refute guide =~ ~r/^\[env\]/m
 
       dockerfile = File.read!(Path.expand("../../Dockerfile", __DIR__))
       assert dockerfile =~ ~r{^ENV GUARDIAN_DATA_DIR=/data$}m

@@ -1,5 +1,8 @@
 # fly-commands-guide: deploy on Fly with commands, not a fly.toml template
 
+Superseded by [plain-setup](plain-setup.md): `fly launch` writes `fly.toml`, the
+reader adds only the stop settings by hand, and the keys are set with `fly secrets set`.
+
 ## Problem
 
 The repository carried `fly.example.toml` ([fly-example-config](fly-example-config.md)),

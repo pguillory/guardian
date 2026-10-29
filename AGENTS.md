@@ -131,11 +131,13 @@ through `DNS_CLUSTER_QUERY` (on Fly, `<app>.internal` by default). Keep Fly's ou
 pins it.
 
 Fly.io is the best-supported deploy path (`Dockerfile`, `docs/guides/fly.md`). The
-guide builds a deployment's `fly.toml` with `fly launch` flags plus one marked addition
-for the settings flyctl has no command for; a deployment's own `fly.toml` is gitignored
-or kept outside the repository, and no deployment's configuration belongs in the tree.
-Keep the guide free of Guardian settings (the image sets `GUARDIAN_DATA_DIR`) and its
-addition's `kill_timeout` at 150; `test/guardian/deployment_test.exs` checks both. The API keys
+guide has `fly launch` write a deployment's `fly.toml`, and the reader adds by hand
+only the one setting flyctl has no command for (`kill_signal`/`kill_timeout`, in a
+marked block); never have shell commands write or append to `fly.toml`. A deployment's
+own `fly.toml` is gitignored or kept outside the repository, and no deployment's
+configuration belongs in the tree. Keep the guide free of Guardian settings (the image
+sets `GUARDIAN_DATA_DIR`) and its `kill_timeout` at 150 (`test/guardian/deployment_test.exs`
+checks both). The README has no deploy commands: it links the guide. The API keys
 (`GUARDIAN_ADMIN_API_KEY`, `GUARDIAN_INGEST_API_KEY`, and the deprecated
 `GUARDIAN_API_KEY` while set) and `RELEASE_COOKIE` are Fly secrets, plus the optional `TUNNEL_TOKEN` that starts the
 Cloudflare Tunnel connector (`bin/fly-start`, the image's entry point); segments live on

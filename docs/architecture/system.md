@@ -153,7 +153,8 @@ Guardian.Storage.
 
 `Guardian.Application` uses the default restart intensity (3 restarts in 5 seconds). The release starts
 the application as permanent, so if Storage or Web keeps crashing the VM exits, and the
-deployment's supervisor restarts it (on Fly, `[[restart]] policy = "always"`).
+deployment's supervisor restarts it (on Fly, the platform's default restart policy,
+which restarts a machine whose process exits with an error).
 
 Counter failures use a separate restart boundary. Guardian.Counters.Supervisor restarts each
 child independently, with its own 3-in-5-second intensity. Guardian.Counters.Restarter traps
@@ -779,8 +780,8 @@ Fly guide pairs a 10 GB volume with a 1 GB machine). Mapping lets every segment 
 without reading it, and lets the kernel evict cold columns.
 
 Cost: loading still starts a process per file and computes its schema, so boot time
-grows with the number of segments; on Fly, a deploy waits up to its wait timeout
-(15 minutes in the guide) for it.
+grows with the number of segments; on Fly with several machines, a deploy waits up to
+its wait timeout (15 minutes in the guide's Scaling section) for it.
 
 ### 4.5 Schema inference
 
@@ -1332,8 +1333,9 @@ requests.
    check (Fly's, or a load balancer's) reports the machine unhealthy meanwhile. With
    one machine, every deploy and restart is a short outage for writes and reads;
    producers are expected to retry. With several machines, a proxy that follows the
-   health check (Fly's does) routes writes to the others meanwhile, and queries leave
-   out the machine until its Storage is ready (section 7).
+   health check (Fly's does, once the Fly guide's Scaling section adds one) routes
+   writes to the others meanwhile, and queries leave out the machine until its Storage
+   is ready (section 7).
 
 ### Module namespace and restart compatibility
 
@@ -1411,8 +1413,8 @@ Tests log at `warning`.
 
 Procedures are in the guides under `docs/guides/`; this section explains how the pieces fit. Guardian is
 one release, built into one Docker image, that runs as a single node or as a cluster
-(section 7). Fly.io is the best-supported deployment: the Fly guide builds a
-deployment's `fly.toml` with `fly` commands, and on a Fly machine the cluster settings
+(section 7). Fly.io is the best-supported deployment: in the Fly guide, `fly launch`
+writes a deployment's `fly.toml`, and on a Fly machine the cluster settings
 need no configuration beyond the cookie.
 
 ### 10.1 Build
@@ -1443,8 +1445,8 @@ connector it simply `exec`s `guardian start`. With one, it stays in front of Gua
    for up to its 10-second `--grace-period` and disconnects; then it sends Guardian
    SIGTERM and exits with Guardian's status.
 3. If Guardian exits on its own, it stops the connector and exits with Guardian's
-   status, so the machine restarts. A connector that exits is started again after 5
-   seconds; a stop during that pause starts no new one.
+   status, so Fly's restart policy sees it. A connector that exits is started again
+   after 5 seconds; a stop during that pause starts no new one.
 
 A request longer than the drain can still be cut off, a connector still draining after
 20 seconds is killed so Guardian's own shutdown isn't held up, and a crash skips the
@@ -1463,28 +1465,33 @@ tested (TODO.md arm64-image).
 
 ### 10.2 Fly configuration
 
-The Fly guide (`docs/guides/fly.md`) builds a deployment's own `fly.toml` (which git
-ignores; no deployment's configuration is tracked) from `fly launch` flags, a
-`fly volumes create`, and one addition for the settings flyctl has no command for
-(stop signal and timeout, deploy strategy, concurrency, health check, restart policy).
-Together they encode the operational decisions:
+The Fly guide (`docs/guides/fly.md`) has `fly launch` write a deployment's own
+`fly.toml` (which git ignores; no deployment's configuration is tracked), creates the
+volume with `fly volumes create`, and has the reader add by hand the one setting
+flyctl has no command for, the stop signal and timeout. Everything else is flyctl's
+and Fly's defaults. The operational decisions:
 
-1. One HTTP service on internal port 8080, HTTPS forced at the edge, request
-   concurrency soft 200 and hard 250 per machine.
-2. Machines never auto-stop, because a stopped machine's events vanish from queries.
-3. A health check on `GET /health` every 15 seconds. Boot loads every segment before
-   the server answers, which can take longer than Fly's grace period allows (capped at
-   1 minute), so the deploy's 15-minute `wait_timeout` is what waits for a slow boot.
-4. A volume `guardian_data` at `/data` (10 GB, 14 daily snapshots kept). The image
+1. One HTTP service on internal port 8080, HTTPS forced at the edge (`fly launch`'s
+   default). The guide sets no concurrency limits.
+2. Machines never auto-stop (`--auto-stop off`), because a stopped machine's events
+   vanish from queries.
+3. A volume `guardian_data` at `/data` (10 GB, 14 daily snapshots kept). The image
    sets `GUARDIAN_DATA_DIR=/data`, so the configuration sets no Guardian setting.
-5. `SIGTERM` with a 150-second `kill_timeout`, so the connector's drain and the
-   shutdown persist can both finish.
-6. Rolling deploys, one machine at a time (`max_unavailable = 1`), because a volume
-   attaches to one machine.
-   No release command, since any machine running the image joins the cluster.
-7. VM size `shared-cpu-1x` with 1 GB, one machine; `fly deploy` keeps the current
-   machine count. Memory changes go through `[[vm]]` in `fly.toml`, since a deploy
-   resets what `fly scale memory` set.
+4. `SIGTERM` with a 150-second `kill_timeout`, so the connector's drain and the
+   shutdown persist can both finish. Fly's default, SIGINT and 5 seconds, would lose
+   the in-memory segments on every deploy.
+5. One machine (`fly deploy` creates one for a group with a volume), and no health
+   check. No release command, since any machine running the image joins the cluster.
+6. Before scaling out, the guide's Scaling section adds a health check on
+   `GET /health` and a rolling `[deploy]` with `max_unavailable = 1`, because a volume
+   attaches to one machine. Its 15-minute `wait_timeout` covers a slow boot: the
+   server answers only after loading every segment, which can take longer than Fly's
+   check grace period allows (capped at 1 minute).
+7. VM size `shared-cpu-1x` with 1 GB, `fly launch`'s default; `fly deploy` keeps the
+   current machine count. Memory changes go through `[[vm]]` in `fly.toml`, since a
+   deploy resets what `fly scale memory` set.
+8. Fly's default restart policy, which restarts a machine whose process exits with an
+   error.
 
 ### 10.3 Operating
 
@@ -1492,7 +1499,7 @@ Together they encode the operational decisions:
    place. A configuration kept outside the checkout is passed with `-c` (its `[build]`
    section names no Dockerfile, since flyctl resolves that path against the
    configuration's directory). A failed
-   health check stops the deploy without rollback; roll back by redeploying the
+   deploy stops without rollback; roll back by redeploying the
    previous image. Elsewhere, replace the container or release and restart it; the
    stop must allow the shutdown budget (section 8).
 2. Secrets: set a key, the cookie, or the optional tunnel token in the environment

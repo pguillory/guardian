@@ -17,7 +17,8 @@
 #    up to its grace period (and killed if it hangs), and only then does Guardian get
 #    SIGTERM. Fly's kill_timeout covers both (docs/guides/fly.md).
 # 3. If Guardian exits on its own, the connector stops and the script exits with
-#    Guardian's status, so the machine restarts.
+#    Guardian's status, so Fly's restart policy sees it (the default restarts a
+#    machine whose process exits with an error).
 #
 # Keep the connector here, never in rel/env.sh.eex: env.sh runs for every
 # bin/guardian invocation (remote, rpc over fly ssh), which would start more

@@ -104,15 +104,17 @@ Invariants and argument:
 
 1. Routes: `Guardian.Web.MainRouter` serves `GET /health`, forwards `/api/json` to
    `Guardian.Web.JsonApi` and `/mcp` to `Guardian.Web.MCP.Router`, and answers 404 to everything else.
-2. On Fly, only the HTTP service is public. The Fly guide's `fly.toml` has one `[http_service]`
+2. On Fly, only the HTTP service is public. The `fly.toml` that `fly launch` writes in the Fly guide has one `[http_service]`
    (internal port 8080) and no other services, so Fly's edge forwards only HTTP and
    HTTPS on the app's public addresses. Erlang distribution ports and epmd are not
    published; they are reachable only on Fly's private network (section 6).
 3. On Fly, TLS terminates at Fly's edge. `force_https = true` makes the edge redirect
    plain HTTP to HTTPS. From the edge to the machine, traffic is plain HTTP on Fly's
    internal network, which is out of scope here.
-4. On Fly, concurrency is bounded at the edge: `hard_limit = 250` requests per machine
-   (`[http_service.concurrency]`).
+4. On Fly, the Fly guide sets no concurrency limit, so Fly's defaults apply: a soft
+   limit of 20 connections per machine, past which the edge prefers other machines, and
+   no hard limit. Nothing at the edge bounds a machine's concurrent requests; an
+   operator who wants a bound sets `hard_limit` under `[http_service.concurrency]`.
 5. Elsewhere, the equivalents of invariants 2 to 4 are the operator's: which ports the
    host exposes, where TLS terminates, and whether anything bounds concurrency. Section
    6.3 covers the distribution ports.
@@ -124,8 +126,8 @@ Invariants and argument:
    record needs to point at it: Cloudflare routes only requests made through Workers
    VPC in the operator's Cloudflare account, to the VPC services configured there. The
    connector itself limits nothing (gap 4). The same routes and the same API keys (B2)
-   apply. Fly's edge controls do not: no `force_https` redirect, no edge TLS, and the
-   `hard_limit` concurrency bound doesn't count this traffic. Such requests reach
+   apply. Fly's edge controls do not: no `force_https` redirect, no edge TLS, and any
+   edge concurrency limit doesn't count this traffic. Such requests reach
    Guardian from `127.0.0.1`, so `web_requests.remote_ip` shows that, not the Worker.
    The script starts the connector only once Guardian listens and stops it before
    Guardian on shutdown, and `GUARDIAN_TUNNEL=off` keeps it from starting at all; in
@@ -142,7 +144,7 @@ Gaps:
    IPv6-only, the port is probably not reachable there, bypassing the edge; this was
    not verified. Elsewhere, the port is reachable from any network that reaches the
    host unless the operator firewalls it. Either way the key is still required (B2),
-   but that traffic skips the edge's TLS and concurrency limit.
+   but that traffic skips the edge's TLS and any edge concurrency limit.
 3. Anyone holding the tunnel token can run their own connector for the same tunnel,
    and Cloudflare may then send them some of the Workers' requests, API key included.
    The token is therefore kept like the API keys: a secret, never logged
@@ -668,7 +670,7 @@ Invariants and argument:
 
 1. Possession of the cookie is the authentication. Erlang distribution authenticates
    with a challenge-response digest of the cookie, so the cookie itself is not sent on
-   the wire. The cluster and Fly guides generate it from 48 random bytes. Any node that knows it has
+   the wire. The cluster guide generates it from 48 random bytes, the Fly guide from 32. Any node that knows it has
    full code execution on every node, as Guardian's OS user (root in the Docker image);
    there is no finer authority.
 2. Distribution must not be reachable from outside the deployment. Who can reach epmd
@@ -690,7 +692,7 @@ Invariants and argument:
 ### 6.2 On Fly
 
 1. Distribution is not public. epmd and the distribution port are not among the services
-   in the `fly.toml` the Fly guide builds, so they are reachable only over Fly's private 6PN network (B1).
+   in the `fly.toml` that `fly launch` writes in the Fly guide, so they are reachable only over Fly's private 6PN network (B1).
 2. Who is on that network: every machine in the Fly organization and its WireGuard
    peers. That is a property of the organization, not an invariant the code enforces:
    any app later added to the organization joins the same network.
@@ -762,7 +764,10 @@ Operators are fully trusted, and the design does not try to constrain them. On F
    environment. It bypasses the API keys by design (spec section 4.4) and can call any
    function, including `Guardian.Query.execute/1` and Storage internals that delete tables or
    segments.
-3. `fly secrets set` rotates a key or the cookie (each key independently); the
+3. The Fly guide's first `fly secrets set` takes the keys on its command line, so they
+   pass through the operator's shell history and, briefly, the local process list
+   (the cookie, generated inline, only the process list).
+   `fly secrets set` also rotates a key or the cookie (each key independently); the
    machine restarts with the new value. Old keys stop working immediately after the
    restart.
 4. `fly logs` shows stdout, including whatever section 8 says reaches it.
@@ -947,7 +952,7 @@ Open gaps named above, by boundary:
 1. B1: on Fly, a client configured with `http://` sends its first request, key
    included, in clear before the redirect, and no HSTS header is sent (3).
 2. B1: Bandit listens on every IPv4 interface, so on hosts that do not firewall the
-   port, clients can bypass the edge's TLS and concurrency limit (3).
+   port, clients can bypass the edge's TLS and any edge concurrency limit (3).
 3. B1b: anyone with the tunnel token can run a connector and receive some requests;
    the connector has no destination allowlist, so administrative access to the
    operator's Cloudflare account reaches the deployment's private network (3).
@@ -986,7 +991,7 @@ Open gaps named above, by boundary:
 
 Written from the code: the routers, `Guardian.Web.Auth`, `Guardian.Web.Logger`, `Guardian.Web.QueryParseErrors`,
 `Guardian.Web.QueryLog`, `Guardian.Engine`, `lib/guardian/rules`, `Guardian.Cluster`, `Guardian.Query.Limits`, `config/runtime.exs`,
-`rel/env.sh.eex`, `bin/fly-start`, `Dockerfile`, and the Fly guide's configuration in this repository,
+`rel/env.sh.eex`, `bin/fly-start`, `Dockerfile`, and the Fly guide in this repository,
 and the pinned dependencies `cors_plug` 3.0.3, `anubis_mcp` 0.16.0, and `req` 0.7.5
 (its SigV4 step accepts an MFA for credentials, read from its source). Query
 regular expressions (`RLIKE`, `replace`) run on OTP's `:re` through `Guardian.Query.Regex`. Statements about Fly's platform

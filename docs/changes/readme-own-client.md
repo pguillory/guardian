@@ -1,5 +1,9 @@
 # readme-own-client: no official clients; the README shows a helper you write
 
+The README's copies of the Fly guide's commands and the JavaScript helper were
+dropped in [plain-setup](plain-setup.md): the README links the guide, and the helper
+is `send_event` in Python.
+
 ## Problem
 
 The README's walkthrough used an official Python client, and its Connecting section

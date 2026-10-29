@@ -1,5 +1,8 @@
 # fly-check-grace: Fly caps a health check's grace period at 1 minute
 
+Since [plain-setup](plain-setup.md), the health check and `wait_timeout` are only in
+the Fly guide's Scaling section; a single machine has neither.
+
 ## Problem
 
 The Fly configuration gave the `GET /health` check a 10-minute grace period, and the

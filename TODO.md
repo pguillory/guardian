@@ -328,13 +328,18 @@ privately, not in this repository.
       (`GUARDIAN_ADMIN_API_KEY`) is for MCP; `POST /api/json/query` is removed; the
       single `GUARDIAN_API_KEY` stays full access, deprecated, until it is retired
       (`docs/changes/split-api-keys.md`)
+- [x] plain-setup: the README's setup links the Fly guide instead of copying its
+      commands; the guide lets `fly launch` write `fly.toml`, with a two-line hand edit
+      for the stop settings, and sets the keys with `fly secrets set`; the README's
+      helper is `send_event` in Python (`docs/changes/plain-setup.md`)
 - [x] readme-guide-copies: the README's Fly commands are the Fly guide's, and a test
-      checks that they match; the Docker steps and "What it isn't" copies are gone
-      (`docs/changes/readme-own-client.md`)
+      checks that they match; the Docker steps and "What it isn't" copies are gone;
+      superseded by plain-setup (`docs/changes/readme-own-client.md`)
 - [x] readme-own-client: the README drops the official clients; readers write a small
       `event(table, fields, returning=...)` helper (Python, JavaScript) over
       `send_events`; setup is three steps (deploy on Fly, send an event, connect
-      Claude Code); "What it isn't" is gone (`docs/changes/readme-own-client.md`)
+      Claude Code); "What it isn't" is gone; superseded in part by plain-setup
+      (`docs/changes/readme-own-client.md`)
 - [x] readme-walkthrough: the README walks through one example in three parts
       (send events and ask an agent, block with a rule, rate limit with a TRACK
       counter), with running and connecting after it (`docs/changes/readme-walkthrough.md`)
@@ -345,11 +350,11 @@ privately, not in this repository.
       deployment's own `fly.toml` is gitignored or kept outside the tree; superseded
       by fly-commands-guide (`docs/changes/fly-example-config.md`)
 - [x] fly-commands-guide: the Fly guide builds `fly.toml` with `fly launch` flags and
-      one marked addition for what flyctl can't set, and saves the generated keys
-      (`docs/changes/fly-commands-guide.md`)
+      one marked addition for what flyctl can't set, and saves the generated keys;
+      superseded by plain-setup (`docs/changes/fly-commands-guide.md`)
 - [x] fly-check-grace: the health check's grace period is 1 minute, Fly's cap; the
-      deploy's `--wait-timeout` is what waits for a slow boot
-      (`docs/changes/fly-check-grace.md`)
+      deploy's `--wait-timeout` is what waits for a slow boot; since plain-setup, only
+      in the Fly guide's Scaling section (`docs/changes/fly-check-grace.md`)
 - [x] query-api-key-off: keys are accepted only in the `x-api-key` header;
       `GUARDIAN_ALLOW_QUERY_API_KEY` and `web_requests.auth_method` are gone
       (`docs/changes/query-api-key-off.md`)
