@@ -191,27 +191,49 @@ defmodule Guardian.DeploymentTest do
     end
   end
 
-  describe "fly.example.toml" do
+  describe "the Fly guide" do
     setup do
-      %{fly_toml: File.read!(Path.expand("../../fly.example.toml", __DIR__))}
+      guide = File.read!(Path.expand("../../docs/guides/fly.md", __DIR__))
+
+      # The fenced block after the marker holds the guide's fly.toml additions.
+      additions = Regex.run(~r/<!-- fly-toml-additions -->\n```sh\n(.*?)\n```/s, guide)
+      assert additions, "the guide lost its marked fly.toml additions block"
+
+      launch = Regex.run(~r/^fly launch (?:.*\\\n)*.*$/m, guide)
+      assert launch, "the guide lost its fly launch command"
+
+      %{guide: guide, additions: Enum.at(additions, 1), launch: hd(launch)}
     end
 
     # Fly's kill_timeout must stay above Storage's shutdown budget plus the tunnel
     # connector's drain (bin/fly-start).
-    test "its kill_timeout covers the shutdown", %{fly_toml: fly_toml} do
-      assert fly_toml =~ ~r/^kill_timeout = 150$/m
+    test "its kill_timeout covers the shutdown", %{additions: additions} do
+      # The lines are written with printf, so the newline is a literal backslash-n.
+      assert additions =~ ~r/kill_timeout = 150\\n/
+      assert additions =~ ~r/kill_signal = "SIGTERM"/
     end
 
-    # flyctl resolves [build] dockerfile against the config file's directory, which
-    # breaks a copy kept outside the checkout (fly deploy . -c <path>).
-    test "it has no [build] section", %{fly_toml: fly_toml} do
-      refute fly_toml =~ ~r/^\[build\]/m
+    # A volume attaches to one machine, and bin/fly-start relies on the machine
+    # restarting when Guardian exits.
+    test "it deploys one machine at a time and always restarts", %{additions: additions} do
+      assert additions =~ ~r/^\[deploy\]\n  strategy = "rolling"\n  max_unavailable = 1\n/m
+      assert additions =~ ~r/^\[\[restart\]\]\n  policy = "always"$/m
     end
 
-    # A copy gets Guardian's defaults: the only setting is the data directory.
-    test "it overrides no Guardian setting but the data directory", %{fly_toml: fly_toml} do
-      assert Regex.scan(~r/^\s*(GUARDIAN_\w+)\s*=/m, fly_toml, capture: :all_but_first) ==
-               [["GUARDIAN_DATA_DIR"]]
+    # Without the flag, fly launch in a GitHub clone writes a deploy workflow and can
+    # store a long-lived deploy token as a repository secret.
+    test "fly launch sets up no GitHub workflow", %{launch: launch} do
+      assert launch =~ "--no-github-workflow"
+    end
+
+    # A deployment gets Guardian's defaults: the image sets the data directory, and
+    # neither fly launch nor the additions set environment variables.
+    test "it sets no Guardian setting", %{launch: launch, additions: additions} do
+      refute launch =~ ~r/(--env|\s-e)[ =]/
+      refute additions =~ ~r/\[env\]|GUARDIAN_/
+
+      dockerfile = File.read!(Path.expand("../../Dockerfile", __DIR__))
+      assert dockerfile =~ ~r{^ENV GUARDIAN_DATA_DIR=/data$}m
     end
   end
 

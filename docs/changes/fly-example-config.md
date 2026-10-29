@@ -1,5 +1,8 @@
 # fly-example-config: a template fly.toml; deployments keep their own outside the tree
 
+Superseded by [fly-commands-guide](fly-commands-guide.md): the template is gone, and
+the Fly guide builds `fly.toml` with commands.
+
 ## Problem
 
 The repository's `fly.toml` was the maintainer's own deployment: his app name, plus a

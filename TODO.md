@@ -340,9 +340,12 @@ privately, not in this repository.
 - [ ] drop-legacy-api-key: the maintainer's deployment retired `GUARDIAN_API_KEY` on
       2026-10-28, so its support can now be removed; the boot error for a deployment that still sets only it must name
       the replacement variables, with a README note (`docs/changes/split-api-keys.md`)
-- [x] fly-example-config: the repository carries `fly.example.toml`, a template;
-      a deployment's own `fly.toml` is gitignored or kept outside the tree
-      (`docs/changes/fly-example-config.md`)
+- [x] fly-example-config: the repository carried `fly.example.toml`, a template; a
+      deployment's own `fly.toml` is gitignored or kept outside the tree; superseded
+      by fly-commands-guide (`docs/changes/fly-example-config.md`)
+- [x] fly-commands-guide: the Fly guide builds `fly.toml` with `fly launch` flags and
+      one marked addition for what flyctl can't set, and saves the generated keys
+      (`docs/changes/fly-commands-guide.md`)
 - [x] fly-check-grace: the health check's grace period is 1 minute, Fly's cap; the
       deploy's `--wait-timeout` is what waits for a slow boot
       (`docs/changes/fly-check-grace.md`)

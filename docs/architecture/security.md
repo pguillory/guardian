@@ -104,7 +104,7 @@ Invariants and argument:
 
 1. Routes: `Guardian.Web.MainRouter` serves `GET /health`, forwards `/api/json` to
    `Guardian.Web.JsonApi` and `/mcp` to `Guardian.Web.MCP.Router`, and answers 404 to everything else.
-2. On Fly, only the HTTP service is public. `fly.example.toml` declares one `[http_service]`
+2. On Fly, only the HTTP service is public. The Fly guide's `fly.toml` has one `[http_service]`
    (internal port 8080) and no other services, so Fly's edge forwards only HTTP and
    HTTPS on the app's public addresses. Erlang distribution ports and epmd are not
    published; they are reachable only on Fly's private network (section 6).
@@ -688,8 +688,8 @@ Invariants and argument:
 
 ### 6.2 On Fly
 
-1. Distribution is not public. epmd and the distribution port are not in `fly.example.toml`'s
-   services, so they are reachable only over Fly's private 6PN network (B1).
+1. Distribution is not public. epmd and the distribution port are not among the services
+   in the `fly.toml` the Fly guide builds, so they are reachable only over Fly's private 6PN network (B1).
 2. Who is on that network: every machine in the Fly organization and its WireGuard
    peers. That is a property of the organization, not an invariant the code enforces:
    any app later added to the organization joins the same network.
@@ -795,8 +795,8 @@ working directory; on Fly, the machine's disposable root filesystem).
    whatever the operator's disk provides.
 2. Retention deletes persisted segments about 15 days after creation, globally. There
    is no other deletion path through the product.
-3. Backups: on Fly, the repository's `fly.example.toml` has Fly snapshot the volume daily and
-   keep snapshots 14 days (`snapshot_retention = 14`). Snapshots hold everything the
+3. Backups: on Fly, the Fly guide creates each volume with daily snapshots kept 14
+   days (`fly volumes create --snapshot-retention 14`). Snapshots hold everything the
    volume held, so deleted data, including `queries` and `query_parse_errors` query
    text, survives
    up to about 29 days after it was written. Snapshots are reachable only by
@@ -985,7 +985,7 @@ Open gaps named above, by boundary:
 
 Written from the code: the routers, `Guardian.Web.Auth`, `Guardian.Web.Logger`, `Guardian.Web.QueryParseErrors`,
 `Guardian.Web.QueryLog`, `Guardian.Engine`, `lib/guardian/rules`, `Guardian.Cluster`, `Guardian.Query.Limits`, `config/runtime.exs`,
-`rel/env.sh.eex`, `bin/fly-start`, `Dockerfile`, and `fly.example.toml` in this repository,
+`rel/env.sh.eex`, `bin/fly-start`, `Dockerfile`, and the Fly guide's configuration in this repository,
 and the pinned dependencies `cors_plug` 3.0.3, `anubis_mcp` 0.16.0, and `req` 0.7.5
 (its SigV4 step accepts an MFA for credentials, read from its source). Query
 regular expressions (`RLIKE`, `replace`) run on OTP's `:re` through `Guardian.Query.Regex`. Statements about Fly's platform

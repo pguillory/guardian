@@ -800,9 +800,9 @@ Request bodies, API keys, and MCP traffic are not logged in `web_requests` or
 6. Rescans: About once a minute each machine rescans its data directory, loading
    segment files that appeared and dropping ones that disappeared, so restoring or
    removing files on the volume takes effect without a restart.
-7. Backups: There is no replication. On Fly.io, the repository's configuration has
-   Fly snapshot each volume daily and keep snapshots 14 days; elsewhere, backups are
-   the operator's to arrange.
+7. Backups: There is no replication. On Fly.io, volumes created as in the Fly guide
+   are snapshotted daily, with snapshots kept 14 days; elsewhere, backups are the
+   operator's to arrange.
 
 ## 10. Clustering and deployment
 

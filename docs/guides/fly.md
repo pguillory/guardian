@@ -4,8 +4,7 @@ Fly is Guardian's best-supported deployment, and a preset of
 [the general cluster setup](cluster.md). On a Fly machine the node host defaults to its
 private IPv6 address and `DNS_CLUSTER_QUERY` to `<app>.internal`, so a cluster needs
 no configuration beyond the cookie. The `Dockerfile` builds the release (including
-the column and mmap NIFs), and `fly.example.toml` runs
-it with:
+the column and mmap NIFs), and the commands below run it with:
 
 - a volume at `/data`
 - HTTPS at Fly's edge, forwarding to port 8080
@@ -14,48 +13,142 @@ it with:
 
 ## First deploy
 
-The repository carries a template, `fly.example.toml`. Before your first deploy, copy
-it to `fly.toml` in your checkout (git ignores that file, so your configuration is
-never committed):
+Everything below is a `fly` command, run from your checkout of this repository, except
+one addition to the `fly.toml` that `fly launch` writes, for the few settings flyctl has
+no command for. Pick an app name (it must be unique across Fly, and becomes
+`<app-name>.fly.dev`) and a region (`fly platform regions` lists them, for example
+`sjc`).
 
-```sh
-cp fly.example.toml fly.toml
-```
-
-Then, in your `fly.toml`:
-
-1. Set `app` to your app's name and `primary_region` to your region (for example
-   `sjc`).
-2. Adjust `[[vm]]` or the volume's `initial_size` (10 GB) if needed.
-
-Run every `fly` command below from the checkout, so it finds your `fly.toml` and builds
-the checkout's `Dockerfile`. To keep your configuration elsewhere instead (outside the
-checkout, so every checkout and worktree shares it), pass it to `fly deploy` with
-`-c` and name the checkout as the working directory,
-`fly deploy . -c /path/to/fly.toml ...`, and pass `-a <app-name>` (or the same
-`-c`) to the other commands. Don't add a `[build]` section to such a copy: flyctl
-reads its Dockerfile path relative to the configuration's directory, not the
-checkout. If you lose your copy, `fly config save -a <app-name> -c <path>` writes the
-deployed configuration back, without its comments.
+### 1. Create the app
 
 ```sh
 fly auth login
-fly apps create <app-name>
 
-fly secrets set --stage \
-  GUARDIAN_ADMIN_API_KEY="$(openssl rand -hex 32)" \
-  GUARDIAN_INGEST_API_KEY="$(openssl rand -hex 32)" \
-  RELEASE_COOKIE="$(openssl rand -base64 48 | tr -d '\n/+=')"
-
-fly deploy --ha=false --wait-timeout 15m \
-  --build-arg GIT_COMMIT="$(git rev-parse HEAD)"
+fly launch --no-deploy --yes --no-github-workflow \
+  --name <app-name> --region <region> --ha=false --auto-stop off \
+  --vm-size shared-cpu-1x --vm-memory 1024 \
+  --volume guardian_data:/data:initial_size=10gb
 ```
+
+This creates the app (add `--org <org>` for an organization other than your personal
+one) and writes `fly.toml` in the checkout, which git ignores. `--no-github-workflow`
+matters: in a clone of a GitHub repository, `fly launch` otherwise writes a GitHub
+Actions deploy workflow into the checkout and, when the `gh` CLI is installed, stores a
+long-lived Fly deploy token as a secret of that repository. `fly launch` reads the
+`Dockerfile` (port 8080) and records what the flags set: machines that never auto-stop
+(a stopped machine's events would vanish from queries), one machine with 1 GB of
+memory, and the volume `guardian_data` mounted at `/data`. Raise `--vm-memory` for
+bigger datasets: loaded segments are memory-mapped.
+
+### 2. Create the volume
+
+```sh
+fly volumes create guardian_data --app <app-name> --region <region> \
+  --size 10 --snapshot-retention 14 --yes
+```
+
+The first deploy attaches this volume. Creating it yourself sets its daily snapshots to
+be kept 14 days instead of Fly's default 5.
+
+### 3. Add the settings flyctl has no command for
+
+flyctl has no command or flag that writes these to `fly.toml`, so the two commands below
+add them. Run them once, on the `fly.toml` that `fly launch` just wrote: running them
+again would repeat the settings and break the file.
+
+<!-- fly-toml-additions -->
+```sh
+printf 'kill_signal = "SIGTERM"\nkill_timeout = 150\n\n' | cat - fly.toml > fly.toml.new &&
+  mv fly.toml.new fly.toml
+
+cat >> fly.toml <<'EOF'
+
+[deploy]
+  strategy = "rolling"
+  max_unavailable = 1
+  wait_timeout = "15m"
+
+[http_service.concurrency]
+  type = "requests"
+  soft_limit = 200
+  hard_limit = 250
+
+[[http_service.checks]]
+  method = "GET"
+  path = "/health"
+  interval = "15s"
+  timeout = "5s"
+  grace_period = "1m"
+
+[[restart]]
+  policy = "always"
+EOF
+```
+
+The first command puts two lines at the top of the file, where TOML requires settings
+that belong to no section:
+
+```toml
+kill_signal = "SIGTERM"
+kill_timeout = 150
+```
+
+Fly stops a machine with SIGINT by default, which isn't a graceful shutdown for
+Guardian. On SIGTERM it saves its in-memory segments, within a budget of about 110
+seconds, after the tunnel connector (if any) has drained for up to 10 seconds, 20 at
+worst (`bin/fly-start`); `kill_timeout` must stay above both.
+
+The second appends the rest:
+
+1. `[deploy]`: replace machines one at a time, since each volume attaches to one
+   machine, and wait up to 15 minutes for each new machine to pass its health check
+   (Fly's default is 5).
+2. `[http_service.concurrency]`: up to 200 requests per machine before Fly's edge
+   prefers another machine, and 250 at most.
+3. `[[http_service.checks]]`: the health check. A machine answers it only after
+   loading every segment on its volume. Fly caps the grace period at 1 minute, so a
+   slow boot is covered by the deploy's `wait_timeout` above.
+4. `[[restart]]`: restart a machine whenever Guardian exits.
+
+### 4. Generate and save the keys, then set them
+
+Run this once. Run again, it stops at the existing key file and sets nothing on Fly,
+but your shell then holds new keys: reload the saved ones as described below.
+
+```sh
+export GUARDIAN_ADMIN_API_KEY="$(openssl rand -hex 32)"
+export GUARDIAN_INGEST_API_KEY="$(openssl rand -hex 32)"
+
+(umask 077; set -o noclobber
+ printf 'GUARDIAN_ADMIN_API_KEY=%s\nGUARDIAN_INGEST_API_KEY=%s\n' \
+   "$GUARDIAN_ADMIN_API_KEY" "$GUARDIAN_INGEST_API_KEY" > ~/guardian-<app-name>.env) &&
+printf 'GUARDIAN_ADMIN_API_KEY=%s\nGUARDIAN_INGEST_API_KEY=%s\nRELEASE_COOKIE=%s\n' \
+  "$GUARDIAN_ADMIN_API_KEY" "$GUARDIAN_INGEST_API_KEY" \
+  "$(openssl rand -base64 48 | tr -d '\n/+=')" |
+  fly secrets import --stage --app <app-name>
+```
+
+Fly never shows a secret's value again (`fly secrets list` shows only digests), so the
+parenthesized command first saves both keys to a new file only you can read, in your
+home directory rather than the checkout so it can't be committed. It refuses to
+overwrite an existing file, and then nothing is set. Move the keys into your password
+manager when you can. In a new shell, load them again with
+`set -a; . ~/guardian-<app-name>.env; set +a`. The rest passes the secrets to Fly on
+standard input, so they never appear in a process list.
 
 The admin key is for you and your agents over MCP; the ingest key is for the
 applications that send events, and can do nothing else. A deployment that still
-sets the deprecated `GUARDIAN_API_KEY` keeps working with it.
+sets the deprecated `GUARDIAN_API_KEY` keeps working with it. Give your applications
+only the ingest key. `RELEASE_COOKIE` lets machines join one cluster; nothing outside
+Fly needs it.
 
-The first deploy creates one machine and its `guardian_data` volume. Make sure the app
+### 5. Deploy
+
+```sh
+fly deploy --ha=false --build-arg GIT_COMMIT="$(git rev-parse HEAD)"
+```
+
+The first deploy creates one machine on the `guardian_data` volume. Make sure the app
 has public addresses (a first `fly deploy` normally allocates them), then check it:
 
 ```sh
@@ -70,6 +163,18 @@ fly logs
 On Fly, a machine refuses to start unless `/data` is a mounted volume, so it can't
 silently keep events on its disposable root filesystem. You can attach a custom domain
 with `fly certs add <domain>`.
+
+### Keeping fly.toml elsewhere
+
+Run every `fly` command from the checkout, so it finds your `fly.toml` and builds the
+checkout's `Dockerfile`. To keep your configuration outside the checkout instead (so
+every checkout and worktree shares it), move `fly.toml` there and pass it to
+`fly deploy` with `-c`, naming the checkout as the working directory,
+`fly deploy . -c /path/to/fly.toml ...`, and pass `-a <app-name>` (or the same `-c`)
+to the other commands. Don't add a Dockerfile path to its `[build]` section: flyctl
+reads that path relative to the configuration's directory, not the checkout. If you
+lose your copy, `fly config save -a <app-name> -c <path>` writes the deployed
+configuration back, without its comments.
 
 ## Later deploys and rollbacks
 
@@ -91,8 +196,9 @@ check stops the deploy but doesn't roll back. To roll back, find the previous im
 admin and ingest keys know only `GUARDIAN_API_KEY`, so rolling back to one refuses
 callers that have moved to the new keys. A machine answers its health check only after
 loading every segment on its volume. Fly caps the check's grace period at 1 minute, so
-what covers a slow boot is `fly deploy`, which waits up to `--wait-timeout` (15 minutes
-above) for the check to pass; raise it if boots get slower.
+what covers a slow boot is `fly deploy`, rollbacks included, which waits up to
+`[deploy] wait_timeout` (15 minutes) for the check to pass; raise it if boots get
+slower.
 
 ## Operating it
 
@@ -103,7 +209,17 @@ rotates independently of the others.
 
 ## Scaling
 
-To scale, run `fly scale count 2`. That creates a machine and a new volume, and the
+To scale, create a volume for the new machine first, the same way as for the first
+one, then add the machine:
+
+```sh
+fly volumes create guardian_data --app <app-name> --region <region> \
+  --size 10 --snapshot-retention 14 --yes
+fly scale count 2
+```
+
+`fly scale count` gives the new machine an unattached `guardian_data` volume, and
+creates one only when none is left (with Fly's default 5-day snapshot retention). The
 machine joins the cluster within seconds. With more than one machine:
 
 - Deploys replace machines one at a time, so ingestion continues on the others.
@@ -114,6 +230,10 @@ machine joins the cluster within seconds. With more than one machine:
 
 Scaling down destroys a machine but leaves its volume unattached. That machine's
 events drop out of queries until a machine uses that volume again.
+
+To change a machine's memory, edit `memory` in the `[[vm]]` section of your `fly.toml`
+(for example `memory = '2gb'`) and deploy. `fly scale memory` changes the running
+machines, but the next `fly deploy` sets them back to what `fly.toml` says.
 
 ## Optional: Cloudflare Tunnel
 

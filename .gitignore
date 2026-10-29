@@ -32,5 +32,5 @@ guardian-*.tar
 
 /data
 
-# Your own Fly.io configuration, copied from fly.example.toml.
+# Your own Fly.io configuration, written by fly launch (docs/guides/fly.md).
 /fly.toml

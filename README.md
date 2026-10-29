@@ -75,26 +75,10 @@ UNSET (strip a field before it's stored) and where rules are kept.
 
 ## Run it
 
-The simplest way is Fly.io, which puts HTTPS in front of Guardian for you. Copy the
-template, `cp fly.example.toml fly.toml` (git ignores your copy), and in it set `app`
-to your app's name and `primary_region` to your region. Then, from the checkout:
-
-```sh
-fly apps create <app-name>
-
-export GUARDIAN_ADMIN_API_KEY="$(openssl rand -hex 32)"
-export GUARDIAN_INGEST_API_KEY="$(openssl rand -hex 32)"
-
-fly secrets set --stage \
-  GUARDIAN_ADMIN_API_KEY="$GUARDIAN_ADMIN_API_KEY" \
-  GUARDIAN_INGEST_API_KEY="$GUARDIAN_INGEST_API_KEY" \
-  RELEASE_COOKIE="$(openssl rand -base64 48 | tr -d '\n/+=')"
-
-fly deploy --ha=false --wait-timeout 15m
-curl https://<app-name>.fly.dev/health
-```
-
-If the health check doesn't answer, the app may need public addresses; see the guide.
+The simplest way is Fly.io, which puts HTTPS in front of Guardian for you. The
+[Fly guide](docs/guides/fly.md)'s first deploy takes a handful of `fly` commands, run
+from your checkout: `fly launch` with flags, a volume, one addition to the `fly.toml`
+it writes, the keys as secrets, and `fly deploy`.
 
 Your Guardian is at `https://<app-name>.fly.dev`. Keep both keys: the ingest key goes
 to your applications and can only send events; the admin key is for you and your
