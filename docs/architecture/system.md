@@ -779,7 +779,8 @@ Why mmap: a machine's stored data can be larger than its memory (the repository'
 without reading it, and lets the kernel evict cold columns.
 
 Cost: loading still starts a process per file and computes its schema, so boot time
-grows with the number of segments; the Fly health check allows 10 minutes for it.
+grows with the number of segments; on Fly, a deploy waits up to its `--wait-timeout`
+(15 minutes in the guide) for it.
 
 ### 4.5 Schema inference
 
@@ -1469,8 +1470,9 @@ operational decisions:
 1. One HTTP service on internal port 8080, HTTPS forced at the edge, request
    concurrency soft 200 and hard 250 per machine.
 2. Machines never auto-stop, because a stopped machine's events vanish from queries.
-3. A health check on `GET /health` every 15 seconds, with a 10-minute grace period
-   because boot loads every segment. Deploy with a matching `--wait-timeout`.
+3. A health check on `GET /health` every 15 seconds. Boot loads every segment before
+   the server answers, which can take longer than Fly's grace period allows (capped at
+   1 minute), so `fly deploy --wait-timeout 15m` is what waits for a slow boot.
 4. A volume `guardian_data` at `/data` (10 GB initial, 14 daily snapshots kept).
 5. `SIGTERM` with a 150-second `kill_timeout`, so the connector's drain and the
    shutdown persist can both finish.

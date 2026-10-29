@@ -89,9 +89,10 @@ before the new one starts, so producers must retry. A new release that fails its
 check stops the deploy but doesn't roll back. To roll back, find the previous image with
 `fly releases --image` and run `fly deploy --image <image>`. Releases from before the
 admin and ingest keys know only `GUARDIAN_API_KEY`, so rolling back to one refuses
-callers that have moved to the new keys. The health check allows 10
-minutes for segments to load; keep `--wait-timeout` above that, and raise both if boots
-get slower.
+callers that have moved to the new keys. A machine answers its health check only after
+loading every segment on its volume. Fly caps the check's grace period at 1 minute, so
+what covers a slow boot is `fly deploy`, which waits up to `--wait-timeout` (15 minutes
+above) for the check to pass; raise it if boots get slower.
 
 ## Operating it
 

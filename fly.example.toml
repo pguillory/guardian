@@ -41,8 +41,9 @@ kill_timeout = 150
     interval = "15s"
     timeout = "5s"
     # The server answers only after loading every segment on the volume, which takes
-    # longer as data grows. Deploy with a matching --wait-timeout.
-    grace_period = "10m"
+    # longer as data grows. Fly caps the grace period at 1 minute; a deploy's
+    # --wait-timeout is what waits for a slow boot.
+    grace_period = "1m"
 
 [mounts]
   source = "guardian_data"
