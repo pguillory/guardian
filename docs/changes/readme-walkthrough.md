@@ -1,5 +1,9 @@
 # readme-walkthrough: the README as a three-part walkthrough
 
+The official clients described below were dropped in
+[readme-own-client](readme-own-client.md): the README now shows a helper the reader
+writes, and its setup is three steps.
+
 ## Problem
 
 The README listed Guardian's features and then toured the query language and rules

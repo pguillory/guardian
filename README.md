@@ -6,17 +6,19 @@ can decide on each event as it arrives, sending the decision back to the applica
 
 There's nothing to design first. A table exists once something writes to it, any JSON
 object fits, nested objects become dotted columns (`user.plan`), and a new field is a
-new column.
+new column. It's built for recent events: they expire after about 15 days (see
+[Known limitations](docs/reference/limitations.md)).
 
 ## A walkthrough
 
 The example is a web application that tells Guardian about every request it gets,
-using the Python client (see [Connecting](#connecting)).
+through a small helper function you write yourself (see
+[Sending events from your code](#sending-events-from-your-code)).
 
 ### 1. Putting events in Guardian
 
 ```python
-guardian.event("requests", {"method": "GET", "path": "/", "ip": "203.0.113.9"})
+event("requests", {"method": "GET", "path": "/", "ip": "203.0.113.9"})
 ```
 
 Any JSON object works. Then ask your agent who's been visiting the home page, and it
@@ -26,14 +28,10 @@ queries Guardian over MCP:
 SELECT ip FROM requests WHERE path = '/'
 ```
 
-```text
-+--------------+
 | ip           |
-+--------------+
+|--------------|
 | 203.0.113.9  |
 | 198.51.100.7 |
-+--------------+
-```
 
 The queries read like SQL, with `GROUP BY`, about twenty aggregates and sixty
 functions; see the [query language](lib/guardian/web/mcp/query_language.md).
@@ -43,8 +41,8 @@ functions; see the [query language](lib/guardian/web/mcp/query_language.md).
 Ask for fields back when you send the event, and act on them:
 
 ```python
-response = guardian.event("requests", {"method": "GET", "path": "/", "ip": "203.0.113.9"},
-                          returning=["is_blocked"])
+response = event("requests", {"method": "GET", "path": "/", "ip": "203.0.113.9"},
+                 returning=["is_blocked"])
 if response.get("is_blocked"):
     raise PermissionError("blocked")
 ```
@@ -75,117 +73,160 @@ UNSET (strip a field before it's stored) and where rules are kept.
 
 ## Run it
 
-The simplest way is Fly.io, which puts HTTPS in front of Guardian for you. The
-[Fly guide](docs/guides/fly.md)'s first deploy takes a handful of `fly` commands, run
-from your checkout: `fly launch` with flags, a volume, one addition to the `fly.toml`
-it writes, the keys as secrets, and `fly deploy`.
+### 1. Deploy it on Fly.io
 
-Your Guardian is at `https://<app-name>.fly.dev`. Keep both keys: the ingest key goes
-to your applications and can only send events; the admin key is for you and your
-agents. The
-[Fly guide](docs/guides/fly.md) covers addresses, scaling, rollbacks and a custom
-domain.
-
-To try it on your own machine instead, run the Docker image (linux/amd64; arm64 is
-untested, see [system.md 10.1](docs/architecture/system.md#101-build)):
+Fly.io puts HTTPS in front of Guardian for you. From your checkout of this repository,
+with an app name and a region of your choice (the [Fly guide](docs/guides/fly.md)
+explains each command, and covers addresses, scaling, rollbacks and a custom domain):
 
 ```sh
-docker build -t guardian .
+fly auth login
+fly launch --no-deploy --yes --no-github-workflow \
+  --name <app-name> --region <region> --ha=false --auto-stop off \
+  --vm-size shared-cpu-1x --vm-memory 1024 \
+  --volume guardian_data:/data:initial_size=10gb
+fly volumes create guardian_data --app <app-name> --region <region> \
+  --size 10 --snapshot-retention 14 --yes
 
+# Once only: the settings flyctl has no command for.
+printf 'kill_signal = "SIGTERM"\nkill_timeout = 150\n\n' | cat - fly.toml > fly.toml.new &&
+  mv fly.toml.new fly.toml
+
+cat >> fly.toml <<'EOF'
+
+[deploy]
+  strategy = "rolling"
+  max_unavailable = 1
+  wait_timeout = "15m"
+
+[http_service.concurrency]
+  type = "requests"
+  soft_limit = 200
+  hard_limit = 250
+
+[[http_service.checks]]
+  method = "GET"
+  path = "/health"
+  interval = "15s"
+  timeout = "5s"
+  grace_period = "1m"
+
+[[restart]]
+  policy = "always"
+EOF
+
+# Once only: your keys, saved to a file only you can read, then set as secrets.
 export GUARDIAN_ADMIN_API_KEY="$(openssl rand -hex 32)"
 export GUARDIAN_INGEST_API_KEY="$(openssl rand -hex 32)"
 
-docker run -d --name guardian \
-  --stop-timeout 120 \
-  -p 127.0.0.1:8080:8080 \
-  -v guardian_data:/data \
-  -e GUARDIAN_ADMIN_API_KEY \
-  -e GUARDIAN_INGEST_API_KEY \
-  guardian
+(umask 077; set -o noclobber
+ printf 'GUARDIAN_ADMIN_API_KEY=%s\nGUARDIAN_INGEST_API_KEY=%s\n' \
+   "$GUARDIAN_ADMIN_API_KEY" "$GUARDIAN_INGEST_API_KEY" > ~/guardian-<app-name>.env) &&
+printf 'GUARDIAN_ADMIN_API_KEY=%s\nGUARDIAN_INGEST_API_KEY=%s\nRELEASE_COOKIE=%s\n' \
+  "$GUARDIAN_ADMIN_API_KEY" "$GUARDIAN_INGEST_API_KEY" \
+  "$(openssl rand -base64 48 | tr -d '\n/+=')" |
+  fly secrets import --stage --app <app-name>
 
-curl http://127.0.0.1:8080/health
+fly deploy --ha=false --build-arg GIT_COMMIT="$(git rev-parse HEAD)"
 ```
 
-Your Guardian is then at `http://127.0.0.1:8080`. That's plain HTTP: put TLS in
-front of it before you expose it beyond the machine, since a key travels in every
-request. Running from source, a cluster on your own machines, and every setting are
-under [Documentation](#documentation).
+Your Guardian is at `https://<app-name>.fly.dev`. The ingest key goes to your
+applications and can only send events; the admin key is for you and your agents, and
+for nothing else. In a new shell, load both again with
+`set -a; . ~/guardian-<app-name>.env; set +a`. To run it on your own machine with
+Docker instead, see the [single-node guide](docs/guides/single-node.md).
 
-## Connecting
-
-Applications send events with the insert-only ingest key. Guardian has clients for
-Python, TypeScript, Elixir and Rust. In Python:
-
-```python
-import os
-
-from guardian import Guardian
-
-guardian = Guardian("https://guardian.example.com", api_key=os.environ["GUARDIAN_INGEST_API_KEY"])
-guardian.event("requests", {"method": "GET", "path": "/", "ip": "203.0.113.9"})
-```
-
-`event` returns the fields named in `returning`, or the whole event as stored. To
-query by time, add a UTC `timestamp` field as `YYYY-MM-DD HH:MM:SS`; Guardian adds
-nothing to your events.
-
-From any other language it's one HTTP request:
+### 2. Send an event
 
 ```sh
-curl https://guardian.example.com/api/json/send_events \
+curl https://<app-name>.fly.dev/api/json/send_events \
   -H "x-api-key: $GUARDIAN_INGEST_API_KEY" -H 'content-type: application/json' \
-  -d '{"table": "requests", "events": [{"path": "/", "ip": "198.51.100.7"}], "return_keys": ["is_blocked"]}'
+  -d '{"table": "requests", "events": [{"method": "GET", "path": "/", "ip": "198.51.100.7"}]}'
 ```
 
 ```json
-{"status": 200, "results": [{"success": true, "event": {"is_blocked": false}}]}
+{"status":200,"results":[{"success":true,"event":{"ip":"198.51.100.7","method":"GET","path":"/"}}]}
 ```
 
-The [API reference](docs/reference/api.md) has the full request and response shapes,
-batches and retries.
+### 3. Connect Claude Code
 
-Agents connect to the MCP server at `/mcp` with the admin key. Claude Code:
+Agents connect to the MCP server at `/mcp` with the admin key:
 
 ```sh
-claude mcp add --transport http guardian https://guardian.example.com/mcp \
+claude mcp add --transport http guardian https://<app-name>.fly.dev/mcp \
   --header "x-api-key: $GUARDIAN_ADMIN_API_KEY"
 ```
 
-Or Codex, in `~/.codex/config.toml`, reading the key from your environment:
-
-```toml
-[mcp_servers.guardian]
-url = "https://guardian.example.com/mcp"
-env_http_headers = { "x-api-key" = "GUARDIAN_ADMIN_API_KEY" }
-```
+Claude Code keeps the key in its own configuration in your home directory. Don't add
+`--scope project`, which would write it into the project's `.mcp.json`.
 
 The agent gets a `query` tool, rule tools (`list_rules`, `read_rule`, `write_rule`,
 `delete_rule`), a `send_events` tool for testing, and the query language reference,
 so it writes queries and rules without coaching. Every rule write is checked against
 the whole rule set first, so a bad rule never goes live.
 
-## What it isn't
+## Sending events from your code
 
-Guardian stays small on purpose, and these are the trade-offs:
+Sending an event is the one HTTP request above, so a few lines of your own make a
+helper. In Python, with only the standard library:
 
-- Single-tenant. An admin key reads and writes every table; an insert-only ingest key
-  for your applications can send events and nothing else. There are no users or
-  namespaces, so it suits an operator's own systems, not analytics shared across a
-  team.
-- Short-lived data. Events expire after about 15 days, with no per-table retention.
-  Each machine keeps its own events, with no replication, and a hard crash loses
-  recent writes that haven't reached disk yet (normally up to about an hour's worth).
-- Questions, not reports. A query reads one table, with no joins or subqueries, and
-  there's no web UI, dashboards or alerting.
+```python
+import json
+import os
+import urllib.request
 
-If you need long retention, high-volume log pipelines or a shared analytics product, a
-dedicated analytics database or a hosted observability service will serve you better.
-The details are in [Known limitations](docs/reference/limitations.md).
+GUARDIAN_URL = "https://<app-name>.fly.dev"
+API_KEY = os.environ["GUARDIAN_INGEST_API_KEY"]
+
+
+def event(table, fields, returning=None):
+    body = {"table": table, "events": [fields]}
+    if returning is not None:
+        body["return_keys"] = returning
+    request = urllib.request.Request(
+        f"{GUARDIAN_URL}/api/json/send_events",
+        data=json.dumps(body).encode(),
+        headers={"x-api-key": API_KEY, "content-type": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=10) as response:
+        result = json.load(response)["results"][0]
+    if not result["success"]:
+        raise RuntimeError(result["error"])
+    return result["event"]
+```
+
+`event` returns the fields named in `returning`, or the whole event as stored. A
+request Guardian refuses raises `urllib.error.HTTPError`. In JavaScript (Node 18 or
+later):
+
+```js
+const GUARDIAN_URL = "https://<app-name>.fly.dev";
+const API_KEY = process.env.GUARDIAN_INGEST_API_KEY;
+
+export async function event(table, fields, returning) {
+  const body = { table, events: [fields] };
+  if (returning !== undefined) body.return_keys = returning;
+  const response = await fetch(`${GUARDIAN_URL}/api/json/send_events`, {
+    method: "POST",
+    headers: { "x-api-key": API_KEY, "content-type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(10_000),
+  });
+  if (!response.ok) throw new Error(`Guardian answered ${response.status}`);
+  const [result] = (await response.json()).results;
+  if (!result.success) throw new Error(result.error);
+  return result.event;
+}
+```
+
+To query by time, add a UTC `timestamp` field as `YYYY-MM-DD HH:MM:SS`; Guardian adds
+nothing to your events. The [API reference](docs/reference/api.md) has the full
+request and response shapes, batches and retries.
 
 ## Elixir callers
 
-Elixir code running in Guardian's own VM, embedding it rather than using the client,
-can ingest and query directly:
+Elixir code running in Guardian's own VM, embedding it rather than calling it over
+HTTP, can ingest and query directly:
 
 ```elixir
 Guardian.Engine.ingest_events("requests", [%{"path" => "/", "status" => 200}])

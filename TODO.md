@@ -328,12 +328,13 @@ privately, not in this repository.
       (`GUARDIAN_ADMIN_API_KEY`) is for MCP; `POST /api/json/query` is removed; the
       single `GUARDIAN_API_KEY` stays full access, deprecated, until it is retired
       (`docs/changes/split-api-keys.md`)
-- [ ] readme-guide-copies: the README's Fly and Docker steps and "What it isn't"
-      copy docs/guides/fly.md, single-node.md and limitations.md and have already
-      drifted; pick one source for each and link to it (README review follow-up)
-- [ ] clients: official ingest clients for Python, TypeScript, Elixir and Rust
-      (`guardian.event(table, fields, returning=[...])` over `send_events`), which the
-      README already shows; package names and publishing are undecided
+- [x] readme-guide-copies: the README's Fly commands are the Fly guide's, and a test
+      checks that they match; the Docker steps and "What it isn't" copies are gone
+      (`docs/changes/readme-own-client.md`)
+- [x] readme-own-client: the README drops the official clients; readers write a small
+      `event(table, fields, returning=...)` helper (Python, JavaScript) over
+      `send_events`; setup is three steps (deploy on Fly, send an event, connect
+      Claude Code); "What it isn't" is gone (`docs/changes/readme-own-client.md`)
 - [x] readme-walkthrough: the README walks through one example in three parts
       (send events and ask an agent, block with a rule, rate limit with a TRACK
       counter), with running and connecting after it (`docs/changes/readme-walkthrough.md`)

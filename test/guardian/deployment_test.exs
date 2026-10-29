@@ -226,6 +226,27 @@ defmodule Guardian.DeploymentTest do
       assert launch =~ "--no-github-workflow"
     end
 
+    # The README's Run it copies the guide's first deploy; the copies must not drift.
+    test "the README has the guide's commands", %{guide: guide} do
+      readme = File.read!(Path.expand("../../README.md", __DIR__))
+
+      copied = [
+        ~r/^fly launch (?:.*\\\n)*.*$/m,
+        ~r/^fly volumes create (?:.*\\\n)*.*$/m,
+        ~r/<!-- fly-toml-additions -->\n```sh\n(.*?)\n```/s,
+        ~r/### 4\..*?```sh\n(.*?)\n```/s,
+        ~r/^fly deploy --ha=false.*$/m,
+      ]
+
+      for pattern <- copied do
+        # The commands are the pattern's group when it has one, else its whole match.
+        match = Regex.run(pattern, guide)
+        assert match, "the guide lost the commands matching " <> inspect(pattern)
+        commands = List.last(match)
+        assert String.contains?(readme, commands), "README lacks: " <> commands
+      end
+    end
+
     # A deployment gets Guardian's defaults: the image sets the data directory, and
     # neither fly launch nor the additions set environment variables.
     test "it sets no Guardian setting", %{launch: launch, additions: additions} do
