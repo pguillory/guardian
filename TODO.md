@@ -2,6 +2,8 @@
 
 Planned changes and known gaps. A change's design goes in `docs/changes/<id>.md`
 when it needs one. This file is public: see the change-tracking rules in AGENTS.md.
+The maintainer's deployment records (releases, checks, rollback targets) are kept
+privately, not in this repository.
 
 ## Storage and ingestion
 
@@ -68,169 +70,14 @@ when it needs one. This file is public: see the change-tracking rules in AGENTS.
       (`docs/changes/ingest-rules.md`)
 - [x] rules-rollout: put rules into the maintainer's deployment (`fly.toml`), each
       step only on the maintainer's go, and each after the one before is checked
-      1. Deploy done (2026-10-24, `c5df444`): no `GUARDIAN_RULES_*` settings or
-         secrets, empty local `/data/rules`, and no rules written. The `:re` hold
-         cleared: erlang/otp#10432 affects OTP 28.0–28.2 and is fixed from 28.3;
-         the deployed image uses OTP 28.5.0.8. Checked `/health`, MCP `list_rules`
-         returning empty, live ingestion and queries, and canonical UTC `date_add`
-         succeeding (numeric offsets return null). The boot line was outside Fly's
-         latest-100-log buffer; direct runtime checks confirmed the empty local
-         folder, empty rule list and absence of rule settings instead.
-         Later deploys, still with no `GUARDIAN_RULES_*` settings or secrets:
-         `f0ef316` (2026-10-24 evening Pacific, Fly release v40; found unrecorded and
-         identified from the image's `priv/commit`) and `c8f95fd` (2026-10-25, v41,
-         after a passing pre-commit gate on main). Checked for v41: `/health` ok, the
-         image's `priv/commit`, MCP SHOW TABLES and `list_rules` returning empty, live
-         ingestion continuing after the restart (`desktop_events`, `system_stats`), and
-         a clean boot log. The only MCP log warnings were clients' `server/discover`
-         probes, rejected as before. Rollback target: v40's image.
-         `ab86e59` (2026-10-26 morning Pacific, v42: the top-down counter execution
-         restructure, with the full pre-commit gate passing on that main). Checked:
-         `/health` ok, the image's `priv/commit`, MCP SHOW TABLES and `list_rules`
-         returning empty (so no counter rules or counter-derived fields to check),
-         live ingestion continuing after the restart (`desktop_events`,
-         `system_stats`, `stumpy_events`), and a clean boot log apart from the same
-         `server/discover` warning and the restart window's proxy errors. Rollback
-         target: v41's image.
-         `c510c34` (2026-10-26 morning Pacific, v43: counter execution moved into
-         Counters, behavior unchanged; the implementation's full pre-commit gate
-         passed, 1334 tests). Checked: `/health` ok, the image's `priv/commit`, MCP
-         SHOW TABLES and queries returning data, and `list_rules` returning empty
-         (no counter rules to exercise). New rows kept arriving after the restart
-         in `desktop_events`, `system_stats` and `stumpy_events`. The inspected boot
-         tail showed no Guardian errors; it included `server/discover` warnings,
-         Cloudflare's disabled ICMP proxy warnings and restart-window Fly proxy
-         errors. Rollback target: v42's image.
-         `cd3f8ff` (2026-10-26 morning Pacific, v44: counter definitions and private
-         arrival coordinates moved into Counters, behavior and plan hashes
-         unchanged; the implementation's full pre-commit gate passed, 1334 tests).
-         Checked: `/health` ok, the image's `priv/commit`, MCP SHOW TABLES and
-         queries returning data, and `list_rules` returning empty (no counter
-         rules to exercise). New rows kept arriving after the full restart in
-         `desktop_events` and `system_stats`; fresh stats reported
-         `counters_available=true`. The inspected boot tail showed no Guardian
-         errors, with Cloudflare's disabled ICMP proxy warnings and restart-window
-         Fly proxy errors. Rollback target: v43's image.
-         `c7e2218` (2026-10-26 midday Pacific, v45: consolidated test support and
-         counter state machines rejecting a nil next operation, behavior
-         unchanged; the implementation's full pre-commit gate passed, 1336 tests).
-         Checked: `/health` ok, the image's `priv/commit`, MCP SHOW TABLES and
-         queries returning data, and `list_rules` returning empty (no counter
-         rules to exercise). New rows kept arriving after the restart in
-         `desktop_events` and `system_stats`; fresh stats reported
-         `counters_available=true`. The inspected boot tail showed no Guardian
-         errors, with a `server/discover` warning, Cloudflare's disabled ICMP
-         proxy warnings and restart-window Fly proxy errors. Rollback target:
-         v44's image.
-         `5e326f1` (2026-10-27 evening Pacific, v47: query boundary and list-helper
-         refactors and test cleanup, behavior unchanged; the full pre-commit gate
-         passed on that main, 1337 tests, 0 failures, 3 excluded). The intervening
-         v46 was the config-only rules-to-R2 switch in step 3, using v45's image.
-         Checked: `/health` ok, the image's `priv/commit`, MCP SHOW TABLES and
-         queries returning data, and `list_rules` still empty (no counter rules to
-         exercise). New rows kept arriving after the full restart in
-         `desktop_events` and `system_stats`; fresh stats reported
-         `counters_available=true`. The inspected boot tail showed no Guardian
-         errors, with Cloudflare's disabled ICMP proxy warnings and restart-window
-         Fly proxy errors. No rule settings, secrets or rules changed. Rollback
-         target: v45/v46's image.
-         `8963584` (2026-10-27 evening Pacific, v48: Bandit 1.13.1 to 1.14.0 for
-         its HTTP/1.1 denial-of-service and request smuggling fixes, plus the
-         docs-only AGENTS.md change; the full pre-commit gate passed on that main,
-         1338 tests, 0 failures). Checked: `/health` ok, the image's `priv/commit`
-         and `bandit-1.14.0` in the release, the boot log's "Running
-         Guardian.Web.MainRouter with Bandit 1.14.0", a request without a key
-         getting 401, an authenticated JSON query and an MCP initialize plus query
-         returning data, and `list_rules` still empty (no counter rules to
-         exercise). New rows kept arriving after the full restart in
-         `desktop_events` and `system_stats`; fresh stats reported
-         `counters_available=true`. The inspected boot tail showed no Guardian
-         errors, with `server/discover` warnings, Cloudflare's disabled ICMP proxy
-         warnings and restart-window Fly proxy errors. No rule settings, secrets or
-         rules changed. Rollback target: v47's image
-         (`deployment-01M60B03V0PQK1AH0ZZ21YE9TS`).
-         `9403ef6` (2026-10-27 night Pacific, v49: image refresh, cloudflared
-         2026.10.1 to 2026.10.5 and Debian trixie-20261020 to trixie-20261027; the
-         full pre-commit gate passed on that main, 1338 tests, 0 failures). Before
-         the deploy, v48's `priv/commit` was confirmed as `8963584`. Checked: the
-         build log's builder and runner bases at `trixie-20261027-slim` and its
-         `cloudflared --version` step printing 2026.10.5; on the running machine,
-         `priv/commit` and `cloudflared version 2026.10.5`; `/health` ok, a request
-         without a key getting 401, an authenticated JSON query and an MCP
-         initialize plus query returning data, and `list_rules` still empty, as
-         before (no counter rules to exercise). The connector registered four
-         tunnel connections. No read-only request uses the Workers VPC path (the
-         Stumpy worker only sends through it), so none was made; a send from the
-         Stumpy worker, which binds that path, landed in `stumpy_events` after the
-         restart. New rows kept arriving
-         in `desktop_events` and `system_stats`; fresh stats reported
-         `counters_available=true`. The inspected boot tail showed no Guardian
-         errors, with `server/discover` warnings, Cloudflare's disabled ICMP proxy
-         warnings and restart-window Fly proxy errors. No rule settings, secrets or
-         rules changed. Rollback target: v48's image
-         (`deployment-01M60CGDBXJN8NHCQ2RQ10HTNW`).
-         `b54b3aa` (2026-10-28 morning Pacific, v50: split API keys into the
-         insert-only `GUARDIAN_INGEST_API_KEY` and the full-access
-         `GUARDIAN_ADMIN_API_KEY`, legacy `GUARDIAN_API_KEY` kept, `POST
-         /api/json/query` removed; the full pre-commit gate passed on that main,
-         1349 tests, 0 failures). Before the deploy, v49's `priv/commit` was
-         confirmed as `9403ef6`. Both new keys were staged with `fly secrets import
-         --stage` (no other secret pending) and went live with this deploy.
-         Checked: the image's `priv/commit`; `/health` ok; 401 without a key on
-         `/mcp` and `send_events`; an MCP initialize plus query and `list_rules`
-         (still empty) with both the legacy and the admin key; 403 for the ingest
-         key on `/mcp`, `GET /api/json/send_events` and `/api/json/query`; 404 for
-         `/api/json/query` with the full-access keys. The connector registered four
-         tunnel connections; no read-only request uses the Workers VPC path, so none
-         was made, and Stumpy worker sends kept landing in `stumpy_events`. New rows
-         kept arriving in `stumpy_events` and `desktop_events`. The boot (about a
-         minute) showed no Guardian errors, with a `server/discover` warning,
-         Cloudflare's disabled ICMP proxy warnings and restart-window Fly proxy
-         errors. Callers moved after the deploy, each checked before the next: the
-         Stumpy worker's `GUARDIAN_API_KEY` secret and Stumpy Desktop's
-         `guardianApiKey` to the ingest key (their `send_events` requests now log
-         `auth_key=ingest`), and the Codex and Claude Code MCP configs (the default
-         profile and both account profiles) to the admin key, each checked with a
-         fresh MCP connection. No Stumpy cloud agent has a Guardian MCP server.
-         Already-running MCP clients keep the legacy key until they restart. No rule
-         settings or rules changed; the legacy key is still set (retiring it is a
-         separate step). Rollback target: v49's image
-         (`deployment-01M60EJCEHMKW3S0KWQ3DM1DKB`); roll the callers back to the
-         legacy key first.
-         Config only (2026-10-28 afternoon Pacific, v51: the deprecated
-         `GUARDIAN_API_KEY` secret unset, retiring the legacy key; v50's image,
-         `b54b3aa`). Before: the last 6 hours of `web_requests` showed only
-         `auth_key=ingest`, the Fly logs had no legacy-key line, and every MCP
-         config on the maintainer's machine (Codex, Claude Code's default profile
-         and both account profiles) held the admin key and Stumpy Desktop the
-         ingest key, so no copy of the legacy key needed replacing; no other secret
-         was pending. The restart took about a minute. Checked: `/health` ok; an
-         MCP initialize plus queries with the admin key; 403 for the ingest key on
-         `/mcp`; 401 for a random 64-hex key on `/mcp` and `send_events` (no local
-         copy of the legacy key was left to test with); `send_events` requests kept
-         arriving with `auth_key=ingest` and new rows in `stumpy_events` and
-         `desktop_events`. The boot tail showed no Guardian errors, with
-         Cloudflare's disabled ICMP proxy warnings and restart-window Fly proxy
-         errors. MCP clients started before the morning's switch still hold the
-         legacy key and lose Guardian until they restart. No rule settings or rules
-         changed. Rollback: the legacy key's value is gone; a caller still needing
-         full access gets the admin key. v50's image stays the code rollback target
-         (`deployment-01M61D3RSNC82HR49JHK94EFCY`).
+      1. Deploy the rules engine with no rules settings. Done (2026-10-24).
       2. Bucket: an R2 bucket and a bucket-scoped object read/write token, made by
          the maintainer; the secret goes straight into the deployment's secrets,
          never printed or stored here. Check the credentials from the deployment's
          own network as `docs/guides/rules.md` ("Switching an existing deployment to
          a bucket") describes, conditional writes included (a second
          `If-None-Match: *` create gets 412).
-         Done (2026-10-26 evening Pacific): an R2 bucket on the maintainer's account
-         with a bucket-scoped object read/write token. Checked from the running
-         machine with Guardian's own S3 client in a one-off `guardian eval` VM, the
-         key passed over the SSH session's stdin into that VM's environment only:
-         the first `If-None-Match: *` create succeeded, the second got 412, an
-         `If-Match` with a wrong ETag got 412 and with the right one succeeded, then
-         delete and list (empty) succeeded. The four settings (bucket, endpoint, key
-         ID, secret; default region, no prefix) were staged as Fly secrets without
-         a restart.
+         Done (2026-10-26).
       3. Switch: stage every `GUARDIAN_RULES_S3_*` setting (bucket, `https://`
          endpoint, key ID and secret, plus a prefix if used) and apply them in one
          restart.
@@ -238,18 +85,7 @@ when it needs one. This file is public: see the change-tracking rules in AGENTS.
          names the bucket, `list_rules` shows the copied rules, and a test write and
          delete through the MCP tools succeed. Rollback: remove them all together,
          in one restart (removing some refuses startup); `/data/rules` stays.
-         Done (2026-10-26 evening Pacific, v46: `fly secrets deploy`, same image as
-         v45, `c7e2218`). `/data/rules` was empty, so nothing was copied. Checked:
-         `/health` ok; the boot line was outside Fly's log buffer, so the store was
-         confirmed on the running node instead (the bucket at the R2 endpoint);
-         `list_rules` empty; a throwaway `rollout_probe_test/rollout_check` rule
-         written and deleted through MCP, its object present in the bucket in
-         between and gone after (the lock's released `_write.lock` object stays);
-         new rows kept arriving after the restart in `desktop_events` and
-         `system_stats` (`counters_available=true`). The log showed no Guardian
-         errors, with `server/discover` warnings, Cloudflare's disabled ICMP proxy
-         warnings and restart-window Fly proxy errors. Rollback target: v45's image
-         (remove all four `GUARDIAN_RULES_S3_*` secrets in one restart).
+         Done (2026-10-26).
 - [x] rules-track-lookup: TRACK (counters) and LOOKUP statements; settled v1 design
       and reviewed four-piece plan in `docs/changes/ingest-rules.md`
       1. [x] C1: node-local ETS get/gets/cas/incr, per-key TTLs, memory
@@ -502,7 +338,7 @@ when it needs one. This file is public: see the change-tracking rules in AGENTS.
       (send events and ask an agent, block with a rule, rate limit with a TRACK
       counter), with running and connecting after it (`docs/changes/readme-walkthrough.md`)
 - [ ] drop-legacy-api-key: the maintainer's deployment retired `GUARDIAN_API_KEY` on
-      2026-10-28 (v51), so its support can now be removed; the boot error for a deployment that still sets only it must name
+      2026-10-28, so its support can now be removed; the boot error for a deployment that still sets only it must name
       the replacement variables, with a README note (`docs/changes/split-api-keys.md`)
 - [x] fly-example-config: the repository carries `fly.example.toml`, a template;
       a deployment's own `fly.toml` is gitignored or kept outside the tree
