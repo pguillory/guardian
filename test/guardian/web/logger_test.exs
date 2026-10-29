@@ -33,7 +33,7 @@ defmodule Guardian.Web.LoggerTest do
   end
 
   @shared_fields ~w(timestamp hostname host port method path plug_route scheme remote_ip
-                    x_forwarded_for referer user_agent auth_method auth_key)
+                    x_forwarded_for referer user_agent auth_key)
 
   defp logged(table, user_agent) do
     {:ok, labels, rows} =
@@ -74,7 +74,6 @@ defmodule Guardian.Web.LoggerTest do
              "method" => "POST",
              "path" => "/api/json/send_events",
              "plug_route" => "/api/json/*glob/send_events",
-             "auth_method" => "header",
              "auth_key" => "legacy",
            } =
              request

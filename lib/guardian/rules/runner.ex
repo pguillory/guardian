@@ -123,17 +123,12 @@ defmodule Guardian.Rules.Runner do
   end
 
   defp limit_heap do
-    case Guardian.Query.Limits.max_heap_mb() do
-      mb when is_integer(mb) and mb > 0 ->
-        Process.flag(:max_heap_size, %{
-          size: div(mb * 1024 * 1024, :erlang.system_info(:wordsize)),
-          kill: true,
-          error_logger: false,
-          include_shared_binaries: false,
-        })
-
-      _ ->
-        :ok
-    end
+    Process.flag(:max_heap_size, %{
+      size:
+        div(Guardian.Query.Limits.max_heap_mb() * 1024 * 1024, :erlang.system_info(:wordsize)),
+      kill: true,
+      error_logger: false,
+      include_shared_binaries: false,
+    })
   end
 end

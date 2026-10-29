@@ -36,7 +36,7 @@ defmodule Guardian.Query.HeapLimitTest do
     )
   end
 
-  test "limit_heap/0 sets the configured limit, and nothing when it is off" do
+  test "limit_heap/0 sets the limit: 256 MiB, or a test's own" do
     task = fn ->
       Task.async(fn ->
         Guardian.Query.Limits.limit_heap()
@@ -45,8 +45,12 @@ defmodule Guardian.Query.HeapLimitTest do
       |> Task.await()
     end
 
-    set_limit(0)
-    assert {:max_heap_size, %{size: 0}} = task.()
+    Guardian.Test.Env.with_env([query_max_heap_mb: nil], fn ->
+      Application.delete_env(:guardian, :query_max_heap_mb)
+      assert Guardian.Query.Limits.max_heap_mb() == 256
+      words = div(256 * 1024 * 1024, :erlang.system_info(:wordsize))
+      assert {:max_heap_size, %{size: ^words}} = task.()
+    end)
 
     set_limit(64)
     words = div(64 * 1024 * 1024, :erlang.system_info(:wordsize))
@@ -56,7 +60,7 @@ defmodule Guardian.Query.HeapLimitTest do
              task.()
   end
 
-  test "a worker over the limit fails the pipeline; under it, or with it off, it finishes" do
+  test "a worker over the limit fails the pipeline; under it, it finishes" do
     run = fn ->
       consume(fn ->
         [1, 2]
@@ -72,9 +76,6 @@ defmodule Guardian.Query.HeapLimitTest do
     assert_no_query_processes_left()
 
     set_limit(64)
-    assert run.() == {:ok, [200_000, 200_000]}
-
-    set_limit(0)
     assert run.() == {:ok, [200_000, 200_000]}
   end
 
@@ -119,8 +120,18 @@ defmodule Guardian.Query.HeapLimitTest do
     refute log =~ marker
     assert_no_query_processes_left()
 
-    set_limit(0)
+    set_limit(256)
     assert length(run_sql("SELECT v, w FROM #{table} ORDER BY v DESC")) == 40_000
+  end
+
+  test "the heap message names the limit" do
+    Guardian.Test.Env.with_env([query_max_heap_mb: nil], fn ->
+      Application.delete_env(:guardian, :query_max_heap_mb)
+
+      assert Guardian.Query.Limits.heap_kill_message() ==
+               "a query process was killed; it may have exceeded its 256 MiB heap limit; " <>
+                 "narrow the query with WHERE, LIMIT or fewer groups"
+    end)
   end
 
   test "a killed process is reported with the heap message, from the pipeline or the query" do
@@ -155,14 +166,14 @@ defmodule Guardian.Query.HeapLimitTest do
         end)
       end
 
-      # Off here, on there: the remote worker is killed.
-      set_limit(0)
+      # High here, low there: the remote worker is killed.
+      set_limit(256)
       Guardian.Test.Env.put([query_max_heap_mb: 1], [peer_node])
       assert run.() == {:exit, :killed}
 
-      # On here, off there: it finishes.
+      # Low here, high there: it finishes.
       set_limit(1)
-      Guardian.Test.Env.put([query_max_heap_mb: 0], [peer_node])
+      Guardian.Test.Env.put([query_max_heap_mb: 256], [peer_node])
       assert run.() == {:ok, [200_000]}
     end
   end

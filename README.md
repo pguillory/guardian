@@ -75,10 +75,9 @@ UNSET (strip a field before it's stored) and where rules are kept.
 
 ## Run it
 
-The simplest way is Fly.io, which puts HTTPS in front of Guardian for you. In
-`fly.toml`, set `app` to your app's name and `primary_region` to your region, and
-delete the block marked "this deployment's overrides" (the file in the repository
-is the maintainer's own deployment). Then:
+The simplest way is Fly.io, which puts HTTPS in front of Guardian for you. Copy the
+template, `cp fly.example.toml fly.toml` (git ignores your copy), and in it set `app`
+to your app's name and `primary_region` to your region. Then, from the checkout:
 
 ```sh
 fly apps create <app-name>

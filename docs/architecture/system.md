@@ -146,7 +146,7 @@ reloads what is on disk. Shutdown needs the managers' budgets in sequence: up to
 for MutableSegments, 90 s for PersistedSegments, and the default 5 s each for
 FullSegments and LoadedSegments (stopping about 1,100 loaded segments took 12 ms on the
 development Mac), 110 s in all. A deployment must give the VM longer than that between
-SIGTERM and a kill: on Fly, `fly.toml`'s 150-second `kill_timeout` covers it after
+SIGTERM and a kill: on Fly, `fly.example.toml`'s 150-second `kill_timeout` covers it after
 `bin/fly-start` has drained the tunnel connector (up to 10 s, and 20 s at worst before
 it is killed; section 10.1), leaving at least 20 s for the processes that stop before
 Guardian.Storage.
@@ -775,7 +775,7 @@ expires, it rewrites the file once from the in-memory segment and, if that fails
 keeps serving the segment from memory and retries every 10 minutes.
 
 Why mmap: a machine's stored data can be larger than its memory (the repository's
-`fly.toml` pairs a 10 GB volume with a 1 GB machine). Mapping lets every segment be registered and queryable
+`fly.example.toml` pairs a 10 GB volume with a 1 GB machine). Mapping lets every segment be registered and queryable
 without reading it, and lets the kernel evict cold columns.
 
 Cost: loading still starts a process per file and computes its schema, so boot time
@@ -1038,8 +1038,8 @@ literal replacement to one binary, stopping once it reaches the 64 KiB string ca
 `:re` builds the whole offset list on the calling process's heap, about two matches
 per character at worst. A value up to 16 KiB is replaced in the calling process (at
 most about 33,000 matches, measured at 10 to 20 MB of process memory). A larger value
-is replaced in a helper process spawned with its own `max_heap_size`: the query heap
-limit, or 256 MiB when that is 0, so the offsets are bounded even with the limit off.
+is replaced in a helper process spawned with its own `max_heap_size`, the query heap
+limit, so the offsets are bounded.
 A helper killed by its cap, or dying any other way, gives null for that value;
 anything the helper raises is raised again in the caller. Measured with `x*`,
 256 MiB allows about 600,000 matches on one value and 64 MiB about 200,000. The
@@ -1070,12 +1070,13 @@ values (section 9).
 
 Each process a query runs in also carries a heap limit: `Guardian.Query.Limits.limit_heap/0`
 sets `max_heap_size` (`kill: true`, `error_logger: true`,
-`include_shared_binaries: false`) to `GUARDIAN_QUERY_MAX_HEAP_MB` (default 256 MiB,
-`0` turns it off) on the query process and on every DistributedStream worker, on
-whichever node it runs, reading that node's own setting; routers are not limited. A
+`include_shared_binaries: false`) to a fixed 256 MiB on the query process and on
+every DistributedStream worker, on whichever node it runs; routers are not limited.
+Tests lower it through the `query_max_heap_mb` application environment value, which
+each node reads for itself. A
 `:killed` exit from a pipeline or the query process becomes the `Guardian.Query.Error` "a query
-process was killed; it may have exceeded its heap limit (GUARDIAN_QUERY_MAX_HEAP_MB);
-narrow the query with WHERE, LIMIT or fewer groups" (`Guardian.Query.Failure`). The reason
+process was killed; it may have exceeded its 256 MiB heap limit; narrow the query with
+WHERE, LIMIT or fewer groups" (`Guardian.Query.Failure`). The reason
 cannot prove a heap kill, so the message hedges. Shared binaries are left out because
 a worker holds references to whole mapped segment files, which would otherwise count
 again in every process. In a rolling deploy from a release without the limit, queries
@@ -1134,8 +1135,7 @@ is full-access unless it opts in.
    draining a body whose reader state is no longer current.
 2. `Guardian.Web.Logger` writes a `web_requests` row before the handler and a `web_responses`
    row before the response is sent, for authenticated requests only. Both carry
-   `auth_method`, `header` or `query`, and `auth_key`, `ingest`, `admin` or `legacy`,
-   from the key check, never the key.
+   `auth_key`, `ingest`, `admin` or `legacy`, from the key check, never the key.
 
 ### 6.3 MCP
 
@@ -1145,11 +1145,10 @@ The MCP endpoint uses the Anubis library, pinned at 0.16.0 (reasons in
 
 1. The key check (`Guardian.Web.Auth.check_conn/2` with `:full`), on every request,
    so an MCP session carries no authority of its own and the insert-only ingest key
-   gets 403. MCP requests are not recorded in `web_requests`, so when one
-   authenticates with the query parameter, or with the deprecated `GUARDIAN_API_KEY`,
-   the router logs one info line naming the path (never the key), at most once a
-   minute per node for each of the two (`Guardian.Web.Auth.note_query_key_use/1`,
-   `Guardian.Web.Auth.note_legacy_key_use/1`).
+   gets 403. The key is read only from the `x-api-key` header. MCP requests are not
+   recorded in `web_requests`, so when one authenticates with the deprecated
+   `GUARDIAN_API_KEY`, the router logs one info line naming the path (never the
+   key), at most once a minute per node (`Guardian.Web.Auth.note_legacy_key_use/1`).
 2. A 404 for an unknown or expired `mcp-session-id`, which Anubis 0.16 would
    otherwise accept as a new uninitialized session.
 3. A 405 for `GET`, so Guardian never opens a server-push stream and every result
@@ -1315,7 +1314,7 @@ requests.
    writable segment (10 s budget), PersistedSegments writes everything queued (90 s
    budget), and FullSegments and LoadedSegments stop their segments (5 s each), about
    110 s in all. Whatever stops the VM must wait longer than that before killing it:
-   on Fly, `fly.toml`'s 150-second `kill_timeout`, which must stay above the budgets
+   on Fly, `fly.example.toml`'s 150-second `kill_timeout`, which must stay above the budgets
    plus the tunnel connector's drain (10 seconds, 20 at worst).
 4. Crash: a VM crash or out-of-memory kill loses everything not yet written: normally
    about the last hour of each table on that machine plus any persistence lag, with no
@@ -1365,9 +1364,7 @@ Environment variables:
 | `GUARDIAN_ADMIN_API_KEY` | `config/runtime.exs` | The full-access key (MCP and `send_events`). At least 32 bytes when set. Outside tests, it or `GUARDIAN_API_KEY` is required. |
 | `GUARDIAN_INGEST_API_KEY` | `config/runtime.exs` | Optional insert-only key, accepted only by `POST /api/json/send_events`. At least 32 bytes when set. |
 | `GUARDIAN_API_KEY` | `config/runtime.exs` | Deprecated full-access key, accepted like the admin key while set. At least 32 bytes when set. The three keys must all differ; boot errors name the variable, never the value. |
-| `GUARDIAN_ALLOW_QUERY_API_KEY` | `config/runtime.exs` | `true` also accepts any of the keys as the `api_key` query parameter; `false` or unset (the default) never decodes the query string for a key. Any other value fails boot. |
 | `GUARDIAN_PORT` | `config/runtime.exs`, `bin/fly-start` | HTTP port, 1 to 65535. Default 8080. Tests use an OS-chosen port. |
-| `GUARDIAN_QUERY_MAX_HEAP_MB` | `config/runtime.exs` | Heap limit of each query process, in MiB (5.7). Default 256; `0` turns it off. |
 | `GUARDIAN_COUNTER_MEMORY_MB` | `config/runtime.exs` | Positive integer MiB for the asynchronous resident counter memory target (3.5), default 64; empty/invalid refuses startup. |
 | `GUARDIAN_DATA_DIR` | `config/runtime.exs` (prod) | Data directory; segments go in `segments/` under it. Default `/root/data`; `/data` in the image and on Fly. Must be writable, and on Fly must be a mounted volume, or boot fails. |
 | `GUARDIAN_MUTABLE_SEGMENT_MAX_AGE_MS` | `config/runtime.exs` | Writable segment age before handoff. Default 3,600,000. |
@@ -1386,7 +1383,7 @@ these except through the variables above:
 
 | Key | Default | Used by |
 | --- | --- | --- |
-| `ingest_api_key`, `admin_api_key`, `api_key` (legacy; each nil when unset), `allow_query_api_key`, `http_port`, `query_max_heap_mb`, `data_dir`, `dns_cluster_query`, `mutable_segment_max_age_ms` | from the variables above | as above |
+| `ingest_api_key`, `admin_api_key`, `api_key` (legacy; each nil when unset), `http_port`, `data_dir`, `dns_cluster_query`, `mutable_segment_max_age_ms` | from the variables above | as above |
 | `query_max_result_rows` | 100,000 | `Guardian.Query.Limits` |
 | `query_max_result_bytes` | 64 MiB | `Guardian.Query.Limits` |
 | `query_time_limit_ms` | 30,000 | `Guardian.Query.run/1` (`Guardian.Query.Limits`) |
@@ -1413,8 +1410,8 @@ Tests log at `warning`.
 
 Procedures are in the guides under `docs/guides/`; this section explains how the pieces fit. Guardian is
 one release, built into one Docker image, that runs as a single node or as a cluster
-(section 7). Fly.io is the best-supported deployment: the repository carries its
-`fly.toml`, and on a Fly machine the cluster settings need no configuration beyond the
+(section 7). Fly.io is the best-supported deployment: the repository carries an
+example `fly.example.toml`, and on a Fly machine the cluster settings need no configuration beyond the
 cookie.
 
 ### 10.1 Build
@@ -1465,7 +1462,8 @@ tested (TODO.md arm64-image).
 
 ### 10.2 Fly configuration
 
-The repository's `fly.toml` is the maintainer's own deployment and encodes the
+The repository's `fly.example.toml` is a template for a deployment's own `fly.toml`
+(which git ignores; no deployment's configuration is tracked) and encodes the
 operational decisions:
 
 1. One HTTP service on internal port 8080, HTTPS forced at the edge, request
@@ -1480,13 +1478,13 @@ operational decisions:
    No release command, since any machine running the image joins the cluster.
 7. VM size `shared-cpu-1x` with 1 GB, one machine; `fly deploy` keeps the current
    machine count.
-8. A block of this deployment's overrides, marked for a new deploy to delete:
-   `GUARDIAN_ALLOW_QUERY_API_KEY=true` (kept until `web_requests.auth_method` shows
-   nothing uses query keys) and `GUARDIAN_QUERY_MAX_HEAP_MB=0`.
 
 ### 10.3 Operating
 
-1. Deploys: `fly deploy` builds remotely and replaces machines in place. A failed
+1. Deploys: `fly deploy` from the checkout builds remotely and replaces machines in
+   place. A configuration kept outside the checkout is passed with `-c` (the example
+   has no `[build]` section, since flyctl resolves its Dockerfile path against the
+   configuration's directory). A failed
    health check stops the deploy without rollback; roll back by redeploying the
    previous image. Elsewhere, replace the container or release and restart it; the
    stop must allow the shutdown budget (section 8).
@@ -1555,8 +1553,9 @@ About 150 test files cover:
    in `libtest/guardian/test/`, an Anubis client started by `Guardian.Test.MCPClient.start/0`,
    using the admin key) against the
    test listener on an OS-chosen port, including sessions, the 404 and 405 rules, and
-   authentication with each key and with query keys allowed and refused (`Guardian.Test.QueryApiKeys` in `libtest/guardian/test/`
-   switches the setting for `async: false` tests).
+   authentication with each key, and a key in the URL refused
+   (`Guardian.Test.AuthNotes` in `libtest/guardian/test/` captures the legacy-key log
+   note for `async: false` tests).
 4. Clustering: `Guardian.Test.Cluster` (in `libtest/guardian/test/`) starts peer BEAM nodes on the same host,
    each running only Storage in its own data directory, and connects them, so schema
    merging, GROUP BY merging of groups split across nodes, node failures, a peer whose
@@ -1617,8 +1616,8 @@ partition lookup; GROUP BY's executor and routing tests share
 `Guardian.Query.Executor.group_by_partitions/0`.
 `Guardian.Test.Env` (in `libtest/guardian/test/`) puts `:guardian` application env for an
 `async: false` test, on this node or on named peers, and restores it when the test or a
-block ends; `Guardian.Test.Query.with_time_limit/2`, `Guardian.Test.QueryApiKeys.with_query_api_keys/2`,
-and `Guardian.Test.Counters.Budget.relax/1` and `scale/1` delegate to it.
+block ends; `Guardian.Test.Query.with_time_limit/2`,
+`Guardian.Test.Counters.Budget.relax/1` and `scale/1` delegate to it.
 `Guardian.Test.WorkBounds` measures caller reductions for synchronous CPU guards, with
 bounds calibrated against representative regressions rather than host-dependent
 elapsed time (see [unit-test work bounds](../changes/unit-test-work-bounds.md)).
@@ -1667,7 +1666,7 @@ synchronous request logging (3.3).
 Written from the code: `lib/guardian/application.ex`, every module under `lib/guardian/storage/`,
 `lib/guardian/engine.ex`, `lib/guardian/query.ex` and `lib/guardian/query/`, `lib/guardian/web/` and `lib/guardian/web/mcp/`,
 `lib/guardian/cluster.ex` and `lib/guardian/cluster/`, `src/*.c` (headers and setup paths of `mmap.c`), `config/`, `rel/`, `bin/fly-start`, `Dockerfile`,
-`fly.toml`, `Makefile`, and the test helpers.
+`fly.example.toml`, `Makefile`, and the test helpers.
 
 When a change alters a structure described here (the supervision tree, the segment
 lifecycle or file format, the query pipeline, the interfaces' plug order, clustering,

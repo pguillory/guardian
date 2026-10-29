@@ -86,10 +86,8 @@ Guardian is also a producer of its own tables:
      key, so existing callers keep working until they move to the new keys. A later
      release removes it.
 
-   The `api_key` query parameter is
-   accepted too, but only when the operator sets `GUARDIAN_ALLOW_QUERY_API_KEY=true`,
-   because URLs end up in logs and history more readily than headers; it is off by
-   default. The header wins if both are present. The comparison does not
+   A key is read only from the first `x-api-key` header, never from the URL: URLs
+   end up in logs and history more readily than headers. The comparison does not
    short-circuit on matching prefixes, and every configured key is compared, so
    timing does not reveal which one matched (the
    [security architecture](../architecture/security.md) covers the details).
@@ -129,29 +127,24 @@ Guardian is also a producer of its own tables:
    returns 403 with `this key can only send events`. The JSON API puts the message in
    `info` (`{"status": 401, "info": ...}`, or 403); MCP puts it in `error`
    (`{"error": ...}`).
-   Rejected requests are not logged to `web_requests`. With query keys off (the
-   default), a request without an `x-api-key` header gets 401 `api_key required`
-   whatever its query string, even one that cannot be decoded. With query keys on, a
-   request without the header whose query string cannot be decoded (invalid UTF-8,
-   nesting deeper than 32, or too long) gets 400 (414 when too long) before the key is
-   checked, since the key may be in the query string: from the JSON API with `info`
-   "invalid query string", from MCP with `{"error": "invalid query string"}`. With a
-   header the key is checked first, so a wrong key gets 401; after a valid key the
-   JSON API gives the same 400.
+   Rejected requests are not logged to `web_requests`. A request without an
+   `x-api-key` header gets 401 `api_key required` whatever its query string, even one
+   that cannot be decoded or that carries a valid key as `api_key`. The key is checked
+   first, so a wrong key gets 401; after a valid key, a JSON API request whose query
+   string cannot be decoded (invalid UTF-8, nesting deeper than 32, or too long) gets
+   400 (414 when too long) with `info` "invalid query string".
 6. Startup: Guardian refuses to start without a full-access key
    (`GUARDIAN_ADMIN_API_KEY`, or the deprecated `GUARDIAN_API_KEY`); with any of the
    three key variables set but empty or shorter than 32 bytes (generate keys with
-   `openssl rand -hex 32`; the length is checked, not the randomness); with two of
-   them set to the same value; or with a `GUARDIAN_ALLOW_QUERY_API_KEY` other than
-   `true` or `false`. The error names the variable, never its value.
-7. Which key, and where it came from: `web_requests` and `web_responses` record
-   `auth_method`, `header` or `query`, and `auth_key`, `ingest`, `admin` or `legacy`,
-   for each JSON API request, never the key itself. MCP requests are not recorded
-   there, so when an MCP request authenticates with the query parameter, or with the
-   deprecated `GUARDIAN_API_KEY`, Guardian writes one line to the server log naming
-   the path, never the key, at most once a minute per machine for each of the two.
-   Together these show whether query keys and the deprecated key are still in use
-   before turning them off. They are evidence, not proof: a client that has been idle
+   `openssl rand -hex 32`; the length is checked, not the randomness); or with two of
+   them set to the same value. The error names the variable, never its value.
+7. Which key: `web_requests` and `web_responses` record `auth_key`, `ingest`,
+   `admin` or `legacy`, for each JSON API request, never the key itself. MCP requests
+   are not recorded there, so when an MCP request authenticates with the deprecated
+   `GUARDIAN_API_KEY`, Guardian writes one line to the server log naming the path,
+   never the key, at most once a minute per machine.
+   Together these show whether the deprecated key is still in use before turning it
+   off. They are evidence, not proof: a client that has been idle
    leaves no trace, and an ingest-key holder can write forged `web_requests` rows.
 
 How these properties are enforced, and where they fall short, is in the
@@ -636,8 +629,8 @@ the shipped surface:
    null. A pattern may have at most 32 capturing groups. On a value where a pattern
    backtracks past a fixed limit, `RLIKE` and `NOT RLIKE` are null (so WHERE drops the
    row) and so is `replace`; so is a `replace` whose pattern matches one value too many
-   times to hold (hundreds of thousands at the default heap limit, as an
-   empty-matching pattern can on a large value; fewer with a lower limit), or that
+   times to hold (hundreds of thousands at the 256 MiB heap limit, as an
+   empty-matching pattern can on a large value), or that
    matches part of a character (`\C`).
    Functions return null on wrong-type arguments rather than failing the query.
    `to_string` gives every value's string form: an integer's decimal, a float's
@@ -664,17 +657,15 @@ the shipped surface:
    100,000 rows and about 64 MiB; a larger result fails with an error asking for a
    `LIMIT`, `WHERE`, or `GROUP BY`, never a truncated answer. Rows scanned or
    aggregated don't count. `ORDER BY` with a `LIMIT` over 100,000 is refused.
-   Each process a query runs in, on every machine, has a heap limit
-   (`GUARDIAN_QUERY_MAX_HEAP_MB`, default 256 MiB, `0` for none); a process killed
-   for exceeding it fails the query with "a query process was killed; it may have
-   exceeded its heap limit (GUARDIAN_QUERY_MAX_HEAP_MB); narrow the query with WHERE,
-   LIMIT or fewer groups". The message hedges because Guardian cannot tell a heap kill
+   Each process a query runs in, on every machine, has a fixed 256 MiB heap limit; a
+   process killed for exceeding it fails the query with "a query process was killed;
+   it may have exceeded its 256 MiB heap limit; narrow the query with WHERE, LIMIT or
+   fewer groups". The message hedges because Guardian cannot tell a heap kill
    from another kill. The limit is per process, not a bound on the query's total
    memory. `replace` on a value over 16 KiB runs in a helper process with the same
-   limit, or 256 MiB when it is `0`, so one value's matches stay bounded even with the
-   limit off. A query may run for at most 30 seconds; then it is stopped on every machine and
-   fails with an error saying it exceeded its time limit. An expression that fails
-   while being evaluated on any machine fails the whole query with an error, rather
+   limit, so one value's matches stay bounded. A query may run for at most 30
+   seconds; then it is stopped on every machine and fails with an error saying it
+   exceeded its time limit. An expression that fails while being evaluated on any machine fails the whole query with an error, rather
    than dropping that machine's rows. So does any other failure while the query runs:
    a query worker that crashes, a machine that disconnects, or a segment it is reading
    that is deleted, expires, or fails, which the error names. A query that reads a
@@ -702,8 +693,9 @@ they follow the same retention and query rules as producer tables.
 2. `web_requests`: one row per authenticated JSON API request, written before the
    request runs: `timestamp`, `hostname`, `host`, `port`, `method`, `path` (no query
    string), `plug_route`, `scheme`, `remote_ip`, `x_forwarded_for`, `referer`,
-   `user_agent`, `auth_method` (`header` or `query`: where the key was found), and
-   `auth_key` (`ingest`, `admin` or `legacy`: which key it was), never the key.
+   `user_agent`, and `auth_key` (`ingest`, `admin` or `legacy`: which key it was),
+   never the key. Rows from older releases may also have `auth_method`
+   (`header` or `query`), from when a key could come from the URL.
 3. `web_responses`: the same fields plus `response_time_ms`, `response_size`, and
    `status`, written when the response is sent.
 4. `query_parse_errors`: one row per query that fails to parse, from the MCP `query`

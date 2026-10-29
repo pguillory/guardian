@@ -191,13 +191,28 @@ defmodule Guardian.DeploymentTest do
     end
   end
 
-  # The maintainer's deployment keeps its pre-existing behavior through these overrides;
-  # dropping one by accident would change production at the next deploy.
-  test "fly.toml keeps this deployment's overrides active" do
-    fly_toml = File.read!(Path.expand("../../fly.toml", __DIR__))
-    assert fly_toml =~ ~r/^  GUARDIAN_ALLOW_QUERY_API_KEY = "true"$/m
-    assert fly_toml =~ ~r/^  GUARDIAN_QUERY_MAX_HEAP_MB = "0"$/m
-    assert fly_toml =~ ~r/^kill_timeout = 150$/m
+  describe "fly.example.toml" do
+    setup do
+      %{fly_toml: File.read!(Path.expand("../../fly.example.toml", __DIR__))}
+    end
+
+    # Fly's kill_timeout must stay above Storage's shutdown budget plus the tunnel
+    # connector's drain (bin/fly-start).
+    test "its kill_timeout covers the shutdown", %{fly_toml: fly_toml} do
+      assert fly_toml =~ ~r/^kill_timeout = 150$/m
+    end
+
+    # flyctl resolves [build] dockerfile against the config file's directory, which
+    # breaks a copy kept outside the checkout (fly deploy . -c <path>).
+    test "it has no [build] section", %{fly_toml: fly_toml} do
+      refute fly_toml =~ ~r/^\[build\]/m
+    end
+
+    # A copy gets Guardian's defaults: the only setting is the data directory.
+    test "it overrides no Guardian setting but the data directory", %{fly_toml: fly_toml} do
+      assert Regex.scan(~r/^\s*(GUARDIAN_\w+)\s*=/m, fly_toml, capture: :all_but_first) ==
+               [["GUARDIAN_DATA_DIR"]]
+    end
   end
 
   describe "fly-start" do

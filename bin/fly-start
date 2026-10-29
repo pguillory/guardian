@@ -15,7 +15,7 @@
 #    after loading every segment.
 # 2. On SIGTERM or SIGINT, the connector stops first, draining in-flight requests for
 #    up to its grace period (and killed if it hangs), and only then does Guardian get
-#    SIGTERM. Fly's kill_timeout covers both (fly.toml).
+#    SIGTERM. Fly's kill_timeout covers both (fly.example.toml).
 # 3. If Guardian exits on its own, the connector stops and the script exits with
 #    Guardian's status, so the machine restarts.
 #

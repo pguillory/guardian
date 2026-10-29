@@ -57,8 +57,8 @@ bounded peer calls and aggregate defaults on failure; final UNSETs still run.
 Counters are advisory, lose state on restart/eviction/cluster changes and use private
 arrival metadata, never caller timestamps. There is no PostgreSQL metadata store, Memcached
 runtime, or MaxMind service. Guardian is single-user: authentication is by environment-configured API keys (each at
-least 32 bytes and all distinct, in the `x-api-key` header; the `api_key` query
-parameter only with `GUARDIAN_ALLOW_QUERY_API_KEY=true`). The insert-only
+least 32 bytes and all distinct, only in the `x-api-key` header, never in the URL).
+The insert-only
 `GUARDIAN_INGEST_API_KEY` is accepted only by `POST /api/json/send_events`; the
 full-access `GUARDIAN_ADMIN_API_KEY` grants the whole event store through MCP (queries,
 rules, ingestion) and `send_events`. The deprecated `GUARDIAN_API_KEY` has full access
@@ -130,10 +130,12 @@ through `DNS_CLUSTER_QUERY` (on Fly, `<app>.internal` by default). Keep Fly's ou
 `rel/env.sh.eex` unchanged unless the change is meant for Fly: `test/guardian/deployment_test.exs`
 pins it.
 
-Fly.io is the best-supported deploy path (`Dockerfile`, `fly.toml`, `docs/guides/fly.md`).
-The `fly.toml` in the tree is the maintainer's own deployment, including a marked block
-of overrides (`GUARDIAN_ALLOW_QUERY_API_KEY`, `GUARDIAN_QUERY_MAX_HEAP_MB`) that a test
-keeps active; don't drop them without the maintainer's say-so. The API keys
+Fly.io is the best-supported deploy path (`Dockerfile`, `fly.example.toml`,
+`docs/guides/fly.md`). `fly.example.toml` is a template; a deployment's own `fly.toml` is
+gitignored or kept outside the repository, and no deployment's configuration belongs
+in the tree. Keep the example free of `[build]` (flyctl resolves its Dockerfile path
+against the config's directory) and of Guardian settings beyond `GUARDIAN_DATA_DIR`;
+`test/guardian/deployment_test.exs` checks both. The API keys
 (`GUARDIAN_ADMIN_API_KEY`, `GUARDIAN_INGEST_API_KEY`, and the deprecated
 `GUARDIAN_API_KEY` while set) and `RELEASE_COOKIE` are Fly secrets, plus the optional `TUNNEL_TOKEN` that starts the
 Cloudflare Tunnel connector (`bin/fly-start`, the image's entry point); segments live on

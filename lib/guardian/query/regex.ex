@@ -26,10 +26,9 @@ defmodule Guardian.Query.Regex do
 
   # A subject this size has at most about 33,000 matches (10 to 20 MB of process
   # memory at worst, measured), so it
-  # is replaced in the calling process; a larger one goes to a capped helper, with the
-  # query heap limit as its cap, or this many MiB when that is off.
+  # is replaced in the calling process; a larger one goes to a helper capped at the
+  # query heap limit.
   @inline_max_bytes 16 * 1024
-  @helper_heap_mb 256
   @max_bytes Guardian.Query.Text.max_bytes()
 
   @limits [
@@ -84,10 +83,10 @@ defmodule Guardian.Query.Regex do
 
   `:re` returns every match of a value at once, as a list on the calling process's
   heap, and a value can have about two matches per character (`(?:|a)` matches 2n + 1
-  times in n characters). A subject over #{@inline_max_bytes} bytes is therefore replaced in a helper process
-  whose own heap is capped (`helper_heap_mb/0`) even when the query heap limit is off,
-  so one value's matches cannot take more than that; a value that needs more gives
-  nil.
+  times in n characters). A subject over #{@inline_max_bytes} bytes is therefore
+  replaced in a helper process whose own heap is capped at the query heap limit
+  (`Guardian.Query.Limits.max_heap_mb/0`), so one value's matches cannot take more
+  than that; a value that needs more gives nil.
   """
   @spec replace(:re.mp(), binary, binary) :: binary | nil
   def replace(regex, subject, replacement) when byte_size(subject) <= @inline_max_bytes do
@@ -96,17 +95,6 @@ defmodule Guardian.Query.Regex do
 
   def replace(regex, subject, replacement) do
     replace_in_helper(regex, subject, replacement)
-  end
-
-  @doc """
-  The heap cap in MiB of the process that replaces in a large value: the query heap
-  limit (`Guardian.Query.Limits.max_heap_mb/0`), or #{@helper_heap_mb} when that is off.
-  """
-  def helper_heap_mb do
-    case Guardian.Query.Limits.max_heap_mb() do
-      mb when is_integer(mb) and mb > 0 -> mb
-      _ -> @helper_heap_mb
-    end
   end
 
   defp replace_inline(regex, subject, replacement) do
@@ -132,7 +120,7 @@ defmodule Guardian.Query.Regex do
   # one that dies at once.
   defp replace_in_helper(regex, subject, replacement) do
     caller = self()
-    heap_mb = helper_heap_mb()
+    heap_mb = Guardian.Query.Limits.max_heap_mb()
     words = div(heap_mb * 1024 * 1024, :erlang.system_info(:wordsize))
 
     {helper, monitor} =

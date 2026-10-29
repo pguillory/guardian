@@ -2,9 +2,8 @@
 
 ## Authentication
 
-All `/api/json` and `/mcp` requests need a key in the `x-api-key` header, or in the
-`api_key` query parameter when `GUARDIAN_ALLOW_QUERY_API_KEY=true`. There are two
-keys, plus a deprecated one:
+All `/api/json` and `/mcp` requests need a key in the `x-api-key` header. A key in
+the URL (`?api_key=`) is never accepted. There are two keys, plus a deprecated one:
 
 - The ingest key (`GUARDIAN_INGEST_API_KEY`) is insert-only: it is accepted by
   `POST /api/json/send_events` and nothing else. Give it to the applications that
@@ -185,8 +184,7 @@ Guardian writes some tables of its own:
 
 - `system_stats`: Erlang VM metrics, once a second.
 - `web_requests` and `web_responses`: one pair per authenticated JSON API request.
-  `auth_method` says whether the key came from the header or the query parameter, and
-  `auth_key` which key it was (`ingest`, `admin` or `legacy`); the key itself isn't
+  `auth_key` says which key it was (`ingest`, `admin` or `legacy`); the key itself isn't
   recorded, with one exception: the `referer` header is stored
   verbatim, so a referring URL that carries `?api_key=` records the key (see the
   [security architecture](../architecture/security.md)). MCP calls aren't logged here.

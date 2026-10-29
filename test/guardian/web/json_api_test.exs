@@ -1,8 +1,6 @@
 defmodule Guardian.Web.JsonApiTest do
-  # async: false because some tests switch query-parameter keys on.
+  # Not async: requests write the shared web_requests and web_responses tables.
   use ExUnit.Case, async: false
-
-  import Guardian.Test.QueryApiKeys
 
   @api_key Application.compile_env!(:guardian, :api_key)
   @admin_api_key Application.compile_env!(:guardian, :admin_api_key)
@@ -189,20 +187,18 @@ defmodule Guardian.Web.JsonApiTest do
     test "a list- or map-shaped api_key parameter gets 401 and is not printed" do
       marker = "API_KEY_PARAM_MARKER_7310"
 
-      for allowed? <- [true, false], query <- ["api_key[]=#{marker}", "api_key[a]=#{marker}"] do
+      for query <- ["api_key[]=#{marker}", "api_key[a]=#{marker}"] do
         output =
           ExUnit.CaptureIO.capture_io(fn ->
-            with_query_api_keys(allowed?, fn ->
-              conn = raw_post("/api/json/send_events?" <> query, @empty_batch, [])
-              assert conn.status == 401
-            end)
+            conn = raw_post("/api/json/send_events?" <> query, @empty_batch, [])
+            assert conn.status == 401
           end)
 
         refute output =~ marker
       end
     end
 
-    test "a valid key in the header, or in the query string when allowed, reaches the body" do
+    test "a valid key in the header reaches the body; one in the query string is ignored" do
       body = @empty_batch
       headers = [{"content-type", "application/json"}]
 
@@ -210,19 +206,14 @@ defmodule Guardian.Web.JsonApiTest do
       assert conn.status == 200
       assert Jason.decode!(conn.resp_body)["results"] == []
 
-      with_query_api_keys(true, fn ->
-        conn = raw_post("/api/json/send_events?api_key=#{@api_key}", body, headers)
-        assert conn.status == 200
-      end)
-
-      with_query_api_keys(false, fn ->
-        conn = raw_post("/api/json/send_events?api_key=#{@api_key}", body, headers)
+      for key <- [@api_key, @admin_api_key, @ingest_api_key] do
+        conn = raw_post("/api/json/send_events?api_key=#{key}", body, headers)
         assert {conn.status, Jason.decode!(conn.resp_body)["info"]} == {401, "api_key required"}
         assert %Plug.Conn.Unfetched{} = conn.body_params
-      end)
+      end
     end
 
-    test "web_requests records where the key was found and which key, never the key" do
+    test "web_requests records which key, never the key" do
       table = "web_requests"
       marker = "auth-method-#{System.unique_integer([:positive])}"
       body = @empty_batch
@@ -231,11 +222,6 @@ defmodule Guardian.Web.JsonApiTest do
 
       assert raw_post("/api/json/send_events", body, [{"x-api-key", @api_key}, json, agent]).status ==
                200
-
-      with_query_api_keys(true, fn ->
-        assert raw_post("/api/json/send_events?api_key=#{@api_key}", body, [json, agent]).status ==
-                 200
-      end)
 
       for key <- [@admin_api_key, @ingest_api_key] do
         assert raw_post("/api/json/send_events", body, [{"x-api-key", key}, json, agent]).status ==
@@ -247,12 +233,8 @@ defmodule Guardian.Web.JsonApiTest do
           "SELECT auth_method, auth_key FROM #{table} WHERE user_agent = '#{marker}'"
         )
 
-      assert Enum.sort(rows) == [
-               ["header", "admin"],
-               ["header", "ingest"],
-               ["header", "legacy"],
-               ["query", "legacy"],
-             ]
+      # auth_method is no longer recorded: the header is the only way to send a key.
+      assert Enum.sort(rows) == [[nil, "admin"], [nil, "ingest"], [nil, "legacy"]]
 
       for key <- [@api_key, @admin_api_key, @ingest_api_key], do: refute(inspect(rows) =~ key)
     end
@@ -280,46 +262,34 @@ defmodule Guardian.Web.JsonApiTest do
                {415, "unsupported content type; send application/json"}
     end
 
-    test "with query keys off, a request without the header is 401 whatever its query string" do
+    test "a request without the header is 401 whatever its query string" do
       json = {"content-type", "application/json"}
       body = @empty_batch
       nested = "x" <> String.duplicate("[a]", 40) <> "=1"
       long = "x=" <> String.duplicate("a", 1_000_000)
 
-      with_query_api_keys(false, fn ->
-        for query <- ["x=%FF", nested, long] do
-          output =
-            ExUnit.CaptureIO.capture_io(fn ->
-              assert error_response("/api/json/send_events?" <> query, body, [json]) ==
-                       {401, "api_key required"}
-            end)
+      for query <- ["x=%FF", nested, long] do
+        output =
+          ExUnit.CaptureIO.capture_io(fn ->
+            assert error_response("/api/json/send_events?" <> query, body, [json]) ==
+                     {401, "api_key required"}
+          end)
 
-          assert output == ""
-        end
-      end)
+        assert output == ""
+      end
     end
 
-    test "an undecodable query string gets 400 with a fixed message, and nothing is printed" do
-      with_query_api_keys(true, &undecodable_query_string_cases/0)
-    end
-
-    defp undecodable_query_string_cases do
+    test "with a key, an undecodable query string gets 400 or 414 with a fixed message" do
       key = {"x-api-key", @api_key}
       json = {"content-type", "application/json"}
       body = @empty_batch
       nested = "x" <> String.duplicate("[a]", 40) <> "=1"
 
-      for {query, headers} <- [
-            # No header: the key check decodes the query string.
-            {"x=%FF", [json]},
-            {nested, [json]},
-            # A valid header: Plug.Parsers decodes it after the key check.
-            {"x=%FF", [key, json]},
-            {nested, [key, json]},
-          ] do
+      # Plug.Parsers decodes the query string after the key check.
+      for query <- ["x=%FF", nested] do
         output =
           ExUnit.CaptureIO.capture_io(fn ->
-            assert error_response("/api/json/send_events?" <> query, body, headers) ==
+            assert error_response("/api/json/send_events?" <> query, body, [key, json]) ==
                      {400, "invalid query string"}
           end)
 
@@ -331,9 +301,6 @@ defmodule Guardian.Web.JsonApiTest do
       output =
         ExUnit.CaptureIO.capture_io(fn ->
           assert error_response("/api/json/send_events?" <> long, body, [key, json]) ==
-                   {414, "invalid query string"}
-
-          assert error_response("/api/json/send_events?" <> long, body, [json]) ==
                    {414, "invalid query string"}
         end)
 
@@ -372,21 +339,6 @@ defmodule Guardian.Web.JsonApiTest do
         conn = scoped_request(:post, "/api/json/send_events", key)
         assert {conn.status, Jason.decode!(conn.resp_body)["results"]} == {200, []}
       end
-    end
-
-    test "with query keys allowed, the ingest key works as a query parameter too" do
-      with_query_api_keys(true, fn ->
-        conn =
-          Plug.Test.conn(
-            :post,
-            "https://localhost/api/json/send_events?api_key=#{@ingest_api_key}",
-            @empty_batch
-          )
-          |> Plug.Conn.put_req_header("content-type", "application/json")
-          |> Guardian.Web.MainRouter.call(nil)
-
-        assert {conn.status, Jason.decode!(conn.resp_body)["results"]} == {200, []}
-      end)
     end
 
     test "the ingest key gets 403 everywhere else in the JSON API, without its body read" do

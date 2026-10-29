@@ -1,11 +1,11 @@
-# Fly.io configuration for Guardian. See docs/guides/fly.md.
+# Example Fly.io configuration for Guardian. See docs/guides/fly.md.
 #
-# This is the configuration of the maintainer's own deployment. To deploy your own copy,
-# change `app` (globally unique) and `primary_region` (where the machine and its volume
-# live), delete the overrides marked below, and adjust [[vm]] if the default does not
-# fit.
+# Copy it to fly.toml (which git ignores), set `app` (globally unique) and
+# `primary_region` (where the machine and its volume live), and adjust [[vm]] if the
+# default does not fit. Run fly from the checkout: with no [build] section, the image
+# is built from the checkout's Dockerfile.
 
-app = "guardian-pguillory"
+app = "your-guardian-app"
 primary_region = "sjc"
 
 # Guardian persists in-memory segments on SIGTERM, within a shutdown budget of about
@@ -13,9 +13,6 @@ primary_region = "sjc"
 # (bin/fly-start); keep kill_timeout above both. Fly's default SIGINT is not graceful.
 kill_signal = "SIGTERM"
 kill_timeout = 150
-
-[build]
-  dockerfile = "Dockerfile"
 
 [deploy]
   # A volume attaches to one machine, so each machine is replaced in place.
@@ -25,13 +22,6 @@ kill_timeout = 150
 
 [env]
   GUARDIAN_DATA_DIR = "/data"
-
-  # This deployment's overrides of Guardian's defaults; omit them for a new deploy.
-  # They keep the maintainer's deployment behaving as it did before these settings
-  # existed: the api_key query parameter stays accepted until web_requests.auth_method
-  # shows nothing uses it, and the per-process query heap limit stays off.
-  GUARDIAN_ALLOW_QUERY_API_KEY = "true"
-  GUARDIAN_QUERY_MAX_HEAP_MB = "0"
 
 [http_service]
   internal_port = 8080

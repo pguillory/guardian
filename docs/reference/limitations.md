@@ -1,7 +1,7 @@
 # Known limitations
 
 1. No replication. A node's events live only on its own volume, so a lost volume loses
-   them. On Fly, volume snapshots run daily (kept 14 days per `fly.toml`).
+   them. On Fly, volume snapshots run daily (kept 14 days per `fly.example.toml`).
 2. One principal. A full-access key holder can read and write everything; the
    insert-only ingest key can only send events, but can still read what its own
    ingests return and write any table, Guardian's built-in ones included.
@@ -14,8 +14,8 @@
 5. A query covers only the nodes connected when it runs. A node that's down or still
    loading its segments is silently missing from results.
 6. Memory isn't fully bounded. Results are capped at 100,000 rows and about 64 MiB, and
-   strings that functions build at 64 KiB per value. `GUARDIAN_QUERY_MAX_HEAP_MB` kills any single
-   query process whose Erlang heap passes the limit, but that doesn't bound a query's
+   strings that functions build at 64 KiB per value. Guardian kills any single
+   query process whose Erlang heap passes 256 MiB, but that doesn't bound a query's
    total memory:
    - GROUP BY state lives in ETS, column data in native memory, and shared binaries
      aren't counted.

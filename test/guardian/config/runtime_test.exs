@@ -247,36 +247,21 @@ defmodule Guardian.Config.RuntimeTest do
     assert get_in(read_runtime_config(), [:guardian, :api_key]) == String.duplicate("€", 11)
   end
 
-  test "query-parameter keys are off unless GUARDIAN_ALLOW_QUERY_API_KEY is true" do
+  test "ignores the removed GUARDIAN_ALLOW_QUERY_API_KEY" do
     System.put_env("GUARDIAN_API_KEY", @key)
-    assert get_in(read_runtime_config(), [:guardian, :allow_query_api_key]) == false
 
-    for {value, expected} <- [{"", false}, {"false", false}, {"true", true}] do
+    for value <- ["true", "false", "yes"] do
       System.put_env("GUARDIAN_ALLOW_QUERY_API_KEY", value)
-      assert get_in(read_runtime_config(), [:guardian, :allow_query_api_key]) == expected
-    end
-
-    for value <- ["1", "yes", "TRUE"] do
-      System.put_env("GUARDIAN_ALLOW_QUERY_API_KEY", value)
-
-      assert_raise RuntimeError, "GUARDIAN_ALLOW_QUERY_API_KEY must be true or false", fn ->
-        read_runtime_config()
-      end
+      refute Keyword.has_key?(read_runtime_config()[:guardian], :allow_query_api_key)
     end
   end
 
-  test "reads the query heap limit, where 0 turns it off" do
+  test "ignores the removed GUARDIAN_QUERY_MAX_HEAP_MB" do
     System.put_env("GUARDIAN_API_KEY", @key)
-    refute Keyword.has_key?(read_runtime_config()[:guardian], :query_max_heap_mb)
 
-    for {value, expected} <- [{"0", 0}, {"512", 512}] do
+    for value <- ["0", "512", "lots"] do
       System.put_env("GUARDIAN_QUERY_MAX_HEAP_MB", value)
-      assert get_in(read_runtime_config(), [:guardian, :query_max_heap_mb]) == expected
-    end
-
-    for value <- ["-1", "1.5", "lots"] do
-      System.put_env("GUARDIAN_QUERY_MAX_HEAP_MB", value)
-      assert_raise RuntimeError, ~r/GUARDIAN_QUERY_MAX_HEAP_MB must be/, &read_runtime_config/0
+      refute Keyword.has_key?(read_runtime_config()[:guardian], :query_max_heap_mb)
     end
   end
 

@@ -31,3 +31,6 @@ guardian-*.tar
 /priv/*.so
 
 /data
+
+# Your own Fly.io configuration, copied from fly.example.toml.
+/fly.toml
