@@ -2,7 +2,7 @@ defmodule Guardian.Web.MCP.ClientTest do
   use ExUnit.Case, async: false
   import Guardian.Test.MCPClient
 
-  @api_key Application.compile_env!(:guardian, :api_key)
+  @api_key Application.compile_env!(:guardian, :admin_api_key)
   @ingest_api_key Application.compile_env!(:guardian, :ingest_api_key)
 
   setup_all do

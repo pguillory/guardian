@@ -29,8 +29,7 @@ Assets, roughly in order of value:
    remain a gap (section 8).
 3. The API keys, the only credentials for the HTTP and MCP interfaces: the full-access
    admin key (`GUARDIAN_ADMIN_API_KEY`), the insert-only ingest key
-   (`GUARDIAN_INGEST_API_KEY`), and the deprecated full-access legacy key
-   (`GUARDIAN_API_KEY`) while it is set.
+   (`GUARDIAN_INGEST_API_KEY`).
 4. The Erlang cookie (`RELEASE_COOKIE`): grants full code execution on every node to
    any Erlang node that can reach the nodes' distribution ports.
 5. Availability and integrity of recent events: events not yet persisted live only in
@@ -42,7 +41,7 @@ Assets, roughly in order of value:
 
 Principals:
 
-1. Full-access key holder: anyone presenting the admin key or the legacy key.
+1. Full-access key holder: anyone presenting the admin key.
    Guardian is single-tenant (spec section 3): every full-access key holder is the
    same principal with full read and write access. In practice that is the operator
    and their agents and scripts.
@@ -174,18 +173,19 @@ None of these reads or writes data.
 
 1. In the environment: on Fly, Fly secrets injected into the machine's environment
    at boot; elsewhere, however the operator sets the process environment.
-   `config/runtime.exs` reads `GUARDIAN_INGEST_API_KEY`, `GUARDIAN_ADMIN_API_KEY` and
-   the deprecated `GUARDIAN_API_KEY`, each optional, and refuses to start if a set one
-   is empty or shorter than 32 bytes, if neither full-access key
-   (`GUARDIAN_ADMIN_API_KEY`, `GUARDIAN_API_KEY`) is set, or if two set keys are
-   equal (a shared value would give the ingest key full access). Its errors name the
-   variable, never the value. It stores them in the application environment
-   (`:guardian, :ingest_api_key`, `:admin_api_key`, `:api_key`), nil when unset.
+   `config/runtime.exs` reads `GUARDIAN_INGEST_API_KEY` (optional) and
+   `GUARDIAN_ADMIN_API_KEY` (required), and refuses to start if a set one is empty or
+   shorter than 32 bytes, if the admin key is not set, or if the two are equal (a
+   shared value would give the ingest key full access). Its errors name the variable,
+   never the value. The removed `GUARDIAN_API_KEY` is not read: without the admin key
+   its presence changes the error to one naming the two replacements, and beside the
+   admin key it is ignored. It stores the keys in the application environment
+   (`:guardian, :ingest_api_key`, `:admin_api_key`), nil when unset.
 2. Tests use fixed keys in `config/config.exs`; they protect nothing.
 3. Guardian does not record a key itself: the `x-api-key` header is not in
    `web_requests` (which records `path`, the request path without the query string,
-   selected headers, and `auth_key`, which says only which key it was: `ingest`,
-   `admin` or `legacy`), not in
+   selected headers, and `auth_key`, which says only which key it was: `ingest` or
+   `admin`; older rows may say `legacy`), not in
    `query_parse_errors` (caller fields are remote IP, `x-forwarded-for`, user agent,
    and MCP client info), not in `queries` (remote IP and MCP client info only, no
    request header), and not in any log line of a well-formed request found in the
@@ -199,8 +199,8 @@ Both routers call `Guardian.Web.Auth.check_conn/2`, the one place a key is found
 checked, with the access the request needs: `:ingest` or `:full`. It reads only the
 first `x-api-key` header and never decodes the query string, so a key in the URL is
 never accepted, and an undecodable query string cannot fail authentication. A valid
-key with enough access returns `{:ok, key}`, `key` being `:ingest`, `:admin` or
-`:legacy`, which one it was. The ingest key where `:full` is needed is
+key with enough access returns `{:ok, key}`, `key` being `:ingest` or `:admin`, which
+one it was. The ingest key where `:full` is needed is
 `{:error, :forbidden}`, which each router answers with 403 `this key can only send
 events`. No header is `{:error, :missing}`, whatever the query string; a wrong key is
 `{:error, :unauthorized}`. Each router sends its own body for these, pinned for each
@@ -237,14 +237,7 @@ Gaps:
 3. Keys never travel in URLs: only the header is read, since URLs end up in
    client-side logs, shell history, proxy logs, and browser history more readily
    than headers. Guardian does not store request URLs (only the `referer` header,
-   item 4.1.3). The deprecated legacy key's remaining use is tracked:
-   `web_requests.auth_key` records `legacy`, and, since MCP requests are not recorded
-   in `web_requests`, `Guardian.Web.MCP.Router` logs one info line naming the path
-   (never the key), "A request on /mcp authenticated with the legacy
-   GUARDIAN_API_KEY", at most once a minute per node
-   (`Guardian.Web.Auth.note_legacy_key_use/1`). This is evidence, not proof: an idle
-   client leaves no trace, and an ingest-key holder can write forged `web_requests`
-   rows (4.6). Because of CORS (section 4.4), a browser page cannot send the key at
+   item 4.1.3). Because of CORS (section 4.4), a browser page cannot send the key at
    all, so Guardian has no browser clients.
 4. Failed attempts leave no trace. A request with a wrong or missing key is rejected
    with 401, and the ingest key outside `send_events` with 403, before
@@ -366,10 +359,10 @@ Gaps:
 1. Counter values are readable through `return_keys` by the ingest key (item 1).
 2. Built-in tables accept forged rows from the ingest key, so `web_requests.auth_key`
    and the other audit-like rows are not proof (item 2).
-3. Rolling Guardian back to a release without the ingest key refuses callers that
-   have moved to it, since older releases only know `GUARDIAN_API_KEY`. Keep the
-   legacy key working until a rollback is no longer likely, or move callers back
-   before rolling back.
+3. Rolling Guardian back to a release from before the admin and ingest keys refuses
+   every caller, since those releases know only `GUARDIAN_API_KEY`, which current
+   releases no longer read. Rolling back that far means setting that key again and
+   moving callers to it first.
 
 ## 5. B3: Key holder to query engine and storage
 
@@ -783,7 +776,6 @@ and the boundary is whatever protects those. Guardian adds nothing on top.
 | --- | --- | --- | --- |
 | `GUARDIAN_ADMIN_API_KEY` | process environment (on Fly, a Fly secret); app env `:guardian, :admin_api_key` | operators; the operator's agents and scripts | set the new value and restart (`fly secrets set` restarts); independent of the other keys |
 | `GUARDIAN_INGEST_API_KEY` (optional) | process environment (on Fly, a Fly secret); app env `:guardian, :ingest_api_key` | operators; producers | set the new value and restart; independent of the other keys |
-| `GUARDIAN_API_KEY` (deprecated) | process environment (on Fly, a Fly secret); app env `:guardian, :api_key` | operators; callers not yet moved to the new keys | set the new value and restart, or unset it once no caller uses it (`auth_key = 'legacy'` in `web_requests`, and the `/mcp` legacy-key log line, show use) |
 | `RELEASE_COOKIE` | process environment (on Fly, a Fly secret); node memory | operators; peers | set the new value and restart; all nodes must share it |
 | `TUNNEL_TOKEN` (optional) | process environment (on Fly, a Fly secret, also visible in `fly ssh` sessions); `bin/fly-start` unsets it before starting Guardian, so Guardian's process doesn't hold it; the script's shell and connector loop keep it, as cloudflared does | operators; whoever administers the operator's Cloudflare account | rotate the tunnel's token on Cloudflare, then set the new value and restart |
 | `GUARDIAN_RULES_S3_ACCESS_KEY_ID`, `GUARDIAN_RULES_S3_SECRET_ACCESS_KEY` (optional) | process environment (on Fly, Fly secrets); read once by `Guardian.Rules.Config` into a closure inside the `Guardian.ObjectStore.S3` config held by Guardian.Rules.Server and `:persistent_term`, never application config; requests carry only an MFA for signing, and store errors name only a kind | operators; whoever administers the bucket's account | create a new bucket-scoped token, set both values and restart, then revoke the old token |
@@ -824,7 +816,7 @@ Where data goes:
 1. `web_requests` and `web_responses` record authenticated JSON API requests only,
    with the fields listed in spec section 8, among them the path without query
    string, method, host, remote IP, `x-forwarded-for`, referer, user agent,
-   `auth_key` (`ingest`, `admin` or `legacy`),
+   `auth_key` (`ingest` or `admin`; older rows may say `legacy`),
    and for responses status, size, and timing. There are no body or key fields; the
    one way a key can land there is the verbatim `referer` header (4.1.3). Any key
    holder, the ingest key included, can also append rows to these tables (4.6).
@@ -907,8 +899,6 @@ Where data goes:
      messages to the authenticated caller.
    - A query process killed by the heap guard produces the VM's kill report, which
      names the process and its heap sizes, not its contents (5.2.2).
-   - An MCP request with the deprecated legacy key logs one info line naming the
-     path, never the key, at most once a minute per node (4.2.3).
 
 Caller-supplied fields are not identities. `remote_ip` is the address of whatever
 connected to Guardian (on Fly, Fly's proxy; for tunnel traffic, `127.0.0.1`), and

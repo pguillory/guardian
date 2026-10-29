@@ -120,16 +120,15 @@ ingestion, because the volume attaches to only one machine: the old release stop
 before the new one starts, so producers must retry. A deploy that fails stops without
 rolling back. To roll back, find the previous image with `fly releases --image` and
 run `fly deploy --image <image>`. Releases from before the admin and ingest keys know
-only `GUARDIAN_API_KEY`, so rolling back to one refuses callers that have moved to the
-new keys.
+only `GUARDIAN_API_KEY`, which current releases no longer read, so rolling back to one
+refuses every caller until that key is set again and callers use it.
 
 ## Operating it
 
 The remote console is `fly ssh console --pty -C "/app/bin/guardian remote"`. Inside it,
 `Node.list()` shows the connected peers. Rotate a key with, for example,
 `fly secrets set GUARDIAN_INGEST_API_KEY=...`, which restarts the machine; each key
-rotates independently of the others. A deployment that still sets the deprecated
-`GUARDIAN_API_KEY` keeps working with it.
+rotates independently of the other.
 
 ## Keeping fly.toml elsewhere
 

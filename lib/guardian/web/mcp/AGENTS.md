@@ -33,9 +33,7 @@ Authentication is handled by `Guardian.Web.MCP.Router` before requests reach the
 with `Guardian.Web.Auth.check_conn/2` and `:full` for every request: the insert-only
 ingest key gets 403 `{"error": "this key can only send events"}`, checked before the
 session lookup and body decoding, so a session ID never stands in for a full-access
-key. A request with the deprecated legacy key (`GUARDIAN_API_KEY`) calls
-`Guardian.Web.Auth.note_legacy_key_use/1`. The key is read only from the `x-api-key`
-header. After authentication, the router answers 404 for an `mcp-session-id` that names no
+key. The key is read only from the `x-api-key` header. After authentication, the router answers 404 for an `mcp-session-id` that names no
 live, initialize-handled session, as the Streamable HTTP spec requires, so clients
 re-initialize after a restart or Anubis's 30-minute idle expiry. Anubis 0.16 would
 otherwise create an uninitialized session and answer 200 "Server not initialized".

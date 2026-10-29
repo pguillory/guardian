@@ -10,13 +10,13 @@ There is no HTTP query endpoint; queries run only through the MCP `query` tool.
 Both routers authenticate only through `Guardian.Web.Auth.check_conn/2`, which takes
 the access the request needs (`:ingest` or `:full`) and reads the first `x-api-key`
 header. `Guardian.Web.Auth.identify_api_key/1` compares the supplied key with every
-configured key (`:guardian, :ingest_api_key`, `:admin_api_key`, and the deprecated
-`:api_key`; unset is nil) in constant time with no early return, so timing reveals
-neither how much of a guess is right nor which key matched. The ingest key grants
-`:ingest` only; the admin and legacy keys grant `:full`. A key in the URL is never
-accepted: the query string is never decoded for a key, so a request without the
-header is `{:error, :missing}` whatever its query string. `check_conn/2` returns
-`{:ok, key}` (`key` `:ingest`, `:admin` or `:legacy`), `{:error, :missing}`,
+configured key (`:guardian, :ingest_api_key` and `:admin_api_key`; unset is nil) in
+constant time with no early return, so timing reveals neither how much of a guess is
+right nor which key matched. The ingest key grants `:ingest` only; the admin key
+grants `:full`. A key in the URL is never accepted: the query string is never
+decoded for a key, so a request without the header is `{:error, :missing}` whatever
+its query string. `check_conn/2` returns
+`{:ok, key}` (`key` `:ingest` or `:admin`), `{:error, :missing}`,
 `{:error, :unauthorized}`, or `{:error, :forbidden}` (the ingest key where `:full` is
 needed); each router keeps its own error bodies, 403 `this key can only send events`
 for `:forbidden` (`test/guardian/web/auth_routes_test.exs` pins both). No identity is
@@ -31,9 +31,7 @@ session.
 
 The JSON API stores the key in the conn's private `:guardian_auth_key`, and
 `Guardian.Web.Logger` writes it to `web_requests` and `web_responses` rows as
-`auth_key` ("ingest", "admin" or "legacy"), never the key. MCP requests are not
-logged there, so the MCP router calls `Guardian.Web.Auth.note_legacy_key_use/1` on
-the legacy key: one Logger line naming the path, at most once a minute per node.
+`auth_key` ("ingest" or "admin"), never the key. MCP requests are not logged there.
 
 `send_events` validates table, events list, and return_keys before storing anything.
 HTTP invalid requests return 400 with an `info` message; MCP returns a tool error.

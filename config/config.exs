@@ -20,10 +20,9 @@ if config_env() == :test do
         "guardian-test-#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
       )
 
-  # The three API keys (Guardian.Web.Auth): the deprecated full-access legacy key,
-  # the full-access admin key and the insert-only ingest key.
+  # The two API keys (Guardian.Web.Auth): the full-access admin key and the
+  # insert-only ingest key.
   config :guardian,
-    api_key: "guardian_test_api_key",
     admin_api_key: "guardian_test_admin_api_key",
     ingest_api_key: "guardian_test_ingest_api_key"
 

@@ -1137,7 +1137,7 @@ is full-access unless it opts in.
    draining a body whose reader state is no longer current.
 2. `Guardian.Web.Logger` writes a `web_requests` row before the handler and a `web_responses`
    row before the response is sent, for authenticated requests only. Both carry
-   `auth_key`, `ingest`, `admin` or `legacy`, from the key check, never the key.
+   `auth_key`, `ingest` or `admin`, from the key check, never the key.
 
 ### 6.3 MCP
 
@@ -1147,10 +1147,7 @@ The MCP endpoint uses the Anubis library, pinned at 0.16.0 (reasons in
 
 1. The key check (`Guardian.Web.Auth.check_conn/2` with `:full`), on every request,
    so an MCP session carries no authority of its own and the insert-only ingest key
-   gets 403. The key is read only from the `x-api-key` header. MCP requests are not
-   recorded in `web_requests`, so when one authenticates with the deprecated
-   `GUARDIAN_API_KEY`, the router logs one info line naming the path (never the
-   key), at most once a minute per node (`Guardian.Web.Auth.note_legacy_key_use/1`).
+   gets 403. The key is read only from the `x-api-key` header.
 2. A 404 for an unknown or expired `mcp-session-id`, which Anubis 0.16 would
    otherwise accept as a new uninitialized session.
 3. A 405 for `GET`, so Guardian never opens a server-push stream and every result
@@ -1364,9 +1361,9 @@ Environment variables:
 
 | Variable | Read by | Meaning |
 | --- | --- | --- |
-| `GUARDIAN_ADMIN_API_KEY` | `config/runtime.exs` | The full-access key (MCP and `send_events`). At least 32 bytes when set. Outside tests, it or `GUARDIAN_API_KEY` is required. |
-| `GUARDIAN_INGEST_API_KEY` | `config/runtime.exs` | Optional insert-only key, accepted only by `POST /api/json/send_events`. At least 32 bytes when set. |
-| `GUARDIAN_API_KEY` | `config/runtime.exs` | Deprecated full-access key, accepted like the admin key while set. At least 32 bytes when set. The three keys must all differ; boot errors name the variable, never the value. |
+| `GUARDIAN_ADMIN_API_KEY` | `config/runtime.exs` | The full-access key (MCP and `send_events`). At least 32 bytes. Required outside tests. |
+| `GUARDIAN_INGEST_API_KEY` | `config/runtime.exs` | Optional insert-only key, accepted only by `POST /api/json/send_events`. At least 32 bytes when set, and different from the admin key; boot errors name the variable, never the value. |
+| `GUARDIAN_API_KEY` | `config/runtime.exs` | Removed; not read as a key. Without the admin key its presence makes the boot error name the two replacements; set alongside the admin key, it is ignored. |
 | `GUARDIAN_PORT` | `config/runtime.exs`, `bin/fly-start` | HTTP port, 1 to 65535. Default 8080. Tests use an OS-chosen port. |
 | `GUARDIAN_COUNTER_MEMORY_MB` | `config/runtime.exs` | Positive integer MiB for the asynchronous resident counter memory target (3.5), default 64; empty/invalid refuses startup. |
 | `GUARDIAN_DATA_DIR` | `config/runtime.exs` (prod) | Data directory; segments go in `segments/` under it. Default `/root/data`; `/data` in the image and on Fly. Must be writable, and on Fly must be a mounted volume, or boot fails. |
@@ -1386,7 +1383,7 @@ these except through the variables above:
 
 | Key | Default | Used by |
 | --- | --- | --- |
-| `ingest_api_key`, `admin_api_key`, `api_key` (legacy; each nil when unset), `http_port`, `data_dir`, `dns_cluster_query`, `mutable_segment_max_age_ms` | from the variables above | as above |
+| `ingest_api_key`, `admin_api_key` (each nil when unset), `http_port`, `data_dir`, `dns_cluster_query`, `mutable_segment_max_age_ms` | from the variables above | as above |
 | `query_max_result_rows` | 100,000 | `Guardian.Query.Limits` |
 | `query_max_result_bytes` | 64 MiB | `Guardian.Query.Limits` |
 | `query_time_limit_ms` | 30,000 | `Guardian.Query.run/1` (`Guardian.Query.Limits`) |
@@ -1504,8 +1501,9 @@ and Fly's defaults. The operational decisions:
    stop must allow the shutdown budget (section 8).
 2. Secrets: set a key, the cookie, or the optional tunnel token in the environment
    and restart (on Fly, `fly secrets set`, which restarts the machine). Each key
-   rotates independently. Rolling back to a release without the ingest key refuses
-   callers that have moved to it, since older releases only know `GUARDIAN_API_KEY`.
+   rotates independently. Rolling back to a release from before the admin and ingest
+   keys refuses every caller, since those releases know only `GUARDIAN_API_KEY`,
+   which current releases no longer read.
 3. Observing: the built-in tables (`system_stats`, `web_requests`, `web_responses`,
    `query_parse_errors`, `queries`) and stdout (on Fly, `fly logs` and `fly status`). Nothing
    alerts.
@@ -1567,9 +1565,7 @@ About 150 test files cover:
    in `libtest/guardian/test/`, an Anubis client started by `Guardian.Test.MCPClient.start/0`,
    using the admin key) against the
    test listener on an OS-chosen port, including sessions, the 404 and 405 rules, and
-   authentication with each key, and a key in the URL refused
-   (`Guardian.Test.AuthNotes` in `libtest/guardian/test/` captures the legacy-key log
-   note for `async: false` tests).
+   authentication with each key, and a key in the URL refused.
 4. Clustering: `Guardian.Test.Cluster` (in `libtest/guardian/test/`) starts peer BEAM nodes on the same host,
    each running only Storage in its own data directory, and connects them, so schema
    merging, GROUP BY merging of groups split across nodes, node failures, a peer whose

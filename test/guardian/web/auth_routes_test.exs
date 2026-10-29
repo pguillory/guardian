@@ -3,13 +3,10 @@ defmodule Guardian.Web.AuthRoutesTest do
   # exact 401 and 403 responses, so how a key is accepted cannot drift between them.
   # Both requests need full access (a JSON path other than POST /send_events, and
   # /mcp), so the ingest key is forbidden on both.
-  # A key in the URL counts as no key at all. The log-note tests change the global
-  # Logger level, so this module is not async.
+  # A key in the URL counts as no key at all. One test changes the configured keys, so
+  # this module is not async.
   use ExUnit.Case, async: false
 
-  import Guardian.Test.AuthNotes
-
-  @api_key Application.compile_env!(:guardian, :api_key)
   @admin_api_key Application.compile_env!(:guardian, :admin_api_key)
   @ingest_api_key Application.compile_env!(:guardian, :ingest_api_key)
 
@@ -26,23 +23,21 @@ defmodule Guardian.Web.AuthRoutesTest do
       {"no key", "", [], :missing},
       {"an empty header", "", [""], :unauthorized},
       {"a wrong header", "", ["wrong"], :unauthorized},
-      {"a valid header", "", [@api_key], :ok},
       {"a valid admin header", "", [@admin_api_key], :ok},
       {"a valid ingest header", "", [@ingest_api_key], :forbidden},
       {"a valid ingest query parameter", "api_key=#{@ingest_api_key}", [], :missing},
       {"a valid admin query parameter", "api_key=#{@admin_api_key}", [], :missing},
-      {"a valid query parameter", "api_key=#{@api_key}", [], :missing},
       {"a wrong query parameter", "api_key=wrong", [], :missing},
       {"an empty query parameter", "api_key=", [], :missing},
-      {"a wrong header over a valid query parameter", "api_key=#{@api_key}", ["wrong"],
+      {"a wrong header over a valid query parameter", "api_key=#{@admin_api_key}", ["wrong"],
        :unauthorized},
-      {"a valid header over a wrong query parameter", "api_key=wrong", [@api_key], :ok},
-      {"a wrong first header before a valid one", "", ["wrong", @api_key], :unauthorized},
-      {"a valid first header before a wrong one", "", [@api_key, "wrong"], :ok},
+      {"a valid header over a wrong query parameter", "api_key=wrong", [@admin_api_key], :ok},
+      {"a wrong first header before a valid one", "", ["wrong", @admin_api_key], :unauthorized},
+      {"a valid first header before a wrong one", "", [@admin_api_key, "wrong"], :ok},
       {"an ingest header before an admin one", "", [@ingest_api_key, @admin_api_key], :forbidden},
-      {"a list-shaped query parameter", "api_key[]=#{@api_key}", [], :missing},
-      {"a map-shaped query parameter", "api_key[a]=#{@api_key}", [], :missing},
-      {"another query parameter only", "key=#{@api_key}", [], :missing},
+      {"a list-shaped query parameter", "api_key[]=#{@admin_api_key}", [], :missing},
+      {"a map-shaped query parameter", "api_key[a]=#{@admin_api_key}", [], :missing},
+      {"another query parameter only", "key=#{@admin_api_key}", [], :missing},
     ]
   end
 
@@ -106,26 +101,16 @@ defmodule Guardian.Web.AuthRoutesTest do
     end
   end
 
-  test "MCP logs a legacy key's use, never the key; the admin key logs nothing" do
-    pattern = ~r/A request on \S+ authenticated with the legacy GUARDIAN_API_KEY/
+  test "the removed GUARDIAN_API_KEY's application setting is refused like a wrong key" do
+    former_key = "guardian_test_former_api_key"
 
-    log =
-      capture_auth_note_log(fn ->
-        assert request("/mcp", "", [@admin_api_key]).status == 405
-        assert request("/mcp", "", [@api_key]).status == 405
-      end)
+    Guardian.Test.Env.with_env([api_key: former_key], fn ->
+      conn = request("/api/json/wrong", "", [former_key])
+      assert {conn.status, conn.resp_body} == {401, @json_unauthorized}
 
-    assert Regex.scan(pattern, log) ==
-             [["A request on /mcp authenticated with the legacy GUARDIAN_API_KEY"]]
-
-    refute log =~ @api_key
-
-    log =
-      capture_auth_note_log(fn ->
-        assert request("/mcp", "", [@admin_api_key]).status == 405
-      end)
-
-    assert Regex.scan(pattern, log) == []
+      conn = request("/mcp", "", [former_key])
+      assert {conn.status, conn.resp_body} == {401, @mcp_unauthorized}
+    end)
   end
 
   test "an ingest key naming a session is forbidden before the session check" do
@@ -153,7 +138,7 @@ defmodule Guardian.Web.AuthRoutesTest do
     end
 
     # With a key header the query string is still not decoded: judged by the key alone.
-    assert request("/mcp", "x=%FF", [@api_key]).status == 405
+    assert request("/mcp", "x=%FF", [@admin_api_key]).status == 405
 
     conn = request("/mcp", "x=%FF", ["wrong"])
     assert {conn.status, conn.resp_body} == {401, @mcp_unauthorized}

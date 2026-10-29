@@ -1,16 +1,16 @@
 # Configuration
 
-Everything is set through environment variables. Only a full-access key is required:
-`GUARDIAN_ADMIN_API_KEY`, or the deprecated `GUARDIAN_API_KEY`. Each key that is set
-must be at least 32 bytes (generate one with `openssl rand -hex 32`), and no two may be
-the same; startup refuses otherwise, naming the variable but never its value. Each key
+Everything is set through environment variables. Only the full-access key is required:
+`GUARDIAN_ADMIN_API_KEY`. Each key that is set must be at least 32 bytes (generate one
+with `openssl rand -hex 32`), and the two may not be the same; startup refuses
+otherwise, naming the variable but never its value. Each key
 rotates independently: a change takes effect at restart and doesn't affect stored data.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `GUARDIAN_ADMIN_API_KEY` | (unset) | The full-access key: MCP (queries, rules, ingestion) and `POST /api/json/send_events`. For the operator and their agents. Required unless `GUARDIAN_API_KEY` is set. |
+| `GUARDIAN_ADMIN_API_KEY` | (unset) | The full-access key: MCP (queries, rules, ingestion) and `POST /api/json/send_events`. For the operator and their agents. Required. |
 | `GUARDIAN_INGEST_API_KEY` | (unset) | Optional insert-only key, accepted only by `POST /api/json/send_events`; anywhere else it gets 403. For the applications that produce events. |
-| `GUARDIAN_API_KEY` | (unset) | Deprecated. While set, it has full access like `GUARDIAN_ADMIN_API_KEY`, so existing callers keep working until they move to the new keys; a later release removes it. Once insert-only callers use the ingest key, rolling back to a release without it refuses them, since older releases only know `GUARDIAN_API_KEY`. |
+| `GUARDIAN_API_KEY` | (removed) | The single full-access key from before the admin and ingest keys; no longer read. Without `GUARDIAN_ADMIN_API_KEY`, startup refuses and names the two replacements; set alongside the admin key, it is ignored. See [drop-legacy-api-key](../changes/drop-legacy-api-key.md). |
 | `GUARDIAN_DATA_DIR` | `/data` in the image, `/root/data` for a bare release | Where segments are stored. Startup refuses a directory it can't write, so set it when running a bare release as a non-root user. On Fly it must be the mounted volume. |
 | `GUARDIAN_PORT` | `8080` | The HTTP port. |
 | `GUARDIAN_COUNTER_MEMORY_MB` | `64` | Positive integer MiB for the asynchronous resident counter memory target on this node; empty, zero, negative or non-integer values refuse startup. Excludes mailboxes, temporary copies and other VM memory. Housekeeping runs about every second; writes can temporarily overshoot. Expired keys are reclaimed first, then a sampled earliest-expiry cutoff evicts live buckets (possibly all when expiries tie). Restart to change; counts are ephemeral. See [counters](../guides/rules.md#counters-with-track-and-lookup). |

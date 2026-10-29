@@ -75,16 +75,14 @@ Guardian is also a producer of its own tables:
 
 1. Keys: Every request to `/api/json/*` and `/mcp` must carry a key in the
    `x-api-key` header. Keys are of two kinds, each set in its own environment
-   variable, plus a deprecated one:
+   variable:
    - The ingest key (`GUARDIAN_INGEST_API_KEY`, optional) is insert-only: it is
      accepted by `POST /api/json/send_events` and nothing else. It is meant for the
      applications that produce events, so a compromised application can add events
      but cannot query or change rules.
-   - The admin key (`GUARDIAN_ADMIN_API_KEY`) has full access: MCP (queries, rules,
-     ingestion) and `send_events`. It is meant for the operator and their agents.
-   - `GUARDIAN_API_KEY` is deprecated: while set, it has full access like the admin
-     key, so existing callers keep working until they move to the new keys. A later
-     release removes it.
+   - The admin key (`GUARDIAN_ADMIN_API_KEY`, required) has full access: MCP
+     (queries, rules, ingestion) and `send_events`. It is meant for the operator and
+     their agents.
 
    A key is read only from the first `x-api-key` header, never from the URL: URLs
    end up in logs and history more readily than headers. The comparison does not
@@ -133,19 +131,18 @@ Guardian is also a producer of its own tables:
    first, so a wrong key gets 401; after a valid key, a JSON API request whose query
    string cannot be decoded (invalid UTF-8, nesting deeper than 32, or too long) gets
    400 (414 when too long) with `info` "invalid query string".
-6. Startup: Guardian refuses to start without a full-access key
-   (`GUARDIAN_ADMIN_API_KEY`, or the deprecated `GUARDIAN_API_KEY`); with any of the
-   three key variables set but empty or shorter than 32 bytes (generate keys with
-   `openssl rand -hex 32`; the length is checked, not the randomness); or with two of
-   them set to the same value. The error names the variable, never its value.
-7. Which key: `web_requests` and `web_responses` record `auth_key`, `ingest`,
-   `admin` or `legacy`, for each JSON API request, never the key itself. MCP requests
-   are not recorded there, so when an MCP request authenticates with the deprecated
-   `GUARDIAN_API_KEY`, Guardian writes one line to the server log naming the path,
-   never the key, at most once a minute per machine.
-   Together these show whether the deprecated key is still in use before turning it
-   off. They are evidence, not proof: a client that has been idle
-   leaves no trace, and an ingest-key holder can write forged `web_requests` rows.
+6. Startup: Guardian refuses to start without the admin key
+   (`GUARDIAN_ADMIN_API_KEY`); with either key variable set but empty or shorter than
+   32 bytes (generate keys with `openssl rand -hex 32`; the length is checked, not the
+   randomness); or with both set to the same value. The error names the variable,
+   never its value. `GUARDIAN_API_KEY`, the single full-access key of earlier
+   releases, is no longer read: a deployment that sets it without the admin key gets
+   an error naming `GUARDIAN_ADMIN_API_KEY` and `GUARDIAN_INGEST_API_KEY` instead,
+   and beside the admin key it is ignored.
+7. Which key: `web_requests` and `web_responses` record `auth_key`, `ingest` or
+   `admin`, for each JSON API request, never the key itself (rows from older releases
+   may say `legacy`). This is evidence, not proof: an ingest-key holder can write
+   forged `web_requests` rows.
 
 How these properties are enforced, and where they fall short, is in the
 [security architecture](../architecture/security.md), not this spec.
@@ -693,9 +690,9 @@ they follow the same retention and query rules as producer tables.
 2. `web_requests`: one row per authenticated JSON API request, written before the
    request runs: `timestamp`, `hostname`, `host`, `port`, `method`, `path` (no query
    string), `plug_route`, `scheme`, `remote_ip`, `x_forwarded_for`, `referer`,
-   `user_agent`, and `auth_key` (`ingest`, `admin` or `legacy`: which key it was),
-   never the key. Rows from older releases may also have `auth_method`
-   (`header` or `query`), from when a key could come from the URL.
+   `user_agent`, and `auth_key` (`ingest` or `admin`: which key it was), never the
+   key. Rows from older releases may instead say `legacy` in `auth_key`, and may also
+   have `auth_method` (`header` or `query`), from when a key could come from the URL.
 3. `web_responses`: the same fields plus `response_time_ms`, `response_size`, and
    `status`, written when the response is sent.
 4. `query_parse_errors`: one row per query that fails to parse, from the MCP `query`

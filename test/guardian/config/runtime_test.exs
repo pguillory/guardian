@@ -37,6 +37,7 @@ defmodule Guardian.Config.RuntimeTest do
     on_exit(fn -> File.rm_rf!(directory) end)
 
     System.delete_env("GUARDIAN_USER_ID")
+    System.delete_env("GUARDIAN_API_KEY")
     System.delete_env("GUARDIAN_INGEST_API_KEY")
     System.delete_env("GUARDIAN_ADMIN_API_KEY")
     System.delete_env("DNS_CLUSTER_QUERY")
@@ -50,31 +51,28 @@ defmodule Guardian.Config.RuntimeTest do
     %{directory: directory}
   end
 
-  test "loads production authentication configuration from the API key alone" do
-    System.put_env("GUARDIAN_API_KEY", @key)
+  test "loads production authentication configuration from the admin key alone" do
+    System.put_env("GUARDIAN_ADMIN_API_KEY", @key)
 
-    config = read_runtime_config()
+    config = read_runtime_config()[:guardian]
 
-    assert get_in(config, [:guardian, :api_key]) == @key
-    refute Keyword.has_key?(config[:guardian], :user_id)
+    assert {config[:admin_api_key], config[:ingest_api_key]} == {@key, nil}
+    refute Keyword.has_key?(config, :api_key)
+    refute Keyword.has_key?(config, :user_id)
   end
 
   test "ignores a leftover GUARDIAN_USER_ID" do
-    System.put_env("GUARDIAN_API_KEY", @key)
+    System.put_env("GUARDIAN_ADMIN_API_KEY", @key)
     System.put_env("GUARDIAN_USER_ID", "../not-even-a-uuid")
 
     config = read_runtime_config()
 
-    assert get_in(config, [:guardian, :api_key]) == @key
+    assert get_in(config, [:guardian, :admin_api_key]) == @key
     refute Keyword.has_key?(config[:guardian], :user_id)
   end
 
-  test "rejects a configuration without a full-access key" do
-    System.delete_env("GUARDIAN_API_KEY")
-
-    message =
-      "GUARDIAN_ADMIN_API_KEY must be set (or the deprecated GUARDIAN_API_KEY); " <>
-        "generate one with: openssl rand -hex 32"
+  test "rejects a configuration without the admin key" do
+    message = "GUARDIAN_ADMIN_API_KEY must be set; generate one with: openssl rand -hex 32"
 
     assert_raise RuntimeError, message, fn -> read_runtime_config() end
 
@@ -83,9 +81,44 @@ defmodule Guardian.Config.RuntimeTest do
     assert_raise RuntimeError, message, fn -> read_runtime_config() end
   end
 
+  test "names the replacement keys when only the removed GUARDIAN_API_KEY is set" do
+    message =
+      "GUARDIAN_API_KEY is no longer supported; set GUARDIAN_ADMIN_API_KEY " <>
+        "(full access) and, for clients that only send events, " <>
+        "GUARDIAN_INGEST_API_KEY; generate each with: openssl rand -hex 32"
+
+    # Any value, including an empty or short one, and with or without the ingest key.
+    for value <- [@key, "", "short"], ingest <- [nil, String.duplicate("i", 32)] do
+      System.put_env("GUARDIAN_API_KEY", value)
+
+      if ingest,
+        do: System.put_env("GUARDIAN_INGEST_API_KEY", ingest),
+        else: System.delete_env("GUARDIAN_INGEST_API_KEY")
+
+      error = assert_raise RuntimeError, fn -> read_runtime_config() end
+      assert error.message == message
+    end
+  end
+
+  test "ignores the removed GUARDIAN_API_KEY beside the admin key" do
+    ingest = String.duplicate("i", 32)
+    admin = String.duplicate("a", 32)
+    System.put_env("GUARDIAN_ADMIN_API_KEY", admin)
+    System.put_env("GUARDIAN_INGEST_API_KEY", ingest)
+
+    # Not validated (empty, short, or equal to an active key) and not loaded.
+    for value <- [@key, "", "short", admin, ingest] do
+      System.put_env("GUARDIAN_API_KEY", value)
+      config = read_runtime_config()[:guardian]
+
+      assert {config[:admin_api_key], config[:ingest_api_key]} == {admin, ingest}
+      refute Keyword.has_key?(config, :api_key)
+    end
+  end
+
   test "rejects an empty API key" do
-    for name <- ~w(GUARDIAN_API_KEY GUARDIAN_ADMIN_API_KEY GUARDIAN_INGEST_API_KEY) do
-      System.put_env("GUARDIAN_API_KEY", @key)
+    for name <- ~w(GUARDIAN_ADMIN_API_KEY GUARDIAN_INGEST_API_KEY) do
+      System.put_env("GUARDIAN_ADMIN_API_KEY", @key)
       System.put_env(name, "")
 
       assert_raise RuntimeError, "#{name} must not be empty", fn ->
@@ -96,67 +129,31 @@ defmodule Guardian.Config.RuntimeTest do
     end
   end
 
-  test "loads the ingest and admin keys, each optional beside a full-access key" do
+  test "loads the ingest key, optional beside the admin key" do
     ingest = String.duplicate("i", 32)
     admin = String.duplicate("a", 32)
 
-    System.delete_env("GUARDIAN_API_KEY")
     System.put_env("GUARDIAN_ADMIN_API_KEY", admin)
     config = read_runtime_config()[:guardian]
-
-    assert {config[:admin_api_key], config[:ingest_api_key], config[:api_key]} ==
-             {admin, nil, nil}
+    assert {config[:admin_api_key], config[:ingest_api_key]} == {admin, nil}
 
     System.put_env("GUARDIAN_INGEST_API_KEY", ingest)
     config = read_runtime_config()[:guardian]
-
-    assert {config[:admin_api_key], config[:ingest_api_key], config[:api_key]} ==
-             {admin, ingest, nil}
-
-    System.put_env("GUARDIAN_API_KEY", @key)
-    config = read_runtime_config()[:guardian]
-
-    assert {config[:admin_api_key], config[:ingest_api_key], config[:api_key]} ==
-             {admin, ingest, @key}
-
-    System.delete_env("GUARDIAN_ADMIN_API_KEY")
-    config = read_runtime_config()[:guardian]
-
-    assert {config[:admin_api_key], config[:ingest_api_key], config[:api_key]} ==
-             {nil, ingest, @key}
+    assert {config[:admin_api_key], config[:ingest_api_key]} == {admin, ingest}
   end
 
-  test "rejects two API keys with the same value, never printing it" do
-    message =
-      "GUARDIAN_INGEST_API_KEY, GUARDIAN_ADMIN_API_KEY and GUARDIAN_API_KEY must all differ"
-
-    pairs = [
-      {"GUARDIAN_INGEST_API_KEY", "GUARDIAN_ADMIN_API_KEY"},
-      {"GUARDIAN_INGEST_API_KEY", "GUARDIAN_API_KEY"},
-      {"GUARDIAN_ADMIN_API_KEY", "GUARDIAN_API_KEY"},
-    ]
-
-    for {first, second} <- pairs do
-      for name <- ~w(GUARDIAN_API_KEY GUARDIAN_ADMIN_API_KEY GUARDIAN_INGEST_API_KEY) do
-        System.delete_env(name)
-      end
-
-      if first != "GUARDIAN_ADMIN_API_KEY" and second != "GUARDIAN_API_KEY" do
-        System.put_env("GUARDIAN_API_KEY", String.duplicate("l", 32))
-      end
-
-      System.put_env(first, @key)
-      System.put_env(second, @key)
-      error = assert_raise RuntimeError, fn -> read_runtime_config() end
-      assert error.message == message
-      refute error.message =~ @key
-    end
+  test "rejects the two API keys with the same value, never printing it" do
+    System.put_env("GUARDIAN_INGEST_API_KEY", @key)
+    System.put_env("GUARDIAN_ADMIN_API_KEY", @key)
+    error = assert_raise RuntimeError, fn -> read_runtime_config() end
+    assert error.message == "GUARDIAN_INGEST_API_KEY and GUARDIAN_ADMIN_API_KEY must differ"
+    refute error.message =~ @key
   end
 
   test "production reads GUARDIAN_DATA_DIR and creates the segment directory", %{
     directory: directory,
   } do
-    System.put_env("GUARDIAN_API_KEY", @key)
+    System.put_env("GUARDIAN_ADMIN_API_KEY", @key)
 
     assert get_in(read_runtime_config(), [:guardian, :data_dir]) == directory
     assert File.dir?(Path.join(directory, "segments"))
@@ -164,7 +161,7 @@ defmodule Guardian.Config.RuntimeTest do
   end
 
   test "production refuses an unwritable data directory", %{directory: directory} do
-    System.put_env("GUARDIAN_API_KEY", @key)
+    System.put_env("GUARDIAN_ADMIN_API_KEY", @key)
     File.mkdir_p!(directory)
     File.write!(Path.join(directory, "file"), "")
     System.put_env("GUARDIAN_DATA_DIR", Path.join(directory, "file"))
@@ -177,7 +174,7 @@ defmodule Guardian.Config.RuntimeTest do
   test "on Fly, production refuses a data directory that is not a mounted volume", %{
     directory: directory,
   } do
-    System.put_env("GUARDIAN_API_KEY", @key)
+    System.put_env("GUARDIAN_ADMIN_API_KEY", @key)
     System.put_env("FLY_PRIVATE_IP", "fdaa:0:1::2")
     File.mkdir_p!(directory)
 
@@ -185,7 +182,7 @@ defmodule Guardian.Config.RuntimeTest do
   end
 
   test "on Fly, production refuses a missing data directory", %{directory: directory} do
-    System.put_env("GUARDIAN_API_KEY", @key)
+    System.put_env("GUARDIAN_ADMIN_API_KEY", @key)
     System.put_env("FLY_PRIVATE_IP", "fdaa:0:1::2")
     System.put_env("GUARDIAN_DATA_DIR", Path.join(directory, "missing"))
 
@@ -194,7 +191,7 @@ defmodule Guardian.Config.RuntimeTest do
   end
 
   test "production enables DNS discovery only when a query is set" do
-    System.put_env("GUARDIAN_API_KEY", @key)
+    System.put_env("GUARDIAN_ADMIN_API_KEY", @key)
     refute Keyword.has_key?(read_runtime_config()[:guardian], :dns_cluster_query)
 
     System.put_env("DNS_CLUSTER_QUERY", "my-app.internal")
@@ -207,14 +204,14 @@ defmodule Guardian.Config.RuntimeTest do
   end
 
   test "reads a positive mutable segment maximum age override" do
-    System.put_env("GUARDIAN_API_KEY", @key)
+    System.put_env("GUARDIAN_ADMIN_API_KEY", @key)
     System.put_env("GUARDIAN_MUTABLE_SEGMENT_MAX_AGE_MS", "60000")
 
     assert get_in(read_runtime_config(), [:guardian, :mutable_segment_max_age_ms]) == 60_000
   end
 
   test "rejects invalid mutable segment age overrides" do
-    System.put_env("GUARDIAN_API_KEY", @key)
+    System.put_env("GUARDIAN_ADMIN_API_KEY", @key)
 
     for value <- ["", "0", "-1", "1.5", "100ms"] do
       System.put_env("GUARDIAN_MUTABLE_SEGMENT_MAX_AGE_MS", value)
@@ -226,12 +223,10 @@ defmodule Guardian.Config.RuntimeTest do
   end
 
   test "rejects an API key shorter than 32 bytes" do
-    for name <- ~w(GUARDIAN_API_KEY GUARDIAN_ADMIN_API_KEY GUARDIAN_INGEST_API_KEY),
+    for name <- ~w(GUARDIAN_ADMIN_API_KEY GUARDIAN_INGEST_API_KEY),
         key <- ["k", String.duplicate("k", 31)] do
-      for other <- ~w(GUARDIAN_ADMIN_API_KEY GUARDIAN_INGEST_API_KEY),
-          do: System.delete_env(other)
-
-      System.put_env("GUARDIAN_API_KEY", @key)
+      System.delete_env("GUARDIAN_INGEST_API_KEY")
+      System.put_env("GUARDIAN_ADMIN_API_KEY", @key)
       System.put_env(name, key)
 
       assert_raise RuntimeError, ~r/^#{name} must be at least 32 bytes/, fn ->
@@ -239,16 +234,17 @@ defmodule Guardian.Config.RuntimeTest do
       end
     end
 
-    System.delete_env("GUARDIAN_ADMIN_API_KEY")
     System.delete_env("GUARDIAN_INGEST_API_KEY")
 
     # Bytes, not characters: 11 three-byte characters are 33 bytes.
-    System.put_env("GUARDIAN_API_KEY", String.duplicate("€", 11))
-    assert get_in(read_runtime_config(), [:guardian, :api_key]) == String.duplicate("€", 11)
+    System.put_env("GUARDIAN_ADMIN_API_KEY", String.duplicate("€", 11))
+
+    assert get_in(read_runtime_config(), [:guardian, :admin_api_key]) ==
+             String.duplicate("€", 11)
   end
 
   test "ignores the removed GUARDIAN_ALLOW_QUERY_API_KEY" do
-    System.put_env("GUARDIAN_API_KEY", @key)
+    System.put_env("GUARDIAN_ADMIN_API_KEY", @key)
 
     for value <- ["true", "false", "yes"] do
       System.put_env("GUARDIAN_ALLOW_QUERY_API_KEY", value)
@@ -257,7 +253,7 @@ defmodule Guardian.Config.RuntimeTest do
   end
 
   test "ignores the removed GUARDIAN_QUERY_MAX_HEAP_MB" do
-    System.put_env("GUARDIAN_API_KEY", @key)
+    System.put_env("GUARDIAN_ADMIN_API_KEY", @key)
 
     for value <- ["0", "512", "lots"] do
       System.put_env("GUARDIAN_QUERY_MAX_HEAP_MB", value)
@@ -266,7 +262,7 @@ defmodule Guardian.Config.RuntimeTest do
   end
 
   test "reads the HTTP port" do
-    System.put_env("GUARDIAN_API_KEY", @key)
+    System.put_env("GUARDIAN_ADMIN_API_KEY", @key)
     refute Keyword.has_key?(read_runtime_config()[:guardian], :http_port)
 
     System.put_env("GUARDIAN_PORT", "9090")
@@ -283,7 +279,7 @@ defmodule Guardian.Config.RuntimeTest do
   end
 
   test "counter memory defaults to Store's 64 MiB and accepts positive MiB overrides" do
-    System.put_env("GUARDIAN_API_KEY", @key)
+    System.put_env("GUARDIAN_ADMIN_API_KEY", @key)
     refute Keyword.has_key?(read_runtime_config()[:guardian], :counter_memory_budget_bytes)
     store = start_supervised!({Guardian.Counters.Store, name: nil})
 
@@ -307,7 +303,7 @@ defmodule Guardian.Config.RuntimeTest do
   end
 
   test "the configured counter byte budget reaches Store through application environment" do
-    System.put_env("GUARDIAN_API_KEY", @key)
+    System.put_env("GUARDIAN_ADMIN_API_KEY", @key)
     System.put_env("GUARDIAN_COUNTER_MEMORY_MB", "2")
     budget = get_in(read_runtime_config(), [:guardian, :counter_memory_budget_bytes])
     Guardian.Test.Env.put(counter_memory_budget_bytes: budget)

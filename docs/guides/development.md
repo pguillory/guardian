@@ -88,8 +88,7 @@ allocate gigabytes and are excluded; run them by hand with `mix test --only larg
 ## Running locally
 
 `iex -S mix`, `mix run --no-halt` and `make console` need a full-access key of at
-least 32 bytes in the environment, `GUARDIAN_ADMIN_API_KEY` (or the deprecated
-`GUARDIAN_API_KEY`), for example
+least 32 bytes in the environment, `GUARDIAN_ADMIN_API_KEY`, for example
 `export GUARDIAN_ADMIN_API_KEY="$(openssl rand -hex 32)"`, and serve HTTP on port 8080.
 Set `GUARDIAN_INGEST_API_KEY` too, to a different value, to try the insert-only key.
 

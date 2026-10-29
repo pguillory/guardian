@@ -17,7 +17,7 @@ defmodule Guardian.Config.ConfigTest do
   test "tests log warnings and use the test keys" do
     config = read(:test)
     assert config[:logger][:level] == :warning
-    assert config[:guardian][:api_key] == "guardian_test_api_key"
+    refute Keyword.has_key?(config[:guardian], :api_key)
     assert config[:guardian][:admin_api_key] == "guardian_test_admin_api_key"
     assert config[:guardian][:ingest_api_key] == "guardian_test_ingest_api_key"
   end

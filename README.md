@@ -160,6 +160,15 @@ configuration. When embedding Guardian as a Mix dependency, configure the
 [configuration reference](docs/reference/configuration.md) for the release settings
 and [application keys](docs/architecture/system.md#9-configuration).
 
+## Upgrading from a single key
+
+Guardian no longer reads `GUARDIAN_API_KEY`, the one full-access key of early releases.
+Set `GUARDIAN_ADMIN_API_KEY` (full access) and, for applications that only send
+events, `GUARDIAN_INGEST_API_KEY`, each from `openssl rand -hex 32`, and move your
+callers to them. A deployment that sets only the old key refuses to start, with an
+error naming the two. See [drop-legacy-api-key](docs/changes/drop-legacy-api-key.md)
+and, on Fly, [the guide](docs/guides/fly.md) for setting secrets.
+
 ## Documentation
 
 Running it:

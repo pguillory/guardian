@@ -14,8 +14,7 @@ Include what you found, how to reproduce it, and the version or commit you teste
 
 Guardian is single-tenant: the admin key grants full access to every table and the
 rules, and its holders are trusted. The insert-only ingest key is meant for
-applications: it can send events but not run queries or read or change rules. The
-deprecated `GUARDIAN_API_KEY` has full access like the admin key while it is set.
+applications: it can send events but not run queries or read or change rules.
 Reports that matter most:
 
 1. Reading or writing event data without a key.

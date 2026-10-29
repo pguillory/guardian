@@ -18,9 +18,8 @@ defmodule Guardian.Web.MCP.Server do
   ## Authentication
 
   Uses the same `x-api-key` header check as the JSON API, but `Guardian.Web.MCP.Router`
-  requires a full-access key (the admin key, or the deprecated `GUARDIAN_API_KEY`),
-  which grants the whole event store; the insert-only ingest key gets 403. No identity
-  is attached.
+  requires the full-access admin key, which grants the whole event store; the
+  insert-only ingest key gets 403. No identity is attached.
   """
 
   use Anubis.Server,

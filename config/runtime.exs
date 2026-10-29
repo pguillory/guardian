@@ -27,11 +27,10 @@ if config_env() != :test do
       end
   end
 
-  # API keys: GUARDIAN_INGEST_API_KEY may only send events; GUARDIAN_ADMIN_API_KEY
-  # grants everything, as does the deprecated GUARDIAN_API_KEY while it is set. Each is
-  # optional, but at least one full-access key is required. Values are never printed.
+  # API keys: GUARDIAN_INGEST_API_KEY may only send events; GUARDIAN_ADMIN_API_KEY,
+  # required, grants everything. Values are never printed.
   api_keys =
-    for name <- ~w(GUARDIAN_INGEST_API_KEY GUARDIAN_ADMIN_API_KEY GUARDIAN_API_KEY) do
+    for name <- ~w(GUARDIAN_INGEST_API_KEY GUARDIAN_ADMIN_API_KEY) do
       case System.get_env(name) do
         nil ->
           {name, nil}
@@ -48,28 +47,28 @@ if config_env() != :test do
       end
     end
 
-  %{
-    "GUARDIAN_INGEST_API_KEY" => ingest_api_key,
-    "GUARDIAN_ADMIN_API_KEY" => admin_api_key,
-    "GUARDIAN_API_KEY" => legacy_api_key,
-  } = Map.new(api_keys)
+  %{"GUARDIAN_INGEST_API_KEY" => ingest_api_key, "GUARDIAN_ADMIN_API_KEY" => admin_api_key} =
+    Map.new(api_keys)
 
-  if admin_api_key == nil and legacy_api_key == nil do
-    raise "GUARDIAN_ADMIN_API_KEY must be set (or the deprecated GUARDIAN_API_KEY); " <>
-            "generate one with: openssl rand -hex 32"
+  # GUARDIAN_API_KEY, the single full-access key from before the split, is no longer
+  # read. A deployment that still sets it in place of the admin key gets an error
+  # naming the replacements; alongside the admin key it is ignored.
+  if admin_api_key == nil do
+    if System.get_env("GUARDIAN_API_KEY") != nil do
+      raise "GUARDIAN_API_KEY is no longer supported; set GUARDIAN_ADMIN_API_KEY " <>
+              "(full access) and, for clients that only send events, " <>
+              "GUARDIAN_INGEST_API_KEY; generate each with: openssl rand -hex 32"
+    else
+      raise "GUARDIAN_ADMIN_API_KEY must be set; generate one with: openssl rand -hex 32"
+    end
   end
 
   # A shared value would give the ingest key full access, and make keys indistinguishable.
-  set_keys = for {_name, key} <- api_keys, key != nil, do: key
-
-  if length(Enum.uniq(set_keys)) != length(set_keys) do
-    raise "GUARDIAN_INGEST_API_KEY, GUARDIAN_ADMIN_API_KEY and GUARDIAN_API_KEY must all differ"
+  if ingest_api_key == admin_api_key do
+    raise "GUARDIAN_INGEST_API_KEY and GUARDIAN_ADMIN_API_KEY must differ"
   end
 
-  config :guardian,
-    ingest_api_key: ingest_api_key,
-    admin_api_key: admin_api_key,
-    api_key: legacy_api_key
+  config :guardian, ingest_api_key: ingest_api_key, admin_api_key: admin_api_key
 
   case System.get_env("GUARDIAN_PORT") do
     value when value in [nil, ""] ->

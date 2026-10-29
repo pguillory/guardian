@@ -4,7 +4,7 @@ defmodule Guardian.Web.MCP.BodyTest do
 
   import ExUnit.CaptureLog
 
-  @api_key Application.compile_env!(:guardian, :api_key)
+  @api_key Application.compile_env!(:guardian, :admin_api_key)
   @marker "PRIVATE_MCP_MARKER_8273"
 
   defp post(body, headers \\ [{"x-api-key", @api_key}]) do

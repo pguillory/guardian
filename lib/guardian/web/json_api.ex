@@ -21,9 +21,8 @@ defmodule Guardian.Web.JsonApi do
   A key in the URL (`?api_key=...`) is never accepted. `Guardian.Web.Auth.check_conn/2`
   decides.
   `POST /send_events` accepts the insert-only ingest key (`GUARDIAN_INGEST_API_KEY`) as
-  well as the full-access admin key (`GUARDIAN_ADMIN_API_KEY`) and the deprecated
-  `GUARDIAN_API_KEY`. Any other path needs a full-access key, so the ingest key gets
-  403 there.
+  well as the full-access admin key (`GUARDIAN_ADMIN_API_KEY`). Any other path needs
+  the admin key, so the ingest key gets 403 there.
 
   ## Endpoints
 

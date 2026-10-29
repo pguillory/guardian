@@ -343,9 +343,10 @@ privately, not in this repository.
 - [x] readme-walkthrough: the README walks through one example in three parts
       (send events and ask an agent, block with a rule, rate limit with a TRACK
       counter), with running and connecting after it (`docs/changes/readme-walkthrough.md`)
-- [ ] drop-legacy-api-key: the maintainer's deployment retired `GUARDIAN_API_KEY` on
-      2026-10-28, so its support can now be removed; the boot error for a deployment that still sets only it must name
-      the replacement variables, with a README note (`docs/changes/split-api-keys.md`)
+- [x] drop-legacy-api-key: `GUARDIAN_API_KEY` is no longer read; a deployment that
+      sets only it refuses to start with an error naming `GUARDIAN_ADMIN_API_KEY` and
+      `GUARDIAN_INGEST_API_KEY`, and beside the admin key it is ignored
+      (`docs/changes/drop-legacy-api-key.md`)
 - [x] fly-example-config: the repository carried `fly.example.toml`, a template; a
       deployment's own `fly.toml` is gitignored or kept outside the tree; superseded
       by fly-commands-guide (`docs/changes/fly-example-config.md`)

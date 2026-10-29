@@ -3,7 +3,7 @@ defmodule Guardian.Web.LoggerTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog
 
-  @api_key Application.compile_env!(:guardian, :api_key)
+  @api_key Application.compile_env!(:guardian, :admin_api_key)
 
   # A valid send_events body that stores nothing.
   @empty_batch ~s({"table": "logger_test", "events": []})
@@ -74,7 +74,7 @@ defmodule Guardian.Web.LoggerTest do
              "method" => "POST",
              "path" => "/api/json/send_events",
              "plug_route" => "/api/json/*glob/send_events",
-             "auth_key" => "legacy",
+             "auth_key" => "admin",
            } =
              request
 

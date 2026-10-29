@@ -268,7 +268,10 @@ defmodule Guardian.EngineTest do
             "events" => [%{"value" => 1}, %{"value" => 2}],
           })
           |> Plug.Conn.put_req_header("content-type", "application/json")
-          |> Plug.Conn.put_req_header("x-api-key", Application.fetch_env!(:guardian, :api_key))
+          |> Plug.Conn.put_req_header(
+            "x-api-key",
+            Application.fetch_env!(:guardian, :admin_api_key)
+          )
           |> Guardian.Web.MainRouter.call(nil)
 
         assert conn.status == 200

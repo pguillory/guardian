@@ -3,15 +3,13 @@
 ## Authentication
 
 All `/api/json` and `/mcp` requests need a key in the `x-api-key` header. A key in
-the URL (`?api_key=`) is never accepted. There are two keys, plus a deprecated one:
+the URL (`?api_key=`) is never accepted. There are two keys:
 
 - The ingest key (`GUARDIAN_INGEST_API_KEY`) is insert-only: it is accepted by
   `POST /api/json/send_events` and nothing else. Give it to the applications that
   produce events.
 - The admin key (`GUARDIAN_ADMIN_API_KEY`) has full access: `/mcp` (queries, rules,
   ingestion) and `send_events`. It is for the operator and their agents.
-- `GUARDIAN_API_KEY` is deprecated. While set, it has full access like the admin key,
-  so existing callers keep working; a later release removes it.
 
 A missing key gets 401 `api_key required`, a wrong key 401 `unauthorized`, and the
 ingest key anywhere but `POST /api/json/send_events` 403 `this key can only send
@@ -184,7 +182,8 @@ Guardian writes some tables of its own:
 
 - `system_stats`: Erlang VM metrics, once a second.
 - `web_requests` and `web_responses`: one pair per authenticated JSON API request.
-  `auth_key` says which key it was (`ingest`, `admin` or `legacy`); the key itself isn't
+  `auth_key` says which key it was (`ingest` or `admin`; rows from older releases may
+  say `legacy`); the key itself isn't
   recorded, with one exception: the `referer` header is stored
   verbatim, so a referring URL that carries `?api_key=` records the key (see the
   [security architecture](../architecture/security.md)). MCP calls aren't logged here.

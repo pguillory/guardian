@@ -2,7 +2,6 @@ defmodule Guardian.Web.JsonApiTest do
   # Not async: requests write the shared web_requests and web_responses tables.
   use ExUnit.Case, async: false
 
-  @api_key Application.compile_env!(:guardian, :api_key)
   @admin_api_key Application.compile_env!(:guardian, :admin_api_key)
   @ingest_api_key Application.compile_env!(:guardian, :ingest_api_key)
 
@@ -44,7 +43,7 @@ defmodule Guardian.Web.JsonApiTest do
 
   test "/api/json/send_events" do
     assert json_post("/api/json/send_events",
-             api_key: @api_key,
+             api_key: @admin_api_key,
              table: "events",
              events: [%{"test_string" => "abc", "test_number" => 123}],
              return_keys: ["test_string"]
@@ -59,7 +58,7 @@ defmodule Guardian.Web.JsonApiTest do
     events = [%{"value" => 1, "other" => "a"}, nil, %{"value" => 2, "other" => "b"}]
 
     assert json_post("/api/json/send_events",
-             api_key: @api_key,
+             api_key: @admin_api_key,
              table: table,
              events: events,
              return_keys: ["value"]
@@ -83,7 +82,7 @@ defmodule Guardian.Web.JsonApiTest do
 
       assert json_post(
                "/api/json/send_events",
-               [api_key: @api_key, table: table, events: [event]] ++ keys
+               [api_key: @admin_api_key, table: table, events: [event]] ++ keys
              ) == %{
                "status" => 200,
                "results" => [%{"success" => true, "event" => expected}],
@@ -96,12 +95,17 @@ defmodule Guardian.Web.JsonApiTest do
   test "/api/json/send_events returns 200 for empty and all-failed batches" do
     table = "json_failed_#{System.unique_integer([:positive])}"
 
-    assert json_post("/api/json/send_events", api_key: @api_key, table: table, events: []) == %{
-             "status" => 200,
-             "results" => [],
-           }
+    assert json_post("/api/json/send_events", api_key: @admin_api_key, table: table, events: []) ==
+             %{
+               "status" => 200,
+               "results" => [],
+             }
 
-    assert json_post("/api/json/send_events", api_key: @api_key, table: table, events: [nil, 1]) ==
+    assert json_post("/api/json/send_events",
+             api_key: @admin_api_key,
+             table: table,
+             events: [nil, 1]
+           ) ==
              %{
                "status" => 200,
                "results" =>
@@ -125,7 +129,7 @@ defmodule Guardian.Web.JsonApiTest do
             Enum.map([true, 1, "value", %{}, ["value", 1], [nil]], fn keys ->
               [table: table, events: [%{"value" => 1}], return_keys: keys]
             end) do
-      result = json_post("/api/json/send_events", [api_key: @api_key] ++ body)
+      result = json_post("/api/json/send_events", [api_key: @admin_api_key] ++ body)
       assert %{"status" => 400, "info" => message} = result
       assert is_binary(message)
       assert Map.keys(result) |> Enum.sort() == ["info", "status"]
@@ -149,7 +153,7 @@ defmodule Guardian.Web.JsonApiTest do
     for table <- ["a.b", "../escape", "a/b", "", 123, "my-events", "MyEvents", "1a", "select"] do
       result =
         json_post("/api/json/send_events",
-          api_key: @api_key,
+          api_key: @admin_api_key,
           table: table,
           events: [%{"x" => 1}]
         )
@@ -202,11 +206,11 @@ defmodule Guardian.Web.JsonApiTest do
       body = @empty_batch
       headers = [{"content-type", "application/json"}]
 
-      conn = raw_post("/api/json/send_events", body, [{"x-api-key", @api_key} | headers])
+      conn = raw_post("/api/json/send_events", body, [{"x-api-key", @admin_api_key} | headers])
       assert conn.status == 200
       assert Jason.decode!(conn.resp_body)["results"] == []
 
-      for key <- [@api_key, @admin_api_key, @ingest_api_key] do
+      for key <- [@admin_api_key, @ingest_api_key] do
         conn = raw_post("/api/json/send_events?api_key=#{key}", body, headers)
         assert {conn.status, Jason.decode!(conn.resp_body)["info"]} == {401, "api_key required"}
         assert %Plug.Conn.Unfetched{} = conn.body_params
@@ -220,9 +224,6 @@ defmodule Guardian.Web.JsonApiTest do
       json = {"content-type", "application/json"}
       agent = {"user-agent", marker}
 
-      assert raw_post("/api/json/send_events", body, [{"x-api-key", @api_key}, json, agent]).status ==
-               200
-
       for key <- [@admin_api_key, @ingest_api_key] do
         assert raw_post("/api/json/send_events", body, [{"x-api-key", key}, json, agent]).status ==
                  200
@@ -234,9 +235,9 @@ defmodule Guardian.Web.JsonApiTest do
         )
 
       # auth_method is no longer recorded: the header is the only way to send a key.
-      assert Enum.sort(rows) == [[nil, "admin"], [nil, "ingest"], [nil, "legacy"]]
+      assert Enum.sort(rows) == [[nil, "admin"], [nil, "ingest"]]
 
-      for key <- [@api_key, @admin_api_key, @ingest_api_key], do: refute(inspect(rows) =~ key)
+      for key <- [@admin_api_key, @ingest_api_key], do: refute(inspect(rows) =~ key)
     end
 
     # Both authentication and the JSON failure boundary send a response and halt.
@@ -249,7 +250,7 @@ defmodule Guardian.Web.JsonApiTest do
     end
 
     test "with a key, body failures get 400, 413, or 415 with a fixed message" do
-      key = {"x-api-key", @api_key}
+      key = {"x-api-key", @admin_api_key}
       json = {"content-type", "application/json"}
 
       assert error_response("/api/json/send_events", "{not json", [key, json]) ==
@@ -280,7 +281,7 @@ defmodule Guardian.Web.JsonApiTest do
     end
 
     test "with a key, an undecodable query string gets 400 or 414 with a fixed message" do
-      key = {"x-api-key", @api_key}
+      key = {"x-api-key", @admin_api_key}
       json = {"content-type", "application/json"}
       body = @empty_batch
       nested = "x" <> String.duplicate("[a]", 40) <> "=1"
@@ -335,7 +336,7 @@ defmodule Guardian.Web.JsonApiTest do
     end
 
     test "every key can send events" do
-      for key <- [@api_key, @admin_api_key, @ingest_api_key] do
+      for key <- [@admin_api_key, @ingest_api_key] do
         conn = scoped_request(:post, "/api/json/send_events", key)
         assert {conn.status, Jason.decode!(conn.resp_body)["results"]} == {200, []}
       end
@@ -356,11 +357,9 @@ defmodule Guardian.Web.JsonApiTest do
       end
     end
 
-    test "the JSON query endpoint is gone: a full-access key gets 404" do
-      for key <- [@api_key, @admin_api_key] do
-        conn = scoped_request(:post, "/api/json/query", key)
-        assert {conn.status, Jason.decode!(conn.resp_body)} == {404, %{"status" => 404}}
-      end
+    test "the JSON query endpoint is gone: the admin key gets 404" do
+      conn = scoped_request(:post, "/api/json/query", @admin_api_key)
+      assert {conn.status, Jason.decode!(conn.resp_body)} == {404, %{"status" => 404}}
     end
   end
 
@@ -399,7 +398,7 @@ defmodule Guardian.Web.JsonApiTest do
   test "a response already sent is preserved when the JSON boundary catches a failure" do
     conn =
       Plug.Test.conn(:get, "/status")
-      |> Plug.Conn.put_req_header("x-api-key", @api_key)
+      |> Plug.Conn.put_req_header("x-api-key", @admin_api_key)
       |> Plug.Conn.send_resp(202, "already sent")
 
     log =
@@ -416,7 +415,7 @@ defmodule Guardian.Web.JsonApiTest do
   test "unwrapped body failures explicitly close HTTP/1 connections" do
     conn =
       Plug.Test.conn(:post, "/send_events", "{malformed")
-      |> Plug.Conn.put_req_header("x-api-key", @api_key)
+      |> Plug.Conn.put_req_header("x-api-key", @admin_api_key)
       |> Plug.Conn.put_req_header("content-type", "application/json")
       |> Guardian.Web.JsonApi.call([])
 
@@ -439,7 +438,9 @@ defmodule Guardian.Web.JsonApiTest do
       conn = Plug.Test.conn(:get, "/status")
 
       conn =
-        if authenticated?, do: Plug.Conn.put_req_header(conn, "x-api-key", @api_key), else: conn
+        if authenticated?,
+          do: Plug.Conn.put_req_header(conn, "x-api-key", @admin_api_key),
+          else: conn
 
       conn = Plug.Conn.register_before_send(conn, fn _conn -> raise error end)
 
@@ -467,7 +468,7 @@ defmodule Guardian.Web.JsonApiTest do
           :gen_tcp.send(socket, [
             "POST /api/json/send_events HTTP/1.1\r\nHost: localhost\r\n",
             "x-api-key: ",
-            @api_key,
+            @admin_api_key,
             "\r\nContent-Type: application/json\r\n",
             "Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
             chunks,
@@ -503,7 +504,7 @@ defmodule Guardian.Web.JsonApiTest do
           :gen_tcp.send(socket, [
             "POST /api/json/send_events HTTP/1.1\r\nHost: localhost\r\n",
             "x-api-key: ",
-            @api_key,
+            @admin_api_key,
             "\r\nContent-Type: application/json\r\n",
             "Content-Length: ",
             Integer.to_string(byte_size(body)),
@@ -545,7 +546,7 @@ defmodule Guardian.Web.JsonApiTest do
   end
 
   test "404" do
-    assert json_get("/api/json/wrong", api_key: @api_key) == %{
+    assert json_get("/api/json/wrong", api_key: @admin_api_key) == %{
              "status" => 404,
            }
   end

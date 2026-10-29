@@ -3,7 +3,7 @@ defmodule Guardian.Rules.CounterIngestTest do
   import Guardian.Test.Rules
   alias Guardian.Counters.Store
 
-  @api_key Application.compile_env!(:guardian, :api_key)
+  @api_key Application.compile_env!(:guardian, :admin_api_key)
 
   setup do
     # Named counter processes and cooldowns are shared; these tests are serial.

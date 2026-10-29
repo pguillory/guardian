@@ -3,7 +3,7 @@ defmodule Guardian.Web.MCP.SessionTest do
   # re-initialize after a server restart or session expiry.
   use ExUnit.Case, async: false
 
-  @api_key Application.compile_env!(:guardian, :api_key)
+  @api_key Application.compile_env!(:guardian, :admin_api_key)
 
   defp mcp(method, body, headers, accept \\ "application/json, text/event-stream") do
     body = if body, do: Jason.encode!(body), else: ""

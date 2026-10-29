@@ -4,9 +4,8 @@ defmodule Guardian.Web.MCP.Router do
 
   Handles authentication and forwards requests to the Anubis MCP server.
   Uses the same key check as the JSON API (`Guardian.Web.Auth.check_conn/2`): the
-  `x-api-key` header only. Every request needs a full-access key (the
-  admin key, or the deprecated `GUARDIAN_API_KEY`); the insert-only ingest key gets
-  403.
+  `x-api-key` header only. Every request needs the full-access admin key; the
+  insert-only ingest key gets 403.
   """
 
   use Plug.Router
@@ -38,11 +37,7 @@ defmodule Guardian.Web.MCP.Router do
   # body decoding, including requests on an existing session.
   defp auth(conn, _opts) do
     case Guardian.Web.Auth.check_conn(conn, :full) do
-      {:ok, key} ->
-        # MCP requests are not recorded in web_requests, so the legacy key is logged
-        # here instead (never the key itself), at most once a minute, as evidence for
-        # whether GUARDIAN_API_KEY is still needed.
-        if key == :legacy, do: Guardian.Web.Auth.note_legacy_key_use("/mcp")
+      {:ok, _key} ->
         conn
 
       {:error, :unauthorized} ->

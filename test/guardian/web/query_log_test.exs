@@ -5,7 +5,7 @@ defmodule Guardian.Web.QueryLogTest do
 
   alias Guardian.Web.QueryLog
 
-  @api_key Application.compile_env!(:guardian, :api_key)
+  @api_key Application.compile_env!(:guardian, :admin_api_key)
 
   defp marker do
     "marker_#{System.unique_integer([:positive])}"

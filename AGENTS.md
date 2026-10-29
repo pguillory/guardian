@@ -57,12 +57,12 @@ bounded peer calls and aggregate defaults on failure; final UNSETs still run.
 Counters are advisory, lose state on restart/eviction/cluster changes and use private
 arrival metadata, never caller timestamps. There is no PostgreSQL metadata store, Memcached
 runtime, or MaxMind service. Guardian is single-user: authentication is by environment-configured API keys (each at
-least 32 bytes and all distinct, only in the `x-api-key` header, never in the URL).
+least 32 bytes and distinct from each other, only in the `x-api-key` header, never in the URL).
 The insert-only
 `GUARDIAN_INGEST_API_KEY` is accepted only by `POST /api/json/send_events`; the
 full-access `GUARDIAN_ADMIN_API_KEY` grants the whole event store through MCP (queries,
-rules, ingestion) and `send_events`. The deprecated `GUARDIAN_API_KEY` has full access
-like the admin key while set. Boot needs at least one full-access key. Queries run only
+rules, ingestion) and `send_events`. Boot needs the admin key; the removed
+`GUARDIAN_API_KEY` is not read (`docs/changes/drop-legacy-api-key.md`). Queries run only
 through MCP; there is no HTTP query endpoint. There is no user namespace.
 
 ## Design Principles
@@ -119,9 +119,8 @@ SQL -> Guardian.AST -> Guardian.Query.Resolver -> Guardian.Query.Planner
 Storage uses mutable, full, persisted, and loaded segment managers. Files are named
 `{table}.{segment_id}.seg`.
 
-Authentication reads only `GUARDIAN_INGEST_API_KEY`, `GUARDIAN_ADMIN_API_KEY` and the
-deprecated `GUARDIAN_API_KEY` (`Guardian.Web.Auth.check_conn/2`); each may rotate
-freely and independently.
+Authentication reads only `GUARDIAN_INGEST_API_KEY` and `GUARDIAN_ADMIN_API_KEY`
+(`Guardian.Web.Auth.check_conn/2`); each may rotate freely and independently.
 
 Node naming (`rel/env.sh.eex`) has three modes: Fly.io (`FLY_PRIVATE_IP`), a cluster
 member elsewhere (`GUARDIAN_NODE_HOST`), and a single node (`guardian@localhost`, with
@@ -138,8 +137,7 @@ own `fly.toml` is gitignored or kept outside the repository, and no deployment's
 configuration belongs in the tree. Keep the guide free of Guardian settings (the image
 sets `GUARDIAN_DATA_DIR`) and its `kill_timeout` at 150 (`test/guardian/deployment_test.exs`
 checks both). The README has no deploy commands: it links the guide. The API keys
-(`GUARDIAN_ADMIN_API_KEY`, `GUARDIAN_INGEST_API_KEY`, and the deprecated
-`GUARDIAN_API_KEY` while set) and `RELEASE_COOKIE` are Fly secrets, plus the optional `TUNNEL_TOKEN` that starts the
+(`GUARDIAN_ADMIN_API_KEY`, `GUARDIAN_INGEST_API_KEY`) and `RELEASE_COOKIE` are Fly secrets, plus the optional `TUNNEL_TOKEN` that starts the
 Cloudflare Tunnel connector (`bin/fly-start`, the image's entry point); segments live on
 a per-machine volume at `GUARDIAN_DATA_DIR=/data`. Keep Fly's `kill_timeout` above
 Storage's shutdown budget plus the connector's drain (20 s at worst). The rest of

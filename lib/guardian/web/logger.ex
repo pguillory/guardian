@@ -14,7 +14,7 @@ defmodule Guardian.Web.Logger do
     x_forwarded_for = Plug.Conn.get_req_header(conn, "x-forwarded-for") |> List.first()
     referer = Plug.Conn.get_req_header(conn, "referer") |> List.first()
     user_agent = Plug.Conn.get_req_header(conn, "user-agent") |> List.first()
-    # Which key ("ingest", "admin" or "legacy"), never the key itself.
+    # Which key ("ingest" or "admin"), never the key itself.
     auth_key = conn.private |> Map.get(:guardian_auth_key) |> atom_name()
 
     # The fields `web_requests` and `web_responses` share. Host, port, method and path

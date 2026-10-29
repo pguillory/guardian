@@ -1,7 +1,7 @@
 defmodule Guardian.Web.IngestRetryTest do
   use ExUnit.Case, async: false
 
-  @api_key Application.compile_env!(:guardian, :api_key)
+  @api_key Application.compile_env!(:guardian, :admin_api_key)
 
   defp table do
     "ingest_retry_#{System.unique_integer([:positive])}"

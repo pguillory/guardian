@@ -1,5 +1,8 @@
 # split-api-keys: an insert-only key, a full-access key, and HTTP for ingestion only
 
+[drop-legacy-api-key](drop-legacy-api-key.md) later removed the deprecated
+`GUARDIAN_API_KEY`; what follows describes this change as made.
+
 ## Problem
 
 Guardian had one API key, and it granted everything: queries over HTTP and MCP, rule

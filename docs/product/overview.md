@@ -57,12 +57,10 @@ queries.
    The ingest key (`GUARDIAN_INGEST_API_KEY`) is insert-only: it works on the HTTP
    event endpoint and nowhere else, so an application holding it can add events but
    not query them or change rules. The admin key (`GUARDIAN_ADMIN_API_KEY`) has full
-   access, through MCP, to every table and the rules. The older single key
-   (`GUARDIAN_API_KEY`) is deprecated; while set it still has full access, so callers
-   can move over without being refused. There are no users or namespaces. A key goes
-   in the `x-api-key` header, never in the URL. Guardian records, for each JSON API
-   request, which key was used, never the key. Without a key, only the `/health`
-   liveness check works.
+   access, through MCP, to every table and the rules. There are no users or
+   namespaces. A key goes in the `x-api-key` header, never in the URL. Guardian
+   records, for each JSON API request, which key was used, never the key. Without a
+   key, only the `/health` liveness check works.
 2. Writing: a request names a table and carries a list of events. Each event succeeds
    or fails on its own, and the response reports one ordered result per event. Values
    that cannot be stored are dropped from the event rather than failing it. Guardian
