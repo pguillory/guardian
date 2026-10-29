@@ -449,6 +449,8 @@ when it needs one. This file is public: see the change-tracking rules in AGENTS.
       readiness check is paid once per query and resolve and FROM see the same nodes
 - [x] json-query-error-responses: obsolete; split-api-keys removed JSON `/query`
       (`docs/changes/split-api-keys.md`)
+- [x] not-in: `x NOT IN [...]` did not parse (only `NOT x IN [...]`); it is now the
+      infix negation, like NOT LIKE (`docs/changes/not-in.md`)
 - [x] in-parenthesized-list: `x IN ('a')` was IN over a grouped string, null, so a
       rule using it silently never matched; a parenthesized list after IN is now the
       parse error "IN takes a list in square brackets" (`docs/changes/in-parenthesized-list.md`)

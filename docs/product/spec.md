@@ -594,7 +594,7 @@ the shipped surface:
    (repeatable, ANDed), `GROUP BY`, `HAVING`, `ORDER BY ... ASC|DESC`, `LIMIT` (integer
    literal only). `SELECT *` expands to every column of the table across all machines.
 3. Expressions: arithmetic, `||`, comparisons including null-safe `<=>`, `IS [NOT]`,
-   `AND/OR/NOT`, `BETWEEN`, `IN [list]` (a parenthesized list such as `('a', 'b')` or
+   `AND/OR/NOT`, `BETWEEN`, `[NOT] IN [list]` (a parenthesized list such as `('a', 'b')` or
    `('a')` is a parse error), `LIKE` and `ILIKE` (`%` any run, `_` one
    character, no escape; linear time; a pattern over 1,000 characters besides `%` gives
    null), `RLIKE` (Perl-compatible regular expressions), `CASE`, `INTERVAL n UNIT`,
@@ -605,7 +605,7 @@ the shipped surface:
    float too large to represent. The smallest 64-bit integer is written
    `-9223372036854775807 - 1`.
    Precedence, tightest first: `* /`; `+ - ||`; comparisons, `IS [NOT]`,
-   `[NOT] LIKE|ILIKE|RLIKE`, `IN`; `BETWEEN`; `NOT`; `AND`; `OR`. So `NOT a = b` is
+   `[NOT] LIKE|ILIKE|RLIKE`, `[NOT] IN`; `BETWEEN`; `NOT`; `AND`; `OR`. So `NOT a = b` is
    `NOT (a = b)`, as in standard SQL.
    Integers are 64-bit, and integer arithmetic (`+ - *`, unary `-`, `abs`, `div`,
    `mod`, and `sum`) wraps around on overflow, two's complement. Numeric functions and

@@ -11,6 +11,7 @@ defmodule Guardian.AST.ParserTest do
   alias Guardian.AST.Node.Operators.IsOperator
   alias Guardian.AST.Node.Operators.ListLiteral
   alias Guardian.AST.Node.Operators.MultiplyOperator
+  alias Guardian.AST.Node.Operators.NotInOperator
   alias Guardian.AST.Node.Operators.NotOperator
   alias Guardian.AST.Node.Operators.RlikeOperator
 
@@ -528,6 +529,7 @@ defmodule Guardian.AST.ParserTest do
     assert associativity("NOT a ILIKE 'x%'") == "(NOT (a ILIKE 'x%'))"
     assert associativity("NOT a RLIKE 'x'") == "(NOT (a RLIKE 'x'))"
     assert associativity("NOT a NOT LIKE 'x%'") == "(NOT (a NOT LIKE 'x%'))"
+    assert associativity("NOT a NOT IN [1]") == "(NOT (a NOT IN [1]))"
     assert associativity("NOT a BETWEEN 1 AND 2") == "(NOT (a BETWEEN 1 AND 2))"
     assert associativity("NOT NOT a = b") == "(NOT (NOT (a = b)))"
     assert associativity("NOT a AND b") == "((NOT a) AND b)"
@@ -551,6 +553,8 @@ defmodule Guardian.AST.ParserTest do
     assert associativity("a IS b AND c") == "((a IS b) AND c)"
     assert associativity("a IS NOT b OR c") == "((a IS NOT b) OR c)"
     assert associativity("a IN [1] OR b") == "((a IN [1]) OR b)"
+    assert associativity("a NOT IN [1] AND b") == "((a NOT IN [1]) AND b)"
+    assert associativity("a NOT IN [1] = b") == "((a NOT IN [1]) = b)"
     assert associativity("a LIKE 'x' AND b") == "((a LIKE 'x') AND b)"
     assert associativity("a NOT ILIKE 'x' AND b") == "((a NOT ILIKE 'x') AND b)"
     assert associativity("a RLIKE 'x' OR b") == "((a RLIKE 'x') OR b)"
@@ -612,6 +616,7 @@ defmodule Guardian.AST.ParserTest do
       {"NOT LIKE", Guardian.AST.Node.Operators.NotLikeOperator},
       {"NOT ILIKE", Guardian.AST.Node.Operators.NotIlikeOperator},
       {"IN", Guardian.AST.Node.Operators.InOperator},
+      {"NOT IN", Guardian.AST.Node.Operators.NotInOperator},
       {"AND", AndOperator},
       {"OR", Guardian.AST.Node.Operators.OrOperator},
       {"AS", Guardian.AST.Node.As},
@@ -659,6 +664,7 @@ defmodule Guardian.AST.ParserTest do
           {"a NOT", "Expected end of input, got NOT", 2},
           {"a AS", "Expected expression, got end of input", 4},
           {"a IN", "Expected expression, got end of input", 4},
+          {"a NOT IN", "Expected expression, got end of input", 8},
           {"a BETWEEN 1", "Expected AND keyword, got end of input", 11},
           {"a BETWEEN 1 OR 2", "Expected AND keyword, got OR", 12},
           {"a BETWEEN 1 AND", "Expected expression, got end of input", 15},
@@ -674,7 +680,7 @@ defmodule Guardian.AST.ParserTest do
     end
   end
 
-  test "IN rejects a parenthesized list at the parenthesis and allows a grouped operand" do
+  test "IN and NOT IN reject a parenthesized list at the parenthesis, allow a grouped operand" do
     reason = "IN takes a list in square brackets, as in x IN ['a', 'b']"
 
     for source <- [
@@ -692,6 +698,10 @@ defmodule Guardian.AST.ParserTest do
       assert %ParseError{reason: ^reason, col: 5} = catch_error(parse(source))
     end
 
+    for source <- ["a NOT IN ('x')", "a NOT IN ('a', 'b')", "a NOT IN ()"] do
+      assert %ParseError{reason: ^reason, col: 9} = catch_error(parse(source))
+    end
+
     assert %ParseError{reason: ^reason, row: 1, col: 11} =
              catch_error(parse("select a\nwhere a IN ('x')"))
 
@@ -706,6 +716,8 @@ defmodule Guardian.AST.ParserTest do
       assert %InOperator{} = parse(source)
     end
 
+    assert %NotInOperator{} = parse("a NOT IN (b)")
+
     assert associativity("a IN (b) OR c") == "((a IN (b)) OR c)"
     assert associativity("a IN (b) || c") == "(a IN ((b) || c))"
     assert associativity("a IN (b) IS NULL") == "((a IN (b)) IS null)"
@@ -713,14 +725,24 @@ defmodule Guardian.AST.ParserTest do
   end
 
   test "nested grouped IN operands parse in linear time" do
-    nested = Enum.reduce(1..200, "[1]", fn _, acc -> "(a IN #{acc})" end)
+    nested =
+      Enum.reduce(1..200, "[1]", fn i, acc ->
+        "(a #{if rem(i, 2) == 0, do: "IN", else: "NOT IN"} #{acc})"
+      end)
+
     {micros, expr} = :timer.tc(fn -> parse("b IN #{nested}") end)
     assert %InOperator{} = expr
     assert micros < 5_000_000
   end
 
   test "a standalone rewritten negation unparses to text that parses back to it" do
-    for source <- ["a NOT LIKE 'x%'", "a NOT ILIKE 'x%'", "a NOT RLIKE 'x'", "a IS NOT b"] do
+    for source <- [
+          "a NOT LIKE 'x%'",
+          "a NOT ILIKE 'x%'",
+          "a NOT RLIKE 'x'",
+          "a IS NOT b",
+          "a NOT IN [1]",
+        ] do
       %module{} = expr = parse(source)
       rewritten = module.rewrite(expr)
       assert parse(Guardian.AST.unparse(rewritten)) == rewritten

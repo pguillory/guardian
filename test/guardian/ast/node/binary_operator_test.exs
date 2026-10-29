@@ -23,6 +23,7 @@ defmodule Guardian.AST.Node.BinaryOperatorTest do
     {Operators.MultiplyOperator, "*"},
     {Operators.NotEqualOperator, "!="},
     {Operators.NotIlikeOperator, "NOT ILIKE"},
+    {Operators.NotInOperator, "NOT IN"},
     {Operators.NotLikeOperator, "NOT LIKE"},
     {Operators.NotRlikeOperator, "NOT RLIKE"},
     {Operators.NullSafeEqualOperator, "<=>"},

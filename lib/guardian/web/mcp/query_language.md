@@ -208,6 +208,10 @@ Comparisons and sorting compare the strings as they are.
 - `x IN [a, b, c]`. The list uses square brackets; parentheses are not a list. SQL's
   parenthesized list (`x IN ('a', 'b')`, `x IN ('a')`, `x IN ()`) is a parse error,
   while grouping a list-valued expression (`x IN (list_column)`) is allowed.
+- `x NOT IN [a, b, c]` is `NOT (x IN [a, b, c])`, with SQL's nulls: null when `x` is
+  null or when `x` is not found and the list holds a null, unless the list is empty
+  (`x NOT IN []` is true), and null when the right side is not a list. Its list is
+  in square brackets too.
 - `LIKE` and `ILIKE` (case-insensitive), with `%` matching any run of characters and
   `_` exactly one (a UTF-8 character, or a byte if either side isn't valid UTF-8); no
   escape character. A pattern of more than 1,000 characters besides `%` gives null.
@@ -218,7 +222,7 @@ Comparisons and sorting compare the strings as they are.
 - `INTERVAL n SECOND|MINUTE|HOUR|DAY|WEEK` is a number of seconds.
 - `current_date` and `current_timestamp` work without parentheses.
 - Precedence, tightest first: `* /`; `+ - ||`; comparisons, `IS [NOT]`,
-  `[NOT] LIKE|ILIKE|RLIKE`, `IN`; `BETWEEN`; `NOT`; `AND`; `OR`. Binary operators
+  `[NOT] LIKE|ILIKE|RLIKE`, `[NOT] IN`; `BETWEEN`; `NOT`; `AND`; `OR`. Binary operators
   of equal precedence group left to right. `NOT a = b` means `NOT (a = b)`, and
   `NOT a AND b` means `(NOT a) AND b`. Unary `-` binds tighter than comparisons.
 

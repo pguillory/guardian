@@ -41,7 +41,7 @@ defmodule Guardian.Web.MCP.Server do
   SELECT ... [FROM table] [WHERE] [GROUP BY] [HAVING] [ORDER BY ... ASC|DESC] [LIMIT n]. \
   Supports aggregates (count(), sum, avg, min, max, count_distinct, ...), scalar \
   functions (lower, concat, date_sub, type, replace, ...), CASE, BETWEEN, LIKE, and \
-  IN with a bracket list: x IN ['a', 'b']. Not supported: UNION, JOIN, subqueries, \
+  [NOT] IN with a bracket list: x IN ['a', 'b']. Not supported: UNION, JOIN, subqueries, \
   DISTINCT (use GROUP BY or count_distinct), OFFSET. Columns are untyped: one column \
   can hold mixed values, including lists. Nested objects are flattened into dotted \
   columns (user.name; users..name for a list of objects). A missing column is null. \

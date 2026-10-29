@@ -42,6 +42,22 @@ defmodule Guardian.Rules.IngestTest do
     assert rows == [[true, "high"], [nil, "low"]]
   end
 
+  test "NOT IN in a rule's WHERE sets the field for values outside the list only" do
+    table = unique_table("rules_not_in")
+
+    with_rules(%{
+      "#{table}/allow.gsql" =>
+        "SET allowed = true WHERE ip NOT IN ['203.0.113.9', '198.51.100.7']",
+    })
+
+    assert [{:ok, listed}, {:ok, other}, {:ok, missing}] =
+             ingest(table, [%{"ip" => "203.0.113.9"}, %{"ip" => "192.0.2.1"}, %{"n" => 1}])
+
+    assert listed == %{"ip" => "203.0.113.9"}
+    assert other == %{"ip" => "192.0.2.1", "allowed" => true}
+    assert missing == %{"n" => 1}
+  end
+
   test "UNSET removes the field, case variants and everything beneath; SETs read it first" do
     table = unique_table("rules_unset")
 

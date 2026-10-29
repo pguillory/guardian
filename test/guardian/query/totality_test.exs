@@ -84,6 +84,7 @@ defmodule Guardian.Query.TotalityTest do
     "a IS NOT NULL",
     "a BETWEEN b AND a",
     "a IN (b)",
+    "a NOT IN b",
     "a LIKE '%a_' OR b",
     "a NOT LIKE '%a_' OR b",
     "a ILIKE '%A_' OR b",

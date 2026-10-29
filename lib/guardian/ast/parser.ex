@@ -22,6 +22,7 @@ defmodule Guardian.AST.Parser do
   alias Guardian.AST.Node.Operators.NegativeOperator
   alias Guardian.AST.Node.Operators.NotEqualOperator
   alias Guardian.AST.Node.Operators.NotIlikeOperator
+  alias Guardian.AST.Node.Operators.NotInOperator
   alias Guardian.AST.Node.Operators.NotLikeOperator
   alias Guardian.AST.Node.Operators.NotOperator
   alias Guardian.AST.Node.Operators.NotRlikeOperator
@@ -69,6 +70,7 @@ defmodule Guardian.AST.Parser do
       NotIlikeOperator,
       NotRlikeOperator,
       InOperator,
+      NotInOperator,
     ],
     [BetweenOperator],
     [AndOperator],
@@ -897,9 +899,10 @@ defmodule Guardian.AST.Parser do
     {struct!(module, left: left, right: right), tokens}
   end
 
-  defp parse_operand(InOperator, left, tokens, precedence) do
+  defp parse_operand(module, left, tokens, precedence)
+       when module in [InOperator, NotInOperator] do
     {right, tokens} = parse_in_list!(tokens, precedence)
-    {%InOperator{left: left, right: right}, tokens}
+    {struct!(module, left: left, right: right), tokens}
   end
 
   defp parse_operand(module, left, tokens, precedence) do
@@ -907,11 +910,12 @@ defmodule Guardian.AST.Parser do
     {struct!(module, left: left, right: right), tokens}
   end
 
-  # IN's list is in square brackets. `x IN ('a', 'b')`, `x IN ('a')` and `x IN ()` are
-  # SQL's parenthesized list, which would otherwise be a parse error far from the
-  # mistake or, for one element, a grouped constant that never matches. Grouping a
-  # list-valued expression, as in `x IN (list_column)`, stays valid. A parenthesized
-  # operand is parsed here once, as maybe_parse_expression/2 would, never reparsed.
+  # The list of IN and NOT IN is in square brackets. `x IN ('a', 'b')`, `x IN ('a')`
+  # and `x IN ()` are SQL's parenthesized list, which would otherwise be a parse error
+  # far from the mistake or, for one element, a grouped constant that never matches.
+  # Grouping a list-valued expression, as in `x IN (list_column)`, stays valid. A
+  # parenthesized operand is parsed here once, never reparsed, into what
+  # maybe_parse_parentheses/1 and continue_expression/3 would give.
   defp parse_in_list!(tokens_at_list, precedence) do
     case tokens_at_list do
       [{:punctuation, "("}, {:punctuation, ")"} | _] ->
