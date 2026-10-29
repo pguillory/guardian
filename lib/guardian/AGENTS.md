@@ -28,7 +28,7 @@ prefix. Keep the Mix application and its configuration under `:guardian`.
   it with backoff, so counter crash loops cannot exhaust Guardian.Application's restart intensity.
 - `Guardian.Storage`: custom columnar segment storage.
 - `Guardian.Query`: plans and executes SQL-like queries. `Guardian.Query.Limits` holds the per-query
-  bounds, including the per-process heap limit (`GUARDIAN_QUERY_MAX_HEAP_MB`) on the
+  bounds, including the fixed 256 MiB per-process heap limit on the
   query process and its pipeline workers (`lib/guardian/query/AGENTS.md`).
 - `Guardian.AST`: parses and traverses query syntax.
 - `Guardian.Aggregation`: the one query/counter aggregation registry and execution

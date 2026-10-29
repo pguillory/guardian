@@ -628,8 +628,8 @@ the shipped surface:
    null. A pattern may have at most 32 capturing groups. On a value where a pattern
    backtracks past a fixed limit, `RLIKE` and `NOT RLIKE` are null (so WHERE drops the
    row) and so is `replace`; so is a `replace` whose pattern matches one value too many
-   times to hold (hundreds of thousands at the default heap limit, as an
-   empty-matching pattern can on a large value; fewer with a lower limit), or that
+   times to hold (hundreds of thousands at the 256 MiB heap limit, as an
+   empty-matching pattern can on a large value), or that
    matches part of a character (`\C`).
    Functions return null on wrong-type arguments rather than failing the query.
    `to_string` gives every value's string form: an integer's decimal, a float's
@@ -656,17 +656,15 @@ the shipped surface:
    100,000 rows and about 64 MiB; a larger result fails with an error asking for a
    `LIMIT`, `WHERE`, or `GROUP BY`, never a truncated answer. Rows scanned or
    aggregated don't count. `ORDER BY` with a `LIMIT` over 100,000 is refused.
-   Each process a query runs in, on every machine, has a heap limit
-   (`GUARDIAN_QUERY_MAX_HEAP_MB`, default 256 MiB, `0` for none); a process killed
-   for exceeding it fails the query with "a query process was killed; it may have
-   exceeded its heap limit (GUARDIAN_QUERY_MAX_HEAP_MB); narrow the query with WHERE,
-   LIMIT or fewer groups". The message hedges because Guardian cannot tell a heap kill
+   Each process a query runs in, on every machine, has a fixed 256 MiB heap limit; a
+   process killed for exceeding it fails the query with "a query process was killed;
+   it may have exceeded its 256 MiB heap limit; narrow the query with WHERE, LIMIT or
+   fewer groups". The message hedges because Guardian cannot tell a heap kill
    from another kill. The limit is per process, not a bound on the query's total
    memory. `replace` on a value over 16 KiB runs in a helper process with the same
-   limit, or 256 MiB when it is `0`, so one value's matches stay bounded even with the
-   limit off. A query may run for at most 30 seconds; then it is stopped on every machine and
-   fails with an error saying it exceeded its time limit. An expression that fails
-   while being evaluated on any machine fails the whole query with an error, rather
+   limit, so one value's matches stay bounded. A query may run for at most 30
+   seconds; then it is stopped on every machine and fails with an error saying it
+   exceeded its time limit. An expression that fails while being evaluated on any machine fails the whole query with an error, rather
    than dropping that machine's rows. So does any other failure while the query runs:
    a query worker that crashes, a machine that disconnects, or a segment it is reading
    that is deleted, expires, or fails, which the error names. A query that reads a

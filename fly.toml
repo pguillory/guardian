@@ -2,8 +2,7 @@
 #
 # This is the configuration of the maintainer's own deployment. To deploy your own copy,
 # change `app` (globally unique) and `primary_region` (where the machine and its volume
-# live), delete the overrides marked below, and adjust [[vm]] if the default does not
-# fit.
+# live), and adjust [[vm]] if the default does not fit.
 
 app = "guardian-pguillory"
 primary_region = "sjc"
@@ -25,11 +24,6 @@ kill_timeout = 150
 
 [env]
   GUARDIAN_DATA_DIR = "/data"
-
-  # This deployment's override of Guardian's defaults; omit it for a new deploy.
-  # It keeps the maintainer's deployment behaving as it did before the setting
-  # existed: the per-process query heap limit stays off.
-  GUARDIAN_QUERY_MAX_HEAP_MB = "0"
 
 [http_service]
   internal_port = 8080

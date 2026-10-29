@@ -191,11 +191,10 @@ defmodule Guardian.DeploymentTest do
     end
   end
 
-  # The maintainer's deployment keeps its pre-existing behavior through these overrides;
-  # dropping one by accident would change production at the next deploy.
-  test "fly.toml keeps this deployment's overrides active" do
+  # Fly's kill_timeout must stay above Storage's shutdown budget plus the tunnel
+  # connector's drain (bin/fly-start).
+  test "fly.toml's kill_timeout covers the shutdown" do
     fly_toml = File.read!(Path.expand("../../fly.toml", __DIR__))
-    assert fly_toml =~ ~r/^  GUARDIAN_QUERY_MAX_HEAP_MB = "0"$/m
     assert fly_toml =~ ~r/^kill_timeout = 150$/m
   end
 

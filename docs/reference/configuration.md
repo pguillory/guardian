@@ -13,7 +13,6 @@ rotates independently: a change takes effect at restart and doesn't affect store
 | `GUARDIAN_API_KEY` | (unset) | Deprecated. While set, it has full access like `GUARDIAN_ADMIN_API_KEY`, so existing callers keep working until they move to the new keys; a later release removes it. Once insert-only callers use the ingest key, rolling back to a release without it refuses them, since older releases only know `GUARDIAN_API_KEY`. |
 | `GUARDIAN_DATA_DIR` | `/data` in the image, `/root/data` for a bare release | Where segments are stored. Startup refuses a directory it can't write, so set it when running a bare release as a non-root user. On Fly it must be the mounted volume. |
 | `GUARDIAN_PORT` | `8080` | The HTTP port. |
-| `GUARDIAN_QUERY_MAX_HEAP_MB` | `256` | The heap limit for each process a query runs in. `0` turns it off. See [Known limitations](limitations.md). |
 | `GUARDIAN_COUNTER_MEMORY_MB` | `64` | Positive integer MiB for the asynchronous resident counter memory target on this node; empty, zero, negative or non-integer values refuse startup. Excludes mailboxes, temporary copies and other VM memory. Housekeeping runs about every second; writes can temporarily overshoot. Expired keys are reclaimed first, then a sampled earliest-expiry cutoff evicts live buckets (possibly all when expiries tie). Restart to change; counts are ephemeral. See [counters](../guides/rules.md#counters-with-track-and-lookup). |
 | `GUARDIAN_MUTABLE_SEGMENT_MAX_AGE_MS` | `3600000` | How long an in-memory segment collects events before it's handed off to disk. |
 | `GUARDIAN_NODE_HOST` | (unset; `FLY_PRIVATE_IP` on Fly) | The address other nodes reach this node at. Setting it makes the node a cluster member named `guardian@<address>`. |
@@ -27,7 +26,9 @@ rotates independently: a change takes effect at restart and doesn't affect store
 | `GUARDIAN_TUNNEL` | (unset: on) | `off` keeps the tunnel connector from starting on this machine even when `TUNNEL_TOKEN` is set. |
 
 `GUARDIAN_ALLOW_QUERY_API_KEY` no longer exists and is ignored if set: a key is
-accepted only in the `x-api-key` header, never in the URL.
+accepted only in the `x-api-key` header, never in the URL. Likewise
+`GUARDIAN_QUERY_MAX_HEAP_MB`: each process a query runs in has a fixed 256 MiB heap
+limit (see [Known limitations](limitations.md)).
 
 How these combine into a deployment: [single node](../guides/single-node.md),
 [a cluster on any machines](../guides/cluster.md), and [Fly.io](../guides/fly.md).

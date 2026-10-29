@@ -47,15 +47,15 @@ worker crash or lost machine fails the whole query; it never returns partial row
 no pipeline stage waits with a timeout. Stages must read all their
 input. `Guardian.Query.run/1` stops the whole query after `Guardian.Query.Limits.time_limit_ms/0`
 (30 s). `Guardian.Query.Limits.limit_heap/0` puts this node's `max_heap_size`
-(`GUARDIAN_QUERY_MAX_HEAP_MB`, default 256, 0 off; kill, error_logger, shared binaries
-not counted) on the query process and every pipeline worker, including the initial
-worker but not routers; each node reads its own setting. A `:killed` exit, from a
+(256 MiB, not an operator setting; tests lower it through `:query_max_heap_mb`; kill,
+error_logger, shared binaries not counted) on the query process and every pipeline
+worker, including the initial worker but not routers; each node reads its own value. A `:killed` exit, from a
 pipeline or the query process, becomes `Guardian.Query.Limits.heap_kill_message/0`, which hedges
 because the reason cannot prove a heap kill. The limit does not bound total query
 memory: GROUP BY state (ETS), column data (NIF native memory) and shared binaries are
 not counted, GC checks can overshoot, and many processes can each reach it.
 `Guardian.Query.Regex.replace/3` on a value over 16 KiB runs in its own unlinked helper with
-the same cap, or 256 MiB when the setting is 0, so a worker's peak can roughly double
+the same cap, so a worker's peak can roughly double
 during a replace; a helper heap kill gives null for that value, not a `:killed`
 exit.
 Query code reads stored segments only by ID, and only in `Guardian.Query.Evaluation`:

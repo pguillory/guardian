@@ -182,7 +182,8 @@ None of these reads or writes data.
 2. Tests use fixed keys in `config/config.exs`; they protect nothing.
 3. Guardian does not record a key itself: the `x-api-key` header is not in
    `web_requests` (which records `path`, the request path without the query string,
-   selected headers, and `auth_key`, which says only which key it was: `ingest`, `admin` or `legacy`), not in
+   selected headers, and `auth_key`, which says only which key it was: `ingest`,
+   `admin` or `legacy`), not in
    `query_parse_errors` (caller fields are remote IP, `x-forwarded-for`, user agent,
    and MCP client info), not in `queries` (remote IP and MCP client info only, no
    request header), and not in any log line of a well-formed request found in the
@@ -550,15 +551,13 @@ Counter-specific limits:
      character at worst, which for millions of empty matches took hundreds of MB.
      Values up to 16 KiB are replaced in the calling process (at most about 33,000
      matches); a larger value is replaced in a helper process whose heap is capped at
-     the query heap limit, or 256 MiB when that is off (`GUARDIAN_QUERY_MAX_HEAP_MB=0`),
-     so the list stays bounded either way. A value that needs more (about 600,000
-     matches at 256 MiB) gives null. The cap is a heap budget
+     the query heap limit (256 MiB), so the list stays bounded. A value that needs
+     more (about 600,000 matches) gives null. The cap is a heap budget
      checked at garbage collection, so it can overshoot somewhat, and it counts
      neither PCRE's native frames (bounded above) nor the result binary (bounded by
      the 64 KiB string cap). The helper's heap is on top of its caller's, so a worker's
-     peak can roughly double during a replace, and with the setting at 0 many workers
-     can each have a 256 MiB helper at once. The per-value match bound scales with the
-     setting.
+     peak can roughly double during a replace, and many workers can each have a
+     256 MiB helper at once.
 2. Per-query resource bounds are partial. A query may return at most 100,000 rows and
    about 64 MiB, counted where rows collect on the machine running the query (the
    result, the input of an in-memory ORDER BY, the merge of ORDER BY ... LIMIT);
@@ -573,13 +572,12 @@ Counter-specific limits:
    unbounded value (`factorial(100000000)` is null, `lpad('x', 2000000000)` is 64 KiB;
    `docs/changes/total-functions.md`).
 
-   A heap guard covers part of the rest. `GUARDIAN_QUERY_MAX_HEAP_MB` (default 256,
-   `0` turns it off) sets Erlang's `max_heap_size` on the query process and on every
-   `Guardian.Query.DistributedStream` worker, including the initial worker that reads the first
-   stage's input, but not on the routers. Each node reads its own setting when a
-   worker starts there. A process whose heap grows past the limit is killed, and the
-   query fails with "a query process was killed; it may have exceeded its heap limit
-   (GUARDIAN_QUERY_MAX_HEAP_MB); narrow the query with WHERE, LIMIT or fewer groups".
+   A heap guard covers part of the rest. A fixed 256 MiB Erlang `max_heap_size` is set
+   on the query process and on every `Guardian.Query.DistributedStream` worker,
+   including the initial worker that reads the first stage's input, but not on the
+   routers. A process whose heap grows past the limit is killed, and the query fails
+   with "a query process was killed; it may have exceeded its 256 MiB heap limit;
+   narrow the query with WHERE, LIMIT or fewer groups".
    The message hedges because a `:killed` exit cannot prove which limit was hit. The
    VM's kill report, written to the log, names the process and its heap sizes, not
    its heap contents.
@@ -594,8 +592,7 @@ Counter-specific limits:
    still exhaust a machine's memory, and because queries fan out to every connected
    node, all of them at once. An out-of-memory kill skips the graceful shutdown
    persist, so every affected machine loses its unpersisted events (section 1, asset
-   5). A deployment that sets the limit to `0` (the repository's `fly.toml`, which is
-   the maintainer's own deployment, does) has only the caps above.
+   5).
 3. MCP calls are serialized. Anubis 0.16 runs tool calls inside its one server
    process (`Anubis.Server.Base.handle_call/3`), so a slow MCP query blocks the
    execution of every other MCP tool and protocol request on that machine

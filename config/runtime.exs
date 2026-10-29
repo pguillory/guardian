@@ -71,18 +71,6 @@ if config_env() != :test do
     admin_api_key: admin_api_key,
     api_key: legacy_api_key
 
-  # Each query process's heap limit in MiB (Guardian.Query.Limits); 0 turns it off.
-  case System.get_env("GUARDIAN_QUERY_MAX_HEAP_MB") do
-    value when value in [nil, ""] ->
-      :ok
-
-    value ->
-      case Integer.parse(value) do
-        {mb, ""} when mb >= 0 -> config :guardian, query_max_heap_mb: mb
-        _ -> raise "GUARDIAN_QUERY_MAX_HEAP_MB must be a non-negative integer (0 is off)"
-      end
-  end
-
   case System.get_env("GUARDIAN_PORT") do
     value when value in [nil, ""] ->
       :ok

@@ -19,9 +19,7 @@ first deploy:
 
 1. Set `app` to your app's name and `primary_region` to your region (for example
    `sjc`).
-2. Delete the block marked "this deployment's overrides", so your deploy gets
-   Guardian's defaults.
-3. Adjust `[[vm]]` or the volume's `initial_size` (10 GB) if needed.
+2. Adjust `[[vm]]` or the volume's `initial_size` (10 GB) if needed.
 
 ```sh
 fly auth login

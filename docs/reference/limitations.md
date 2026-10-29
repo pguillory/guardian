@@ -14,8 +14,8 @@
 5. A query covers only the nodes connected when it runs. A node that's down or still
    loading its segments is silently missing from results.
 6. Memory isn't fully bounded. Results are capped at 100,000 rows and about 64 MiB, and
-   strings that functions build at 64 KiB per value. `GUARDIAN_QUERY_MAX_HEAP_MB` kills any single
-   query process whose Erlang heap passes the limit, but that doesn't bound a query's
+   strings that functions build at 64 KiB per value. Guardian kills any single
+   query process whose Erlang heap passes 256 MiB, but that doesn't bound a query's
    total memory:
    - GROUP BY state lives in ETS, column data in native memory, and shared binaries
      aren't counted.

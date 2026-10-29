@@ -256,18 +256,12 @@ defmodule Guardian.Config.RuntimeTest do
     end
   end
 
-  test "reads the query heap limit, where 0 turns it off" do
+  test "ignores the removed GUARDIAN_QUERY_MAX_HEAP_MB" do
     System.put_env("GUARDIAN_API_KEY", @key)
-    refute Keyword.has_key?(read_runtime_config()[:guardian], :query_max_heap_mb)
 
-    for {value, expected} <- [{"0", 0}, {"512", 512}] do
+    for value <- ["0", "512", "lots"] do
       System.put_env("GUARDIAN_QUERY_MAX_HEAP_MB", value)
-      assert get_in(read_runtime_config(), [:guardian, :query_max_heap_mb]) == expected
-    end
-
-    for value <- ["-1", "1.5", "lots"] do
-      System.put_env("GUARDIAN_QUERY_MAX_HEAP_MB", value)
-      assert_raise RuntimeError, ~r/GUARDIAN_QUERY_MAX_HEAP_MB must be/, &read_runtime_config/0
+      refute Keyword.has_key?(read_runtime_config()[:guardian], :query_max_heap_mb)
     end
   end
 

@@ -12,17 +12,8 @@ defmodule Guardian.Query.RegexMemoryTest do
     Guardian.Query.Regex.replace(regex, subject, replacement)
   end
 
-  test "the helper's heap cap is the query heap limit, or 256 MiB when that is off" do
-    set_limit(0)
-    assert Guardian.Query.Regex.helper_heap_mb() == 256
-    set_limit(32)
-    assert Guardian.Query.Regex.helper_heap_mb() == 32
-    Application.delete_env(:guardian, :query_max_heap_mb)
-    assert Guardian.Query.Regex.helper_heap_mb() == 256
-  end
-
-  test "millions of empty matches on one value are null, with the heap limit off" do
-    set_limit(0)
+  test "millions of empty matches on one value are null, under the default heap limit" do
+    set_limit(256)
 
     # 4 million empty matches. The helper grows to its 256 MiB cap in this VM before
     # it is killed, for about a second.

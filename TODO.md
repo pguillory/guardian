@@ -440,6 +440,9 @@ when it needs one. This file is public: see the change-tracking rules in AGENTS.
       evaluate per value when one column holds strings and the other integers
 - [ ] arm64-image: build and test linux/arm64 locally too, which
       should work now that Hyperscan is gone but has never been built
+- [x] query-heap-fixed: each query process has a fixed 256 MiB heap limit;
+      `GUARDIAN_QUERY_MAX_HEAP_MB` and its off mode are gone
+      (`docs/changes/query-heap-fixed.md`)
 - [ ] query-memory-bound: result sizes, string sizes, run time and each query
       process's heap are bounded, but a query's total memory is not (GROUP BY state in
       ETS, column data in native memory, many processes); a deliberate or exotic query

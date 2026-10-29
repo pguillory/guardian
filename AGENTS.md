@@ -131,8 +131,7 @@ through `DNS_CLUSTER_QUERY` (on Fly, `<app>.internal` by default). Keep Fly's ou
 pins it.
 
 Fly.io is the best-supported deploy path (`Dockerfile`, `fly.toml`, `docs/guides/fly.md`).
-The `fly.toml` in the tree is the maintainer's own deployment, including a marked block
-of overrides (`GUARDIAN_QUERY_MAX_HEAP_MB`) that a test keeps active; don't drop them without the maintainer's say-so. The API keys
+The `fly.toml` in the tree is the maintainer's own deployment. The API keys
 (`GUARDIAN_ADMIN_API_KEY`, `GUARDIAN_INGEST_API_KEY`, and the deprecated
 `GUARDIAN_API_KEY` while set) and `RELEASE_COOKIE` are Fly secrets, plus the optional `TUNNEL_TOKEN` that starts the
 Cloudflare Tunnel connector (`bin/fly-start`, the image's entry point); segments live on

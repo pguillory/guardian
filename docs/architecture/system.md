@@ -1038,8 +1038,8 @@ literal replacement to one binary, stopping once it reaches the 64 KiB string ca
 `:re` builds the whole offset list on the calling process's heap, about two matches
 per character at worst. A value up to 16 KiB is replaced in the calling process (at
 most about 33,000 matches, measured at 10 to 20 MB of process memory). A larger value
-is replaced in a helper process spawned with its own `max_heap_size`: the query heap
-limit, or 256 MiB when that is 0, so the offsets are bounded even with the limit off.
+is replaced in a helper process spawned with its own `max_heap_size`, the query heap
+limit, so the offsets are bounded.
 A helper killed by its cap, or dying any other way, gives null for that value;
 anything the helper raises is raised again in the caller. Measured with `x*`,
 256 MiB allows about 600,000 matches on one value and 64 MiB about 200,000. The
@@ -1070,12 +1070,13 @@ values (section 9).
 
 Each process a query runs in also carries a heap limit: `Guardian.Query.Limits.limit_heap/0`
 sets `max_heap_size` (`kill: true`, `error_logger: true`,
-`include_shared_binaries: false`) to `GUARDIAN_QUERY_MAX_HEAP_MB` (default 256 MiB,
-`0` turns it off) on the query process and on every DistributedStream worker, on
-whichever node it runs, reading that node's own setting; routers are not limited. A
+`include_shared_binaries: false`) to a fixed 256 MiB on the query process and on
+every DistributedStream worker, on whichever node it runs; routers are not limited.
+Tests lower it through the `query_max_heap_mb` application environment value, which
+each node reads for itself. A
 `:killed` exit from a pipeline or the query process becomes the `Guardian.Query.Error` "a query
-process was killed; it may have exceeded its heap limit (GUARDIAN_QUERY_MAX_HEAP_MB);
-narrow the query with WHERE, LIMIT or fewer groups" (`Guardian.Query.Failure`). The reason
+process was killed; it may have exceeded its 256 MiB heap limit; narrow the query with
+WHERE, LIMIT or fewer groups" (`Guardian.Query.Failure`). The reason
 cannot prove a heap kill, so the message hedges. Shared binaries are left out because
 a worker holds references to whole mapped segment files, which would otherwise count
 again in every process. In a rolling deploy from a release without the limit, queries
@@ -1364,7 +1365,6 @@ Environment variables:
 | `GUARDIAN_INGEST_API_KEY` | `config/runtime.exs` | Optional insert-only key, accepted only by `POST /api/json/send_events`. At least 32 bytes when set. |
 | `GUARDIAN_API_KEY` | `config/runtime.exs` | Deprecated full-access key, accepted like the admin key while set. At least 32 bytes when set. The three keys must all differ; boot errors name the variable, never the value. |
 | `GUARDIAN_PORT` | `config/runtime.exs`, `bin/fly-start` | HTTP port, 1 to 65535. Default 8080. Tests use an OS-chosen port. |
-| `GUARDIAN_QUERY_MAX_HEAP_MB` | `config/runtime.exs` | Heap limit of each query process, in MiB (5.7). Default 256; `0` turns it off. |
 | `GUARDIAN_COUNTER_MEMORY_MB` | `config/runtime.exs` | Positive integer MiB for the asynchronous resident counter memory target (3.5), default 64; empty/invalid refuses startup. |
 | `GUARDIAN_DATA_DIR` | `config/runtime.exs` (prod) | Data directory; segments go in `segments/` under it. Default `/root/data`; `/data` in the image and on Fly. Must be writable, and on Fly must be a mounted volume, or boot fails. |
 | `GUARDIAN_MUTABLE_SEGMENT_MAX_AGE_MS` | `config/runtime.exs` | Writable segment age before handoff. Default 3,600,000. |
@@ -1383,7 +1383,7 @@ these except through the variables above:
 
 | Key | Default | Used by |
 | --- | --- | --- |
-| `ingest_api_key`, `admin_api_key`, `api_key` (legacy; each nil when unset), `http_port`, `query_max_heap_mb`, `data_dir`, `dns_cluster_query`, `mutable_segment_max_age_ms` | from the variables above | as above |
+| `ingest_api_key`, `admin_api_key`, `api_key` (legacy; each nil when unset), `http_port`, `data_dir`, `dns_cluster_query`, `mutable_segment_max_age_ms` | from the variables above | as above |
 | `query_max_result_rows` | 100,000 | `Guardian.Query.Limits` |
 | `query_max_result_bytes` | 64 MiB | `Guardian.Query.Limits` |
 | `query_time_limit_ms` | 30,000 | `Guardian.Query.run/1` (`Guardian.Query.Limits`) |
@@ -1477,8 +1477,6 @@ operational decisions:
    No release command, since any machine running the image joins the cluster.
 7. VM size `shared-cpu-1x` with 1 GB, one machine; `fly deploy` keeps the current
    machine count.
-8. A block of this deployment's overrides, marked for a new deploy to delete:
-   `GUARDIAN_QUERY_MAX_HEAP_MB=0`.
 
 ### 10.3 Operating
 
@@ -1614,8 +1612,8 @@ partition lookup; GROUP BY's executor and routing tests share
 `Guardian.Query.Executor.group_by_partitions/0`.
 `Guardian.Test.Env` (in `libtest/guardian/test/`) puts `:guardian` application env for an
 `async: false` test, on this node or on named peers, and restores it when the test or a
-block ends; `Guardian.Test.Query.with_time_limit/2`
-and `Guardian.Test.Counters.Budget.relax/1` and `scale/1` delegate to it.
+block ends; `Guardian.Test.Query.with_time_limit/2`,
+`Guardian.Test.Counters.Budget.relax/1` and `scale/1` delegate to it.
 `Guardian.Test.WorkBounds` measures caller reductions for synchronous CPU guards, with
 bounds calibrated against representative regressions rather than host-dependent
 elapsed time (see [unit-test work bounds](../changes/unit-test-work-bounds.md)).

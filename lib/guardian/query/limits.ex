@@ -15,15 +15,15 @@ defmodule Guardian.Query.Limits do
     time: query stages and segment reads wait as long as they need to.
   - Heap: each process a query runs in (the query process and every
     `Guardian.Query.DistributedStream` worker, on every machine) is killed if its own Erlang
-    heap grows past `:query_max_heap_mb` (256 MiB; 0 turns it off), read on the
-    machine the process runs on. The query then fails with a message saying a process
+    heap grows past 256 MiB. The query then fails with a message saying a process
     was killed and may have exceeded its heap limit (an exit reason of `:killed` does
-    not prove which limit was hit).
+    not prove which limit was hit). The limit is not an operator setting; tests lower
+    it through the `:query_max_heap_mb` application env, read on the machine the
+    process runs on.
 
-    `replace` on a value over 16 KiB runs in its own helper process with the same cap
-    (256 MiB when the limit is off), so a value's match offsets stay bounded even with
-    the limit off; a helper killed by it gives null for that value
-    (`Guardian.Query.Regex.replace/3`).
+    `replace` on a value over 16 KiB runs in its own helper process with the same cap,
+    so a value's match offsets stay bounded; a helper killed by it gives null for that
+    value (`Guardian.Query.Regex.replace/3`).
 
   Exceeding a bound raises `Guardian.Query.Error` with what to change. These cover the common
   accidental cases, not total query memory: the heap limit is per process and checked
@@ -41,7 +41,7 @@ defmodule Guardian.Query.Limits do
   end
 
   @doc """
-  The per-process heap limit in MiB (`:query_max_heap_mb`), or 0 when it is off.
+  The per-process heap limit in MiB: 256, or what a test set in `:query_max_heap_mb`.
   """
   def max_heap_mb do
     Application.get_env(:guardian, :query_max_heap_mb, 256)
@@ -49,33 +49,27 @@ defmodule Guardian.Query.Limits do
 
   @doc """
   Puts this node's heap limit on the calling process: the first thing every query
-  process and pipeline worker does. With the limit off, the process is left alone.
-  Shared binaries are not counted: a worker holds references to whole mapped
-  segment files, which would be counted again in every process.
+  process and pipeline worker does. Shared binaries are not counted: a worker holds
+  references to whole mapped segment files, which would be counted again in every
+  process.
   """
   def limit_heap do
-    case max_heap_mb() do
-      mb when is_integer(mb) and mb > 0 ->
-        words = div(mb * 1024 * 1024, :erlang.system_info(:wordsize))
+    words = div(max_heap_mb() * 1024 * 1024, :erlang.system_info(:wordsize))
 
-        Process.flag(:max_heap_size, %{
-          size: words,
-          kill: true,
-          error_logger: true,
-          include_shared_binaries: false,
-        })
+    Process.flag(:max_heap_size, %{
+      size: words,
+      kill: true,
+      error_logger: true,
+      include_shared_binaries: false,
+    })
 
-        :ok
-
-      _ ->
-        :ok
-    end
+    :ok
   end
 
   @doc false
   def heap_kill_message do
-    "a query process was killed; it may have exceeded its heap limit " <>
-      "(GUARDIAN_QUERY_MAX_HEAP_MB); narrow the query with WHERE, LIMIT or fewer groups"
+    "a query process was killed; it may have exceeded its #{max_heap_mb()} MiB heap " <>
+      "limit; narrow the query with WHERE, LIMIT or fewer groups"
   end
 
   def time_limit_ms do
