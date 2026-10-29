@@ -416,6 +416,8 @@ privately, not in this repository.
       (`docs/changes/image-refresh-1027.md`)
 - [x] bandit-1141: update Bandit to 1.14.1 for GHSA-pxjf-g536-7r93 (HTTP/2 bodies of
       1-byte DATA frames amplify memory) (`docs/changes/bandit-1141.md`)
+- [x] cloudflared-2026-10-6: update cloudflared to 2026.10.6 for the go-jose fix
+      VULN-184686 (`docs/changes/cloudflared-2026-10-6.md`)
 - [ ] mcp-serialized-tool-calls: Anubis 0.16 runs tool calls in its one server
       process, so a slow MCP query blocks every MCP session for up to the 30 s query
       time limit. Options: answer `query` calls in `Guardian.Web.MCP.Router` before Anubis, or
