@@ -484,6 +484,12 @@ when it needs one. This file is public: see the change-tracking rules in AGENTS.
       (`GUARDIAN_ADMIN_API_KEY`) is for MCP; `POST /api/json/query` is removed; the
       single `GUARDIAN_API_KEY` stays full access, deprecated, until it is retired
       (`docs/changes/split-api-keys.md`)
+- [ ] clients: official ingest clients for Python, TypeScript, Elixir and Rust
+      (`guardian.event(table, fields, returning=[...])` over `send_events`), which the
+      README already shows; package names and publishing are undecided
+- [x] readme-walkthrough: the README walks through one example in three parts
+      (send events and ask an agent, block with a rule, rate limit with a TRACK
+      counter), with running and connecting after it (`docs/changes/readme-walkthrough.md`)
 - [ ] drop-legacy-api-key: the maintainer's deployment retired `GUARDIAN_API_KEY` on
       2026-10-28 (v51), so its support can now be removed; the boot error for a deployment that still sets only it must name
       the replacement variables, with a README note (`docs/changes/split-api-keys.md`)

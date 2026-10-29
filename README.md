@@ -1,36 +1,185 @@
 # Guardian
 
-Guardian is a self-hosted event store for you and your agents. Your services and
-scripts send it JSON events over HTTP, and you or your agents query them in a SQL-like
-language over MCP.
+Guardian is a self-hosted event store for you and your agents. Your applications send
+it JSON events over HTTP, your agents ask questions of them in SQL over MCP, and rules
+can decide on each event as it arrives, sending the decision back to the application.
 
-It's built for one job: keeping a record of what your own systems did, with the
-context they had at the time, so you can decide later what to ask. A producer puts
-what it knows into the event when it sends it: the user's plan, the request's latency,
-the error it hit. Guardian stores it as sent, and a query next week sees what the
-producer saw at that moment.
+There's nothing to design first. A table exists once something writes to it, any JSON
+object fits, nested objects become dotted columns (`user.plan`), and a new field is a
+new column.
 
-## Why use it
+## A walkthrough
 
-- Nothing to design first. A table exists once something writes to it, and any JSON
-  object fits. Nested objects become dotted columns (`user.plan`), a new field is a new
-  column, and a column can hold a number in one event and a string in the next. There
-  are no schemas, mappings or index settings to plan, and no pipeline to build.
-- Made for agents to query. MCP is part of the server, not a separate service beside
-  it. Claude Code, Codex or any MCP client gets a `query` tool and the full
-  query-language reference, so it can write queries without coaching. Your application
-  code writes the events, which keeps their shape consistent.
-- Queries read like SQL. `WHERE`, `GROUP BY`, `HAVING`, `ORDER BY` and `LIMIT`, about
-  twenty aggregates and sixty scalar functions, including regular expressions and time
-  functions that work on the `timestamp` strings your producers already write.
-- Decisions on the way in. Rules compute fields on each event before it's stored
-  (`SET is_blocked = risk_score > 0.9`) and strip fields you never want kept
-  (`UNSET password`). The sender gets the computed fields back in the same response,
-  so it can act on them at once.
-- One thing to run. One Docker image, one required environment variable, and no other
-  services to stand up. When one machine isn't enough, add machines that find each
-  other through DNS (Fly.io is a preset); every query fans out to all of them, and each
-  scans the events it received.
+The example is a web application that tells Guardian about every request it gets,
+using the Python client (see [Connecting](#connecting)).
+
+### 1. Putting events in Guardian
+
+```python
+guardian.event("requests", {"method": "GET", "path": "/", "ip": "203.0.113.9"})
+```
+
+Any JSON object works. Then ask your agent who's been visiting the home page, and it
+queries Guardian over MCP:
+
+```sql
+SELECT ip FROM requests WHERE path = '/'
+```
+
+```text
++--------------+
+| ip           |
++--------------+
+| 203.0.113.9  |
+| 198.51.100.7 |
++--------------+
+```
+
+The queries read like SQL, with `GROUP BY`, about twenty aggregates and sixty
+functions; see the [query language](lib/guardian/web/mcp/query_language.md).
+
+### 2. Getting decisions back
+
+Ask for fields back when you send the event, and act on them:
+
+```python
+response = guardian.event("requests", {"method": "GET", "path": "/", "ip": "203.0.113.9"},
+                          returning=["is_blocked"])
+if response.get("is_blocked"):
+    raise PermissionError("blocked")
+```
+
+Nothing sets `is_blocked` yet, so it's `None`. Tell your agent "block
+203.0.113.9", and it writes a rule for the `requests` table:
+
+```sql
+SET is_blocked = ip IN ['203.0.113.9']
+```
+
+Every event sent to `requests` now runs that rule before it's stored, and the
+response carries the result: `{"is_blocked": true}` for that IP, `false` for the rest.
+Changing what's blocked is now a rule change, not a deploy.
+
+### 3. Counters and rate limits
+
+Tell your agent "also block any IP making more than 100 requests in 10 minutes":
+
+```sql
+TRACK requests_last_10m = count() BY ip LAST '10m';
+SET is_blocked = ip IN ['203.0.113.9'] OR requests_last_10m > 100
+```
+
+TRACK counts each IP's recent requests, this one included; once the count passes
+100, the request is blocked. The [rules guide](docs/guides/rules.md) covers counters,
+UNSET (strip a field before it's stored) and where rules are kept.
+
+## Run it
+
+The simplest way is Fly.io, which puts HTTPS in front of Guardian for you. In
+`fly.toml`, set `app` to your app's name and `primary_region` to your region, and
+delete the block marked "this deployment's overrides" (the file in the repository
+is the maintainer's own deployment). Then:
+
+```sh
+fly apps create <app-name>
+
+export GUARDIAN_ADMIN_API_KEY="$(openssl rand -hex 32)"
+export GUARDIAN_INGEST_API_KEY="$(openssl rand -hex 32)"
+
+fly secrets set --stage \
+  GUARDIAN_ADMIN_API_KEY="$GUARDIAN_ADMIN_API_KEY" \
+  GUARDIAN_INGEST_API_KEY="$GUARDIAN_INGEST_API_KEY" \
+  RELEASE_COOKIE="$(openssl rand -base64 48 | tr -d '\n/+=')"
+
+fly deploy --ha=false --wait-timeout 15m
+curl https://<app-name>.fly.dev/health
+```
+
+If the health check doesn't answer, the app may need public addresses; see the guide.
+
+Your Guardian is at `https://<app-name>.fly.dev`. Keep both keys: the ingest key goes
+to your applications and can only send events; the admin key is for you and your
+agents. The
+[Fly guide](docs/guides/fly.md) covers addresses, scaling, rollbacks and a custom
+domain.
+
+To try it on your own machine instead, run the Docker image (linux/amd64; arm64 is
+untested, see [system.md 10.1](docs/architecture/system.md#101-build)):
+
+```sh
+docker build -t guardian .
+
+export GUARDIAN_ADMIN_API_KEY="$(openssl rand -hex 32)"
+export GUARDIAN_INGEST_API_KEY="$(openssl rand -hex 32)"
+
+docker run -d --name guardian \
+  --stop-timeout 120 \
+  -p 127.0.0.1:8080:8080 \
+  -v guardian_data:/data \
+  -e GUARDIAN_ADMIN_API_KEY \
+  -e GUARDIAN_INGEST_API_KEY \
+  guardian
+
+curl http://127.0.0.1:8080/health
+```
+
+Your Guardian is then at `http://127.0.0.1:8080`. That's plain HTTP: put TLS in
+front of it before you expose it beyond the machine, since a key travels in every
+request. Running from source, a cluster on your own machines, and every setting are
+under [Documentation](#documentation).
+
+## Connecting
+
+Applications send events with the insert-only ingest key. Guardian has clients for
+Python, TypeScript, Elixir and Rust. In Python:
+
+```python
+import os
+
+from guardian import Guardian
+
+guardian = Guardian("https://guardian.example.com", api_key=os.environ["GUARDIAN_INGEST_API_KEY"])
+guardian.event("requests", {"method": "GET", "path": "/", "ip": "203.0.113.9"})
+```
+
+`event` returns the fields named in `returning`, or the whole event as stored. To
+query by time, add a UTC `timestamp` field as `YYYY-MM-DD HH:MM:SS`; Guardian adds
+nothing to your events.
+
+From any other language it's one HTTP request:
+
+```sh
+curl https://guardian.example.com/api/json/send_events \
+  -H "x-api-key: $GUARDIAN_INGEST_API_KEY" -H 'content-type: application/json' \
+  -d '{"table": "requests", "events": [{"path": "/", "ip": "198.51.100.7"}], "return_keys": ["is_blocked"]}'
+```
+
+```json
+{"status": 200, "results": [{"success": true, "event": {"is_blocked": false}}]}
+```
+
+The [API reference](docs/reference/api.md) has the full request and response shapes,
+batches and retries.
+
+Agents connect to the MCP server at `/mcp` with the admin key. Claude Code:
+
+```sh
+claude mcp add --transport http guardian https://guardian.example.com/mcp \
+  --header "x-api-key: $GUARDIAN_ADMIN_API_KEY"
+```
+
+Or Codex, in `~/.codex/config.toml`, reading the key from your environment:
+
+```toml
+[mcp_servers.guardian]
+url = "https://guardian.example.com/mcp"
+env_http_headers = { "x-api-key" = "GUARDIAN_ADMIN_API_KEY" }
+```
+
+The agent gets a `query` tool, rule tools (`list_rules`, `read_rule`, `write_rule`,
+`delete_rule`), a `send_events` tool for testing, and the query language reference,
+so it writes queries and rules without coaching. Every rule write is checked against
+the whole rule set first, so a bad rule never goes live.
 
 ## What it isn't
 
@@ -50,261 +199,10 @@ If you need long retention, high-volume log pipelines or a shared analytics prod
 dedicated analytics database or a hosted observability service will serve you better.
 The details are in [Known limitations](docs/reference/limitations.md).
 
-## What using it looks like
-
-Send events over HTTP with the insert-only ingest key. Each one is any JSON object;
-Guardian adds nothing, so stamp your own UTC `timestamp` as `YYYY-MM-DD HH:MM:SS`,
-without an offset:
-
-```sh
-curl -s https://guardian.example.com/api/json/send_events \
-  -H "x-api-key: $GUARDIAN_INGEST_API_KEY" -H 'content-type: application/json' \
-  -d '{"table": "requests", "events": [{
-        "timestamp": "2026-10-23 06:40:12",
-        "method": "POST", "path": "/checkout", "status": 502, "duration_ms": 3011,
-        "user": {"id": 7, "plan": "free"},
-        "error": "upstream_timeout"
-      }]}'
-```
-
-Then query them through MCP with the admin key ([set up below](#let-your-agent-use-it)).
-The results here and below come from a table of six such requests:
-
-```sql
-SELECT user.plan, count() AS requests, count_if(status >= 500) AS errors
-FROM requests
-GROUP BY user.plan
-```
-
-```text
-user.plan | requests | errors
-pro       | 4        | 1
-free      | 2        | 1
-```
-
-The slowest endpoints over the last hour (timestamps are UTC strings by convention,
-so ranges are plain comparisons). Time arithmetic accepts only `YYYY-MM-DD HH:MM:SS`;
-offsets, `T`, `Z`, fractional seconds and other formats return null:
-
-```sql
-SELECT path, count(), avg(duration_ms), max(duration_ms)
-FROM requests
-WHERE timestamp > date_sub(now(), INTERVAL 1 HOUR)
-GROUP BY path
-ORDER BY avg(duration_ms) DESC
-LIMIT 10
-```
-
-```text
-path                 | count() | avg(duration_ms)   | max(duration_ms)
-/checkout            | 3       | 2047.6666666666667 | 3011
-/search              | 1       | 640.0              | 640
-/api/v2/orders/9912  | 1       | 41.0               | 41
-/api/v2/orders/10007 | 1       | 12.0               | 12
-```
-
-Regular expressions with `RLIKE`:
-
-```sql
-SELECT path, status, duration_ms FROM requests WHERE path RLIKE '^/api/v[0-9]+/orders/[0-9]+$'
-```
-
-```text
-path                 | status | duration_ms
-/api/v2/orders/9912  | 200    | 41
-/api/v2/orders/10007 | 404    | 12
-```
-
-Normalize paths with `replace()`, which takes a regular expression, and group by the
-result:
-
-```sql
-SELECT replace(path, '/[0-9]+', '/:id') AS route, count(), avg(duration_ms)
-FROM requests
-GROUP BY route
-ORDER BY count() DESC
-```
-
-```text
-route              | count() | avg(duration_ms)
-/checkout          | 3       | 2047.6666666666667
-/api/v2/orders/:id | 2       | 26.5
-/search            | 1       | 640.0
-```
-
-Name a condition once with `LET`, and pick values from the row that maximizes another
-with `max_by`:
-
-```sql
-LET slow = duration_ms > 1000;
-SELECT user.id, count() AS slow_requests, max_by(path, duration_ms) AS slowest_path
-FROM requests
-WHERE slow
-GROUP BY user.id
-```
-
-`SHOW TABLES` and `DESC requests` show what's there. The full language, including
-every function, is in the [query language reference](lib/guardian/web/mcp/query_language.md).
-
-## Rules: decide as events arrive
-
-A rule file holds SET, UNSET, TRACK and LOOKUP statements for one table. Every event sent to that
-table runs them before it's stored, and the sender can ask for the results in the
-same response. Here is `logins/blocking.gsql`:
-
-```sql
--- Decide on every login as it arrives.
-SET is_blocked = risk_score > 0.9;
-SET is_suspicious = true WHERE lower(message) RLIKE 'wire transfer|gift card';
--- Never store the password, whatever the client sends.
-UNSET password
-```
-
-A login comes in, asking for the decision back:
-
-```sh
-curl -s https://guardian.example.com/api/json/send_events \
-  -H "x-api-key: $GUARDIAN_INGEST_API_KEY" -H 'content-type: application/json' \
-  -d '{"table": "logins", "return_keys": ["is_blocked", "is_suspicious"], "events": [{
-        "timestamp": "2026-10-23 06:40:12", "user": "dana", "ip": "203.0.113.9",
-        "risk_score": 0.97, "message": "Send the WIRE TRANSFER today", "password": "hunter2"
-      }]}'
-```
-
-```json
-{"status": 200, "results": [{"success": true, "event": {"is_blocked": true, "is_suspicious": true}}]}
-```
-
-The login service refuses Dana on the spot. The computed fields are stored like any
-other, and the password never was. After two more logins:
-
-```sql
-SELECT user, risk_score, is_blocked, is_suspicious, password FROM logins ORDER BY timestamp
-```
-
-```text
-user | risk_score | is_blocked | is_suspicious | password
-dana | 0.97       | true       | true          | null
-lee  | 0.12       | false      | null          | null
-kim  | 0.35       | false      | true          | null
-```
-
-Expressions are the query language's, missing fields are null, and nothing has to be
-declared first. Rules live in a folder or an S3-compatible bucket such as Cloudflare
-R2, and an agent manages them with the MCP tools `list_rules`, `read_rule`,
-`write_rule` and `delete_rule`. Every write is checked against the whole rule set
-first (syntax, a field defined two ways, rules that depend on each other in a
-circle), so a bad rule never goes live. The details are in the
-[product spec](docs/product/spec.md#51-rules).
-
-Counters let a producer react to recent activity:
-
-```sql
--- logins/rate.gsql
-TRACK logins_last_hour = count() BY ip LAST '1h';
-LOOKUP previous_logins = logins_last_hour BY ip;
-SET busy = logins_last_hour >= 50
-```
-
-Ask for `logins_last_hour`, `previous_logins` and `busy` in `return_keys`. On the
-50th login for an IP, TRACK returns 50 and LOOKUP returns 49, regardless of statement
-order. LOOKUP can also read a named counter on another table with `FROM table`.
-Queries see the values stored on each event, not today's live counts.
-
-Counters are approximate and ephemeral. Window buckets can include almost one
-extra bucket of older events; restarts, eviction and cluster changes lose state.
-Counter failures return the aggregate's result over no rows (0 for counts) and
-ingestion continues. A later rule/storage failure can leave increments behind; unkeyed retries
-count again. These are advisory signals, not durable enforcement limits. See the
-[rules guide](docs/guides/rules.md#counters-with-track-and-lookup) for operators,
-grouping, window semantics, safe edits and memory configuration.
-
-## Let your agent use it
-
-Guardian serves MCP (Streamable HTTP) at `/mcp`, which needs the admin key (the
-ingest key gets 403 there). Connect Claude Code:
-
-```sh
-claude mcp add --transport http guardian https://guardian.example.com/mcp \
-  --header "x-api-key: $GUARDIAN_ADMIN_API_KEY"
-```
-
-Or Codex, in `~/.codex/config.toml`, reading the key from your environment:
-
-```toml
-[mcp_servers.guardian]
-url = "https://guardian.example.com/mcp"
-env_http_headers = { "x-api-key" = "GUARDIAN_ADMIN_API_KEY" }
-```
-
-The agent gets a `query` tool, which takes `sql`, one statement, and returns the rows
-as JSON objects. There's also a `send_events` tool, the MCP twin of the HTTP endpoint,
-which is handy for testing; in normal use your application code sends the
-events and the agent only reads them. The rule tools let the agent write and change
-rules.
-
-The agent can also read the resource `guardian://query-language`, the same reference
-linked above, so it learns the syntax without your help. A session looks like this:
-
-> You: Checkout has been flaky for the last hour. What's going on?
->
-> Agent calls `query`:
-> `{"sql": "SELECT status, count(), avg(duration_ms) FROM requests WHERE path = '/checkout' AND timestamp > date_sub(now(), INTERVAL 1 HOUR) GROUP BY status"}`
->
-> Guardian returns:
-> `[{"avg(duration_ms)": 2980.5, "count()": 2, "status": 502}, {"avg(duration_ms)": 182.0, "count()": 1, "status": 200}]`
->
-> Agent calls `query` again, to see the errors:
-> `{"sql": "SELECT error, count() FROM requests WHERE path = '/checkout' AND status = 502 AND timestamp > date_sub(now(), INTERVAL 1 HOUR) GROUP BY error"}`
->
-> Guardian returns:
-> `[{"count()": 1, "error": "card_declined"}, {"count()": 1, "error": "upstream_timeout"}]`
->
-> Agent: Two of the last hour's three checkouts failed with a 502 after about 3 s
-> each: one upstream timeout and one declined card. The timeout is the one to chase.
-
-## Quickstart
-
-Run a single node in Docker. The supported image architecture is linux/amd64; arm64
-is untested (see [system.md 10.1](docs/architecture/system.md#101-build)).
-
-```sh
-docker build -t guardian .
-
-export GUARDIAN_ADMIN_API_KEY="$(openssl rand -hex 32)"
-export GUARDIAN_INGEST_API_KEY="$(openssl rand -hex 32)"
-
-docker run -d --name guardian \
-  --stop-timeout 120 \
-  -p 127.0.0.1:8080:8080 \
-  -v guardian_data:/data \
-  -e GUARDIAN_ADMIN_API_KEY \
-  -e GUARDIAN_INGEST_API_KEY \
-  guardian
-
-curl http://127.0.0.1:8080/health
-```
-
-Then send an event:
-
-```sh
-curl -s http://127.0.0.1:8080/api/json/send_events \
-  -H "x-api-key: $GUARDIAN_INGEST_API_KEY" -H 'content-type: application/json' \
-  -d '{"table": "requests", "events": [{"path": "/", "status": 200, "timestamp": "2026-10-22 12:00:00"}]}'
-```
-
-and query it by connecting an MCP client to `http://127.0.0.1:8080/mcp` with the
-admin key, as [above](#let-your-agent-use-it), and asking for
-`SELECT status, count() FROM requests GROUP BY status`.
-
-Guardian speaks plain HTTP. Put TLS in front of it before you expose it beyond the
-machine; a key travels in every request.
-
 ## Elixir callers
 
-Guardian's modules live under `Guardian.*`, including `Guardian.Web.*`, so they
-can coexist with an application's own `Query`, `Storage` or `Web` modules. With
-Guardian running, Elixir code can ingest and query directly:
+Elixir code running in Guardian's own VM, embedding it rather than using the client,
+can ingest and query directly:
 
 ```elixir
 Guardian.Engine.ingest_events("requests", [%{"path" => "/", "status" => 200}])
