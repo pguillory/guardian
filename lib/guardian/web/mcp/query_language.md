@@ -205,7 +205,9 @@ Comparisons and sorting compare the strings as they are.
 - Comparison: `= != < <= > >=`, `<=>` (null-safe equal), `IS`, `IS NOT`.
 - Logic: `AND`, `OR`, `NOT`.
 - `x BETWEEN a AND b`.
-- `x IN [a, b, c]`. The list uses square brackets; parentheses are not a list.
+- `x IN [a, b, c]`. The list uses square brackets; parentheses are not a list. SQL's
+  parenthesized list (`x IN ('a', 'b')`, `x IN ('a')`, `x IN ()`) is a parse error,
+  while grouping a list-valued expression (`x IN (list_column)`) is allowed.
 - `LIKE` and `ILIKE` (case-insensitive), with `%` matching any run of characters and
   `_` exactly one (a UTF-8 character, or a byte if either side isn't valid UTF-8); no
   escape character. A pattern of more than 1,000 characters besides `%` gives null.

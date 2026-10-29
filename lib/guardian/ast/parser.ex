@@ -897,9 +897,52 @@ defmodule Guardian.AST.Parser do
     {struct!(module, left: left, right: right), tokens}
   end
 
+  defp parse_operand(InOperator, left, tokens, precedence) do
+    {right, tokens} = parse_in_list!(tokens, precedence)
+    {%InOperator{left: left, right: right}, tokens}
+  end
+
   defp parse_operand(module, left, tokens, precedence) do
     {right, tokens} = parse_expression!(tokens, precedence)
     {struct!(module, left: left, right: right), tokens}
+  end
+
+  # IN's list is in square brackets. `x IN ('a', 'b')`, `x IN ('a')` and `x IN ()` are
+  # SQL's parenthesized list, which would otherwise be a parse error far from the
+  # mistake or, for one element, a grouped constant that never matches. Grouping a
+  # list-valued expression, as in `x IN (list_column)`, stays valid. A parenthesized
+  # operand is parsed here once, as maybe_parse_expression/2 would, never reparsed.
+  defp parse_in_list!(tokens_at_list, precedence) do
+    case tokens_at_list do
+      [{:punctuation, "("}, {:punctuation, ")"} | _] ->
+        throw_parenthesized_list!(tokens_at_list)
+
+      [{:punctuation, "("} | tokens] ->
+        {expr, tokens} = parse_expression!(tokens)
+
+        if match?([{:punctuation, ","} | _], tokens) or scalar_constant?(expr) do
+          throw_parenthesized_list!(tokens_at_list)
+        end
+
+        tokens = parse_punctuation!(tokens, ")")
+        continue_expression(tokens, %Guardian.AST.Node.Parentheses{expr: expr}, precedence)
+
+      _ ->
+        parse_expression!(tokens_at_list, precedence)
+    end
+  end
+
+  defp scalar_constant?(expr) do
+    case expr do
+      %Literal{} -> true
+      %NegativeOperator{right: right} -> scalar_constant?(right)
+      %Guardian.AST.Node.Parentheses{expr: expr} -> scalar_constant?(expr)
+      _ -> false
+    end
+  end
+
+  defp throw_parenthesized_list!(tokens) do
+    throw {:parse_error, "IN takes a list in square brackets, as in x IN ['a', 'b']", tokens}
   end
 
   defp maybe_parse_list_literal(tokens) do

@@ -449,6 +449,9 @@ when it needs one. This file is public: see the change-tracking rules in AGENTS.
       readiness check is paid once per query and resolve and FROM see the same nodes
 - [x] json-query-error-responses: obsolete; split-api-keys removed JSON `/query`
       (`docs/changes/split-api-keys.md`)
+- [x] in-parenthesized-list: `x IN ('a')` was IN over a grouped string, null, so a
+      rule using it silently never matched; a parenthesized list after IN is now the
+      parse error "IN takes a list in square brackets" (`docs/changes/in-parenthesized-list.md`)
 - [x] integer-literal-range: an integer literal outside int64
       (`99999999999999999999`, or `-9223372036854775808`, which is minus applied to
       2^63) parsed, then failed evaluation; it is now the parse error "Number out of

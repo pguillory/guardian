@@ -594,7 +594,8 @@ the shipped surface:
    (repeatable, ANDed), `GROUP BY`, `HAVING`, `ORDER BY ... ASC|DESC`, `LIMIT` (integer
    literal only). `SELECT *` expands to every column of the table across all machines.
 3. Expressions: arithmetic, `||`, comparisons including null-safe `<=>`, `IS [NOT]`,
-   `AND/OR/NOT`, `BETWEEN`, `IN [list]`, `LIKE` and `ILIKE` (`%` any run, `_` one
+   `AND/OR/NOT`, `BETWEEN`, `IN [list]` (a parenthesized list such as `('a', 'b')` or
+   `('a')` is a parse error), `LIKE` and `ILIKE` (`%` any run, `_` one
    character, no escape; linear time; a pattern over 1,000 characters besides `%` gives
    null), `RLIKE` (Perl-compatible regular expressions), `CASE`, `INTERVAL n UNIT`,
    list literals.

@@ -7,6 +7,7 @@ defmodule Guardian.AST.ParserTest do
   alias Guardian.AST.Node.Operators.AndOperator
   alias Guardian.AST.Node.Operators.BetweenOperator
   alias Guardian.AST.Node.Operators.EqualOperator
+  alias Guardian.AST.Node.Operators.InOperator
   alias Guardian.AST.Node.Operators.IsOperator
   alias Guardian.AST.Node.Operators.ListLiteral
   alias Guardian.AST.Node.Operators.MultiplyOperator
@@ -671,6 +672,51 @@ defmodule Guardian.AST.ParserTest do
         ] do
       assert %ParseError{reason: ^reason, col: ^col} = catch_error(parse(source))
     end
+  end
+
+  test "IN rejects a parenthesized list at the parenthesis and allows a grouped operand" do
+    reason = "IN takes a list in square brackets, as in x IN ['a', 'b']"
+
+    for source <- [
+          "a IN ('x')",
+          "a IN (1)",
+          "a IN (-1)",
+          "a IN (null)",
+          "a IN (('x'))",
+          "a IN (-(1))",
+          "a IN ('a', 'b')",
+          "a IN (b, c)",
+          "a IN ()",
+          "a IN ( 'x' ) OR b",
+        ] do
+      assert %ParseError{reason: ^reason, col: 5} = catch_error(parse(source))
+    end
+
+    assert %ParseError{reason: ^reason, row: 1, col: 11} =
+             catch_error(parse("select a\nwhere a IN ('x')"))
+
+    for source <- [
+          "a IN [1]",
+          "1 IN ([1])",
+          "a IN (b)",
+          "a IN (b || c)",
+          "a IN ('x' || 'y')",
+          "a IN (CASE WHEN c THEN [1] ELSE [2] END)",
+        ] do
+      assert %InOperator{} = parse(source)
+    end
+
+    assert associativity("a IN (b) OR c") == "((a IN (b)) OR c)"
+    assert associativity("a IN (b) || c") == "(a IN ((b) || c))"
+    assert associativity("a IN (b) IS NULL") == "((a IN (b)) IS null)"
+    assert associativity("a IN (b) = c") == "((a IN (b)) = c)"
+  end
+
+  test "nested grouped IN operands parse in linear time" do
+    nested = Enum.reduce(1..200, "[1]", fn _, acc -> "(a IN #{acc})" end)
+    {micros, expr} = :timer.tc(fn -> parse("b IN #{nested}") end)
+    assert %InOperator{} = expr
+    assert micros < 5_000_000
   end
 
   test "a standalone rewritten negation unparses to text that parses back to it" do

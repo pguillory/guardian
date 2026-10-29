@@ -128,6 +128,13 @@ defmodule Guardian.Rules.RuleSetTest do
            ]
   end
 
+  test "a parenthesized IN list is a parse error, not a condition that never matches" do
+    assert messages(%{"t/a.gsql" => "SET is_blocked = true\nWHERE ip IN ('203.0.113.9')"}) ==
+             ["t/a.gsql line 2: IN takes a list in square brackets, as in x IN ['a', 'b']"]
+
+    assert messages(%{"t/a.gsql" => "SET is_blocked = true WHERE ip IN ['203.0.113.9']"}) == []
+  end
+
   test "the tables Guardian writes itself take rule files like any other table" do
     for table <- ~w[system_stats web_requests web_responses query_parse_errors queries] do
       assert {:ok, _plan} = RuleSet.validate(%{"#{table}/a.gsql" => "SET a = 1"}).tables[table]
