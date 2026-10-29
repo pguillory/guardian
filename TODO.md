@@ -484,6 +484,9 @@ when it needs one. This file is public: see the change-tracking rules in AGENTS.
       (`GUARDIAN_ADMIN_API_KEY`) is for MCP; `POST /api/json/query` is removed; the
       single `GUARDIAN_API_KEY` stays full access, deprecated, until it is retired
       (`docs/changes/split-api-keys.md`)
+- [ ] readme-guide-copies: the README's Fly and Docker steps and "What it isn't"
+      copy docs/guides/fly.md, single-node.md and limitations.md and have already
+      drifted; pick one source for each and link to it (README review follow-up)
 - [ ] clients: official ingest clients for Python, TypeScript, Elixir and Rust
       (`guardian.event(table, fields, returning=[...])` over `send_events`), which the
       README already shows; package names and publishing are undecided
