@@ -20,6 +20,14 @@ privately, not in this repository.
 - [ ] harden-shutdown-persist: a segment whose pack raises during shutdown (an
       unexpected reply such as `{:error, :not_frozen}` fails a match) aborts persistence
       of every remaining full segment
+- [ ] full-segments-crash-cascade: if FullSegments crashes, Storage's `:rest_for_one`
+      stops MutableSegments, whose `terminate/2` hands its segments to the dead
+      FullSegments and crashes, so every unpersisted mutable row is lost, acknowledged
+      events included; PersistedSegments' `terminate/2` crashes the same way on
+      FullSegments' missing table and skips `retire_all`. docs/architecture/system.md
+      2.1 documents the row loss as the cascade; whether that is acceptable, and
+      whether terminate should crash on that path, is undecided. Normal shutdown stops
+      in the safe order and is unaffected
 - [ ] segment-count-columns: segment files still carry six per-type count columns
       (null, false, true, int, float, string) that nothing reads; dropping them changes
       the format, so it needs a format version and a migration plan
@@ -488,6 +496,10 @@ privately, not in this repository.
       (`docs/changes/release-cookie-file.md`)
 
 ## Tests
+
+- [ ] test-rules: bring tests in line with CONTRIBUTING's "What tests cover" rules
+      a category at a time; the Storage supervisor-tree kills are gone, the rest of
+      that category and the other categories are pending (`docs/changes/test-rules.md`)
 
 - [x] persisted-segment-test-synchronization: wait for fixture creation through task
       completion instead of a 1 s message deadline; preserve segment lifetime and

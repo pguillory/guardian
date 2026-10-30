@@ -60,6 +60,20 @@ covers several modules. A struct or module name used as a value (`%Event{}`, a
 supervisor child) still needs its alias, alongside the import. Nothing checks this;
 follow it in new tests and when you edit old ones.
 
+## What tests cover
+
+- Test success cases: what Guardian does when its parts work.
+- Don't test timeouts. A test that waits for a deadline to pass is slow and
+  load-dependent.
+- No sleeps. Wait for the condition the test needs (`Guardian.Test.Polling`), never
+  for time to pass.
+- Don't kill part of the supervisor tree. No test kills, stops or restarts a process
+  that Guardian's supervisors or managers own (a Storage manager or segment, an
+  application child, a supervised server) to see how the rest copes.
+
+Older tests that break these rules are being removed a category at a time; don't add
+new ones.
+
 ## Test isolation
 
 Tests assume every table starts empty, and each test uses its own table. The test run

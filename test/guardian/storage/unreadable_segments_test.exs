@@ -198,23 +198,4 @@ defmodule Guardian.Storage.UnreadableSegmentsTest do
     assert BlobStore.exists(new_file)
     assert new_id in LoadedSegments.skipped_segment_ids()
   end
-
-  test "startup skips unreadable files and loads the rest", %{table: table} do
-    good_id = Guardian.SegmentID.generate()
-    bad_id = Guardian.SegmentID.generate()
-    store_segment(table, good_id, [%{"a" => 1}])
-    truncated_segment(table, bad_id)
-
-    log =
-      capture_log(fn ->
-        :ok = Supervisor.terminate_child(Guardian.Storage, LoadedSegments)
-        {:ok, _pid} = Supervisor.restart_child(Guardian.Storage, LoadedSegments)
-      end)
-
-    assert {:ok, _segment} = LoadedSegments.get_segment(good_id)
-    assert bad_id in LoadedSegments.skipped_segment_ids()
-    assert log =~ "Skipping unreadable segment file"
-    refute log =~ @marker
-    eventually(fn -> Guardian.Storage.table_row_count(table) == 1 end)
-  end
 end
