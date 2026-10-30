@@ -3,7 +3,9 @@ defmodule Guardian.Rules.Event do
   What a compiled rule module gets besides the row: the event's private arrival
   coordinates and its per-event counter routing context, never row fields.
   """
-  alias Guardian.Counters.{Arrival, Client, Context}
+  alias Guardian.Counters.Arrival
+  alias Guardian.Counters.Client
+  alias Guardian.Counters.Context
   @enforce_keys [:arrival, :counters]
   defstruct [:arrival, :counters]
 

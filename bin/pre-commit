@@ -14,5 +14,6 @@ fi
 git diff-index --check --cached $against --
 
 mix format --check-formatted
+mix credo
 MIX_ENV=test mix compile --warnings-as-errors
 exec mix test --warnings-as-errors

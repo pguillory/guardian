@@ -19,7 +19,8 @@ defmodule Guardian.Rules.Runtime do
   """
 
   alias Guardian.Aggregation
-  alias Guardian.Counters.{Definition, Execution}
+  alias Guardian.Counters.Definition
+  alias Guardian.Counters.Execution
   alias Guardian.Lists
   alias Guardian.Rules.RowIndex
   alias Guardian.Rules.Runtime.Failure

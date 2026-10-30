@@ -2,7 +2,10 @@ defmodule Guardian.Rules.CompilerTest do
   use ExUnit.Case, async: true
   import Guardian.Test.Rules, only: [compile_module: 2]
 
-  alias Guardian.Rules.{DependencyGraph, Event, RuleSet, Runtime}
+  alias Guardian.Rules.DependencyGraph
+  alias Guardian.Rules.Event
+  alias Guardian.Rules.RuleSet
+  alias Guardian.Rules.Runtime
 
   defp compile(module, files) do
     preparation = RuleSet.prepare(files)

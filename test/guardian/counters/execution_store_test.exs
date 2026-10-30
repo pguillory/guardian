@@ -6,7 +6,10 @@ defmodule Guardian.Counters.ExecutionStoreTest do
   # Uses the node-wide budget seam (`Guardian.Test.Counters.Budget`).
   use ExUnit.Case, async: false
   alias Guardian.Aggregation
-  alias Guardian.Counters.{Arrival, Definition, Execution, Store}
+  alias Guardian.Counters.Arrival
+  alias Guardian.Counters.Definition
+  alias Guardian.Counters.Execution
+  alias Guardian.Counters.Store
   alias Guardian.Test.Counters.Budget, as: CounterBudgetHelper
   alias Guardian.Test.Counters.ProbeStore
 

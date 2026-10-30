@@ -1,6 +1,8 @@
 defmodule Guardian.Rules.EventTest do
   use ExUnit.Case, async: true
-  alias Guardian.Counters.{Arrival, Client, Context}
+  alias Guardian.Counters.Arrival
+  alias Guardian.Counters.Client
+  alias Guardian.Counters.Context
   alias Guardian.Rules.Event
 
   test "starting an Event preserves private arrival coordinates and nests the typed context" do

@@ -1,6 +1,7 @@
 defmodule Guardian.Counters.MachineTest do
   use ExUnit.Case, async: true
-  alias Guardian.Counters.{KeyMachines, Machine}
+  alias Guardian.Counters.KeyMachines
+  alias Guardian.Counters.Machine
 
   @sum Guardian.Aggregation.fetch!("sum")
 

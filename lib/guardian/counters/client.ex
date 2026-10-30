@@ -7,7 +7,9 @@ defmodule Guardian.Counters.Client do
   per event. Errors remain fixed atoms; Rules supplies aggregate defaults. Never
   retry an uncertain mutation. Transport and Budget are internal collaborators.
   """
-  alias Guardian.Counters.{Budget, Context, Transport}
+  alias Guardian.Counters.Budget
+  alias Guardian.Counters.Context
+  alias Guardian.Counters.Transport
 
   @spec new_batch() :: Context.batch()
   defdelegate new_batch(), to: Budget

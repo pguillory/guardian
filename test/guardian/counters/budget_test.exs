@@ -1,6 +1,7 @@
 defmodule Guardian.Counters.BudgetTest do
   use ExUnit.Case, async: false
-  alias Guardian.Counters.{Budget, Client}
+  alias Guardian.Counters.Budget
+  alias Guardian.Counters.Client
 
   setup do
     start_supervised!({Budget, name: :counter_budget_test})

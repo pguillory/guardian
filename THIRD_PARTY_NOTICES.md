@@ -33,6 +33,7 @@ the release. Licenses are as each package declares them on Hex.
 | thousand_island | 1.6.0 | MIT | release |
 | uuid | 1.1.8 | Apache-2.0 | release |
 | websock | 0.5.3 | MIT | release |
+| bunt, credo | 1.0.0, 1.7.19 | MIT, MIT | development only |
 | exsync, file_system | 0.4.1, 1.1.1 | BSD-3-Clause, Apache-2.0 | development only |
 | freedom_formatter | 2.1.3 | Apache-2.0 | development only |
 

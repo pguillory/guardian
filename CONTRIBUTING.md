@@ -43,6 +43,13 @@ checks that each file defines at most one module, counting nested `defmodule` an
 `defprotocol` but not quoted code or `defimpl`.
 Test files may still define small support modules inline.
 
+Give every alias its own line: `alias Guardian.Counters.Budget` and
+`alias Guardian.Counters.Clock`, never `alias Guardian.Counters.{Budget, Clock}`. Each
+module's full name stays greppable, and adding or removing one alias is a one-line
+diff. Credo's `MultiAlias` check enforces this in the pre-commit hook (`mix credo`);
+`.credo.exs` enables only that check. Grouped `import` and `require` aren't checked,
+and Guardian has none.
+
 Put new shared test infrastructure under `Guardian.Test.*` in
 `libtest/guardian/test/`, split by concern; see the
 [test support namespace](docs/changes/test-support-namespace.md) for existing helpers

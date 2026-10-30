@@ -6,7 +6,8 @@ defmodule Guardian.Counters.Budget do
   settlement use atomics and ETS directly, never its mailbox.
   """
   use GenServer
-  alias Guardian.Counters.{Clock, Context}
+  alias Guardian.Counters.Clock
+  alias Guardian.Counters.Context
 
   # Microsecond durations in Clock's coordinate, like Context's timeout_us.
   @batch_allowance_us 250_000

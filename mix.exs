@@ -48,6 +48,7 @@ defmodule Guardian.MixProject do
       {:anubis_mcp, "== 2.2.0"},
       {:bandit, ">= 0.0.0"},
       {:cors_plug, ">= 0.0.0"},
+      {:credo, "~> 1.7", only: :dev, runtime: false},
       {:dns_cluster, "~> 0.3"},
       {:elixir_make, ">= 0.0.0", runtime: false},
       {:exsync, ">= 0.0.0", only: :dev},

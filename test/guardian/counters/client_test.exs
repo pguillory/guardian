@@ -1,6 +1,10 @@
 defmodule Guardian.Counters.ClientTest do
   use ExUnit.Case, async: false
-  alias Guardian.Counters.{Budget, Client, Execution, Machine, Transport}
+  alias Guardian.Counters.Budget
+  alias Guardian.Counters.Client
+  alias Guardian.Counters.Execution
+  alias Guardian.Counters.Machine
+  alias Guardian.Counters.Transport
   alias Guardian.Counters.Store
   alias Guardian.Test.Counters.Budget, as: CounterBudgetHelper
 

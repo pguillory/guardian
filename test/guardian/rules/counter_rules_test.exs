@@ -8,8 +8,12 @@ defmodule Guardian.Rules.CounterRulesTest do
   use ExUnit.Case, async: false
   import Guardian.Test.Rules
   alias Guardian.Aggregation
-  alias Guardian.Counters.{Arrival, Execution, Store}
-  alias Guardian.Rules.{DependencyGraph, Event, Runtime}
+  alias Guardian.Counters.Arrival
+  alias Guardian.Counters.Execution
+  alias Guardian.Counters.Store
+  alias Guardian.Rules.DependencyGraph
+  alias Guardian.Rules.Event
+  alias Guardian.Rules.Runtime
   alias Guardian.Test.Counters.Budget, as: CounterBudgetHelper
   alias Guardian.Test.Counters.ProbeStore
 

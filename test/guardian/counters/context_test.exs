@@ -1,6 +1,10 @@
 defmodule Guardian.Counters.ContextTest do
   use ExUnit.Case, async: false
-  alias Guardian.Counters.{Budget, Client, Context, Store, Transport}
+  alias Guardian.Counters.Budget
+  alias Guardian.Counters.Client
+  alias Guardian.Counters.Context
+  alias Guardian.Counters.Store
+  alias Guardian.Counters.Transport
   alias Guardian.Test.Counters.Budget, as: CounterBudgetHelper
 
   test "Client captures a typed context with the existing defaults and shared batch" do

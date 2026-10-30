@@ -49,8 +49,10 @@ mix deps.get
 bin/install-git-hooks
 ```
 
-`mix deps.get` fetches the dev dependencies too, and the formatter needs them
-(`freedom_formatter` is a dev-only plugin), so run it without `--only`.
+`mix deps.get` fetches the dev dependencies too, and the hook's checks need them
+(the formatter's `freedom_formatter` plugin and `credo` are dev-only), so run it
+without `--only`. Run it again after merging a change that adds one: the hook comes
+from the main checkout, so a worktree whose dependencies predate it fails `mix credo`.
 `bin/install-git-hooks` links `bin/pre-commit` as the repository's pre-commit hook.
 It works from linked worktrees and honors a repository-local `core.hooksPath`,
 including relative paths. It refuses a hooks path configured outside the repository's
@@ -69,6 +71,7 @@ runs, on the working tree:
 
 ```sh
 mix format --check-formatted
+mix credo
 MIX_ENV=test mix compile --warnings-as-errors
 mix test --warnings-as-errors
 ```
@@ -78,6 +81,8 @@ stdin (`mix format -`). The build-only `Guardian.Formatter` plugin in
 `.formatter.exs` applies FreedomFormatter twice per input to handle its
 [newly wrapped trailing-comma bug](https://github.com/marcandre/freedom_formatter/issues/9).
 This retains Guardian's existing style and makes one invocation pass the check.
+`mix credo` runs exactly one Credo check, `Credo.Check.Readability.MultiAlias`
+(one alias per line, see CONTRIBUTING.md); `.credo.exs` enables nothing else.
 Run the full suite after every change. The multi-node tests start peer nodes,
 which need `epmd`; the tests start it themselves
 when it isn't running, and in a sandbox that blocks that, run `epmd -daemon` first.

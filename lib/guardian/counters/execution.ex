@@ -23,7 +23,12 @@ defmodule Guardian.Counters.Execution do
   total attempts.
   """
   alias Guardian.Aggregation
-  alias Guardian.Counters.{Arrival, Client, Context, Definition, KeyMachines, Machine}
+  alias Guardian.Counters.Arrival
+  alias Guardian.Counters.Client
+  alias Guardian.Counters.Context
+  alias Guardian.Counters.Definition
+  alias Guardian.Counters.KeyMachines
+  alias Guardian.Counters.Machine
   alias Guardian.Lists
 
   @counts [{"count", 0}, {"count", 1}]

@@ -484,6 +484,9 @@ privately, not in this repository.
 - [x] one-module-per-file: one module or protocol per `lib/` and `libtest/` file,
       enforced by the normal test suite; `defimpl` stays with its subject
       (`docs/changes/one-module-per-file.md`)
+- [x] one-alias-per-line: one alias per line, enforced by Credo's MultiAlias check
+      (the only check enabled) in the pre-commit hook
+      (`docs/changes/one-alias-per-line.md`)
 
 - [x] elixir-120-compatibility: compile Guardian with warnings as errors and run the
       full suite on Elixir 1.19 and 1.20 without changing runtime pins

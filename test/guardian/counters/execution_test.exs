@@ -8,7 +8,12 @@ defmodule Guardian.Counters.ExecutionTest do
   # setting, so these tests run concurrently.
   use ExUnit.Case, async: true
   alias Guardian.Aggregation
-  alias Guardian.Counters.{Arrival, Context, Definition, Execution, KeyMachines, Machine}
+  alias Guardian.Counters.Arrival
+  alias Guardian.Counters.Context
+  alias Guardian.Counters.Definition
+  alias Guardian.Counters.Execution
+  alias Guardian.Counters.KeyMachines
+  alias Guardian.Counters.Machine
 
   @sum Aggregation.fetch!("sum")
   @min Aggregation.fetch!("min")

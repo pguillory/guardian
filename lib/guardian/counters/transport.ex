@@ -3,7 +3,9 @@ defmodule Guardian.Counters.Transport do
   Internal owner routing and bounded pipeline transport for Counters.Client.
   Budget owns admission and settlement; this module owns dispatch and cleanup.
   """
-  alias Guardian.Counters.{Budget, Clock, Context}
+  alias Guardian.Counters.Budget
+  alias Guardian.Counters.Clock
+  alias Guardian.Counters.Context
   alias Guardian.Lists
 
   @store_backend Application.compile_env(
