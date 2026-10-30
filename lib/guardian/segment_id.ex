@@ -23,10 +23,4 @@ defmodule Guardian.SegmentID do
     <<timestamp::size(64), _::binary-size(8)>> = Base.decode16!(segment_id)
     timestamp
   end
-
-  def timestamp(segment_id) do
-    get_timestamp_nanoseconds(segment_id)
-    |> System.convert_time_unit(:nanosecond, :second)
-    |> Guardian.Timestamp.from_seconds()
-  end
 end

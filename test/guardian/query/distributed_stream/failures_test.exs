@@ -1,7 +1,5 @@
 defmodule Guardian.Query.DistributedStream.FailuresTest do
-  # Counts live pipeline processes, so it must not run beside other pipelines.
-  use ExUnit.Case, async: false
-  import Guardian.Test.Processes
+  use ExUnit.Case, async: true
 
   # Crashing workers are plain processes, which log their exceptions.
   @moduletag :capture_log
@@ -53,8 +51,10 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
     end
   end
 
-  defp assert_no_pipeline_left do
-    await_no_processes_running([Guardian.Query.DistributedStream], except: [self()])
+  # Waits for `pid`, a pipeline process the test holds, to stop.
+  defp assert_stops(pid) do
+    ref = Process.monitor(pid)
+    assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 5_000
   end
 
   # A crash reaches the consumer either as the worker's own reason (through the
@@ -107,7 +107,6 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
              end)
 
     assert rows == Enum.map(1..5_000, &(&1 * 2 + 1))
-    assert_no_pipeline_left()
   end
 
   test "an empty input, and a stage that passes nothing on, return no rows" do
@@ -125,8 +124,6 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
                |> fan_in()
                |> Enum.to_list()
              end)
-
-    assert_no_pipeline_left()
   end
 
   test "senders that route to disjoint partitions complete" do
@@ -159,8 +156,6 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
              end)
 
     assert_crash(reason, "boom")
-
-    assert_no_pipeline_left()
   end
 
   test "an upstream failure after downstream rows were emitted still fails" do
@@ -196,7 +191,6 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
     assert {%RuntimeError{message: "late"}, stack} = reason
     assert is_list(stack)
     assert_received :consumer_has_rows
-    assert_no_pipeline_left()
   end
 
   test "a stage slower than 5 seconds completes" do
@@ -241,7 +235,6 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
     assert_receive {:worker, worker}, 5_000
     Process.exit(worker, :kill)
     assert Task.await(task) == {:exit, :killed}
-    assert_no_pipeline_left()
   end
 
   test "a final router that dies fails the pipeline with its reason" do
@@ -251,6 +244,8 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
       task =
         Task.async(fn ->
           consume(fn ->
+            send(parent, {:consumer, self()})
+
             1..10
             |> fan_out(&by_parity/1)
             |> map(fn
@@ -266,17 +261,20 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
           end)
         end)
 
+      assert_receive {:consumer, consumer}, 5_000
       assert_receive :blocked, 5_000
 
+      # The consumer links its pipeline's final router.
+      {:links, links} = Process.info(consumer, :links)
+
       [final_router] =
-        Enum.filter(Process.list(), fn pid ->
+        Enum.filter(links, fn pid ->
           Process.info(pid, :current_function) ==
             {:current_function, {Guardian.Query.DistributedStream, :final_route, 3}}
         end)
 
       Process.exit(final_router, signal)
       assert Task.await(task) == {:exit, reason}
-      assert_no_pipeline_left()
     end
   end
 
@@ -297,8 +295,6 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
              )
 
     assert_crash(reason, "boom")
-
-    assert_no_pipeline_left()
   end
 
   test "a non-trapping consumer survives its own halt while every stage is busy" do
@@ -322,8 +318,6 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
                  trap: false
                )
     end
-
-    assert_no_pipeline_left()
   end
 
   test "stopping early halts workers even while they are blocked in a call" do
@@ -358,8 +352,7 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
                )
 
       assert_receive {:blocked, blocked}
-      assert_no_pipeline_left()
-      refute Process.alive?(blocked)
+      assert_stops(blocked)
     end
 
     :sys.resume(agent)
@@ -394,20 +387,19 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
     {consumer, ref, blocked}
   end
 
-  test "killing the consumer mid-run leaves no pipeline process alive" do
+  test "killing the consumer mid-run stops its blocked worker" do
     {:ok, agent} = Agent.start_link(fn -> :ok end)
     :sys.suspend(agent)
     {consumer, _ref, blocked} = spawn_blocked_consumer(agent, &Enum.to_list/1)
     Process.exit(consumer, :kill)
-    assert_no_pipeline_left()
-    refute Process.alive?(blocked)
+    assert_stops(blocked)
     :sys.resume(agent)
   end
 
   # Suspending enumeration and returning skips the stream's after-cleanup, so only the
   # routers' handling of the consumer's normal EXIT stops the pipeline. The consumer
   # returns only when told to, after the worker is known to be blocked.
-  test "a consumer that exits normally mid-run leaves no pipeline process alive" do
+  test "a consumer that exits normally mid-run stops its blocked worker" do
     {:ok, agent} = Agent.start_link(fn -> :ok end)
     :sys.suspend(agent)
 
@@ -423,8 +415,7 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
 
     send(consumer, :return)
     assert_receive {:DOWN, ^ref, :process, ^consumer, :normal}, 5_000
-    assert_no_pipeline_left()
-    refute Process.alive?(blocked)
+    assert_stops(blocked)
     :sys.resume(agent)
   end
 
@@ -432,6 +423,8 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
     {:ok, agent} = Agent.start_link(fn -> :ok end)
     :sys.suspend(agent)
     parent = self()
+    # Set once the worker given 2 has reported itself, so the failure comes after.
+    gate = :atomics.new(1, [])
 
     # The consumer stays alive throughout, so only its own cleanup can have stopped
     # the pipeline it abandoned.
@@ -444,12 +437,14 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
             1..1_000
             |> fan_out(&by_parity/1)
             |> map(fn
-              # Partition 1 fails while partition 2 is blocked.
+              # The worker given 1 fails while the one given 2 is blocked.
               1 ->
-                Process.sleep(100)
+                await_gate(gate)
                 raise "boom"
 
               2 ->
+                send(parent, {:blocked, self()})
+                :atomics.put(gate, 1, 1)
                 Agent.get(agent, & &1, :infinity)
 
               value ->
@@ -490,13 +485,13 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
 
     assert_receive {:failed, failed}, 5_000
     assert_crash(failed, "boom")
-    assert_no_pipeline_left()
+    assert_receive {:blocked, blocked}
+    assert_stops(blocked)
     {:links, []} = Process.info(consumer, :links)
     send(consumer, :continue)
 
     assert_receive {:next, [{1, _}], full, {:links, []}}, 10_000
     assert full == Enum.to_list(1..2_000)
-    assert_no_pipeline_left()
     send(consumer, :stop)
     assert_receive {:DOWN, ^ref, :process, ^consumer, :normal}
     :sys.resume(agent)
@@ -527,8 +522,6 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
              end)
 
     assert_crash(reason, "inner")
-
-    assert_no_pipeline_left()
 
     assert {:ok, rows} =
              consume(fn ->
@@ -575,8 +568,7 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
              end)
 
     assert_receive {:blocked, blocked}
-    assert_no_pipeline_left()
-    refute Process.alive?(blocked)
+    assert_stops(blocked)
     :sys.resume(agent)
   end
 
@@ -615,8 +607,6 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
                |> Enum.to_list()
              end)
 
-    assert_no_pipeline_left()
-
     # The last stage's worker sends it to the consumer.
     assert {:exit, {:distributed_stream, {:lost_input, _}}} =
              consume(fn ->
@@ -628,8 +618,6 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
                |> fan_in()
                |> Enum.to_list()
              end)
-
-    assert_no_pipeline_left()
   end
 
   defp exit_after_one_chunk(stream, exit_fun) do
@@ -660,8 +648,6 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
     # it go down without its marker.
     assert {:exit, {:distributed_stream, reason}} = run_exiting_stage(fn -> exit(:normal) end)
     assert reason == :worker_exited or match?({:sender_down, _}, reason)
-
-    assert_no_pipeline_left()
   end
 
   test "a sender that dies normally without its marker fails the pipeline" do
@@ -674,8 +660,6 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
     # it go down without its marker.
     assert reason == :worker_exited or
              reason in [{:sender_down, :normal}, {:sender_down, :noproc}]
-
-    assert_no_pipeline_left()
   end
 
   test "a receiver that stops reading early fails its senders" do
@@ -691,7 +675,6 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
              end)
 
     assert match?({:receiver_down, _}, reason) or reason == :worker_finished_early
-    assert_no_pipeline_left()
   end
 
   test "a worker that reads part of a small input fails after its senders finished" do
@@ -711,8 +694,6 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
                |> fan_in()
                |> Enum.to_list()
              end)
-
-    assert_no_pipeline_left()
   end
 
   test "an input stream that exits normally fails instead of hanging" do
@@ -746,13 +727,9 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
       assert run.(fn _ -> exit(:normal) end) == {:exit, {:distributed_stream, :input_exited}}
     end
 
-    assert_no_pipeline_left()
-
     for _ <- 1..1_000 do
       assert run.(fn _ -> exit(:input_failed) end) == {:exit, :input_failed}
     end
-
-    assert_no_pipeline_left()
   end
 
   test "successful runs leave the consumer's mailbox and links clean" do

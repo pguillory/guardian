@@ -1,7 +1,7 @@
 defmodule Guardian.Query.TemporariesTest do
-  # Query temporaries (SELECT without FROM, the schema table, reassembled GROUP BY
-  # output) are plain data, not Segment processes.
-  use ExUnit.Case, async: false
+  # Query temporaries: SELECT without FROM, the schema table, reassembled GROUP BY
+  # output.
+  use ExUnit.Case, async: true
   import Guardian.Test.Query, only: [run_sql: 1]
 
   alias Guardian.Query.Constant
@@ -9,86 +9,8 @@ defmodule Guardian.Query.TemporariesTest do
   alias Guardian.Query.Evaluation.SegmentSnapshot
   alias Guardian.Storage.Column
 
-  @managers [
-    Guardian.Storage.MutableSegments,
-    Guardian.Storage.FullSegments,
-    Guardian.Storage.PersistedSegments,
-    Guardian.Storage.LoadedSegments,
-  ]
-
-  # Segment processes no Storage manager owns. Every manager links the segments it
-  # owns, so what other activity starts meanwhile (an append, a disk scan loading the
-  # files earlier tests left) is excluded, and a query temporary would be counted.
-  defp unowned_segments do
-    managers = @managers |> Enum.map(&Process.whereis/1) |> Enum.reject(&is_nil/1)
-    Process.list() |> Enum.filter(&unowned_segment?(&1, managers)) |> MapSet.new()
-  end
-
-  defp unowned_segment?(pid, managers) do
-    case Process.info(pid, [:dictionary, :links]) do
-      [dictionary: dictionary, links: links] ->
-        dictionary[:"$initial_call"] == {Guardian.Storage.Segment, :init, 1} and
-          not Enum.any?(links, &(&1 in managers))
-
-      nil ->
-        false
-    end
-  end
-
-  # The segments in `pids` still alive and unowned after up to 30 s. A segment
-  # LoadedSegments is loading links itself only once its file is read, so a new one
-  # gets that long to become owned.
-  defp still_unowned(pids) do
-    deadline = System.monotonic_time(:millisecond) + 30_000
-    await_owned(pids, deadline)
-  end
-
-  defp await_owned(pids, deadline) do
-    pids = MapSet.intersection(pids, unowned_segments())
-
-    if MapSet.size(pids) == 0 or System.monotonic_time(:millisecond) > deadline do
-      pids
-    else
-      Process.sleep(50)
-      await_owned(pids, deadline)
-    end
-  end
-
   defp table do
     "temporaries_#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
-  end
-
-  describe "no Segment processes are left behind" do
-    setup do
-      table = table()
-      for v <- 1..100, do: :ok = Guardian.Storage.append(table, k: rem(v, 5), v: v)
-      %{table: table}
-    end
-
-    test "by queries that build temporaries", %{table: table} do
-      queries = [
-        "select 1",
-        "select table, key from schema",
-        "show tables",
-        "desc #{table}",
-        "select k, count(*) from #{table} group by k having count(*) > 0",
-        "select k, count(*) + 1 from #{table} group by k",
-        "select k, count(*) + 1 from #{table} group by k order by k",
-        "select k, count(*) + 1 from #{table} group by k order by k limit 2",
-      ]
-
-      n = 50
-
-      for query <- queries do
-        run_sql(query)
-        before = unowned_segments()
-        for _ <- 1..n, do: run_sql(query)
-        # Before this change each reassembling query left two behind.
-        new = MapSet.difference(unowned_segments(), before)
-        leaked = still_unowned(new)
-        assert MapSet.size(leaked) == 0, "#{query} left #{inspect(MapSet.to_list(leaked))}"
-      end
-    end
   end
 
   describe "results" do

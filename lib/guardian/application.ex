@@ -1,5 +1,6 @@
 defmodule Guardian.Application do
   use Application
+  require Logger
 
   @stopping {__MODULE__, :stopping}
 
@@ -7,7 +8,9 @@ defmodule Guardian.Application do
   def start(_type, _args) do
     :persistent_term.erase(@stopping)
 
-    IO.puts("Starting build #{Guardian.Build.commit()} built at #{Guardian.Build.timestamp()}")
+    Logger.info(
+      "Guardian: starting build #{Guardian.Build.commit()} built at #{Guardian.Build.timestamp()}"
+    )
 
     # Rules first: it loads the rule store, so a bad store refuses startup in seconds
     # rather than after Storage has loaded every segment.
@@ -32,7 +35,13 @@ defmodule Guardian.Application do
   @impl true
   def prep_stop(state) do
     :persistent_term.put(@stopping, true)
+    Logger.info("Guardian: stopping")
     state
+  end
+
+  @impl true
+  def stop(_state) do
+    Logger.info("Guardian: stopped")
   end
 
   @doc "Whether this machine has begun to stop, so new queries are refused."

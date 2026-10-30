@@ -42,13 +42,11 @@ defmodule Guardian.Cluster.QueryFailuresTest do
         assert %Guardian.Query.Error{message: message} = Task.await(task, 10_000)
         assert message =~ "time limit of 1 second"
 
-        await_no_processes_running(
-          query_modules(),
-          node: peer_node,
-          timeout_ms: 15_000
+        # The workers it had on the peer stop too.
+        Guardian.Test.Polling.eventually(
+          fn -> not Enum.any?(remote, &:erpc.call(peer_node, Process, :alive?, [&1])) end,
+          15_000
         )
-
-        for pid <- remote, do: refute(:erpc.call(peer_node, Process, :alive?, [pid]))
       after
         :erpc.call(peer_node, :sys, :resume, [segment])
       end

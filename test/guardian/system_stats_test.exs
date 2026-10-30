@@ -24,4 +24,32 @@ defmodule Guardian.SystemStatsTest do
   test "metrics report counters as available" do
     assert Keyword.fetch!(metrics(), :counters_available) == true
   end
+
+  test "metrics report open descriptors, native storage counts and resident memory" do
+    metrics = metrics()
+
+    for key <- [:mmap_count, :native_column_count] do
+      assert is_integer(Keyword.fetch!(metrics, key)) and Keyword.fetch!(metrics, key) >= 0
+    end
+
+    if Enum.any?(["/proc/self/fd", "/dev/fd"], &match?({:ok, _}, File.ls(&1))) do
+      count = Keyword.fetch!(metrics, :open_fd_count)
+      assert is_integer(count) and count > 0
+    else
+      assert Keyword.fetch!(metrics, :open_fd_count) == nil
+    end
+
+    case File.read("/proc/self/status") do
+      {:ok, status} ->
+        if status =~ ~r/^VmRSS:/m do
+          bytes = Keyword.fetch!(metrics, :rss_bytes)
+          assert is_integer(bytes) and bytes > 0
+        else
+          assert Keyword.fetch!(metrics, :rss_bytes) == nil
+        end
+
+      {:error, _reason} ->
+        assert Keyword.fetch!(metrics, :rss_bytes) == nil
+    end
+  end
 end

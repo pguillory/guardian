@@ -108,8 +108,35 @@ defmodule Guardian.SystemStats do
       process_count: :erlang.system_info(:process_count),
       process_limit: :erlang.system_info(:process_limit),
       counters_available: Guardian.Counters.Supervisor.available?(),
+      open_fd_count: open_fd_count(),
+      rss_bytes: rss_bytes(),
     ]
 
-    memory_stats ++ erlang_stats
+    memory_stats ++ erlang_stats ++ Guardian.Storage.native_counts()
+  end
+
+  # Operating-system facts about this process. Each reads nil where the platform has
+  # no cheap source or the read fails, so a sample never raises.
+
+  # This process's open descriptors (files, sockets, pipes). Linux and macOS both list
+  # them in a directory; the listing's own descriptor is counted too.
+  defp open_fd_count do
+    Enum.find_value(["/proc/self/fd", "/dev/fd"], fn dir ->
+      case File.ls(dir) do
+        {:ok, entries} -> length(entries)
+        {:error, _reason} -> nil
+      end
+    end)
+  end
+
+  # Resident set size, from VmRSS (in kB) on Linux. It includes file-backed pages of
+  # mapped segments, so it moves with reads and page reclaim.
+  defp rss_bytes do
+    with {:ok, status} <- File.read("/proc/self/status"),
+         [_, kb] <- Regex.run(~r/^VmRSS:\s+(\d+) kB$/m, status) do
+      String.to_integer(kb) * 1024
+    else
+      _ -> nil
+    end
   end
 end

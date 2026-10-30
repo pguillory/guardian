@@ -42,7 +42,6 @@ defmodule Guardian.Storage.SegmentExpiration do
       age_days = age_seconds / @days
 
       if age_days > @max_age_days do
-        IO.puts("Expiring segment #{segment_id} (#{Float.round(age_days, 1)} days old)")
         LoadedSegments.delete_segment(segment_id)
       end
     end)

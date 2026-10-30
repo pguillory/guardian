@@ -1,8 +1,8 @@
 defmodule Guardian.Test.Processes do
   @moduledoc """
   Observes process queues and stacks on this node or peers. Async tests must
-  isolate the processes they observe; node-wide worker assertions and peer tests
-  require `async: false`.
+  isolate the processes they observe; finding processes by scanning a node and peer
+  tests require `async: false`.
   """
 
   import ExUnit.Assertions
@@ -94,31 +94,5 @@ defmodule Guardian.Test.Processes do
 
   defp process_info(node, pid, item) do
     :erpc.call(node, Process, :info, [pid, item])
-  end
-
-  @doc """
-  Waits up to `timeout_ms` until no process on `node` but those in `except` runs code
-  from `modules`, and fails the test naming the ones still alive.
-  """
-  def await_no_processes_running(modules, opts \\ []) do
-    node = Keyword.get(opts, :node, node())
-    except = Keyword.get(opts, :except, [])
-    deadline = System.monotonic_time(:millisecond) + Keyword.get(opts, :timeout_ms, 5_000)
-    await_none(modules, node, except, deadline)
-  end
-
-  defp await_none(modules, node, except, deadline) do
-    case processes_running(modules, node) -- except do
-      [] ->
-        :ok
-
-      pids ->
-        if System.monotonic_time(:millisecond) > deadline do
-          flunk("processes still running #{inspect(modules)} on #{node}: #{inspect(pids)}")
-        else
-          Process.sleep(20)
-          await_none(modules, node, except, deadline)
-        end
-    end
   end
 end

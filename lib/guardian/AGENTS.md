@@ -61,10 +61,14 @@ external calls to the ingestion path.
 Guardian is single-user. Storage and query operations are scoped by table only;
 persisted segment files are named `{table}.{segment_id}.seg`.
 
-`Guardian.SystemStats` is a required runtime child. It writes Erlang VM metrics to the
+`Guardian.SystemStats` is a required runtime child. It writes Erlang VM metrics, a few
+operating-system facts about its own process, and Storage's native counts
+(`Guardian.Storage.native_counts/0`) to the
 `system_stats` stream through `Guardian.Engine.try_log_event/2` every second, each event with a
 `Guardian.Timestamp.now/0` timestamp. Its `counters_available` field reports counter process
-presence without waiting for counters. Keep it free of external services.
+presence without waiting for counters. Every metric is cheap to sample and never raises: an
+operating-system value the platform lacks, or a read that fails, is nil. Keep it free of
+external services.
 
 Before editing a file under `lib/`, read every existing AGENTS.md from `lib/` down
 to the file's directory. Run the full suite afterward.

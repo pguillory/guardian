@@ -759,7 +759,9 @@ file, each holding the file mapped with `Guardian.Storage.Mmap`. Columns are sub
 the mapping, so they occupy page cache, not VM heap, and the kernel pages them in as
 queries touch them. Every 60 seconds it rescans the directory: new files are loaded,
 and segments whose files disappeared are stopped. That rescan is what makes restoring
-or removing files take effect without a restart (spec section 9 item 6).
+or removing files take effect without a restart (spec section 9 item 6). The boot
+load logs "Storage: loading N segment files" before it starts and "Storage: loaded N
+segments (M skipped)" when done, at info; rescans log only the files they skip.
 
 A file that cannot be loaded (section 4.3, limit 3) is skipped. The segment process
 starts unlinked and validates the file in its `init` (header, column bounds, and each
@@ -808,7 +810,7 @@ adds every node's schemas together (section 7).
 `Guardian.Storage.SegmentExpiration` runs at boot and every 10 minutes. It deletes every loaded
 segment whose ID timestamp is more than 15 days old: the file is removed and the
 segment process stopped. Age comes from the segment ID, that is from when the segment
-was created, not from event timestamps. Retention is global and the 15 days is a
+was created, not from event timestamps. Expiry logs nothing. Retention is global and the 15 days is a
 constant in code. There is no other deletion path through the product; operators can
 call `Guardian.Storage.delete_table/1` and `Guardian.Storage.delete_segment/1` from the remote console.
 
@@ -1210,8 +1212,13 @@ Guardian observes itself by writing ordinary tables through `Guardian.Engine.log
 8 lists their fields):
 
 1. `system_stats`: `Guardian.SystemStats` ticks once a second on a monotonic schedule and
-   writes Erlang VM counters. A failed write is skipped (warned once, until a write
-   succeeds) rather than crashing it every second. Each row's `host` is the
+   writes Erlang VM counters, plus `open_fd_count` (entries of `/proc/self/fd` or
+   `/dev/fd`), `rss_bytes` (`VmRSS` in `/proc/self/status`, Linux only) and
+   Storage's `native_counts/0` (atomic reads of the mmap and column NIFs' live
+   counters). Each operating-system read is non-raising and gives nil when unavailable.
+   These are how resource leaks are watched: the suite has no VM-wide resource-count
+   assertions. A failed write is skipped (warned once, until a write succeeds) rather
+   than crashing it every second. Each row's `host` is the
    machine's hostname (on Fly.io, its machine ID), which tells a cluster's machines
    apart when their hostnames differ; rows carry no Erlang node name.
 2. `web_requests` and `web_responses`: `Guardian.Web.Logger`, synchronously in the request. A
@@ -1532,7 +1539,8 @@ and Fly's defaults. The operational decisions:
    which current releases no longer read.
 3. Observing: the built-in tables (`system_stats`, `web_requests`, `web_responses`,
    `query_parse_errors`, `queries`) and stdout (on Fly, `fly logs` and `fly status`). Nothing
-   alerts.
+   alerts. Text logs cover lifecycle only (starting, loaded, listening, stopping,
+   stopped) and problems to fix; CONTRIBUTING.md's "Logging" section has the rules.
 4. Remote console: `bin/guardian remote` on the node (on Fly,
    `fly ssh console --pty -C "/app/bin/guardian remote"`; in Docker, `docker exec`)
    for direct IEx queries and Storage internals.
@@ -1627,10 +1635,9 @@ tests. Shared infrastructure lives under `Guardian.Test.*` in `libtest/guardian/
 `Guardian.Test.Query` resolves and runs SQL (`resolve_sql/1`, `run_sql/1`), scopes
 query time limits (`with_time_limit/2`, serial tests only) and names a query's
 process modules (`query_modules/0`). `Guardian.Test.Polling`
-holds `eventually/2` and `eventually_after_gc/1`; the latter requests GC throughout
-the VM, so global resource-count assertions require serial tests.
-`Guardian.Test.Processes` observes queued calls and pipeline worker stacks on this
-node or peers. `Guardian.Test.Segments` picks a full segment's loaded copy
+holds `eventually/2`.
+`Guardian.Test.Processes` observes queued calls and finds pipeline workers by their
+stacks on this node or peers. `Guardian.Test.Segments` picks a full segment's loaded copy
 (`loaded_segment/2`), appends nested rows (`segment_append/2`), writes segment files
 (`write_segment_file/2`), injects one-call append replies (`intercept_append/2`) and
 clears a built-in table's mutable segments so the injection is certain to be chosen

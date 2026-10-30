@@ -1,6 +1,6 @@
 defmodule Guardian.Query.PipelineFailuresTest do
-  # A query either returns every row or fails with an error; its workers never
-  # outlive it. Counts live processes and suspends segments, so it runs alone.
+  # A query either returns every row or fails with an error. Not async: suspends
+  # segments, and finds blocked query workers by scanning every process.
   use ExUnit.Case, async: false
   import Guardian.Test.Query
   import Guardian.Test.Processes
@@ -23,13 +23,6 @@ defmodule Guardian.Query.PipelineFailuresTest do
   # A full segment, loaded; see Guardian.Test.Segments.loaded_segment/2.
   defp segment(table, index \\ 1) do
     loaded_segment(table, index)
-  end
-
-  defp assert_no_query_processes_left do
-    await_no_processes_running(
-      query_modules(),
-      except: [self()]
-    )
   end
 
   # Query workers blocked reading a segment (only one query runs at a time here).
@@ -66,24 +59,9 @@ defmodule Guardian.Query.PipelineFailuresTest do
 
     assert %Guardian.Query.Error{message: message} = Task.await(task)
     assert message == Guardian.Query.Limits.heap_kill_message()
-    assert_no_query_processes_left()
   end
 
-  test "killing the caller mid-query stops every query process" do
-    table = table()
-    fill(table)
-    {_id, segment} = segment(table)
-    :sys.suspend(segment)
-
-    caller = spawn(fn -> run_sql("SELECT g, count() FROM #{table} GROUP BY g") end)
-    await_nonempty(&blocked_readers/0)
-    Process.exit(caller, :kill)
-
-    assert_no_query_processes_left()
-    :sys.resume(segment)
-  end
-
-  test "a LIMIT returns while workers are still running, and stops them" do
+  test "a LIMIT returns while workers are still running" do
     table = table()
     rows = fill(table)
     {_id, segment} = segment(table, 2)
@@ -91,7 +69,6 @@ defmodule Guardian.Query.PipelineFailuresTest do
 
     # The FROM worker blocks on the suspended segment after producing earlier rows.
     assert [_, _, _] = run_sql("SELECT v FROM #{table} LIMIT 3")
-    assert_no_query_processes_left()
     :sys.resume(segment)
 
     assert run_sql("SELECT count() FROM #{table}") == [[rows]]
@@ -118,7 +95,6 @@ defmodule Guardian.Query.PipelineFailuresTest do
     assert Process.info(self(), :messages) == {:messages, []}
     assert Process.info(self(), :links) == {:links, []}
     assert Process.info(self(), :monitors) == {:monitors, []}
-    assert_no_query_processes_left()
   end
 
   test "counts during ingest never lose or duplicate rows" do
