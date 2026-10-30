@@ -459,6 +459,9 @@ privately, not in this repository.
 - [ ] url-port-cut: reconsider `Guardian.Query.URL`'s 20-digit port cut once every
       supported Elixir has the CVE-2026-109821 fix; dropping it loses the copy
       guarantee and changes long zero-padded ports (`docs/changes/elixir-1-19-7.md`)
+- [x] release-cookie-file: no Guardian process carries the Erlang cookie on its command
+      line; the VM reads it from an owner-only file written from `RELEASE_COOKIE`
+      (`docs/changes/release-cookie-file.md`)
 
 ## Tests
 

@@ -137,8 +137,8 @@ Guardian is also a producer of its own tables:
    stderr. Releases are built only with `MIX_ENV=prod`, so a release always needs the
    key. Guardian also refuses to start with either key variable set but empty or
    shorter than 32 bytes (generate keys with `openssl rand -hex 32`; the length is
-   checked, not the randomness); or with both set to the same value. The error names the variable,
-   never its value. `GUARDIAN_API_KEY`, the single full-access key of earlier
+   checked, not the randomness); or with both set to the same value. The error names
+   the variable, never its value. `GUARDIAN_API_KEY`, the single full-access key of earlier
    releases, is no longer read: a deployment that sets it without the admin key gets
    an error naming `GUARDIAN_ADMIN_API_KEY` and `GUARDIAN_INGEST_API_KEY` instead,
    and beside the admin key it is ignored.
@@ -839,8 +839,10 @@ Product-level behavior:
    IPv6 address and the DNS name to `<app>.internal`, so only the cookie is needed.
 4. Anyone who can reach a node's distribution ports and knows the cookie can run code
    on every node, and distribution traffic is not encrypted, so the cookie is a
-   secret and those ports belong on a private network. Nodes that share a cookie and
-   find each other join one cluster, so separate environments need separate cookies
+   secret and those ports belong on a private network. Guardian's own processes (the
+   server, the remote console and rpc commands) never carry the cookie on their
+   command lines. Nodes that share a cookie and find each other join one cluster, so
+   separate environments need separate cookies
    (the [security architecture](../architecture/security.md) section 6 covers this).
 5. Each node stores the events it receives in its own data directory. Whatever routes
    requests (on Fly, Fly's proxy) spreads writes across nodes. Every query and schema

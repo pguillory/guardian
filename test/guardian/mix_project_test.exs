@@ -22,7 +22,8 @@ defmodule Guardian.MixProjectTest do
       Mix.env(:test)
     end
 
-    assert Mix.Project.config()[:releases][:guardian][:steps] ==
-             [&Guardian.MixProject.require_prod_release/1, :assemble]
+    # First, before anything is assembled.
+    steps = Mix.Project.config()[:releases][:guardian][:steps]
+    assert Enum.take(steps, 2) == [&Guardian.MixProject.require_prod_release/1, :assemble]
   end
 end

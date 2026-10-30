@@ -18,7 +18,7 @@ independently: a change takes effect at restart and doesn't affect stored data.
 | `GUARDIAN_MUTABLE_SEGMENT_MAX_AGE_MS` | `3600000` | How long an in-memory segment collects events before it's handed off to disk. |
 | `GUARDIAN_NODE_HOST` | (unset; `FLY_PRIVATE_IP` on Fly) | The address other nodes reach this node at. Setting it makes the node a cluster member named `guardian@<address>`. |
 | `DNS_CLUSTER_QUERY` | (unset; `<app>.internal` on Fly) | A DNS name resolving to every node's IP. Nodes poll it every 5 s and connect to the peers it returns. |
-| `RELEASE_COOKIE` | (required when clustered) | The Erlang distribution secret, shared by every node. It grants code execution on all of them. |
+| `RELEASE_COOKIE` | (required when clustered) | The Erlang distribution secret, shared by every node, in printable ASCII. It grants code execution on all of them. |
 | `GUARDIAN_DIST_PORT` | (unset: a random port) | Pins the server's Erlang distribution port, so a firewall needs only that port and epmd's 4369. |
 | `GUARDIAN_RULES_DIR` | `<GUARDIAN_DATA_DIR>/rules` | The folder rule files live in, when there's no bucket. It can't be `GUARDIAN_DATA_DIR`, a folder containing it, or inside its `segments` folder. See [Rule storage](../guides/rules.md). |
 | `GUARDIAN_RULES_S3_BUCKET`, `GUARDIAN_RULES_S3_ENDPOINT`, `GUARDIAN_RULES_S3_ACCESS_KEY_ID`, `GUARDIAN_RULES_S3_SECRET_ACCESS_KEY` | (unset) | Keep rules in an S3-compatible bucket instead, as a cluster needs. Set all four or none; the secret belongs with your other secrets. See [Rule storage](../guides/rules.md). |

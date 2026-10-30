@@ -1,6 +1,8 @@
 defmodule Guardian.DeploymentTest do
   use ExUnit.Case, async: true
 
+  import Bitwise
+
   @release_env Path.expand("../../rel/env.sh.eex", __DIR__)
 
   setup do
@@ -18,11 +20,12 @@ defmodule Guardian.DeploymentTest do
   # Inputs the script reads, unset unless a test sets them.
   @release_env_inputs ~w(FLY_PRIVATE_IP FLY_APP_NAME GUARDIAN_NODE_HOST DNS_CLUSTER_QUERY
                          RELEASE_COOKIE ERL_AFLAGS GUARDIAN_DIST_PORT RELEASE_COMMAND
-                         ERL_EPMD_ADDRESS)
+                         ERL_EPMD_ADDRESS RELEASE_TMP)
 
   # Sources rel/env.sh.eex in a shell with `env` (nil unsets) and returns
   # {status, output, changes}: changes maps each environment variable the script set
-  # or changed to its new value, and to nil if it unset one.
+  # or changed to its new value, and to nil if it unset one. RELEASE_ROOT and HOME default
+  # to a directory of the call's own.
   defp source_release_env(env, command \\ "true") do
     script = """
     env | sort > "$2/before"
@@ -37,7 +40,9 @@ defmodule Guardian.DeploymentTest do
     try do
       {output, status} =
         System.cmd("sh", ["-c", script, "guardian-env", @release_env, directory],
-          env: Enum.map(@release_env_inputs, &{&1, nil}) ++ env,
+          env:
+            Enum.map(@release_env_inputs, &{&1, nil}) ++
+              [{"RELEASE_ROOT", directory}, {"HOME", directory}] ++ env,
           stderr_to_stdout: true
         )
 
@@ -98,7 +103,8 @@ defmodule Guardian.DeploymentTest do
     env = List.keydelete(env, "ERL_AFLAGS", 0) ++ [{"RELEASE_COMMAND", "start"}]
     assert {0, "", changes} = source_release_env(env)
     assert changes["ERL_AFLAGS"] == "-proto_dist inet6_tcp"
-    assert map_size(changes) == 4
+    assert map_size(changes) == 5
+    assert changes["HOME"] =~ ~r{/tmp/cookie$}
   end
 
   test "on Fly, settings the operator made win over the preset" do
@@ -188,6 +194,260 @@ defmodule Guardian.DeploymentTest do
       assert {status, output, nil} = source_release_env([{"RELEASE_COMMAND", "start"} | env])
       assert status != 0
       assert output =~ "GUARDIAN_DIST_PORT must be a port number"
+    end
+  end
+
+  describe "the Erlang cookie" do
+    @secret "cookie-3f9a7c"
+    @server_commands ~w(start start_iex daemon daemon_iex)
+    @client_commands ~w(remote rpc restart stop pid)
+
+    setup %{directory: directory} do
+      home = Path.join(directory, "home")
+      File.mkdir_p!(home)
+      {:ok, stat} = File.lstat(home)
+
+      %{
+        env: [
+          {"RELEASE_ROOT", directory},
+          {"HOME", home},
+          {"GUARDIAN_NODE_HOST", "10.0.0.5"},
+          {"RELEASE_COOKIE", @secret},
+        ],
+        home: home,
+        server_home: Path.join(directory, "tmp/cookie"),
+        client_home: Path.join(home, ".guardian-cookie-#{stat.uid}"),
+      }
+    end
+
+    # Sourced as bin/guardian does, under set -e and with no `|| exit`.
+    defp source_like_the_release(env) do
+      script = ~S(set -e; . "$1"; echo started)
+
+      System.cmd("sh", ["-c", script, "guardian-env", @release_env],
+        env: Enum.map(@release_env_inputs, &{&1, nil}) ++ env,
+        stderr_to_stdout: true
+      )
+    end
+
+    defp mode(path) do
+      File.stat!(path).mode &&& 0o777
+    end
+
+    defp assert_cookie_home(path, cookie) do
+      assert File.read!(Path.join(path, ".erlang.cookie")) == cookie
+      assert mode(Path.join(path, ".erlang.cookie")) == 0o600
+      assert mode(path) == 0o700
+      assert File.ls!(path) == [".erlang.cookie"]
+    end
+
+    test "the server's file is private and is its VM's HOME", context do
+      for command <- @server_commands do
+        env = [{"RELEASE_COMMAND", command} | context.env]
+        assert {0, "", %{"HOME" => home}} = source_release_env(env)
+        assert home == context.server_home
+        assert_cookie_home(home, @secret)
+      end
+    end
+
+    test "RELEASE_TMP moves the server's file", %{env: env, directory: directory} do
+      tmp = Path.join(directory, "elsewhere")
+      env = env ++ [{"RELEASE_COMMAND", "start"}, {"RELEASE_TMP", tmp}]
+
+      assert {0, "", %{"HOME" => home}} = source_release_env(env)
+      assert home == Path.join(tmp, "cookie")
+      assert_cookie_home(home, @secret)
+    end
+
+    test "clients use their own file and leave the server's alone", context do
+      assert {0, "", _} = source_release_env(context.env ++ [{"RELEASE_COMMAND", "start"}])
+      refute File.exists?(context.client_home)
+
+      for command <- @client_commands do
+        env =
+          List.keyreplace(context.env, "RELEASE_COOKIE", 0, {"RELEASE_COOKIE", "other"}) ++
+            [{"RELEASE_COMMAND", command}]
+
+        assert {0, "", %{"HOME" => home}} = source_release_env(env)
+        assert home == context.client_home
+        assert_cookie_home(home, "other")
+      end
+
+      assert_cookie_home(context.server_home, @secret)
+    end
+
+    # "/" stands for a HOME sudo kept from another user.
+    test "a client without a HOME of its own uses a release tmp of its own", context do
+      tmp = Path.join(context.directory, "tmp")
+      File.mkdir_p!(tmp)
+
+      for home <- ["", "/", Path.join(context.directory, "missing")] do
+        env =
+          List.keyreplace(context.env, "HOME", 0, {"HOME", home}) ++
+            [{"RELEASE_COMMAND", "rpc"}]
+
+        assert {0, "", %{"HOME" => cookie_home}} = source_release_env(env)
+        assert Path.dirname(cookie_home) == tmp
+        assert cookie_home =~ ~r{/\.guardian-cookie-\d+$}
+        assert_cookie_home(cookie_home, @secret)
+      end
+    end
+
+    test "a client doesn't take a symlink for its HOME", context do
+      link = Path.join(context.directory, "link")
+      File.ln_s!(context.home, link)
+      File.mkdir_p!(Path.join(context.directory, "tmp"))
+      env = List.keyreplace(context.env, "HOME", 0, {"HOME", link})
+
+      assert {0, "", %{"HOME" => cookie_home}} =
+               source_release_env(env ++ [{"RELEASE_COMMAND", "rpc"}])
+
+      assert Path.dirname(cookie_home) == Path.join(context.directory, "tmp")
+    end
+
+    test "a client owning neither HOME nor the release's tmp refuses", context do
+      home = {"HOME", "/"}
+      env = List.keyreplace(context.env, "HOME", 0, home) ++ [{"RELEASE_COMMAND", "rpc"}]
+
+      # Absent: the service's first start must still be able to create it.
+      assert {output, 1} = source_like_the_release(env)
+      assert output =~ "HOME must be a directory owned by the user running this command"
+      refute File.exists?(Path.join(context.directory, "tmp"))
+
+      # Someone else's.
+      assert {output, 1} = source_like_the_release(env ++ [{"RELEASE_TMP", "/usr"}])
+      assert output =~ "HOME must be a directory owned by the user running this command"
+      refute output =~ @secret
+    end
+
+    test "commands without distribution write nothing and keep HOME", context do
+      for command <- [nil, "eval", "version"] do
+        env = context.env ++ [{"RELEASE_COMMAND", command}]
+        assert {0, "", changes} = source_release_env(env)
+        refute Map.has_key?(changes, "HOME")
+      end
+
+      assert File.ls!(context.home) == []
+      refute File.exists?(context.server_home)
+    end
+
+    test "a single node copies the cookie built into the release", context do
+      File.mkdir_p!(Path.join(context.directory, "releases"))
+      File.write!(Path.join(context.directory, "releases/COOKIE"), "built-in")
+
+      env = [
+        {"RELEASE_ROOT", context.directory},
+        {"HOME", context.home},
+        {"RELEASE_COMMAND", "start"},
+      ]
+
+      assert {0, "", %{"HOME" => home}} = source_release_env(env)
+      assert_cookie_home(home, "built-in")
+    end
+
+    test "it works under set -e, as bin/guardian sources it", context do
+      env = context.env ++ [{"RELEASE_COMMAND", "start"}]
+      assert {"started
+", 0} = source_like_the_release(env)
+      assert_cookie_home(context.server_home, @secret)
+    end
+
+    test "with nothing to write it refuses to start, printing no cookie", context do
+      # The release's tmp directory can't be created: a file is in the way.
+      File.write!(Path.join(context.directory, "tmp"), "")
+      env = context.env ++ [{"RELEASE_COMMAND", "start"}]
+
+      assert {output, 1} = source_like_the_release(env)
+      assert output =~ "Could not write the Erlang cookie file in"
+      refute output =~ "started"
+      refute output =~ @secret
+
+      # No cookie at all, and no file to take one from.
+      env = [
+        {"RELEASE_ROOT", context.home},
+        {"HOME", context.home},
+        {"RELEASE_COOKIE", ""},
+        {"RELEASE_COMMAND", "rpc"},
+      ]
+
+      assert {output, 1} = source_like_the_release(env)
+      assert output =~ "Could not write the Erlang cookie file in"
+      refute output =~ "started"
+    end
+
+    test "a symlink at the path is refused, and its target left alone", context do
+      target = Path.join(context.directory, "target")
+      File.mkdir_p!(target)
+      File.chmod!(target, 0o755)
+      File.ln_s!(target, context.client_home)
+
+      assert {output, 1} = source_like_the_release(context.env ++ [{"RELEASE_COMMAND", "rpc"}])
+      assert output =~ "Could not write the Erlang cookie file in"
+      refute output =~ @secret
+      assert mode(target) == 0o755
+      assert File.ls!(target) == []
+    end
+
+    # What the file is for: with no -setcookie, OTP takes the cookie from it.
+    test "OTP reads the cookie from the file", context do
+      env = context.env ++ [{"RELEASE_COMMAND", "start"}]
+      assert {0, "", %{"HOME" => home}} = source_release_env(env)
+
+      node = "guardian_cookie_test_#{System.pid()}_#{System.unique_integer([:positive])}"
+      eval = "io:put_chars(atom_to_list(erlang:get_cookie())), halt()."
+
+      assert {@secret, 0} =
+               System.cmd("erl", ["-noshell", "-sname", node, "-eval", eval],
+                 env: [
+                   {"HOME", home},
+                   {"ERL_AFLAGS", nil},
+                   {"ERL_FLAGS", nil},
+                   {"ERL_ZFLAGS", nil},
+                   {"ERL_EPMD_ADDRESS", nil},
+                 ]
+               )
+    end
+
+    test "the release's script passes no cookie on any command line" do
+      script = Mix.Tasks.Release.Init.cli_text()
+      assert script =~ ~S(--cookie "$RELEASE_COOKIE")
+
+      stripped = Guardian.MixProject.remove_cookie_args_from_script(script)
+      refute stripped =~ "--cookie"
+      refute stripped =~ "-setcookie"
+
+      # Only the arguments went: every other line of the script survives.
+      assert stripped =~ ~s(--hidden \\\n)
+      assert stripped =~ ~S(--rpc-eval "$RELEASE_NODE" "$1")
+      assert stripped =~ ~S(--remsh "$RELEASE_NODE")
+    end
+
+    test "a release script passing the cookie another way fails the build" do
+      for script <- [
+            ~S(exec elixir --cookie "${RELEASE_COOKIE}"),
+            ~S(exec elixir --cookie "$RELEASE_COOKIE" --erl "-setcookie x"),
+            "exec elixir",
+          ] do
+        assert_raise Mix.Error, fn ->
+          Guardian.MixProject.remove_cookie_args_from_script(script)
+        end
+      end
+    end
+
+    test "nothing in rel/ sets the cookie on the command line" do
+      paths = Path.wildcard(Path.expand("../../rel/*vm.args.eex", __DIR__))
+      assert length(paths) == 2
+
+      for path <- [@release_env | paths] do
+        refute File.read!(path) =~ ~r/^[^#]*-setcookie/m
+      end
+    end
+
+    test "the release runs the step that takes the cookie arguments out" do
+      steps = Mix.Project.config()[:releases][:guardian][:steps]
+
+      assert [:assemble, &Guardian.MixProject.remove_cookie_args/1] ==
+               Enum.drop_while(steps, &(&1 != :assemble))
     end
   end
 

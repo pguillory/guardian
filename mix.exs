@@ -15,7 +15,13 @@ defmodule Guardian.MixProject do
       deps: deps(),
       default_release: :guardian,
       releases: [
-        guardian: [steps: [&__MODULE__.require_prod_release/1, :assemble]],
+        guardian: [
+          steps: [
+            &__MODULE__.require_prod_release/1,
+            :assemble,
+            &__MODULE__.remove_cookie_args/1,
+          ],
+        ],
       ],
       # Scripts that tests run in child processes, not test files.
       test_ignore_filters: [&String.starts_with?(&1, "test/fixtures/")],
@@ -31,6 +37,28 @@ defmodule Guardian.MixProject do
     end
 
     release
+  end
+
+  # A release step: the generated bin/guardian puts the Erlang cookie on every VM's
+  # command line, and Mix has no option against that. rel/env.sh.eex gives the VM the
+  # cookie in a private file instead.
+  def remove_cookie_args(release) do
+    path = Path.join([release.path, "bin", Atom.to_string(release.name)])
+    File.write!(path, remove_cookie_args_from_script(File.read!(path)))
+    release
+  end
+
+  # Fails the build if Mix's script changes, so that an upgrade can't quietly put the
+  # cookie back on the command line.
+  def remove_cookie_args_from_script(script) do
+    argument = ~S(--cookie "$RELEASE_COOKIE" )
+    stripped = String.replace(script, argument, "")
+
+    if stripped == script or String.contains?(stripped, ["--cookie", "-setcookie"]) do
+      Mix.raise("Mix's release script changed: #{argument} should be its only cookie argument")
+    end
+
+    stripped
   end
 
   def elixirc_paths do
