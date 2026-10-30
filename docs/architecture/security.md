@@ -187,8 +187,9 @@ None of these reads or writes data.
    at build time, `mix.exs` refuses to build a release outside `MIX_ENV=prod`, and
    the branch also requires Mix, which a release lacks.
 2. Tests use fixed keys in `config/config.exs`; they protect nothing.
-3. Guardian does not record a key itself (the MCP router drops the header once the
-   key is checked, so Anubis never holds it): the `x-api-key` header is not in
+3. Guardian does not record a key itself (both routers drop every `x-api-key` header
+   once the key passes, so no later plug or handler, Anubis included, receives it;
+   see 4.2): the `x-api-key` header is not in
    `web_requests` (which records `path`, the request path without the query string,
    selected headers, and `auth_key`, which says only which key it was: `ingest` or
    `admin`; older rows may say `legacy`), not in
@@ -210,7 +211,11 @@ one it was. The ingest key where `:full` is needed is
 `{:error, :forbidden}`, which each router answers with 403 `this key can only send
 events`. No header is `{:error, :missing}`, whatever the query string; a wrong key is
 `{:error, :unauthorized}`. Each router sends its own body for these, pinned for each
-credential form by `test/guardian/web/auth_routes_test.exs`.
+credential form by `test/guardian/web/auth_routes_test.exs`. Once the key passes, each
+router drops every `x-api-key` header with `Guardian.Web.Auth.drop_api_key/1`. That
+changes only the conn passed on: Bandit's own conn still holds the key and is attached
+to its error-report metadata, which Guardian's logger configuration does not print,
+and the JSON API's failure boundary answers with the conn it was called with.
 `Guardian.Web.Auth.identify_api_key/1` compares the supplied key with every
 configured key, each with `byte_size(supplied) == byte_size(configured)` and
 `Plug.Crypto.secure_compare(supplied, configured)`, with no early return, and returns
@@ -261,7 +266,7 @@ JSON API (`Guardian.Web.JsonApi`), plug order:
 2. `:auth`: the key check, with `:ingest` for `POST /send_events` and `:full` for
    everything else; 401 (or 403 for the ingest key) and halt on failure. It reads only
    the method, path and headers. It records which key it was for
-   `Guardian.Web.Logger`.
+   `Guardian.Web.Logger` and drops every `x-api-key` header.
 3. `Plug.Parsers` (JSON only, Plug's default 8 MB body limit): reads and decodes the
    body. Failures get 400, 413, or 415 with a fixed message and are not printed.
 4. `:match`, `Guardian.Web.Logger`, `:dispatch`. `POST /send_events` is the only

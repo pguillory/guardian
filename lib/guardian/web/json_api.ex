@@ -191,7 +191,10 @@ defmodule Guardian.Web.JsonApi do
   defp auth(conn, _opts) do
     case Guardian.Web.Auth.check_conn(conn, required_access(conn)) do
       {:ok, key} ->
-        put_private(conn, :guardian_auth_key, key)
+        # Nothing after this plug reads the key, so none of it receives the key.
+        conn
+        |> Guardian.Web.Auth.drop_api_key()
+        |> put_private(:guardian_auth_key, key)
 
       {:error, :unauthorized} ->
         send_json_resp(conn, 401, %{status: 401, info: "unauthorized"})

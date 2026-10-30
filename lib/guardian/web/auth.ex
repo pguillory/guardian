@@ -81,6 +81,18 @@ defmodule Guardian.Web.Auth do
     {:error, :unauthorized}
   end
 
+  @doc """
+  Drops every `x-api-key` header from `conn`. Both routers call it once the key passes,
+  so no plug or handler they run afterwards receives the key. It changes only the conn
+  passed on: the web server's own copy of the request, and a conn a router held before
+  the check, still have it. Every copy goes: `check_conn/2` reads only the first, and
+  `Plug.Conn.delete_req_header/2` removes only one.
+  """
+  @spec drop_api_key(Plug.Conn.t()) :: Plug.Conn.t()
+  def drop_api_key(conn) do
+    %{conn | req_headers: Enum.reject(conn.req_headers, fn {name, _} -> name == "x-api-key" end)}
+  end
+
   # Unset keys are nil. `config/runtime.exs` sets them from GUARDIAN_INGEST_API_KEY and
   # GUARDIAN_ADMIN_API_KEY.
   defp configured_api_keys do

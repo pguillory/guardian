@@ -55,6 +55,7 @@ defmodule Guardian.Web.AuthRoutesTest do
       case expected do
         :ok ->
           assert conn.status == 404, description
+          assert Plug.Conn.get_req_header(conn, "x-api-key") == [], description
 
         :missing ->
           assert {conn.status, conn.resp_body} == {401, @json_missing}, description
@@ -82,6 +83,7 @@ defmodule Guardian.Web.AuthRoutesTest do
         :ok ->
           # Past authentication, a GET is refused by the MCP router's method check.
           assert conn.status == 405, description
+          assert Plug.Conn.get_req_header(conn, "x-api-key") == [], description
 
         :missing ->
           assert {conn.status, conn.resp_body} == {401, @mcp_missing}, description
