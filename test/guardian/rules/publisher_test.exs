@@ -87,14 +87,15 @@ defmodule Guardian.Rules.PublisherTest do
     refute :code.is_loaded(loaded) == false
     publisher = new(Rules.published())
     for module <- [old, loaded, current], do: refute(module in publisher.free)
-    assert publisher.retired[old] == :pending
+    assert publisher.retired[old] == :deleted
     assert publisher.retired[loaded] == :pending
     refute Map.has_key?(publisher.retired, current)
     assert current.apply(%{}) == %{"x" => 3}
 
-    # Deleting already-old code emits an OTP diagnostic; reclamation still uses
-    # the same delete-then-soft-purge sequence as before the extraction.
-    {reclaimed, _log} = ExUnit.CaptureLog.with_log(fn -> reclaim(publisher, old) end)
+    # Already-deleted code is only soft-purged: deleting it again would make the
+    # code server report that it must be purged first.
+    {reclaimed, log} = ExUnit.CaptureLog.with_log(fn -> reclaim(publisher, old) end)
+    refute log =~ "must be purged"
     assert List.last(reclaimed.free) == old
     refute Map.has_key?(reclaimed.retired, old)
     refute :erlang.check_old_code(old)

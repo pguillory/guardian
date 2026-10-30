@@ -181,6 +181,9 @@ privately, not in this repository.
       (`docs/changes/rules-compiler-metadata.md`)
 - [x] rules-publisher: extract synchronous activation/publication and module-pool
       ownership from Server without changing behavior (`docs/changes/rules-publisher.md`)
+- [x] rules-reclaim-deleted-once: a Server restart retires a pool name that has only
+      old code as already deleted, so reclamation soft-purges it without deleting it
+      again (which made the code server report that it must be purged first)
 - [x] plan-canonical-steps: keep only flat steps in Rules.Plan and derive execution
       levels at compile time, without changing order, hashes or plan recovery
       (`docs/changes/plan-canonical-steps.md`)

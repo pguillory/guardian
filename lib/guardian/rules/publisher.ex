@@ -33,15 +33,29 @@ defmodule Guardian.Rules.Publisher do
 
   # Rebuilds the pool from what is loaded: names in use stay in use, any other loaded
   # name (left by an earlier instance of this process) is retired, never reused while
-  # loaded; the rest are free.
+  # loaded; the rest are free. A name with only old code was already deleted, so it
+  # is retired as :deleted and reclamation only soft-purges it.
   defp reserve_pool(state, in_use) do
-    {loaded, free} =
-      Guardian.Rules.Compiler.names()
-      |> Enum.reject(&(&1 in in_use))
-      |> Enum.split_with(&(:code.is_loaded(&1) != false or :erlang.check_old_code(&1)))
+    retired =
+      for module <- Guardian.Rules.Compiler.names(),
+          module not in in_use,
+          status = retirement_status(module),
+          into: %{},
+          do: {module, status}
 
-    Enum.each(loaded, &schedule_reclaim(&1, @reclaim_after_ms))
-    %{state | free: free, retired: Map.new(loaded, &{&1, :pending})}
+    free =
+      Enum.reject(Guardian.Rules.Compiler.names(), &(&1 in in_use or Map.has_key?(retired, &1)))
+
+    Enum.each(Map.keys(retired), &schedule_reclaim(&1, @reclaim_after_ms))
+    %{state | free: free, retired: retired}
+  end
+
+  defp retirement_status(module) do
+    cond do
+      :code.is_loaded(module) != false -> :pending
+      :erlang.check_old_code(module) -> :deleted
+      true -> nil
+    end
   end
 
   ## Activation
