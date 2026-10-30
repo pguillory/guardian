@@ -91,15 +91,6 @@ defmodule Guardian.Counters.Restarter do
     :exit, _ -> :ok
   end
 
-  @impl true
-  def format_status(status) do
-    status
-    |> Map.put(:state, :redacted)
-    |> Map.put(:message, :redacted)
-    |> Map.put(:log, [])
-    |> Map.put(:reason, :redacted)
-  end
-
   defp watch(state, pid) do
     %{
       state

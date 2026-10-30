@@ -1,5 +1,8 @@
 # mcp-log-redaction: keep MCP requests and the API key out of Anubis's failure log
 
+Status: superseded by `docs/changes/logging.md`. Logs are no longer scrubbed, and
+`Guardian.Web.MCP.LogFilter` is gone; the router still drops the API key.
+
 ## Problem
 
 When an MCP request outlasts Anubis's 30-second call timeout, or its session exits

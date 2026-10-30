@@ -25,8 +25,8 @@ Assets, roughly in order of value:
 2. Caller query text: by design kept for every query run over MCP (the only query
    interface), in `queries`, and for queries that fail to parse, in
    `query_parse_errors`, for the 15-day retention period (and in any backup or volume
-   snapshot for as long as that is kept, section 7). Crash reports that can print it
-   remain a gap (section 8).
+   snapshot for as long as that is kept, section 7). Logs are not scrubbed, so a crash
+   report or Anubis's timeout line can print it too (section 8).
 3. The API keys, the only credentials for the HTTP and MCP interfaces: the full-access
    admin key (`GUARDIAN_ADMIN_API_KEY`), the insert-only ingest key
    (`GUARDIAN_INGEST_API_KEY`).
@@ -214,8 +214,10 @@ events`. No header is `{:error, :missing}`, whatever the query string; a wrong k
 credential form by `test/guardian/web/auth_routes_test.exs`. Once the key passes, each
 router drops every `x-api-key` header with `Guardian.Web.Auth.drop_api_key/1`. That
 changes only the conn passed on: Bandit's own conn still holds the key and is attached
-to its error-report metadata, which Guardian's logger configuration does not print,
-and the JSON API's failure boundary answers with the conn it was called with.
+to its error-report metadata, which Guardian's logger configuration does not print
+(`test/guardian/config/config_test.exs` fails if `config/config.exs` gives production a
+formatter or handler), and the JSON API's failure boundary answers with the conn it was
+called with.
 `Guardian.Web.Auth.identify_api_key/1` compares the supplied key with every
 configured key, each with `byte_size(supplied) == byte_size(configured)` and
 `Plug.Crypto.secure_compare(supplied, configured)`, with no early return, and returns
@@ -311,7 +313,7 @@ validation. The key is a nonempty UTF-8 body/tool string of at most 128 bytes,
 scoped to a table on this node, and is not a credential. The coordinator holds at
 most 10,000 independent copies of bounded keys/table names, SHA-256 request digests,
 tokens/monitors, status/count and expiry, never payloads or response events. Its
-formatted status redacts messages and past states as well as current keys. Operator
+state is not redacted, so a crash report can show idempotency keys. Operator
 debug tracing and raw process inspection still have the same full-memory authority
 as a remote shell. No keys/digests/events appear in its fixed fail-open info log or
 conflict messages. Capacity evicts completed entries; if all are pending or the
@@ -466,8 +468,8 @@ and no single request that takes the service down or destroys stored data.
    reclamation precedes sampled earliest-expiry cutoff eviction. Tied expiries may
    discard every live bucket. Operations never run housekeeping; reads check expiry,
    incr retains insertion expiry, add and cas set it, and expired-key reuse has bounded conditional
-   cleanup. Operations have local deadlines and fixed errors; formatted status
-   redacts state/messages/logs/reasons.
+   cleanup. Operations have local deadlines and fixed errors; formatted status is
+   not redacted.
    Whole-set preparation validates counter semantics and resolves identities without
    evaluating expressions or accessing counter state. Compiler refuses unresolved
    plans and unbound LOOKUPs. Live counter execution uses the resolved-step
@@ -503,8 +505,8 @@ and no single request that takes the service down or destroys stored data.
    Store and Budget have a disposable supervisor whose linked lifecycle owner
    traps its exits and retries with backoff; counter crash loops cannot exhaust
    Guardian.Application's restart intensity. The owner's down/recovery messages use only fixed
-   reason categories, never arbitrary exit/startup terms; its formatted status
-   redacts state, messages, logs and reasons. Process presence is sampled in
+   reason categories, never arbitrary exit/startup terms; its formatted status is not
+   redacted. Process presence is sampled in
    `system_stats.counters_available`; `/health` remains Storage-only.
    Membership disagreement/loss, restarts, eviction and uncertain writes can lose
    or split counts; these counters are advisory, never durable enforcement limits.
@@ -589,8 +591,8 @@ Counter-specific limits:
    with "a query process was killed; it may have exceeded its 256 MiB heap limit;
    narrow the query with WHERE, LIMIT or fewer groups".
    The message hedges because a `:killed` exit cannot prove which limit was hit. The
-   VM's kill report, written to the log, names the process and its heap sizes, not
-   its heap contents.
+   VM writes no kill report: an over-limit query is the caller's outcome, not a fault
+   to log.
 
    Its limits are real. It bounds each process, not the query: GROUP BY state lives
    in ETS tables, column data in NIF native memory, and shared binaries (mapped
@@ -889,42 +891,33 @@ Where data goes:
      last message and state, which can hold event data. A segment file that fails to
      load is not a crash: its process stops with a `:shutdown` reason naming only the
      failure's kind, so no crash report carries the file's bytes.
-   - Guardian.Rules.Server's crash reports and formatted status never carry rule text (rules
-     can hold secrets, such as a value a SET compares against): `format_status/1`
-     keeps only each file's ETag, in the state and in past states in the debug log,
-     and replaces a write's source with `:redacted`. Plan structs retain only
-     table/hash/resolution status, and bare typed steps are redacted, so canonical
-     source and expression constants cannot escape through those structs either.
-     Compiled modules hold their execution levels (typed steps, with canonical
-     source and expression constants) as escaped literal data, whose lifetime is
-     bounded by the fixed module pool and normal code reclamation. The synchronous
-     Rules.Publisher helper runs inside Server's callbacks; its state holds only
-     module names and retirement
-     statuses, never sources, plans or diagnostics. Raw module/process inspection
-     remains privileged full-memory access. A callback that raises crashes as is:
-     OTP adds the raw stack, arguments included, after `format_status/1`, so a crash
-     report can show rule text. `Guardian.Rules.Server.write/3` turns a timed-out or
-     missing server into an error without logging the exit reason, which carries the
-     message. Proc_lib and
-     supervisor reports (which include the message queue) are SASL reports, which
-     Logger drops in this configuration. One gap, by design: with `:sys.log/2` on,
-     `:sys.get_status/1` also returns OTP's raw debug log, unredacted, and the
-     formatted log keeps write replies, whose validation messages can quote up to
-     40 characters of a rule; turning it on takes a remote shell, which reads any
-     state anyway.
-   - Guardian.Counters.Store's formatted status redacts keys and values
-     (5.1.9); a callback failure crashes as is and its report can show them. Ordinary operations do not log their arguments or returned values.
+   - Guardian.Rules.Server's state is not redacted: its formatted status and a crash
+     report's state and last message can show rule text (rules can hold secrets,
+     such as a value a SET compares against). Compiled modules hold their execution
+     levels (typed steps, with canonical source and expression constants) as escaped
+     literal data, whose lifetime is bounded by the fixed module pool and normal code
+     reclamation. The
+     synchronous Rules.Publisher helper runs inside Server's callbacks; its state
+     holds only module names and retirement statuses, never sources, plans or
+     diagnostics. Raw module/process inspection remains privileged full-memory
+     access. A callback that raises crashes as is, so a crash report can show rule
+     text. `Guardian.Rules.Server.write/3` turns a
+     timed-out or missing server into an error without logging the exit reason, which
+     carries the message. Proc_lib and supervisor reports (which include the message
+     queue) are SASL reports, which Logger drops in this configuration.
+   - Guardian.Counters.Store's, Budget's, Restarter's and IngestIdempotency's
+     formatted status is not redacted, and a Store callback failure crashes as is, so
+     a crash report can show counter keys and values or idempotency keys. Ordinary
+     operations do not log their arguments or returned values.
      The counter lifecycle owner logs subtree exits and failed recovery attempts
      at error with fixed reason categories and a retry delay, and recovery at info.
      Clean application shutdown stops the subtree without logging a failure.
-     Like Guardian.Rules.Server, OTP's raw sys debug options and proc_lib mailbox reports
-     are outside this formatting; this configuration drops SASL reports.
+     This configuration drops SASL reports.
    - Invalid rules are not logged: a validation message can quote up to 40
      characters of a rule. A table's first message reaches whoever sends its events,
      the ingest key included (5.2, item 8), and rule writes return the set's remaining
      messages.
-   - A query process killed by the heap guard produces the VM's kill report, which
-     names the process and its heap sizes, not its contents (5.2.2).
+   - A query process killed by the heap guard produces no kill report (5.2.2).
 
 Caller-supplied fields are not identities. `remote_ip` is the address of whatever
 connected to Guardian (on Fly, Fly's proxy; for tunnel traffic, `127.0.0.1`), and
@@ -944,17 +937,14 @@ offending argument value, and a client-sent JSON-RPC response that answers no se
 request is logged whole (`unexpected_response`); both need the admin key. And when a
 request outlasts Anubis's 30-second call timeout, or its session exits mid-call, the
 transport logs the call's exit reason at `:error` (`session_call_failed`), which holds
-the whole message and the request's headers. `Guardian.Web.MCP.LogFilter`, a
-`:logger` primary filter installed by `Guardian.Web` before Anubis starts, rewrites
-any Anubis line carrying such a call to name only the exit reason (`timeout`,
-`noproc`), and the MCP router drops every `x-api-key` header once the key is checked,
-so neither the key nor the message reaches that line, and the key reaches no Anubis
-session state (the message does: a queued call waits there). A session's OTP crash
-report can still show a message, and `request_task_crashed` logs a crashed request
-task's reason at `:error`, which may hold its arguments if it crashes inside a call.
-Anubis 0.16 logged the message and headers on its timeouts, key included. The filter
-matches Anubis's formatted text (`{:mcp_request,`), so recheck it on an Anubis
-upgrade. Production must stay at `:info` or above.
+the message (query SQL, events, rule source; `inspect/1` cuts very long values short)
+and every request header but the key. Logs are
+not scrubbed (CONTRIBUTING.md, "Logging"), so that line is kept as Anubis writes it,
+even when the call later succeeds. The MCP router drops every `x-api-key` header once
+the key passes, so the key reaches neither that line nor any Anubis session state.
+A session's OTP crash report can show a message, and `request_task_crashed` logs a
+crashed request task's reason at `:error`, which may hold its arguments if it crashes
+inside a call. Production must stay at `:info` or above.
 
 MCP bodies Anubis cannot decode: Anubis 0.16's transport plug logged the whole body of
 any MCP message it could not decode; 2.x logs only its size. `Guardian.Web.MCP.Router`

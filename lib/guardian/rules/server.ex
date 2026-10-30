@@ -53,16 +53,9 @@ defmodule Guardian.Rules.Server do
 
   ## Status and crash reports
 
-  Rule text never appears in this server's part of
-  `:sys.get_status/1` (`format_status/1`): every file, in the state or in a past
-  state in the debug log, keeps only its ETag, and a write message's source is
-  replaced by `:redacted`. Plans and bare steps are redacted too, including AST
-  constants as well as canonical source. A callback that raises crashes as is, and its
-  report's stack can hold a source (it is not passed through `format_status/1`). `write/3`
-  turns a timed-out or missing server into an error without logging the exit reason,
-  which carries the message. With `:sys.log/2` turned on, `:sys.get_status/1` also returns
-  OTP's raw debug log beside the formatted status, unredacted; that needs a remote
-  shell, which `:sys.get_state/1` already gives everything.
+  Nothing is redacted: `:sys.get_status/1` and a crash report show the state and the
+  last message, rule text included, and a callback that raises crashes as is.
+  `write/3` turns a timed-out or missing server into an error.
   """
 
   use GenServer
@@ -457,57 +450,6 @@ defmodule Guardian.Rules.Server do
       {:ok, publisher, errors} -> {:ok, %{state | publisher: publisher}, errors}
       {:error, message, errors} -> {:error, message, errors}
     end
-  end
-
-  ## Status and crash reports
-
-  @impl true
-  def format_status(status) do
-    Map.new(status, fn {key, value} -> {key, redact(value)} end)
-  end
-
-  # However nested, in the state, the message, or the debug log (whose entries hold
-  # past states and messages): a write request's source, and each file's source.
-  defp redact({:write, table, name, source}) when is_binary(source) do
-    {:write, table, name, :redacted}
-  end
-
-  defp redact(tuple) when is_tuple(tuple) do
-    tuple |> Tuple.to_list() |> Enum.map(&redact/1) |> List.to_tuple()
-  end
-
-  defp redact([head | tail]) do
-    [redact(head) | redact(tail)]
-  end
-
-  defp redact(%Guardian.Rules.Plan{} = plan) do
-    Map.take(plan, [:table, :hash, :resolved?])
-  end
-
-  defp redact(%step{})
-       when step in [
-              Guardian.Rules.Step.Set,
-              Guardian.Rules.Step.Unset,
-              Guardian.Rules.Step.Track,
-              Guardian.Rules.Step.Lookup,
-            ] do
-    :redacted
-  end
-
-  defp redact(%_{} = struct) do
-    struct
-  end
-
-  defp redact(%{etag: _, source: _} = file) do
-    Map.take(file, [:etag])
-  end
-
-  defp redact(map) when is_map(map) do
-    Map.new(map, fn {k, v} -> {k, redact(v)} end)
-  end
-
-  defp redact(term) do
-    term
   end
 
   ## Logging

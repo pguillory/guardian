@@ -173,16 +173,6 @@ defmodule Guardian.Web.IngestIdempotency do
     {:noreply, expire(state, now())}
   end
 
-  # No keys, digests, caller messages or past states in formatted status/reports.
-  @impl true
-  def format_status(status) do
-    Map.new(status, fn
-      {:state, state} -> {:state, %{entries: map_size(state.entries)}}
-      {:log, _value} -> {:log, []}
-      {field, _value} -> {field, :redacted}
-    end)
-  end
-
   defp pending(state, token, owner) do
     with {:ok, identity} <- Map.fetch(state.claims, token) do
       case state.entries[identity] do

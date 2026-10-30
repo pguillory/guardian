@@ -1070,7 +1070,7 @@ which the MCP `query` tool reports with its message. The caps are application en
 values (section 9).
 
 Each process a query runs in also carries a heap limit: `Guardian.Query.Limits.limit_heap/0`
-sets `max_heap_size` (`kill: true`, `error_logger: true`,
+sets `max_heap_size` (`kill: true`, `error_logger: false`,
 `include_shared_binaries: false`) to a fixed 256 MiB on the query process and on
 every DistributedStream worker, on whichever node it runs; routers are not limited.
 Tests lower it through the `query_max_heap_mb` application environment value, which
@@ -1169,10 +1169,9 @@ handing the request to Anubis's transport:
 Steps 2 and 4 to 7 keep the wire what Anubis 0.16 produced and depend on Anubis
 behavior (`lib/guardian/web/mcp/AGENTS.md`); recheck them on any upgrade.
 
-`Guardian.Web.MCP.LogFilter`, a `:logger` primary filter that `Guardian.Web` installs
-before starting Anubis, rewrites any Anubis log line that carries an MCP call (the
-exit reason of a timed-out or failed call) to name only the exit reason. It matches
-Anubis's formatted text, so recheck it on an Anubis upgrade.
+When a call outlasts Anubis's 30-second timeout or its session exits mid-call,
+Anubis logs the call's exit reason at error (`session_call_failed`), which holds the
+message and the request's headers, minus the key. Guardian does not rewrite it.
 
 `Guardian.Web.MCP.Server` defines the `query`, `send_events` and rule tools and the
 `guardian://query-language` resource, which serves `lib/guardian/web/mcp/query_language.md`. A

@@ -14,6 +14,16 @@ defmodule Guardian.Config.ConfigTest do
     assert level == :info
   end
 
+  # Bandit attaches the request's original conn, x-api-key header included, as metadata
+  # on its error lines. The default formatter prints no metadata; configuring a
+  # formatter or handler here could start printing it, so that needs a deliberate
+  # change to this test.
+  test "production configures no log formatter or handler, so metadata stays unprinted" do
+    logger = read(:prod) |> Keyword.get(:logger, [])
+    assert Keyword.keys(logger) == [:level]
+    refute Keyword.has_key?(read(:prod), :kernel)
+  end
+
   test "tests log warnings and use the test keys" do
     config = read(:test)
     assert config[:logger][:level] == :warning

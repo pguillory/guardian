@@ -101,13 +101,16 @@ Guardian is also a producer of its own tables:
    which keeps the text of every query that failed to parse (up to 16 KiB each), for
    the retention period. Callers should not put secrets in query text. Since there is
    one tenant and one principal, this stores a caller's data for the same principal, not for
-   someone else. These are meant to be the only places Guardian keeps query text.
-   Application failures caught inside the JSON API log at most their kind and a
-   server-generated error ID, without printing query text, exception messages, or
-   stack traces. Failures outside that boundary and OTP crash reports retain the
-   logging limits described in the security architecture.
-   Production logs at info, so MCP messages (query text, event payloads) are not
-   logged, including when an MCP call times out or its session exits mid-call.
+   someone else. These are the only tables that keep query text, but logs are not
+   scrubbed. Production logs at info, so a request that succeeds within the MCP
+   library's 30-second timeout logs no MCP message, query text or event, apart from the
+   warnings described in the security architecture. An MCP call that outlives that
+   timeout, or whose session exits mid-call, logs its message at error, even if the
+   call later succeeds (for example a query that runs out its 30 seconds, or a
+   slow `send_events` with its event values). An error line or crash report can show
+   what the failing process held: query text, event values (before rules unset them),
+   rule text or counter keys. Each router drops the request's API keys once they pass,
+   so no plug or handler after that check receives them.
 3. Rotation: Each key can change at any time, independently of the others, without
    touching stored data; a node reads them at startup, so the change takes effect when the node restarts with the new
    value. On Fly.io, changing the secret restarts the machine.

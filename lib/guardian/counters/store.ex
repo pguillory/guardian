@@ -566,13 +566,4 @@ defmodule Guardian.Counters.Store do
   defp retained_binary_bytes(_) do
     0
   end
-
-  @impl true
-  def format_status(status) do
-    status
-    |> Map.put(:state, :redacted)
-    |> Map.put(:message, :redacted)
-    |> Map.put(:log, [])
-    |> Map.put(:reason, :redacted)
-  end
 end

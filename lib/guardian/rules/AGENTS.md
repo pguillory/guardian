@@ -84,11 +84,8 @@ Modules:
    not logged: a message can quote rule text, and an invalid table already shows in
    its events' error and the rule tools' replies, so don't add a log line for it.
    The rule worker reports heap kills without the error_logger report. It catches no
-   raise: a rule crash fails the request. Keep rule text out of
-   Guardian.Rules.Server's status: keep sources out of new state fields or messages
-   unless `format_status/1` redacts them. Plans and bare
-   typed steps are redacted before the generic struct case, including their AST
-   constants as well as canonical source. Callbacks crash as they are.
+   raise: a rule crash fails the request. Guardian.Rules.Server's formatted status is
+   not redacted (CONTRIBUTING.md, "Logging"), and its callbacks crash as they are.
 6. Validation is whole-set and a write is refused only for errors it adds
    (`Guardian.Rules.RuleSet.new_errors/2`, ignoring lines), so broken sets stay repairable.
 7. Rules fail closed: a statement that raises fails the request, an event over its

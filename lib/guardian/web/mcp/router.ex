@@ -39,8 +39,7 @@ defmodule Guardian.Web.MCP.Router do
   # Every MCP request needs a full-access key, checked before the session lookup and
   # body decoding, including requests on an existing session. Once checked, the key is
   # dropped: Anubis keeps the request's headers in its session frame and in the call
-  # it may log on a timeout (Guardian.Web.MCP.LogFilter), and nothing after this plug
-  # reads it.
+  # it logs on a timeout, and nothing after this plug reads it.
   defp auth(conn, _opts) do
     case Guardian.Web.Auth.check_conn(conn, :full) do
       {:ok, _key} ->
