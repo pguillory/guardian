@@ -2,8 +2,8 @@ defmodule Guardian.Counters.Store do
   @moduledoc """
   Ephemeral counters in one public ETS set. Callers operate on atomic rows; the
   owner only sweeps expiry and reclaims memory. Stored nil differs from missing.
-  Mutations retain the expiry established at insertion. CAS tokens identify the
-  table generation and a unique mutation version, changed atomically by incr.
+  Mutations retain the expiry established at insertion. A CAS token stands for one
+  exact stored row, and any mutation, including incr, invalidates it atomically.
 
   The default 64 MiB budget charges ETS bytes plus encoded keys, values and retained
   binary backing. Housekeeping enforces it asynchronously; concurrent writes can
@@ -16,6 +16,31 @@ defmodule Guardian.Counters.Store do
   monotonic-millisecond :deadline. Pipelines check the deadline, on the real clock,
   before every operation. Transport bounds caller waits separately. Housekeeping
   reads the real clock itself.
+
+  ## Terms
+
+    * **CAS** (compare-and-swap) is a write that succeeds only if the key is still
+      as it was when read. Read with `gets/3`, compute the new value, then write it
+      with `cas/6`. If another writer got in between, `cas/6` answers
+      `{:error, :conflict}` and nothing is stored.
+    * A **token** is what `gets/3` returns beside the value: an opaque stamp of the
+      stored row at that moment. `cas/6` accepts it as `expected`. Every write to the
+      key invalidates earlier tokens, so an old token never matches. `:missing`
+      stands in for a token when the key is expected to be absent.
+    * An **anchor** is not a Store concept: Store takes only a relative `ttl`.
+      Absolute (anchored) expiries are converted before they reach it; see
+      `Guardian.Counters.Transport` and `Guardian.Counters.Arrival`.
+    * A **ttl** is a positive number of milliseconds, counted from `now`, that a
+      newly created row lives. Expired rows read as missing and are deleted by the
+      housekeeping sweep.
+
+  Besides the per-operation results documented on each function, failures are fixed
+  atoms that never carry keys or values: `{:error,
+  :invalid_request}` for a bad `now`, options, operation or expected token;
+  `{:error, :timeout}` when the deadline passes; `{:error, :too_large}` when the
+  payload would exceed the memory budget; and `{:error, :unavailable}` when the
+  store is missing or not ready, or an operation fails unexpectedly. Counters are
+  advisory, so callers treat these as "no answer" and carry on.
   """
   use GenServer
   @default_budget 64 * 1024 * 1024
@@ -27,6 +52,16 @@ defmodule Guardian.Counters.Store do
   @eviction_passes 4
   @minimum_row_words 16
 
+  @doc """
+  Starts the store and its one public ETS table.
+
+  Options: `:name` (default `Guardian.Counters.Store`; the table takes the same name,
+  and `nil` starts an unnamed store, found by PID or table reference),
+  `:memory_budget_bytes` (positive integer; default from the
+  `:counter_memory_budget_bytes` application setting, else 64 MiB) and
+  `:sweep_interval_ms` (positive integer, default 1,000). Invalid values stop the
+  process with `:invalid_options`, which refuses startup.
+  """
   def start_link(opts \\ []) do
     case Keyword.get(opts, :name, __MODULE__) do
       nil -> GenServer.start_link(__MODULE__, opts)
@@ -34,28 +69,95 @@ defmodule Guardian.Counters.Store do
     end
   end
 
+  @doc """
+  Reads the value stored under `key`.
+
+  `key` is any term. Returns `{:ok, value}`, or `:not_found` when the key is
+  missing or has expired (its expiry is at or before `now`). A stored `nil` comes
+  back as `{:ok, nil}`, so it can be told apart from a missing key. Use `gets/3`
+  instead when the value will be written back with `cas/6`.
+  """
   def get(key, now, opts) do
     request({:get, key}, now, opts)
   end
 
+  @doc """
+  Reads the value under `key` together with a CAS token, for a later `cas/6`.
+
+  Returns `{:ok, value, token}`, or `:not_found` when the key is missing or has
+  expired (a caller that wants to create it then passes `:missing` to `cas/6`).
+  The token is an opaque value standing for the exact stored row that was read;
+  hand it back to `cas/6` unchanged and do nothing else with it. Any write to the
+  key, including an `incr/5` with delta 0, invalidates earlier tokens.
+  """
   def gets(key, now, opts) do
     request({:gets, key}, now, opts)
   end
 
-  @doc "Executes up to 4,000 operations in order, checking deadlines before each."
+  @doc """
+  Runs a list of operations in order and returns `{:ok, responses}`, one response
+  per operation, each as the matching single call would give.
+
+  Operations are `{:get, key}`, `{:gets, key}`, `{:incr, key, delta, ttl}` and
+  `{:cas, key, expected, value, ttl}`, with the arguments of `get/3`, `gets/3`,
+  `incr/5` and `cas/6`. All of them are judged against the one `now`. There is no
+  snapshot or rollback: other callers can write between operations, and an
+  operation that fails neither undoes nor blocks the others, except that the
+  one deadline is checked before each operation: once it passes, that operation and
+  every later one answers `{:error, :timeout}`. A nested `:stats` is also accepted.
+  More than 4,000
+  operations, or something that is not a list, is `{:error, :invalid_request}` for
+  the whole call.
+  """
   def batch(operations, now, opts) do
     request({:batch, operations}, now, opts)
   end
 
+  @doc """
+  Compare-and-swap: stores `value` under `key` only if the key is unchanged since
+  it was read.
+
+  `expected` is either the token from `gets/3`, which must still match the stored
+  row, or `:missing`, which requires that no live row exists. Returns `:ok`
+  after storing, or `{:error, :conflict}` when someone wrote since the read, the
+  key expired or vanished, the token came from another store or is stale, or a
+  live row exists when `:missing` was given. A conflict is a normal answer, not a failure:
+  re-read with `gets/3` and try again. A malformed `expected` is
+  `{:error, :invalid_request}`, as is a `ttl` that is not a positive integer.
+
+  A new row expires `ttl` milliseconds after `now`. Replacing an existing row keeps
+  its original expiry and ignores `ttl`. An expired row found while creating with
+  `:missing` is replaced, as a new row with the new expiry.
+  """
   def cas(key, expected, value, ttl, now, opts) do
     request({:cas, key, expected, value, ttl}, now, opts)
   end
 
+  @doc """
+  Atomically adds the integer `delta` to the integer under `key`, creating the key
+  at `delta` if it is missing, and returns `{:ok, new_value}`.
+
+  A new row expires `ttl` milliseconds after `now` (`ttl` must be a positive
+  integer); an existing row keeps its original expiry. Every successful call,
+  including one with delta 0, changes the row for CAS purposes and so invalidates
+  earlier `gets/3` tokens for it. Other results: `{:error, :not_integer}` when the key holds a
+  non-integer value, and `{:error, :expired}` when the key has expired. A row found
+  expired (or lost in a race with a concurrent change) is deleted and recreated
+  once; `:expired` is returned when the retry fails the same way, so callers
+  can treat it as a definite failure. Unlike `cas/6`, there is no read first:
+  the add itself is one atomic step.
+  """
   def incr(key, delta, ttl, now, opts) do
     request({:incr, key, delta, ttl}, now, opts)
   end
 
-  @doc "Approximate aggregate diagnostics under concurrent writes; scans resident rows."
+  @doc """
+  Approximate aggregate diagnostics under concurrent writes; scans resident rows.
+
+  Returns `{:ok, %{keys: count, memory_bytes: bytes, memory_budget_bytes: budget}}`.
+  Expiry is not judged, so rows that have expired but were not yet swept are
+  counted. Takes only `opts`; it needs no `now`.
+  """
   def stats(opts \\ []) do
     # Stats judge no expiry, so they take no `now`; the request's is never read.
     request(:stats, System.monotonic_time(:millisecond), opts)

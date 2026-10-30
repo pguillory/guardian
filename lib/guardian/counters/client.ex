@@ -13,6 +13,7 @@ defmodule Guardian.Counters.Client do
   alias Guardian.Counters.Transport
   alias Guardian.Lists
 
+  @doc "A fresh per-batch allowance of failed-call wait time; see `Guardian.Counters.Budget.new_batch/0`."
   @spec new_batch() :: Context.batch()
   defdelegate new_batch(), to: Budget
 

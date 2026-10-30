@@ -30,6 +30,13 @@ defmodule Guardian.Counters.Context do
           store: store(),
         }
 
+  @doc """
+  Builds one event's context from a batch handle: a counter deadline (100 ms from
+  now), a per-operation timeout (50 ms) and a snapshot of this node plus connected
+  peers as the members that own counters. The options replace those defaults or the
+  cooldown table and store, and exist for tests. The deadline starts before the
+  membership snapshot.
+  """
   @spec new(batch(), [option()]) :: t()
   def new(batch, opts \\ []) do
     # Start the event deadline before snapshotting membership.

@@ -15,10 +15,19 @@ defmodule Guardian.Counters.Budget do
   @suspect_timeout_us 25_000
   @cooldown_us 1_000_000
 
+  @doc """
+  Starts the process that owns the cooldown table. `:name` (default
+  `Guardian.Counters.Budget`) is both the process name and the ETS table name.
+  """
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
   end
 
+  @doc """
+  A fresh per-batch allowance of failed-call wait time (250 ms, in microseconds) in
+  an atomics handle, shared by every event created from it. Operations draw on it
+  by reserving.
+  """
   def new_batch do
     batch = :atomics.new(1, [])
     :atomics.put(batch, 1, @batch_allowance_us)

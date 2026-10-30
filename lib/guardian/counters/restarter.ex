@@ -11,6 +11,13 @@ defmodule Guardian.Counters.Restarter do
   @max_delay_ms 240_000
   @healthy_interval_ms 60_000
 
+  @doc """
+  Starts the restarter, named `:name` (default `Guardian.Counters.Restarter`), and
+  with it the counter supervisor, started with the `:counters` options. Invalid
+  counter options stop it with `:invalid_options`; any other startup failure is
+  retried with backoff. `:initial_delay_ms`, `:max_delay_ms` and
+  `:healthy_interval_ms` override the timings in the moduledoc, for tests.
+  """
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
   end

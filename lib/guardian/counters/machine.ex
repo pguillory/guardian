@@ -10,6 +10,7 @@ defmodule Guardian.Counters.Machine do
   """
   defstruct [:op, :state, :callback, :result]
 
+  @doc "A machine whose first pending operation is `op` (not nil), with `state` for the callback."
   def new(op, state, callback) when not is_nil(op) do
     %__MODULE__{op: op, state: state, callback: callback}
   end

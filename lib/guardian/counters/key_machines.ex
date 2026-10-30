@@ -3,14 +3,26 @@ defmodule Guardian.Counters.KeyMachines do
   alias Guardian.Aggregation
   alias Guardian.Counters.Machine
 
+  @doc "A machine that reads `key` with one `:get` and finishes with its response."
   def read(key) do
     Machine.new({:get, key}, nil, &read_response/3)
   end
 
+  @doc """
+  A machine that adds `delta` to `key` with one `:incr`, which expires at the
+  anchored monotonic millisecond `expiry`, and finishes with its response.
+  """
   def incr(key, delta, expiry) do
     Machine.new({:incr, key, delta, {:expires, expiry}}, nil, &read_response/3)
   end
 
+  @doc """
+  A machine that merges the aggregation state `delta` into `key`: read with `:gets`,
+  merge, then write back with `:cas` using the token (or `:missing`). It finishes
+  `{:ok, merged}`, `{:ok, prior}` when the merge changes nothing (no write is sent)
+  or an error; `{:error, :expired}` when `expiry` has already passed. Only a CAS
+  conflict re-reads and retries, up to three attempts in all.
+  """
   def merge(aggregation, key, delta, expiry) do
     state = %{aggregation: aggregation, delta: delta, expiry: expiry, attempts: 3, merged: nil}
     Machine.new({:gets, key}, state, &merge_response/3)
