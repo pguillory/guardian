@@ -29,8 +29,9 @@ Shared helpers live under `Guardian.Test.*`, at matching paths in
 2. `Guardian.Test.Polling`: `eventually/1,2`, `eventually_after_gc/1`.
 3. `Guardian.Test.Processes`: queued-call waits, stack-based process discovery and
    waits for worker cleanup, on this node or peers.
-4. `Guardian.Test.Segments`: loaded-segment selection, nested-row appends, segment
-   file fixtures and one-call append fault injection.
+4. `Guardian.Test.Segments`: loaded-segment selection, nested-row appends, flat row
+   reads (Storage tests only), segment file fixtures and one-call append fault
+   injection.
 
 The existing function bodies, timeouts, failure messages and cleanup ordering are
 preserved. Cross-concern polling calls name `Guardian.Test.Polling` explicitly.

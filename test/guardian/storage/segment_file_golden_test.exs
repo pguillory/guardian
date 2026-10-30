@@ -32,12 +32,11 @@ defmodule Guardian.Storage.SegmentFileGoldenTest do
     ] ++ Enum.map(1..70, &%{"n" => &1, "kind" => if(rem(&1, 3) == 0, do: "s#{&1}", else: &1)})
   end
 
-  # `get_row` omits a nil value as it does an absent key.
+  # `segment_row` omits a nil value as it does an absent key.
   defp expected_row(row) do
     row
     |> Guardian.Storage.Flattening.flatten_event()
     |> Map.reject(fn {_key, value} -> is_nil(value) end)
-    |> Guardian.Storage.Flattening.unflatten_event()
   end
 
   setup do
@@ -75,7 +74,7 @@ defmodule Guardian.Storage.SegmentFileGoldenTest do
     assert Enum.sort(keys) == @keys
 
     for {row, offset} <- Enum.with_index(rows()) do
-      assert {:ok, expected_row(row)} === Segment.get_row(segment, offset)
+      assert {:ok, expected_row(row)} === Guardian.Test.Segments.segment_row(segment, offset)
     end
 
     assert {:ok, column} = Segment.get_column(segment, "n")

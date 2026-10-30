@@ -289,7 +289,7 @@ defmodule Guardian.Web.MCP.ClientTest do
       assert Guardian.Storage.dump_table(table) == [%{"value" => 1}]
     end
 
-    test "ingests arbitrary nested keys and values unchanged and makes them queryable" do
+    test "ingests arbitrary nested keys and values, returning the flat row, and makes them queryable" do
       Guardian.Test.MCPClient.start()
       table = "mcp_ingest_#{System.unique_integer([:positive])}"
 
@@ -301,12 +301,15 @@ defmodule Guardian.Web.MCP.ClientTest do
         "items" => [%{"unusual-key" => "x"}, %{"unusual-key" => "y"}],
       }
 
+      flat_row = Guardian.Storage.Flattening.flatten_event(event)
       result = send_events(%{"table" => table, "events" => [event]}) |> decoded_result()
-      assert result == %{"status" => 200, "results" => [%{"success" => true, "event" => event}]}
 
-      stored =
-        Guardian.Storage.Flattening.flatten_event(event)
-        |> Map.reject(fn {_key, value} -> is_nil(value) end)
+      assert result == %{
+               "status" => 200,
+               "results" => [%{"success" => true, "event" => flat_row}],
+             }
+
+      stored = Map.reject(flat_row, fn {_key, value} -> is_nil(value) end)
 
       assert Guardian.Storage.dump_table(table) == [stored]
 
@@ -408,15 +411,16 @@ defmodule Guardian.Web.MCP.ClientTest do
       assert Guardian.Storage.dump_table(table) == [%{"value" => 2}]
     end
 
-    test "preserves absent, null, selected and empty return_keys without filtering stored events; a missing selected key is null" do
+    test "preserves absent, null, selected and empty return_keys without filtering stored events; a selected key names one exact column, null when missing" do
       Guardian.Test.MCPClient.start()
       event = %{"value" => 1, "nested" => %{"x" => 2}}
+      flat_row = %{"value" => 1, "nested.x" => 2}
 
       for {options, expected} <- [
-            {%{}, event},
-            {%{"return_keys" => nil}, event},
-            {%{"return_keys" => ["nested", "missing"]},
-             %{"nested" => %{"x" => 2}, "missing" => nil}},
+            {%{}, flat_row},
+            {%{"return_keys" => nil}, flat_row},
+            {%{"return_keys" => ["nested.x", "nested", "missing"]},
+             %{"nested.x" => 2, "nested" => nil, "missing" => nil}},
             {%{"return_keys" => []}, %{}},
           ] do
         table = "mcp_keys_#{System.unique_integer([:positive])}"

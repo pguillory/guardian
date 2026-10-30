@@ -19,10 +19,16 @@ or `Guardian.Storage.get_column/2`; it never holds a segment PID or calls an int
 There is no xref check: keep to this by convention and in review. Tests under
 `test/guardian/storage` may use the internals. Other tests and the shared helpers in `libtest`
 may use them only to set up a segment's state or inject faults into its process
-(suspending, killing, or swapping a segment, or picking which copy a test holds), and
-`test/guardian/query/segment_reader_contract_test.exs` to test Segment's reader contract under
-queries, and `test/guardian/query/temporaries_test.exs` to find Segment processes no manager
-owns; query results are still checked through queries.
+(suspending, killing, or swapping a segment, or picking which copy a test holds).
+The exceptions:
+
+- `Guardian.Test.Segments.segment_row/2` reads a flat row, for the tests under
+  `test/guardian/storage` only.
+- `test/guardian/query/segment_reader_contract_test.exs` tests Segment's reader
+  contract under queries.
+- `test/guardian/query/temporaries_test.exs` finds Segment processes no manager owns.
+
+Query results are still checked through queries.
 
 ## Segment lifecycle
 
@@ -73,7 +79,7 @@ or argument list from segment loading: they carry segment data. Native column as
 on corrupt bytes still abort the VM: packed columns are not yet validated before the
 NIF reads them.
 
-Segment readers (`count`, `full`, `keys`, `schema`, `get_column`, `get_row`) are
+Segment readers (`count`, `full`, `keys`, `schema`, `get_column`) are
 monitored calls that return `{:error, {:segment_unavailable, reason}}` when the
 segment is gone or dies, instead of exiting the caller. Their timeout defaults to
 `:infinity` for queries. Storage's own processes use the bang readers (`count!`,
@@ -139,7 +145,7 @@ Native column resources never leave their Segment process (column.c has no locks
 `append` grows and reallocates its buffers). `get_column` replies with a packed binary: for a
 mutable column, a snapshot padded to the row count, built in the segment and cached until
 the row count changes. `Segment.pack/1` freezes the segment and packs one column per
-call inside it, reusing a cached snapshot. `get_row` runs inside the segment, `store`
+call inside it, reusing a cached snapshot. `store`
 asks it for the packed columns, and `put_column` accepts only binaries. Costs: an append
 waits behind the reader calls queued ahead of it, each one column's pad and pack. The
 cache bounds the number of packs, not their time, so a huge column on a slow machine
@@ -150,7 +156,7 @@ segment keeps one packed copy per key read since its last append.
 Stored rows accept scalar/list/map values supported by `Guardian.Storage.Value`, whose rules
 come from the column NIF (`Guardian.Storage.Column.valid_value?/1`). `Guardian.Storage.append/2`
 flattens nested maps into dot-notation columns (`Segment.append/2` takes flat rows),
-and they are unflattened when rows are read. Column packing
+and rows stay flat when read: nothing rebuilds nested JSON from them. Column packing
 uses the native implementation under `src/column.c`. Loaded segments map their file
 with `Guardian.Storage.Mmap` (`src/mmap.c`), which closes the descriptor once the file is mapped
 and unmaps it when the last binary referring to it is collected.

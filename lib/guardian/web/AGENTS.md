@@ -36,10 +36,11 @@ The JSON API stores the key in the conn's private `:guardian_auth_key`, and
 `send_events` validates table, events list, and return_keys before storing anything.
 HTTP invalid requests return 400 with an `info` message; MCP returns a tool error.
 `Guardian.Web.Ingest` shares request validation and result shaping between both interfaces.
-Absent or null return_keys returns all event keys; a list of strings gives successful
-events exactly those keys, null for any the event lacks. Events are reported after
-the table's SET/UNSET/TRACK/LOOKUP rules, so return_keys is how a client reads a
-computed decision or counter result. Rule failure handling follows the
+A successful result's event is the stored flat row after the table's
+SET/UNSET/TRACK/LOOKUP rules (`Guardian.Engine` returns it; nothing rebuilds nested
+JSON). Absent or null return_keys returns the whole row; a list of strings gives
+exactly those columns, null for any the row lacks. return_keys is how a client reads
+a computed decision or counter result, not a way to echo the event. Rule failure handling follows the
 [rule execution contract](../../../docs/product/spec.md#513-running) and
 [counter failure contract](../../../docs/product/spec.md#514-counters). Valid
 requests return 200 with ordered `results`, each `{success: true, event: ...}` or

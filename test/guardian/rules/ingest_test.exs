@@ -81,26 +81,22 @@ defmodule Guardian.Rules.IngestTest do
       "env" => "prod",
     }
 
-    assert [{:ok, reported}] = ingest(table, [event])
-    assert reported["Password"] == "a"
-    assert reported["password"] == %{"hash" => "b"}
-    assert reported["users"] == [%{"id" => 1}]
+    stored = %{
+      "has_card" => true,
+      "Password" => "a",
+      "password.hash" => "b",
+      "users..id" => [1],
+      "user.name" => "bob",
+      "user.secret.x" => 1,
+      "user.Secret" => 2,
+      "env" => "prod",
+    }
 
-    assert Guardian.Storage.dump_table(table) == [
-             %{
-               "has_card" => true,
-               "Password" => "a",
-               "password.hash" => "b",
-               "users..id" => [1],
-               "user.name" => "bob",
-               "user.secret.x" => 1,
-               "user.Secret" => 2,
-               "env" => "prod",
-             },
-           ]
+    assert [{:ok, ^stored}] = ingest(table, [event])
+    assert Guardian.Storage.dump_table(table) == [stored]
 
     # WHERE false leaves the field as sent.
-    assert [{:ok, %{"user" => %{"secret" => 1}}}] =
+    assert [{:ok, %{"user.secret" => 1, "env" => "dev", "has_card" => false}}] ==
              ingest(table, [%{"user" => %{"secret" => 1}, "env" => "dev"}])
 
     assert [{:ok, reported}] = ingest(table, [%{"user" => %{"secret" => 1}, "env" => "prod"}])
@@ -130,11 +126,9 @@ defmodule Guardian.Rules.IngestTest do
              },
            ]
 
-    # A top-level field with columns beneath it cannot be one JSON value, so the result
-    # leaves it out and return_keys reads it as null. Other fields are unaffected.
-    assert %{"email" => "a@b.com", "Email" => "A@B.COM"} = reported
-    refute Map.has_key?(reported, "user")
-    refute Map.has_key?(reported, "tags")
+    # The result is the stored row, so the rule's `user` and the sender's `user.name`
+    # are both there, as separate columns.
+    assert [reported] == Guardian.Storage.dump_table(table)
   end
 
   test "reads: unknown fields are null, names match exactly" do
@@ -164,10 +158,8 @@ defmodule Guardian.Rules.IngestTest do
   test "rules that all skip leave an event alone, whatever its keys" do
     table = unique_table("rules_skip_keys")
     with_rules(%{"#{table}/r.gsql" => "SET x = 1 WHERE false; UNSET y WHERE false"})
-    # Guardian.Storage.Flattening cannot decode this key's flattened form; no skipped rule
-    # may decode it.
     event = %{"a.\\" => 1, "b" => 2}
-    assert [{:ok, ^event}] = ingest(table, [event])
+    assert [{:ok, %{~S("a.\\") => 1, "b" => 2}}] = ingest(table, [event])
   end
 
   test "values a rule produces are validated like incoming ones" do
@@ -315,7 +307,7 @@ defmodule Guardian.Rules.IngestTest do
     table = unique_table("rules_backslash_key")
     with_rules(%{"#{table}/r.gsql" => "SET y = 2"})
 
-    assert [{:ok, %{"a.\\" => 1, "y" => 2}}] = ingest(table, [%{"a.\\" => 1}])
+    assert [{:ok, %{~S("a.\\") => 1, "y" => 2}}] = ingest(table, [%{"a.\\" => 1}])
     assert {:ok, ["y"], [[2]]} = Guardian.Query.execute("SELECT y FROM #{table}")
   end
 
@@ -358,6 +350,22 @@ defmodule Guardian.Rules.IngestTest do
     assert results == [
              %{success: true, event: %{"is_blocked" => true}},
              %{success: true, event: %{"is_blocked" => nil}},
+           ]
+  end
+
+  test "a sender's nested key under a rule's output name cannot blank the output" do
+    table = unique_table("rules_output_shadow")
+    with_rules(%{"#{table}/r.gsql" => "SET decision = 'deny'"})
+
+    assert {:ok, %{status: 200, results: results}} =
+             Guardian.Web.Ingest.send_events(%{
+               "table" => table,
+               "events" => [%{"decision" => %{"x" => "allow"}}],
+               "return_keys" => ["decision", "decision.x"],
+             })
+
+    assert results == [
+             %{success: true, event: %{"decision" => "deny", "decision.x" => "allow"}},
            ]
   end
 end

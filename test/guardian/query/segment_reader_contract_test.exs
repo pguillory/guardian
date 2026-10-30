@@ -65,7 +65,6 @@ defmodule Guardian.Query.SegmentReaderContractTest do
             &Segment.keys/1,
             &Segment.schema/1,
             &Segment.get_column(&1, "a"),
-            &Segment.get_row(&1, 0),
           ] do
         assert read.(segment) == {:error, {:segment_unavailable, :noproc}}
       end

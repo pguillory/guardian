@@ -115,7 +115,7 @@ defmodule Guardian.Storage.MutableSegmentsTest do
       [next_id] = segment_ids(table)
       refute next_id == id
       {:ok, next_segment} = get_segment(next_id)
-      assert Guardian.Storage.Segment.get_row(next_segment, 0) == {:ok, %{"a" => 2}}
+      assert Guardian.Test.Segments.segment_row(next_segment, 0) == {:ok, %{"a" => 2}}
       assert Guardian.Storage.Segment.count(segment) == {:ok, 1}
 
       :sys.resume(Guardian.Storage.PersistedSegments)
@@ -127,7 +127,7 @@ defmodule Guardian.Storage.MutableSegmentsTest do
       # Read the actual persisted bytes through the normal mmap loader.
       :ok = Guardian.Storage.LoadedSegments.rescan()
       {:ok, loaded} = Guardian.Storage.LoadedSegments.get_segment(id)
-      assert Guardian.Storage.Segment.get_row(loaded, 0) == {:ok, %{"a" => 1}}
+      assert Guardian.Test.Segments.segment_row(loaded, 0) == {:ok, %{"a" => 1}}
       assert Guardian.Storage.dump_table(table) == [%{"a" => 1}, %{"a" => 2}]
     end
 

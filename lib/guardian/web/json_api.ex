@@ -52,8 +52,11 @@ defmodule Guardian.Web.JsonApi do
   }
   ```
 
-  The `return_keys` parameter filters each successful result's event. If omitted or
-  null, all fields are returned. It must otherwise be a list of strings.
+  A successful result's `event` is the row as stored, after rules: flat columns named
+  as queries see them (`user.name`), with values that cannot be stored left out. The
+  `return_keys` parameter picks columns of it, each named in full, null when missing.
+  If omitted or null, the whole row is returned. It must otherwise be a list of
+  strings.
 
   Optional `idempotency_key` is null or a nonempty UTF-8 string of at most 128
   bytes, scoped to one table on this node. A matching retry within ten seconds of

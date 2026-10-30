@@ -3,13 +3,13 @@
 Engine is Guardian's event-ingestion boundary.
 
 - `Guardian.Engine.ingest_event/2` drops values that are unsafe for Storage, appends the event,
-  and returns the stored event. It validates the flattened event, so invalid values
+  and returns the stored flat row. It validates the flattened event, so invalid values
   nested inside objects and fields whose flattened key exceeds 250 bytes are dropped
   individually. The validated flat row is stored with `Guardian.Storage.append_flattened/2`
-  (never unflattened and re-flattened, which cannot rebuild every shape). Events with
-  nothing dropped are returned unchanged.
+  and is also the result: nothing in Guardian rebuilds nested JSON from a flat row.
 - `Guardian.Engine.ingest_events/2` processes events independently and returns ordered
-  `{:ok, event}` or `{:error, message}` outcomes, continuing after each failure.
+  `{:ok, row}` (the stored flat row) or `{:error, message}` outcomes, continuing
+  after each failure.
   Non-object events fail before storage. Unexpected failures before storage say the
   event was not stored; failures after storage starts say it may have been stored.
   An explicit storage refusal says it was not stored. A failure's kind and an
@@ -26,12 +26,10 @@ Engine is Guardian's event-ingestion boundary.
 `ingest_events/2` runs the table's rules when it has any (`Guardian.Rules.lookup/1`): it
 captures private arrival coordinates before validating each event, hands valid rows
 and their metadata to `Guardian.Rules.run_with_metadata/2` (a worker, one outcome per row),
-validates the values the rules produced the same way, and stores the
-result. Metadata is never caller-controlled, a row field or stored automatically.
+validates the row the rules produced the same way, and stores it; the stored row is
+the event's result. Metadata is never caller-controlled, a row field or stored automatically.
 The whole batch is prepared before execution; later rows can therefore reach rules
-after their counter window expires. The reported event is built from the row after
-rules; Engine's shortcut of reporting the original event applies only when the rules
-changed nothing. A rule
+after their counter window expires. A rule
 failure is that event's `{:error, message}` and it is not stored. `ingest_event/2`
 and the `log_event` writers (Guardian's built-in tables) never run rules. Rule
 compilation and management live in `lib/guardian/rules`, not here. Keep Engine free of

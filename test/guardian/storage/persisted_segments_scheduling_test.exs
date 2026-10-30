@@ -82,7 +82,7 @@ defmodule Guardian.Storage.PersistedSegmentsSchedulingTest do
     assert File.exists?(filename)
     {:ok, loaded} = Segment.start_link(load: filename)
     assert Segment.count(loaded) == {:ok, 1}
-    assert Segment.get_row(loaded, 0) == {:ok, %{"a" => 1}}
+    assert Guardian.Test.Segments.segment_row(loaded, 0) == {:ok, %{"a" => 1}}
     :ok = Segment.retire(loaded)
   end
 

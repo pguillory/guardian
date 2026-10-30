@@ -5,8 +5,9 @@ Guardian's MCP endpoint exposes these tools:
 - `query`: execute one resolved query and return rows as JSON objects keyed by labels.
 - `send_events`: ingest a table and list of events through `Guardian.Web.Ingest` and Engine,
   returning `{status: 200, results: [...]}` with one ordered outcome per input.
-  Optional return_keys filters successful events only; omitted/null returns all,
-  an empty list returns no fields, and a selected key the event lacks is null.
+  A success's event is the stored flat row. Optional return_keys picks exact columns
+  of successful events only; omitted/null returns all, an empty list returns no
+  fields, and a selected column the row lacks is null.
   Failures do not stop later events, and uncertain storage failures say the event may
   have been stored.
   Optional idempotency_key shares HTTP's per-table/node receipt cache. Completed

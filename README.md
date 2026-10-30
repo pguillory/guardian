@@ -134,8 +134,11 @@ def send_event(table, event, returning=None):
 ```
 
 Your application reads the ingest key from its environment. `send_event` returns the
-fields named in `returning`, or the whole event as stored, and raises if Guardian
-refuses the request or the event.
+fields named in `returning`, such as `["is_blocked"]`, and raises if Guardian refuses
+the request or the event. `returning` is for decisions and computed values, not for
+echoing your event back. Without it you get the whole event as stored: flat columns,
+the way queries see them (`{"user": {"name": "Bob"}}` comes back as
+`{"user.name": "Bob"}`), with anything Guardian couldn't store left out.
 
 To query by time, add a UTC `timestamp` field as `YYYY-MM-DD HH:MM:SS`; Guardian adds
 nothing to your events. The [API reference](docs/reference/api.md) has the full

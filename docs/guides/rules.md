@@ -33,10 +33,10 @@ removes a secret, name every column that can hold it (`UNSET card.number`,
 digits, underscores and dots, so it cannot remove a key such as `headers.x-api-key`
 or one it does not know in advance: keep those out of the event before sending it.
 
-A row holding both `user` and `user.name` has no single JSON form, so `return_keys:
-["user"]` reads null even though `user` was stored. A sender can cause this for a
-rule's output by sending a nested key under its name, so a caller must not treat a
-null output as a decision.
+`send_events` returns the stored row as flat columns, so `return_keys: ["user"]`
+reads the rule's `user` and `["user.name"]` the sender's `user.name`; neither hides
+the other. Ask `return_keys` for the decisions and computed values your code acts on,
+not for the whole event.
 
 TRACK includes the current event; LOOKUP reads before that event's updates. See the
 [rule execution contract](../product/spec.md#513-running) for dependencies, ordering

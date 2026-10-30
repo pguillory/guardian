@@ -75,10 +75,35 @@ defmodule Guardian.Web.JsonApiTest do
     assert Guardian.Storage.dump_table(table) == [Enum.at(events, 0), Enum.at(events, 2)]
   end
 
-  test "/api/json/send_events accepts absent, null and empty return_keys" do
-    event = %{"value" => 1, "nested" => %{"x" => 2}}
+  test "/api/json/send_events leaves a dropped value out of the result; return_keys reads it as null" do
+    table = "json_dropped_#{System.unique_integer([:positive])}"
+    event = %{"ok" => 1, "big" => 2 ** 64, "nested" => %{"big" => 2 ** 64, "ok" => true}}
 
-    for {keys, expected} <- [{[], event}, {[return_keys: nil], event}, {[return_keys: []], %{}}] do
+    for {keys, expected} <- [
+          {[], %{"ok" => 1, "nested.ok" => true}},
+          {[return_keys: ["big", "nested.big", "ok"]],
+           %{"big" => nil, "nested.big" => nil, "ok" => 1}},
+        ] do
+      assert json_post(
+               "/api/json/send_events",
+               [api_key: @admin_api_key, table: table, events: [event]] ++ keys
+             ) == %{
+               "status" => 200,
+               "results" => [%{"success" => true, "event" => expected}],
+             }
+    end
+  end
+
+  test "/api/json/send_events returns the flat stored row and reads return_keys as exact columns" do
+    event = %{"value" => 1, "nested" => %{"x" => 2}}
+    flat_row = %{"value" => 1, "nested.x" => 2}
+
+    for {keys, expected} <- [
+          {[], flat_row},
+          {[return_keys: nil], flat_row},
+          {[return_keys: ["nested.x", "nested"]], %{"nested.x" => 2, "nested" => nil}},
+          {[return_keys: []], %{}},
+        ] do
       table = "json_keys_#{System.unique_integer([:positive])}"
 
       assert json_post(
