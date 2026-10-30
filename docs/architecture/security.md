@@ -689,6 +689,23 @@ Invariants and argument:
    is not an IP literal, is loopback, or is not written exactly as `:inet.ntoa/1`
    writes it (`2001:db8::1`, not an expanded form). This is a correctness check, not
    an admission control.
+5. Guardian's own processes never carry the cookie on their command lines, because
+   process lists get printed (`fly deploy` prints the table of listening processes when
+   it warns about the expected address) and are visible to anything on the machine that
+   lists processes. A release step in `mix.exs` removes the `--cookie` arguments from the
+   generated `bin/guardian` and fails the build if that script ever passes the cookie
+   another way. `rel/env.sh.eex` instead writes the cookie to an owner-only
+   `.erlang.cookie` and points the VM's `HOME` at its directory, where OTP reads it. The
+   server's file is under `RELEASE_TMP`; `remote`, `rpc`, `stop`, `restart` and `pid`
+   write their own in a directory the user running them owns, their home or else
+   `RELEASE_TMP`, and refuse to run with neither. So a client running as another user or
+   with another cookie can't change what the server reads again on `System.restart`, and
+   root never writes where a service account could swap the path for a symlink. A
+   directory is refused if it's a symlink or someone else's, but that check can't be
+   race-free in a directory others can write to, or under one, so `RELEASE_TMP` and the
+   directories above it must not be writable by anyone but its owner when root runs a
+   client there.
+   The files stay on disk after the command exits.
 
 ### 6.2 On Fly
 
@@ -784,10 +801,10 @@ and the boundary is whatever protects those. Guardian adds nothing on top.
 | --- | --- | --- | --- |
 | `GUARDIAN_ADMIN_API_KEY` | process environment (on Fly, a Fly secret); app env `:guardian, :admin_api_key` | operators; the operator's agents and scripts | set the new value and restart (`fly secrets set` restarts); independent of the other keys |
 | `GUARDIAN_INGEST_API_KEY` (optional) | process environment (on Fly, a Fly secret); app env `:guardian, :ingest_api_key` | operators; producers | set the new value and restart; independent of the other keys |
-| `RELEASE_COOKIE` | process environment (on Fly, a Fly secret); node memory | operators; peers | set the new value and restart; all nodes must share it |
+| `RELEASE_COOKIE` | process environment (on Fly, a Fly secret); node memory; owner-only `.erlang.cookie` files for the server and for whoever runs a client command, which stay on disk (6.1.5); never a command line | operators; peers | set the new value and restart; all nodes must share it |
 | `TUNNEL_TOKEN` (optional) | process environment (on Fly, a Fly secret, also visible in `fly ssh` sessions); `bin/fly-start` unsets it before starting Guardian, so Guardian's process doesn't hold it; the script's shell and connector loop keep it, as cloudflared does | operators; whoever administers the operator's Cloudflare account | rotate the tunnel's token on Cloudflare, then set the new value and restart |
 | `GUARDIAN_RULES_S3_ACCESS_KEY_ID`, `GUARDIAN_RULES_S3_SECRET_ACCESS_KEY` (optional) | process environment (on Fly, Fly secrets); read once by `Guardian.Rules.Config` into a closure inside the `Guardian.ObjectStore.S3` config held by Guardian.Rules.Server and `:persistent_term`, never application config; requests carry only an MFA for signing, and store errors name only a kind | operators; whoever administers the bucket's account | create a new bucket-scoped token, set both values and restart, then revoke the old token |
-| Build-time cookie | `releases/COOKIE` in the release and image | anyone with the image or release | per build; used only by a single node (6.4) |
+| Build-time cookie | `releases/COOKIE` in the release and image, copied to the same owner-only files as `RELEASE_COOKIE` | anyone with the image or release | per build; used only by a single node (6.4) |
 
 Secrets also end up in any Erlang crash dump the VM writes (`erl_crash.dump` in the
 working directory; on Fly, the machine's disposable root filesystem).

@@ -17,7 +17,7 @@ Give every node:
    IPv4, AAAA for IPv6). A Kubernetes headless service works, and so does a Docker
    network alias shared by every node. A load-balancer VIP doesn't: the name must
    return each node's own address.
-3. `RELEASE_COOKIE`: the same long random secret on every node
+3. `RELEASE_COOKIE`: the same long random secret on every node, in printable ASCII
    (`openssl rand -base64 48`).
 4. Its own volume. Segment IDs are per node, and nodes never share storage.
 5. If you use rules, the same S3-compatible rule bucket: rule writes to a local

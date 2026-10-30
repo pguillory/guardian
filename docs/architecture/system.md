@@ -1271,6 +1271,17 @@ modes, and `DNSCluster` (the `dns_cluster` library, started by `Guardian.Applica
    app-plus-image-ref template), so old and new releases stay connected during a
    rolling deploy.
 
+Whichever the mode, the cookie reaches the VM through a private file and never its
+command line (security architecture 6.1.5). `rel/env.sh.eex` writes it for commands that
+use distribution, to `<RELEASE_TMP>/cookie/.erlang.cookie` for the server and to
+`~/.guardian-cookie-<uid>/.erlang.cookie` for `remote`, `rpc`, `stop`, `restart` and `pid`
+(in `RELEASE_TMP` if the user doesn't own `HOME`; with neither owned, they refuse, and
+setting `HOME` to a directory the user owns is the way out). It sets `HOME` to that
+directory for the rest of the release command, so for the VM. Operating-system processes
+the VM starts inherit that `HOME`; Guardian starts none. In a remote console, `~/.iex.exs`, `~/.erlang` and shell history therefore
+live in the cookie directory. OTP reads the file only as printable ASCII and drops
+trailing line endings. Any other cookie fails at boot with "Bad characters in cookie".
+
 `GUARDIAN_DIST_PORT` optionally pins the distribution listen port (besides epmd's
 4369), so a firewall can name it. It applies to the server's `start` and `daemon`
 commands only, not to `remote` or `rpc` clients, which would otherwise try to listen
@@ -1380,7 +1391,7 @@ Environment variables:
 | `GUARDIAN_MUTABLE_SEGMENT_MAX_AGE_MS` | `config/runtime.exs` | Writable segment age before handoff. Default 3,600,000. |
 | `GUARDIAN_NODE_HOST` | `rel/env.sh.eex` | This node's address; setting it makes the node `guardian@<address>`, a cluster member (section 7). Wins over `FLY_PRIVATE_IP`. |
 | `DNS_CLUSTER_QUERY` | `rel/env.sh.eex`, `config/runtime.exs` | Discovery name resolving to every peer's IP. Defaults to `<app>.internal` on Fly; unset elsewhere means no discovery. |
-| `RELEASE_COOKIE` | `rel/env.sh.eex`, the release | Erlang cookie. Required with `GUARDIAN_NODE_HOST` or on Fly; must match on every node. |
+| `RELEASE_COOKIE` | `rel/env.sh.eex`, the release | Erlang cookie, printable ASCII. Required with `GUARDIAN_NODE_HOST` or on Fly; must match on every node. |
 | `GUARDIAN_DIST_PORT` | `rel/env.sh.eex` | Pins the server's distribution listen port, 1 to 65535. Unset means a random port. |
 | `FLY_PRIVATE_IP`, `FLY_APP_NAME` | `rel/env.sh.eex`, `config/runtime.exs` | Set by Fly. Their presence selects the Fly preset (section 7) and the volume check. |
 | `GUARDIAN_RULES_DIR` | `Guardian.Rules.Config` | The local rule folder (`Guardian.ObjectStore.Local`). Default `<data dir>/rules`; the data folder, a folder containing it, or one inside `segments` refuses startup. |
