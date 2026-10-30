@@ -30,6 +30,8 @@ Always write function and macro definitions with `do...end` blocks, including
 keyword body form (`def example(value), do: value`), even for a single expression.
 Keyword-form `if`, `case`, and `unless` expressions are fine.
 
+Private function names should say what the function does, as much as public ones.
+
 The normal test suite checks this rule in `lib/`, `libtest/`, and `test/`, including
 definitions inside quoted code. Declarations without bodies and `defdelegate` are
 unaffected.

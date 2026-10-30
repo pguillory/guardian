@@ -26,17 +26,19 @@ defmodule Guardian.Rules.Runtime do
 
   @doc false
   def run(row, levels, %Guardian.Rules.Event{} = event) do
-    Enum.reduce(levels, row, &level(&2, &1, event))
+    Enum.reduce(levels, row, &run_level(&2, &1, event))
   end
 
-  defp level(row, steps, event) do
+  # Runs one dependency level: its SETs and UNSETs in order, then its counter statements
+  # together, then their results into the row.
+  defp run_level(row, steps, event) do
     # Complete scalar work and prepare counter ops before dispatching any counter.
     {row, counters} =
       Enum.reduce(steps, {row, []}, fn step, {row, counters} ->
         case step do
           %Guardian.Rules.Step.Set{} -> {set(row, step), counters}
           %Guardian.Rules.Step.Unset{} -> {unset(row, step), counters}
-          _ -> {row, [{step, prepare_counter(row, step)} | counters]}
+          _ -> {row, [{step, build_counter_operation(row, step)} | counters]}
         end
       end)
 
@@ -44,17 +46,17 @@ defmodule Guardian.Rules.Runtime do
 
     results =
       prepared
-      |> Lists.filter(&runnable?/1)
+      |> Lists.filter(&prepared_to_run?/1)
       |> Enum.map(fn {:run, op} -> op end)
       |> Execution.run_counters(event.arrival, event.counters)
-      |> Lists.unfilter(prepared, &runnable?/1)
+      |> Lists.unfilter(prepared, &prepared_to_run?/1)
 
     steps
     |> Enum.zip(results)
     |> Enum.reduce(row, fn {step, result}, row -> write_counter(row, step, result) end)
   end
 
-  defp runnable?(prepared) do
+  defp prepared_to_run?(prepared) do
     match?({:run, _op}, prepared)
   end
 
@@ -67,7 +69,7 @@ defmodule Guardian.Rules.Runtime do
   end
 
   defp write_counter(row, step, :failed) do
-    missing = Aggregation.default(Definition.aggregation(counter_definition(step)))
+    missing = Aggregation.default(Definition.aggregation(step_definition(step)))
     Map.put(row, step.field, missing)
   end
 
@@ -82,13 +84,13 @@ defmodule Guardian.Rules.Runtime do
 
   # The statement's counter op, :skip when its WHERE is not true, or :failed when
   # evaluating WHERE, BY or the TRACK arguments raised.
-  defp prepare_counter(row, step) do
+  defp build_counter_operation(row, step) do
     # Step construction binds TRACK metadata; resolution binds LOOKUP targets.
     # Validation checks operators and windows before execution.
-    definition = counter_definition(step)
+    definition = step_definition(step)
 
     try do
-      if applies?(row, step.where_expr) do
+      if where_matches?(row, step.where_expr) do
         group =
           step.by_exprs
           |> Enum.map(&Guardian.Query.Evaluation.eval(row, &1))
@@ -119,17 +121,18 @@ defmodule Guardian.Rules.Runtime do
     end
   end
 
-  defp counter_definition(%Guardian.Rules.Step.Track{definition: %Definition{} = definition}) do
+  # The counter a TRACK updates or a LOOKUP reads.
+  defp step_definition(%Guardian.Rules.Step.Track{definition: %Definition{} = definition}) do
     definition
   end
 
-  defp counter_definition(%Guardian.Rules.Step.Lookup{target: target}) do
+  defp step_definition(%Guardian.Rules.Step.Lookup{target: target}) do
     target
   end
 
   def set(row, step) do
-    guard(step, fn ->
-      if applies?(row, step.where_expr) do
+    reraise_as_rule_failure(step, fn ->
+      if where_matches?(row, step.where_expr) do
         Map.put(row, step.field, Guardian.Query.Evaluation.eval(row, step.value_expr))
       else
         row
@@ -138,8 +141,8 @@ defmodule Guardian.Rules.Runtime do
   end
 
   def unset(row, step) do
-    guard(step, fn ->
-      if applies?(row, step.where_expr) do
+    reraise_as_rule_failure(step, fn ->
+      if where_matches?(row, step.where_expr) do
         Map.delete(row, step.field)
       else
         row
@@ -174,7 +177,8 @@ defmodule Guardian.Rules.Runtime do
     end
   end
 
-  defp guard(step, fun) do
+  # Runs a SET or UNSET; anything it raises fails the event, naming the rule's location.
+  defp reraise_as_rule_failure(step, fun) do
     fun.()
   catch
     kind, reason ->
@@ -183,11 +187,11 @@ defmodule Guardian.Rules.Runtime do
       raise Failure, file: step.file, line: step.line, kind: failure_kind
   end
 
-  defp applies?(_row, nil) do
+  defp where_matches?(_row, nil) do
     true
   end
 
-  defp applies?(row, where_expr) do
+  defp where_matches?(row, where_expr) do
     Guardian.Query.Evaluation.eval(row, where_expr) == true
   end
 end
