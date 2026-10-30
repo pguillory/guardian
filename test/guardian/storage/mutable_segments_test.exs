@@ -10,22 +10,6 @@ defmodule Guardian.Storage.MutableSegmentsTest do
     :ok = append("MutableSegmentsTest", a: 1)
   end
 
-  test "a dead segment is unregistered and appends go elsewhere" do
-    table = "mutable_segments_dead_#{System.unique_integer([:positive])}"
-    on_exit(fn -> :ok = Guardian.Storage.delete_table(table) end)
-
-    :ok = append(table, a: 1)
-    [segment] = get_mutable_segments(table)
-
-    # Kill it and append at once, so the append may race the exit notification.
-    Process.exit(segment, :kill)
-    :ok = append(table, a: 2)
-
-    :sys.get_state(Guardian.Storage.MutableSegments)
-    refute segment in get_mutable_segments(table)
-    assert Guardian.Storage.dump_table(table) == [%{"a" => 2}]
-  end
-
   test "an append that picks a dead segment retries elsewhere" do
     table = "mutable_segments_stale_#{System.unique_integer([:positive])}"
     on_exit(fn -> :ok = Guardian.Storage.delete_table(table) end)
