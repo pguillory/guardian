@@ -1,5 +1,6 @@
 defmodule Guardian.Counters.MachineTest do
   use ExUnit.Case, async: true
+  import Guardian.Counters.Machine
   alias Guardian.Counters.KeyMachines
   alias Guardian.Counters.Machine
 
@@ -13,29 +14,29 @@ defmodule Guardian.Counters.MachineTest do
   end
 
   test "a nil next operation raises instead of silently finishing" do
-    broken = Machine.new({:get, :k}, :state, fn _, _, state -> {:next, nil, state} end)
+    broken = new({:get, :k}, :state, fn _, _, state -> {:next, nil, state} end)
 
     assert_raise ArgumentError, "next operation must not be nil", fn ->
-      Machine.advance(broken, :ok)
+      advance(broken, :ok)
     end
   end
 
   test "advance holds the next operation or finishes with a result" do
     expiry = System.monotonic_time(:millisecond) + 5_000
     machine = KeyMachines.merge(@sum, :k, 2, expiry)
-    refute Machine.done?(machine)
+    refute done?(machine)
 
-    machine = Machine.advance(machine, {:ok, 5, :token})
-    refute Machine.done?(machine)
+    machine = advance(machine, {:ok, 5, :token})
+    refute done?(machine)
     assert {:cas, :k, :token, 7, {:expires, ^expiry}} = machine.op
 
-    machine = Machine.advance(machine, :ok)
-    assert Machine.done?(machine)
+    machine = advance(machine, :ok)
+    assert done?(machine)
     assert machine.result == {:ok, 7}
   end
 
   test "a raising callback finishes with a fixed error" do
-    broken = Machine.new({:get, :k}, nil, fn _, _, _ -> raise "private" end)
-    assert %Machine{op: nil, result: {:error, :invalid_state}} = Machine.advance(broken, :ok)
+    broken = new({:get, :k}, nil, fn _, _, _ -> raise "private" end)
+    assert %Machine{op: nil, result: {:error, :invalid_state}} = advance(broken, :ok)
   end
 end

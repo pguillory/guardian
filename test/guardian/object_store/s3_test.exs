@@ -1,5 +1,6 @@
 defmodule Guardian.ObjectStore.S3Test do
   use ExUnit.Case, async: false
+  import Guardian.ObjectStore.S3
 
   alias Guardian.ObjectStore
   alias Guardian.ObjectStore.S3
@@ -52,7 +53,7 @@ defmodule Guardian.ObjectStore.S3Test do
       object_store_s3_write_deadline_ms: 300
     )
 
-    assert S3.write_deadline_ms() == 300
+    assert write_deadline_ms() == 300
 
     Guardian.Test.FakeS3.fault(s3, {:status, 503})
     assert ObjectStore.list(store) == {:error, {:unreachable, "HTTP 503"}}
@@ -84,17 +85,17 @@ defmodule Guardian.ObjectStore.S3Test do
   end
 
   test "the S3 HTTP date parser" do
-    assert S3.parse_http_date("Wed, 21 Oct 2015 07:28:00 GMT") ==
+    assert parse_http_date("Wed, 21 Oct 2015 07:28:00 GMT") ==
              {:ok, ~U[2015-10-21 07:28:00Z]}
 
-    assert S3.parse_http_date("garbage") == :error
+    assert parse_http_date("garbage") == :error
   end
 
   test "S3 list responses with entities are refused" do
     body =
       ~s(<?xml version="1.0"?><!DOCTYPE a [<!ENTITY e "x">]><ListBucketResult>&e;</ListBucketResult>)
 
-    assert catch_exit(S3.parse_list(body, ""))
+    assert catch_exit(parse_list(body, ""))
   end
 
   test "a listing stops after max_list_pages pages", %{s3: s3} do
@@ -107,16 +108,16 @@ defmodule Guardian.ObjectStore.S3Test do
   end
 
   test "endpoint and prefix checks" do
-    assert S3.check_endpoint("https://example.com") == :ok
-    assert S3.check_endpoint("http://localhost:9000") == :ok
-    assert S3.check_endpoint("http://127.0.0.5") == :ok
-    assert S3.check_endpoint("http://[::1]:9000") == :ok
-    assert S3.check_endpoint("http://example.com") == {:error, :insecure}
-    assert S3.check_endpoint("https://example.com/path") == {:error, :not_url}
-    assert S3.check_endpoint("ftp://example.com") == {:error, :not_url}
-    assert S3.check_prefix("") == :ok
-    assert S3.check_prefix("a/b/") == :ok
-    assert S3.check_prefix("a") == {:error, :no_trailing_slash}
-    assert S3.check_prefix("a b/") == {:error, :invalid_characters}
+    assert check_endpoint("https://example.com") == :ok
+    assert check_endpoint("http://localhost:9000") == :ok
+    assert check_endpoint("http://127.0.0.5") == :ok
+    assert check_endpoint("http://[::1]:9000") == :ok
+    assert check_endpoint("http://example.com") == {:error, :insecure}
+    assert check_endpoint("https://example.com/path") == {:error, :not_url}
+    assert check_endpoint("ftp://example.com") == {:error, :not_url}
+    assert check_prefix("") == :ok
+    assert check_prefix("a/b/") == :ok
+    assert check_prefix("a") == {:error, :no_trailing_slash}
+    assert check_prefix("a b/") == {:error, :invalid_characters}
   end
 end

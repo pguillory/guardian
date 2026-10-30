@@ -3,19 +3,20 @@ defmodule Guardian.Query.NumericTest do
   # event, over a multi-row column, and pre-evaluated; the totality grid
   # (Guardian.Query.TotalityTest) covers every function and operator more broadly.
   use Guardian.Query.EvaluationTestCase, async: true
+  import Guardian.Query.Numeric
 
   import Guardian.Test.Query, only: [run_sql: 1]
 
   alias Guardian.Query.Function.Interval
 
-  @max Guardian.Query.Numeric.max_int()
-  @min Guardian.Query.Numeric.min_int()
+  @max max_int()
+  @min min_int()
 
   test "wrap matches two's complement" do
-    assert Guardian.Query.Numeric.wrap(@max + 1) == @min
-    assert Guardian.Query.Numeric.wrap(@min - 1) == @max
-    assert Guardian.Query.Numeric.wrap(@max * @max) == 1
-    assert Guardian.Query.Numeric.wrap(5) == 5
+    assert wrap(@max + 1) == @min
+    assert wrap(@min - 1) == @max
+    assert wrap(@max * @max) == 1
+    assert wrap(5) == 5
   end
 
   test "integer arithmetic wraps, per event and over columns" do

@@ -2,33 +2,33 @@ defmodule Guardian.Query.TextTest do
   # The string cap, truncation and string forms (Guardian.Query.Text), and the functions the
   # cap applies to.
   use Guardian.Query.EvaluationTestCase, async: true
+  import Guardian.Query.Text
 
-  alias Guardian.Query.Text
   alias Guardian.Test.WorkBounds
 
-  @max Text.max_bytes()
+  @max max_bytes()
 
   describe "truncate/2" do
     test "keeps short strings whole and cuts at a character boundary" do
-      assert Text.truncate("abc", 3) == {"abc", false}
-      assert Text.truncate("abcd", 3) == {"abc", true}
-      assert Text.truncate("aé", 2) == {"a", true}
-      assert Text.truncate("a😀", 4) == {"a", true}
+      assert truncate("abc", 3) == {"abc", false}
+      assert truncate("abcd", 3) == {"abc", true}
+      assert truncate("aé", 2) == {"a", true}
+      assert truncate("a😀", 4) == {"a", true}
       # Invalid UTF-8 is cut near the byte limit (up to three bytes short).
-      {cut, true} = Text.truncate(:binary.copy(<<0xFF>>, 10), 5)
+      {cut, true} = truncate(:binary.copy(<<0xFF>>, 10), 5)
       assert byte_size(cut) in 2..5
     end
 
     test "an invalid byte before the cut drops only the split character" do
-      assert Text.truncate(<<0xFF, "abcdé">>, 6) == {<<0xFF, "abcd">>, true}
-      assert Text.truncate(<<0xFF, "abcdef">>, 6) == {<<0xFF, "abcde">>, true}
+      assert truncate(<<0xFF, "abcdé">>, 6) == {<<0xFF, "abcd">>, true}
+      assert truncate(<<0xFF, "abcdef">>, 6) == {<<0xFF, "abcde">>, true}
       # A split character is dropped, never kept behind a valid one.
-      assert Text.truncate(<<0xFF, "aé😀">>, 6) == {<<0xFF, "aé">>, true}
-      assert Text.truncate(<<0xFF, "aé😀">>, 7) == {<<0xFF, "aé">>, true}
-      assert Text.truncate(<<0xFF, "aé😀">>, 4) == {<<0xFF, "aé">>, true}
-      assert Text.truncate(<<0xFF, "aé😀">>, 3) == {<<0xFF, "a">>, true}
+      assert truncate(<<0xFF, "aé😀">>, 6) == {<<0xFF, "aé">>, true}
+      assert truncate(<<0xFF, "aé😀">>, 7) == {<<0xFF, "aé">>, true}
+      assert truncate(<<0xFF, "aé😀">>, 4) == {<<0xFF, "aé">>, true}
+      assert truncate(<<0xFF, "aé😀">>, 3) == {<<0xFF, "a">>, true}
       # Stray continuation bytes at the cut are kept: no character starts there.
-      assert Text.truncate(<<"ab", 0x80, 0x80, 0x80, 0x80>>, 5) ==
+      assert truncate(<<"ab", 0x80, 0x80, 0x80, 0x80>>, 5) ==
                {<<"ab", 0x80, 0x80, 0x80>>, true}
     end
 
@@ -36,7 +36,7 @@ defmodule Guardian.Query.TextTest do
       string = "aé€😀b"
 
       for limit <- 0..(byte_size(string) - 1) do
-        {cut, true} = Text.truncate(string, limit)
+        {cut, true} = truncate(string, limit)
         assert String.valid?(cut)
         assert byte_size(cut) <= limit and byte_size(cut) >= limit - 3
         assert String.starts_with?(string, cut)
@@ -45,24 +45,24 @@ defmodule Guardian.Query.TextTest do
 
     test "returns a copy, never a sub-binary of a larger string" do
       big = String.duplicate("a", 100_000)
-      {cut, true} = Text.truncate(big, 10)
+      {cut, true} = truncate(big, 10)
       assert :binary.referenced_byte_size(cut) == 10
     end
   end
 
   describe "form/2" do
     test "renders each kind of value" do
-      assert Text.form(nil, 100) == nil
-      assert Text.form("a\"b", 100) == "a\"b"
-      assert Text.form(-12, 100) == "-12"
-      assert Text.form(0.1, 100) == "0.1"
-      assert Text.form(false, 100) == "false"
-      assert Text.form([1, [nil, "x\"y"], 2.5e-7], 100) == ~S([1,[null,"x\"y"],2.5e-7])
+      assert form(nil, 100) == nil
+      assert form("a\"b", 100) == "a\"b"
+      assert form(-12, 100) == "-12"
+      assert form(0.1, 100) == "0.1"
+      assert form(false, 100) == "false"
+      assert form([1, [nil, "x\"y"], 2.5e-7], 100) == ~S([1,[null,"x\"y"],2.5e-7])
     end
 
     test "stops at the budget, also inside a huge nested list" do
       list = List.duplicate(List.duplicate("abcdef", 1_000), 1_000)
-      {reductions, form} = WorkBounds.reductions(fn -> Text.form(list, 100) end)
+      {reductions, form} = WorkBounds.reductions(fn -> form(list, 100) end)
 
       assert form ==
                binary_part(
@@ -74,14 +74,14 @@ defmodule Guardian.Query.TextTest do
       # Reject rendering the million strings before cutting to 100 bytes. Process
       # reductions measure this caller's work without charging scheduler delays.
       assert reductions < 100_000
-      assert Text.form(["é"], 3) == ~s([")
-      assert Text.form(["é"], 4) == ~s(["é)
+      assert form(["é"], 3) == ~s([")
+      assert form(["é"], 4) == ~s(["é)
       # Escapes and U+FFFD lengthen a string; the cut falls on the rendered text.
-      assert Text.form([~s(a"b)], 4) == ~s(["a\\)
-      assert Text.form([<<0xFF>>], 4) == ~s([")
-      assert Text.form([<<0xFF>>], 5) == ~s(["\uFFFD)
-      assert Text.form_cut([1, 2], 5) == {"[1,2]", false}
-      assert Text.form_cut([1, 2], 4) == {"[1,2", true}
+      assert form([~s(a"b)], 4) == ~s(["a\\)
+      assert form([<<0xFF>>], 4) == ~s([")
+      assert form([<<0xFF>>], 5) == ~s(["\uFFFD)
+      assert form_cut([1, 2], 5) == {"[1,2]", false}
+      assert form_cut([1, 2], 4) == {"[1,2", true}
     end
   end
 

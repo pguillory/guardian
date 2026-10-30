@@ -1,15 +1,14 @@
 defmodule Guardian.Query.FailureTest do
   use ExUnit.Case, async: true
-
-  alias Guardian.Query.Failure
+  import Guardian.Query.Failure
 
   describe "truncate/1" do
     test "keeps short valid messages as they are" do
-      assert Failure.truncate("division by zero") == "division by zero"
+      assert truncate("division by zero") == "division by zero"
     end
 
     test "cuts long messages on a codepoint boundary within the byte limit" do
-      message = Failure.truncate("a" <> String.duplicate("é", 1000))
+      message = truncate("a" <> String.duplicate("é", 1000))
       assert String.valid?(message)
       assert String.ends_with?(message, "...")
       assert byte_size(message) <= 1024 + 3
@@ -17,14 +16,14 @@ defmodule Guardian.Query.FailureTest do
     end
 
     test "replaces invalid UTF-8 so the message can be JSON-encoded" do
-      message = Failure.truncate("bad " <> <<0xC3>>)
+      message = truncate("bad " <> <<0xC3>>)
       assert String.valid?(message)
       assert {:ok, _} = Jason.encode(message)
     end
   end
 
   test "from_exit/1 turns pipeline exit reasons into bounded messages" do
-    message = &Failure.from_exit(&1).message
+    message = &from_exit(&1).message
 
     assert message.({%Guardian.Query.Error{message: String.duplicate("e", 5_000)}, []}) ==
              String.duplicate("e", 1_024) <> "..."

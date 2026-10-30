@@ -1,5 +1,6 @@
 defmodule Guardian.AST.NodeTest do
   use ExUnit.Case, async: true
+  import Guardian.AST.Node
 
   alias Guardian.AST.Node.Literal
 
@@ -15,7 +16,7 @@ defmodule Guardian.AST.NodeTest do
     end
 
     post = fn expr, acc -> {expr, acc} end
-    Guardian.AST.Node.traverse_fields(expr, fields, [], pre, post)
+    traverse_fields(expr, fields, [], pre, post)
   end
 
   test "traverse_fields walks single nodes and lists in field order and skips nil" do

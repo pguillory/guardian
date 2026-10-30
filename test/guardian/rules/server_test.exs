@@ -1,5 +1,6 @@
 defmodule Guardian.Rules.ServerTest do
   use ExUnit.Case, async: false
+  import Guardian.Rules.Server
   import Guardian.Test.Rules
 
   test "the default save margin exceeds the S3 write deadline" do
@@ -9,7 +10,7 @@ defmodule Guardian.Rules.ServerTest do
     Application.delete_env(:guardian, :rules_save_margin_ms)
     Application.delete_env(:guardian, :object_store_s3_write_deadline_ms)
 
-    assert Guardian.Rules.Server.save_margin_ms() > Guardian.ObjectStore.S3.write_deadline_ms()
+    assert save_margin_ms() > Guardian.ObjectStore.S3.write_deadline_ms()
   end
 
   defp s3_server(app_env \\ []) do
@@ -311,14 +312,14 @@ defmodule Guardian.Rules.ServerTest do
                s3 |> Guardian.Test.FakeS3.requests() |> Enum.drop(before + 4)
 
       assert String.ends_with?(rule_path, "/#{table}/#{name}.gsql")
-      assert String.ends_with?(lock_path, "/" <> Guardian.Rules.Server.lock_key())
+      assert String.ends_with?(lock_path, "/" <> lock_key())
     end
 
     assert Guardian.Test.FakeS3.objects(s3) |> Map.keys() |> Enum.reject(&(&1 =~ "lock")) == [
              "#{table}/a.gsql",
            ]
 
-    {:ok, body, _meta} = Guardian.ObjectStore.get(store, Guardian.Rules.Server.lock_key())
+    {:ok, body, _meta} = Guardian.ObjectStore.get(store, lock_key())
     assert Jason.decode!(body)["state"] == "released"
     assert Guardian.Rules.lookup(table) == module
     assert {:ok, _} = Guardian.Rules.write_rule(table, "b", "SET y = 2")
@@ -367,7 +368,7 @@ defmodule Guardian.Rules.ServerTest do
 
     # What a crash report formats: the state, the last message and the debug log.
     report =
-      Guardian.Rules.Server.format_status(%{
+      format_status(%{
         state: :sys.get_state(Guardian.Rules.Server),
         message: {:"$gen_call", {self(), make_ref()}, {:write, table, "c", marker}},
         log: log,
@@ -563,7 +564,7 @@ defmodule Guardian.Rules.ServerTest do
     steps = Enum.map(plan.steps, &%{&1 | source: nil})
     unredacted = %{state: %{plan: %{plan | steps: steps}, steps: steps}}
     assert inspect(unredacted, limit: :infinity, printable_limit: :infinity) =~ marker
-    report = Guardian.Rules.Server.format_status(unredacted)
+    report = format_status(unredacted)
     refute inspect(report, limit: :infinity, printable_limit: :infinity) =~ marker
     refute inspect(:sys.get_status(Guardian.Rules.Server), limit: :infinity) =~ marker
 
@@ -695,7 +696,7 @@ defmodule Guardian.Rules.ServerTest do
       assert message =~ "may have been saved"
     end)
 
-    {:ok, body, _meta} = Guardian.ObjectStore.get(store, Guardian.Rules.Server.lock_key())
+    {:ok, body, _meta} = Guardian.ObjectStore.get(store, lock_key())
     assert Jason.decode!(body)["state"] == "held"
   end
 
@@ -732,7 +733,7 @@ defmodule Guardian.Rules.ServerTest do
     {_s3, store} = s3_server()
 
     {:ok, _lock} =
-      Guardian.ObjectStore.Lock.acquire(store, Guardian.Rules.Server.lock_key(), "someone else")
+      Guardian.ObjectStore.Lock.acquire(store, lock_key(), "someone else")
 
     assert Guardian.Rules.write_rule(unique_table("rules_busy"), "a", "SET x = 1") ==
              {:error, "another rule write is in progress; retry"}

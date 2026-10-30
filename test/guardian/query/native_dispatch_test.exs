@@ -1,9 +1,9 @@
 defmodule Guardian.Query.NativeDispatchTest do
   use ExUnit.Case, async: true
+  import Guardian.Query.NativeDispatch
 
   alias Guardian.Query.Constant
   alias Guardian.Query.Evaluation
-  alias Guardian.Query.NativeDispatch
   alias Guardian.Storage.Column
 
   test "numeric and boolean columns use the registered native callbacks" do
@@ -16,15 +16,15 @@ defmodule Guardian.Query.NativeDispatchTest do
           multiply: [6, 12, nil],
           divide: [2 / 3, 3.0, nil],
         ] do
-      assert values(NativeDispatch.evaluate(operation, left, right, &scalar/2)) === expected
+      assert values(evaluate(operation, left, right, &scalar/2)) === expected
     end
 
     left = Column.from_list([true, false, nil])
     right = Column.from_list([false, true, true])
-    assert values(NativeDispatch.evaluate(:and, left, right, &scalar/2)) == [false, false, nil]
-    assert values(NativeDispatch.evaluate(:or, left, right, &scalar/2)) == [true, true, true]
-    assert values(NativeDispatch.evaluate(:not, left, &scalar/1)) == [false, true, nil]
-    assert values(NativeDispatch.evaluate(:to_boolean, left, &scalar/1)) == [true, false, nil]
+    assert values(evaluate(:and, left, right, &scalar/2)) == [false, false, nil]
+    assert values(evaluate(:or, left, right, &scalar/2)) == [true, true, true]
+    assert values(evaluate(:not, left, &scalar/1)) == [false, true, nil]
+    assert values(evaluate(:to_boolean, left, &scalar/1)) == [true, false, nil]
   end
 
   test "constants on either side keep the scalar path for every operation" do
@@ -33,12 +33,12 @@ defmodule Guardian.Query.NativeDispatchTest do
 
     for operation <- [:add, :subtract, :multiply, :divide, :and, :or],
         {left, right} <- [{constant, column}, {column, constant}, {constant, constant}] do
-      assert values(NativeDispatch.evaluate(operation, left, right, &scalar/2)) ==
+      assert values(evaluate(operation, left, right, &scalar/2)) ==
                ["scalar", "scalar"]
     end
 
     for operation <- [:not, :to_boolean, :to_string] do
-      assert NativeDispatch.evaluate(operation, constant, &scalar/1) ==
+      assert evaluate(operation, constant, &scalar/1) ==
                Constant.duplicate("scalar", 2)
     end
   end
@@ -52,53 +52,53 @@ defmodule Guardian.Query.NativeDispatchTest do
           {:add, ints, strings},
           {:subtract, strings, ints},
         ] do
-      assert values(NativeDispatch.evaluate(operation, left, right, &scalar/2)) ==
+      assert values(evaluate(operation, left, right, &scalar/2)) ==
                ["scalar", "scalar"]
     end
 
-    assert values(NativeDispatch.evaluate(:subtract, ints, strings, &scalar/2)) == [nil, nil]
+    assert values(evaluate(:subtract, ints, strings, &scalar/2)) == [nil, nil]
 
     # Only top-level strings/integers select timestamp arithmetic, not list items
     # or float seconds. The old column-wide test does not require matching rows.
     lists = Column.from_list([["2026-01-01 00:00:00"], nil])
     floats = Column.from_list([1.0, 2.0])
-    assert values(NativeDispatch.evaluate(:add, lists, ints, &scalar/2)) == [nil, nil]
-    assert values(NativeDispatch.evaluate(:add, strings, floats, &scalar/2)) == [nil, nil]
+    assert values(evaluate(:add, lists, ints, &scalar/2)) == [nil, nil]
+    assert values(evaluate(:add, strings, floats, &scalar/2)) == [nil, nil]
 
     ints = Column.from_list([nil, 2])
 
-    assert values(NativeDispatch.evaluate(:add, strings, ints, &scalar/2)) ==
+    assert values(evaluate(:add, strings, ints, &scalar/2)) ==
              ["scalar", "scalar"]
   end
 
   test "only string/null columns take the native string identity path" do
     long = String.duplicate("é", Guardian.Query.Text.max_bytes())
     column = Column.from_list([long, nil, <<255>>])
-    result = NativeDispatch.evaluate(:to_string, column, &scalar/1)
+    result = evaluate(:to_string, column, &scalar/1)
     assert result === column
 
     for input <- [[1, nil], [["x"], nil], [true, "x"]] do
-      assert values(NativeDispatch.evaluate(:to_string, Column.from_list(input), &scalar/1)) ==
+      assert values(evaluate(:to_string, Column.from_list(input), &scalar/1)) ==
                ["scalar", "scalar"]
     end
   end
 
   test "empty inputs preserve normalization and scalar constant evaluation" do
     empty = Column.from_list([])
-    assert NativeDispatch.evaluate(:add, empty, empty, &scalar/2) == Constant.duplicate(nil, 0)
-    assert NativeDispatch.evaluate(:to_string, empty, &scalar/1) == Constant.duplicate(nil, 0)
+    assert evaluate(:add, empty, empty, &scalar/2) == Constant.duplicate(nil, 0)
+    assert evaluate(:to_string, empty, &scalar/1) == Constant.duplicate(nil, 0)
 
-    assert NativeDispatch.evaluate(:to_string, Constant.duplicate(1, 0), &scalar/1) ==
+    assert evaluate(:to_string, Constant.duplicate(1, 0), &scalar/1) ==
              Constant.duplicate("scalar", 0)
   end
 
   test "mutable columns retain numeric native dispatch and string identity" do
     left = Column.duplicate(2, 2)
     right = Column.duplicate(3, 2)
-    assert values(NativeDispatch.evaluate(:add, left, right, &scalar/2)) == [5, 5]
+    assert values(evaluate(:add, left, right, &scalar/2)) == [5, 5]
 
     strings = Column.duplicate("x", 2)
-    assert NativeDispatch.evaluate(:to_string, strings, &scalar/1) === strings
+    assert evaluate(:to_string, strings, &scalar/1) === strings
   end
 
   test "constant/column count mismatches still fail" do
@@ -107,7 +107,7 @@ defmodule Guardian.Query.NativeDispatchTest do
           {Column.from_list([1, 2]), Constant.duplicate(1, 1)},
         ] do
       assert_raise MatchError, fn ->
-        NativeDispatch.evaluate(:add, left, right, &scalar/2)
+        evaluate(:add, left, right, &scalar/2)
       end
     end
   end
@@ -123,11 +123,11 @@ defmodule Guardian.Query.NativeDispatchTest do
     operation = String.to_existing_atom("unknown")
 
     assert_raise FunctionClauseError, fn ->
-      NativeDispatch.evaluate(operation, constant, &scalar/1)
+      evaluate(operation, constant, &scalar/1)
     end
 
     assert_raise FunctionClauseError, fn ->
-      NativeDispatch.evaluate(operation, constant, constant, &scalar/2)
+      evaluate(operation, constant, constant, &scalar/2)
     end
   end
 

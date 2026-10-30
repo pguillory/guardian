@@ -7,11 +7,11 @@ defmodule Guardian.Counters.ExecutionTest do
   # Scripted dispatch reaches no store, cooldown table, batch allowance or node-wide
   # setting, so these tests run concurrently.
   use ExUnit.Case, async: true
+  import Guardian.Counters.Execution
   alias Guardian.Aggregation
   alias Guardian.Counters.Arrival
   alias Guardian.Counters.Context
   alias Guardian.Counters.Definition
-  alias Guardian.Counters.Execution
   alias Guardian.Counters.KeyMachines
   alias Guardian.Counters.Machine
 
@@ -44,7 +44,7 @@ defmodule Guardian.Counters.ExecutionTest do
 
   defp run(machines, dispatch) do
     machines
-    |> Execution.run_state_machines(context(), dispatch)
+    |> run_state_machines(context(), dispatch)
     |> Enum.map(fn machine ->
       assert Machine.done?(machine)
       machine.result
@@ -114,7 +114,7 @@ defmodule Guardian.Counters.ExecutionTest do
     ]
 
     assert machines
-           |> Execution.run_state_machines(context, dispatch)
+           |> run_state_machines(context, dispatch)
            |> Enum.map(& &1.result) ==
              [
                {:ok, {:peer@host, b1}},
@@ -133,7 +133,7 @@ defmodule Guardian.Counters.ExecutionTest do
   test "no dispatch for no machines, finished machines or only routing errors" do
     dispatch = scripted(fn _ -> flunk("dispatched") end)
     assert run([], dispatch) == []
-    assert Execution.run_counters([], Arrival.now(), context(), dispatch) == []
+    assert run_counters([], Arrival.now(), context(), dispatch) == []
 
     assert run([KeyMachines.read(:malformed), KeyMachines.read({:also, :malformed})], dispatch) ==
              [{:error, :invalid_request}, {:error, :invalid_request}]
@@ -214,7 +214,7 @@ defmodule Guardian.Counters.ExecutionTest do
 
     # Four buckets of 2, while an unknown operator fails only its own op.
     assert [{:ok, 8}, {:error, expansion}, {:ok, 8}] =
-             Execution.run_counters(
+             run_counters(
                [
                  {:lookup, sum, {}},
                  {:lookup, definition({"no_such_aggregate", 1}), {}},
@@ -228,7 +228,7 @@ defmodule Guardian.Counters.ExecutionTest do
     assert is_binary(expansion)
 
     # A malformed routing key defaults only its own op.
-    assert Execution.run_counters(
+    assert run_counters(
              [
                {:lookup, sum, {}},
                {:lookup, definition({"sum", 1}, {"events", "hits", :bad}), {}},
@@ -243,7 +243,7 @@ defmodule Guardian.Counters.ExecutionTest do
     timeout = scripted(fn {:get, _} -> {:error, :timeout} end)
     missing = Aggregation.default(@sum)
 
-    assert Execution.run_counters(
+    assert run_counters(
              [
                {:lookup, sum, {}},
                {:lookup, definition({"sum", 1}, {"events", "hits", :bad}), {}},
@@ -258,7 +258,7 @@ defmodule Guardian.Counters.ExecutionTest do
     short = fn batches, _ -> Enum.map(batches, fn {owner, [_ | ops]} -> {owner, ops} end) end
 
     assert [{:error, round}, {:error, ^expansion}] =
-             Execution.run_counters(
+             run_counters(
                [{:lookup, sum, {}}, {:lookup, definition({"no_such_aggregate", 1}), {}}],
                Arrival.now(),
                context(),

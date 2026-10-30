@@ -1,7 +1,7 @@
 defmodule Guardian.Counters.ClientTest do
   use ExUnit.Case, async: false
+  import Guardian.Counters.Client
   alias Guardian.Counters.Budget
-  alias Guardian.Counters.Client
   alias Guardian.Counters.Execution
   alias Guardian.Counters.Machine
   alias Guardian.Counters.Transport
@@ -33,11 +33,11 @@ defmodule Guardian.Counters.ClientTest do
   end
 
   defp event(store, opts \\ []) do
-    event(Client.new_batch(), store, opts)
+    event(new_batch(), store, opts)
   end
 
   defp event(batch, store, opts) do
-    Client.new_event(
+    new_event(
       batch,
       Keyword.merge(
         [store: store, members: [node()], cooldown_table: :counter_client_test],
@@ -139,7 +139,7 @@ defmodule Guardian.Counters.ClientTest do
     # owner then reserves and refunds without dispatching, returning the full allowance.
     restore_budgets = CounterBudgetHelper.relax([peer])
     [earlier, later] = Enum.sort(members)
-    limited = Client.new_batch()
+    limited = new_batch()
     expiry = System.monotonic_time(:millisecond) + 10
 
     task =
@@ -379,7 +379,7 @@ defmodule Guardian.Counters.ClientTest do
           ],
           do: operation
 
-    assert Client.route(nil, context) == {:error, :invalid_request}
+    assert route(nil, context) == {:error, :invalid_request}
 
     for operation <-
           [{:unsupported, key()}, {:get, :bad_key}, {:get, {nil, {}, 1}}] ++
@@ -466,7 +466,7 @@ defmodule Guardian.Counters.ClientTest do
       {:incr, key({}, 5), 4, {:expires, elapsed}},
     ]
 
-    assert Client.dispatch([{node(), ops}], context) ==
+    assert dispatch([{node(), ops}], context) ==
              [
                {node(),
                 [
@@ -487,7 +487,7 @@ defmodule Guardian.Counters.ClientTest do
       {:incr, key({}, 7), 1, {:expires, elapsed}},
     ]
 
-    assert Client.dispatch([{node(), expired}], context) ==
+    assert dispatch([{node(), expired}], context) ==
              [{node(), [{:error, :expired}, {:error, :expired}]}]
 
     assert Store.get(key({}, 6), server: store) == :not_found
@@ -774,7 +774,7 @@ defmodule Guardian.Counters.ClientTest do
     try do
       assert batch_one({:get, key()}, event(store, timeout_ms: 15)) == {:error, :timeout}
       assert :ets.lookup(:counter_client_test, node()) == []
-      batch = Client.new_batch()
+      batch = new_batch()
 
       context =
         event(batch, store, event_timeout_ms: 5)
@@ -796,7 +796,7 @@ defmodule Guardian.Counters.ClientTest do
     CounterBudgetHelper.relax([peer])
 
     for {target, members} <- [{store, [node()]}, {Store, [peer]}] do
-      batch = Client.new_batch()
+      batch = new_batch()
       key = key({System.unique_integer([:positive])})
 
       for n <- 1..300 do
@@ -816,7 +816,7 @@ defmodule Guardian.Counters.ClientTest do
   } do
     for {target, members, suspend_node} <- [{store, [node()], node()}, {Store, [peer], peer}] do
       pause = :erpc.call(suspend_node, Guardian.Test.Counters.StorePause, :pause, [target])
-      batch = Client.new_batch()
+      batch = new_batch()
       started = System.monotonic_time(:millisecond)
 
       try do
@@ -897,7 +897,7 @@ defmodule Guardian.Counters.ClientTest do
     store: store,
   } do
     pause = Guardian.Test.Counters.StorePause.pause(store)
-    batch = Client.new_batch()
+    batch = new_batch()
 
     try do
       outcomes =
@@ -941,7 +941,7 @@ defmodule Guardian.Counters.ClientTest do
       end
     end)
 
-    batch = Client.new_batch()
+    batch = new_batch()
     key = key({System.unique_integer([:positive])})
     payload = :binary.copy("x", 8 * 1_024 * 1_024)
     {_, 0} = System.cmd("/bin/kill", ["-STOP", os_pid])

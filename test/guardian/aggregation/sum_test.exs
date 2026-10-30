@@ -1,5 +1,6 @@
 defmodule Guardian.Aggregation.SumTest do
   use Guardian.Query.EvaluationTestCase, async: true
+  import Guardian.Aggregation.Sum
 
   test "sum" do
     assert eval_aggregate("sum(x)", []) == nil
@@ -23,8 +24,8 @@ defmodule Guardian.Aggregation.SumTest do
     assert eval_aggregate("sum(x)", [[x: 1.0e308], [x: 1.0e308], [x: nil], [x: 1]]) == nil
 
     sum = Guardian.Aggregation.fetch!("sum")
-    assert Guardian.Aggregation.Sum.merge(:overflow, 1.0) == :overflow
-    assert Guardian.Aggregation.Sum.merge(nil, :overflow) == :overflow
+    assert merge(:overflow, 1.0) == :overflow
+    assert merge(nil, :overflow) == :overflow
     assert Guardian.Aggregation.finish(sum, :overflow) == nil
   end
 end

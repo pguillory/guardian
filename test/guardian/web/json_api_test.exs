@@ -1,6 +1,7 @@
 defmodule Guardian.Web.JsonApiTest do
   # Not async: requests write the shared web_requests and web_responses tables.
   use ExUnit.Case, async: false
+  import Guardian.Web.JsonApi
 
   @admin_api_key Application.compile_env!(:guardian, :admin_api_key)
   @ingest_api_key Application.compile_env!(:guardian, :ingest_api_key)
@@ -377,7 +378,7 @@ defmodule Guardian.Web.JsonApiTest do
           log =
             ExUnit.CaptureLog.capture_log([level: :error], fn ->
               conn =
-                Guardian.Web.JsonApi.handle_errors(
+                handle_errors(
                   Plug.Test.conn(:get, "/"),
                   %{kind: kind, reason: reason, stack: stack}
                 )
@@ -403,7 +404,7 @@ defmodule Guardian.Web.JsonApiTest do
 
     log =
       ExUnit.CaptureLog.capture_log([level: :error], fn ->
-        error = assert_raise RuntimeError, fn -> Guardian.Web.JsonApi.call(conn, []) end
+        error = assert_raise RuntimeError, fn -> call(conn, []) end
         assert error.message =~ "JSON API failure kind=Plug.Conn.AlreadySentError id="
         assert_received {_ref, {202, _headers, "already sent"}}
         refute_received {_ref, {_status, _headers, _body}}
@@ -417,7 +418,7 @@ defmodule Guardian.Web.JsonApiTest do
       Plug.Test.conn(:post, "/send_events", "{malformed")
       |> Plug.Conn.put_req_header("x-api-key", @admin_api_key)
       |> Plug.Conn.put_req_header("content-type", "application/json")
-      |> Guardian.Web.JsonApi.call([])
+      |> call([])
 
     assert conn.status == 400
     assert Plug.Conn.get_resp_header(conn, "connection") == ["close"]
@@ -446,7 +447,7 @@ defmodule Guardian.Web.JsonApiTest do
 
       log =
         ExUnit.CaptureLog.capture_log([level: :error], fn ->
-          caught = assert_raise error.__struct__, fn -> Guardian.Web.JsonApi.call(conn, []) end
+          caught = assert_raise error.__struct__, fn -> call(conn, []) end
           assert caught == error
         end)
 
