@@ -120,7 +120,10 @@ defmodule Guardian.StorageTest do
   test "segment ID streams emit overlapping lifecycle IDs only once", %{table: table} do
     ids = [Guardian.SegmentID.generate(), Guardian.SegmentID.generate()]
     registries = [PersistedSegments, MutableSegments]
-    registrations = Enum.map(ids, fn id -> {id, self(), table} end)
+    # Dead, so that a concurrent test's all-table schema read skips it instead of waiting.
+    {dead, ref} = spawn_monitor(fn -> :ok end)
+    assert_receive {:DOWN, ^ref, :process, ^dead, :normal}
+    registrations = Enum.map(ids, fn id -> {id, dead, table} end)
 
     on_exit(fn ->
       for registry <- registries do

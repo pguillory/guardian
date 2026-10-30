@@ -75,6 +75,11 @@ tenants. Rely on the system's own isolation (storage, rules and queries are per 
 instead of mocks and explicit cleanup. Delete a table only when it holds so much
 that leaving it would slow later tests.
 
+Isolation stops at the all-table schema read. SHOW TABLES, DESC and the `schema` table
+ask every registered mutable segment for its schema and fail after 5 s without an
+answer, so a fake segment in an async test must answer `:schema` promptly, as
+`Guardian.Test.Segments.intercept_append/2`'s does, or be a dead PID.
+
 A module stays `async: false` only when it touches something shared by the whole VM:
 the application env or OS environment, a restart or suspension of an
 application-supervised process, a connected peer node, VM-wide counts of processes or

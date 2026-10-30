@@ -55,25 +55,24 @@ defmodule Guardian.Test.Segments do
   Registers a one-call fake mutable segment for `table`, so the next append to it goes
   through the real Storage and GenServer path to `callback.(from, row)`, which replies
   (or fails) as the test needs. The fake unregisters itself before calling back, so
-  later rows use real segments. Call it from the test process: cleanup is `on_exit`.
-  It writes MutableSegments' registry directly, which test code may do to inject
-  faults (`lib/guardian/storage/AGENTS.md`).
+  later rows use real segments, and exits with the callback's exit reason. Call it from
+  the test process: cleanup is `on_exit`. It writes MutableSegments' registry directly,
+  which test code may do to inject faults (`lib/guardian/storage/AGENTS.md`).
+
+  Every all-table schema read (SHOW TABLES, DESC, `schema`) in any concurrent test can
+  reach the fake, and fails after 5 s without an answer, so the fake answers `:schema`
+  until it exits, even during a slow callback. It answers no other call: nothing but
+  this table's own readers makes them.
   """
   def intercept_append(table, callback) do
     segment_id = Guardian.SegmentID.generate()
 
     segment =
       spawn(fn ->
-        receive do
-          {:"$gen_call", from, {:append, row}} ->
-            # Unregister without stopping: deletion would stop this fake segment.
-            :sys.replace_state(Guardian.Storage.MutableSegments, fn state ->
-              true = :ets.delete(Guardian.Storage.MutableSegments, segment_id)
-              state
-            end)
-
-            callback.(from, row)
-        end
+        # Trapping keeps it answering while the callback runs. A :kill still ends it,
+        # and the link then ends the callback.
+        Process.flag(:trap_exit, true)
+        answer_as_fake_segment(segment_id, callback, nil)
       end)
 
     :sys.replace_state(Guardian.Storage.MutableSegments, fn state ->
@@ -86,6 +85,36 @@ defmodule Guardian.Test.Segments do
       Process.exit(segment, :kill)
       Guardian.Storage.MutableSegments.delete_segment(segment_id)
     end)
+  end
+
+  defp answer_as_fake_segment(segment_id, callback, callback_pid) do
+    receive do
+      {:"$gen_call", from, :schema} ->
+        GenServer.reply(from, {:ok, %{}})
+        answer_as_fake_segment(segment_id, callback, callback_pid)
+
+      {:"$gen_call", from, {:append, row}} when callback_pid == nil ->
+        # Unregister without stopping: deletion would stop this fake segment.
+        :sys.replace_state(Guardian.Storage.MutableSegments, fn state ->
+          true = :ets.delete(Guardian.Storage.MutableSegments, segment_id)
+          state
+        end)
+
+        # The callback's reply comes back through this process: the caller's reply and
+        # this process's exit must arrive in order, which the VM only promises for
+        # signals from one sender. A scripted refusal that arrived after the exit would
+        # look like a dead segment, and Storage would retry the row.
+        relay = {self(), {:relay_reply, from}}
+        callback_pid = spawn_link(fn -> callback.(relay, row) end)
+        answer_as_fake_segment(segment_id, callback, callback_pid)
+
+      {{:relay_reply, from}, reply} ->
+        GenServer.reply(from, reply)
+        answer_as_fake_segment(segment_id, callback, callback_pid)
+
+      {:EXIT, ^callback_pid, reason} ->
+        exit(reason)
+    end
   end
 
   @doc """
