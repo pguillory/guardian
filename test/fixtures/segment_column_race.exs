@@ -92,16 +92,6 @@ column_readers =
     end)
   end
 
-row_reader =
-  Task.async(fn ->
-    loop.(fn ->
-      {:ok, count} = Segment.count(segment)
-      j = :rand.uniform(count) - 1
-      expected = row.(j)
-      {:ok, ^expected} = Segment.get_row(segment, j)
-    end)
-  end)
-
 # Phase 1: appends and reads overlap for at least `min_reader_ms`, and until the
 # segment holds `min_rows` rows however slow the machine is.
 Process.sleep(min_reader_ms)
@@ -124,7 +114,6 @@ Process.sleep(500)
 
 :atomics.put(stop, 1, 1)
 column_reads = Enum.map(column_readers, &Task.await(&1, :infinity))
-row_reads = Task.await(row_reader, :infinity)
 
 # Joined rather than inspected: inspect/1 prints a list of small counts as a charlist.
-IO.puts("ok rows=#{rows} column_reads=[#{Enum.join(column_reads, ", ")}] row_reads=#{row_reads}")
+IO.puts("ok rows=#{rows} column_reads=[#{Enum.join(column_reads, ", ")}]")

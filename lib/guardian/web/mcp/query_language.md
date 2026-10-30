@@ -131,7 +131,9 @@ retry (three total attempts), never uncertain writes or entire events. There is 
 rollback: a later rule/storage failure can leave increments. Unkeyed retries count
 again. Completed matching same-node idempotency-key retries skip rules for ten
 seconds but return only receipts, without decision fields; protection can be lost.
-Request outputs through send_events return_keys (missing fields return null).
+Request outputs through send_events return_keys (missing fields return null). Results
+are the stored row's flat columns, so a sender's `decision.x` never hides a rule's
+`decision`.
 
 GUARDIAN_COUNTER_MEMORY_MB is a positive MiB memory target, default 64; explicit
 empty or invalid settings refuse startup. It covers resident counter rows, not

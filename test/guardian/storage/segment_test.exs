@@ -2,7 +2,7 @@ defmodule Guardian.Storage.SegmentTest do
   alias Guardian.Storage.Segment
   # Segment.append/2 takes flat rows; these tests append nested ones.
   import Segment, except: [append: 2]
-  import Guardian.Test.Segments, only: [segment_append: 2]
+  import Guardian.Test.Segments, only: [segment_append: 2, segment_row: 2]
   use ExUnit.Case, async: true
 
   @dir "/tmp/SegmentTest"
@@ -31,14 +31,14 @@ defmodule Guardian.Storage.SegmentTest do
     assert keys(segment2) == {:ok, ["a"]}
   end
 
-  test "nested object round-trip" do
+  test "a nested object is stored as dotted columns" do
     {:ok, segment} = start_link()
 
     # Simple nested object
     :ok = segment_append(segment, %{"user" => %{"name" => "Alice", "age" => 30}})
 
-    {:ok, row} = get_row(segment, 0)
-    assert row == %{"user" => %{"name" => "Alice", "age" => 30}}
+    {:ok, row} = segment_row(segment, 0)
+    assert row == %{"user.name" => "Alice", "user.age" => 30}
   end
 
   test "nested object with array of objects" do
@@ -53,8 +53,13 @@ defmodule Guardian.Storage.SegmentTest do
 
     :ok = segment_append(segment, event)
 
-    {:ok, row} = get_row(segment, 0)
-    assert row == event
+    {:ok, row} = segment_row(segment, 0)
+
+    assert row == %{
+             "user.name" => "Bob",
+             "user.tags..key" => ["role", "dept"],
+             "user.tags..value" => ["admin", "eng"],
+           }
   end
 
   test "deeply nested objects" do
@@ -72,8 +77,8 @@ defmodule Guardian.Storage.SegmentTest do
 
     :ok = segment_append(segment, event)
 
-    {:ok, row} = get_row(segment, 0)
-    assert row == event
+    {:ok, row} = segment_row(segment, 0)
+    assert row == %{"a.b.c.d" => 42}
   end
 
   test "multiple events with nested objects" do
@@ -85,11 +90,11 @@ defmodule Guardian.Storage.SegmentTest do
     :ok = segment_append(segment, event1)
     :ok = segment_append(segment, event2)
 
-    {:ok, row1} = get_row(segment, 0)
-    {:ok, row2} = get_row(segment, 1)
+    {:ok, row1} = segment_row(segment, 0)
+    {:ok, row2} = segment_row(segment, 1)
 
-    assert row1 == event1
-    assert row2 == event2
+    assert row1 == %{"user.name" => "Alice"}
+    assert row2 == %{"user.name" => "Bob"}
   end
 
   test "nested objects with atom keys" do
@@ -98,8 +103,8 @@ defmodule Guardian.Storage.SegmentTest do
     # Atom keys should be converted to strings
     :ok = segment_append(segment, %{user: %{name: "Alice"}})
 
-    {:ok, row} = get_row(segment, 0)
-    assert row == %{"user" => %{"name" => "Alice"}}
+    {:ok, row} = segment_row(segment, 0)
+    assert row == %{"user.name" => "Alice"}
   end
 
   test "nested objects store and load" do
@@ -118,8 +123,13 @@ defmodule Guardian.Storage.SegmentTest do
     :ok = retire(segment)
 
     {:ok, segment2} = start_link(load: @filename)
-    {:ok, row} = get_row(segment2, 0)
-    assert row == event
+    {:ok, row} = segment_row(segment2, 0)
+
+    assert row == %{
+             "user.name" => "Alice",
+             "user.items..id" => [1, 2],
+             "user.items..name" => ["item1", "item2"],
+           }
   end
 
   test "filtering list columns in mutable, packed, and loaded segments" do
@@ -173,7 +183,7 @@ defmodule Guardian.Storage.SegmentTest do
       assert count(loaded) == {:ok, 21}
       {:ok, tags} = get_column(loaded, "tags")
       assert [_, {100_001, _, _, _, _, _, _, _}] = Guardian.Storage.Column.metadata(tags)
-      assert get_row(loaded, 19) == {:ok, %{"n" => 20, "tags" => List.duplicate(20, 5_000)}}
+      assert segment_row(loaded, 19) == {:ok, %{"n" => 20, "tags" => List.duplicate(20, 5_000)}}
     end
 
     test "strings longer than 65535 bytes" do
@@ -187,7 +197,7 @@ defmodule Guardian.Storage.SegmentTest do
       :ok = pack(segment)
       :ok = store(segment, @filename)
       {:ok, loaded} = start_link(load: @filename)
-      assert get_row(loaded, 49) == {:ok, %{"i" => 50, "s" => string, "l" => [string]}}
+      assert segment_row(loaded, 49) == {:ok, %{"i" => 50, "s" => string, "l" => [string]}}
     end
 
     # About 1 GB peak. Run by hand with `mix test --only large`.
@@ -204,7 +214,7 @@ defmodule Guardian.Storage.SegmentTest do
       :ok = pack(segment)
       {:ok, s} = get_column(segment, "s")
       assert byte_size(s) > 2 ** 28
-      assert get_row(segment, 269) == {:ok, %{"i" => 270, "s" => string}}
+      assert segment_row(segment, 269) == {:ok, %{"i" => 270, "s" => string}}
     end
 
     test "a capacity over 65535 rows" do
@@ -295,8 +305,8 @@ defmodule Guardian.Storage.SegmentTest do
       assert_receive {:segment_max_age, ^segment}, 1000
       assert Process.read_timer(timer) == false
       assert full(segment) == {:ok, true}
-      assert get_row(segment, 0) == {:ok, %{"a" => 1}}
-      assert get_row(segment, 1) == {:ok, %{"a" => 2}}
+      assert segment_row(segment, 0) == {:ok, %{"a" => 1}}
+      assert segment_row(segment, 1) == {:ok, %{"a" => 2}}
     end
 
     test "size rollover cancels the timer and ignores already delivered expiry" do
@@ -328,7 +338,7 @@ defmodule Guardian.Storage.SegmentTest do
       {:ok, loaded} = start_link(load: @filename, max_age_ms: 1, max_age_owner: self())
       assert :sys.get_state(loaded).age_timer == nil
       refute_receive {:segment_max_age, ^loaded}, 150
-      assert get_row(loaded, 0) == {:ok, %{"a" => 1}}
+      assert segment_row(loaded, 0) == {:ok, %{"a" => 1}}
     end
   end
 
@@ -369,7 +379,7 @@ defmodule Guardian.Storage.SegmentTest do
       assert count(loaded) == {:ok, 10}
 
       for i <- 0..9 do
-        assert get_row(loaded, i) == {:ok, %{"i" => i + 1, "s" => string}}
+        assert segment_row(loaded, i) == {:ok, %{"i" => i + 1, "s" => string}}
       end
     end
 
@@ -459,16 +469,14 @@ defmodule Guardian.Storage.SegmentTest do
       {output, status} = run_child(@race_script, 60_000)
       assert status == 0, "race child exited with #{inspect(status)}:\n#{output}"
 
-      match = Regex.run(~r/^ok rows=(\d+) column_reads=\[(.*)\] row_reads=(\d+)$/m, output)
-      assert [_, rows, column_reads, row_reads] = match, "no result line in:\n#{output}"
+      match = Regex.run(~r/^ok rows=(\d+) column_reads=\[(.*)\]$/m, output)
+      assert [_, rows, column_reads] = match, "no result line in:\n#{output}"
 
       assert String.to_integer(rows) >= 2_000
 
       for reads <- String.split(column_reads, ", ") do
         assert String.to_integer(reads) > 1
       end
-
-      assert String.to_integer(row_reads) > 1
     end
 
     # Runs an Elixir script with this build's code path in a child OS process, killing it
@@ -623,27 +631,6 @@ defmodule Guardian.Storage.SegmentTest do
       :ok = freeze(segment)
       assert_raise RuntimeError, "Column not packed", fn -> store(segment, @filename) end
       refute File.exists?(@filename)
-    end
-
-    test "get_row reads rows while another process appends" do
-      {:ok, segment} = start_link()
-      :ok = segment_append(segment, %{"i" => 0})
-
-      appender =
-        Task.async(fn ->
-          for i <- 1..2_000, do: :ok = segment_append(segment, %{"i" => i, "n" => %{"x" => i}})
-        end)
-
-      for _ <- 1..200 do
-        {:ok, count} = count(segment)
-        j = :rand.uniform(count) - 1
-        expected = if j == 0, do: %{"i" => 0}, else: %{"i" => j, "n" => %{"x" => j}}
-        assert get_row(segment, j) == {:ok, expected}
-      end
-
-      Task.await(appender)
-      assert get_row(segment, 2_000) == {:ok, %{"i" => 2_000, "n" => %{"x" => 2_000}}}
-      assert get_row(segment, 2_001) == {:error, :not_found}
     end
   end
 end

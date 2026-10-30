@@ -259,21 +259,18 @@ An MCP call can wait behind an earlier call in the same session before reaching 
    against the 250-byte limit. Invalid entries are dropped one by one; the rest of the
    event is stored. Using the NIF's own test means the rules cannot drift from what a
    column accepts.
-3. The validated flat row is what gets stored. Engine never unflattens and
-   reflattens it, because unflattening cannot represent every shape flattening accepts
-   (lists mixing scalars and objects).
-4. The event reported back to the caller is chosen carefully (`Guardian.Engine.reported_event`):
-   the original when nothing was dropped, otherwise a rebuilt event, checked to hold
-   every stored column, with a fallback that drops affected top-level fields. Spec
-   section 5 item 4 describes what callers see.
-5. Failures are classified by when they happen, which is what the three error
+3. The validated flat row is what gets stored, and it is also what the caller gets
+   back (spec section 5 item 4): after rules, exactly the stored columns. Nothing in
+   Guardian rebuilds nested JSON from a flat row; ingest results, queries and stored
+   segments are all flat, and a dropped value shows only as a missing column.
+4. Failures are classified by when they happen, which is what the three error
    messages (spec section 5 item 6) encode: before storage (not stored), an explicit
    storage refusal (not stored), or an exception or exit once the append has started
    (may have been stored, because a timed-out call can still complete). Exception
    details go to the server log.
 
 Why validation lives in Engine and not Storage: Engine is the boundary where caller
-input becomes a row, and the reporting rules need the original event. Storage
+input becomes a row and the place that tells the caller what was stored. Storage
 re-validates values as an assertion (`Guardian.Storage.Value.validate/1`), so a caller that
 bypasses Engine fails loudly instead of corrupting a column.
 

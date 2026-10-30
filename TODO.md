@@ -7,9 +7,11 @@ privately, not in this repository.
 
 ## Storage and ingestion
 
-- [ ] decode-path-hardening: define how malformed quoted paths should fail when
-      decoding stored column names; normal ingestion generates valid encoded paths
-      (`docs/changes/bugs-03.md`)
+- [x] flat-ingest-results: `send_events` returns the stored flat row and
+      `return_keys` reads exact columns; nothing rebuilds nested JSON
+      (`docs/changes/flat-ingest-results.md`)
+- [x] decode-path-hardening: obsolete; flat-ingest-results removed the column-name
+      decoder, which only rebuilding used (`docs/changes/bugs-03.md`)
 - [x] ingest-idempotency: optional client keys suppress matching same-node batch
       retries with short-lived, bounded in-memory receipts; availability first
       (`docs/changes/ingest-idempotency.md`)
@@ -201,10 +203,9 @@ privately, not in this repository.
 - [x] rules-row-index: each SET and UNSET scanned every column of the event, and a
       read without an exact key walked that name's case variants, present or removed;
       the row is now indexed once per event
-- [ ] engine-single-flatten: Engine flattens each ingested event twice (store, then
-      check the returned event); skip the check for events without atom keys
-- [ ] fix-unflatten-nil-list-items: unflattening a list holding nil beside a list of
-      objects (`[null, [{"a": 1}]]`) raises `FunctionClauseError` (Engine rescues it)
+- [x] engine-single-flatten: obsolete; since flat-ingest-results Engine flattens each
+      event once and returns the stored row
+- [x] fix-unflatten-nil-list-items: obsolete; flat-ingest-results removed unflattening
 - [ ] bound-flattened-cells: a list of objects whose items each have their own keys
       flattens into one nil-padded column per key, quadratic in the list's length
       (20,000 items of about 300 KB took 148 s); bound distinct paths or total

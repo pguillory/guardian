@@ -3,7 +3,6 @@ defmodule Guardian.Storage.Segment do
   @moduledoc false
 
   alias Guardian.Storage.Column
-  alias Guardian.Storage.Flattening
   alias Guardian.Storage.SegmentFile
   alias Guardian.Storage.Value
 
@@ -102,7 +101,7 @@ defmodule Guardian.Storage.Segment do
     false
   end
 
-  # Reads (count, full, keys, schema, get_column, get_row) are monitored
+  # Reads (count, full, keys, schema, get_column) are monitored
   # calls with no timeout by default, so a slow segment is waited for, and a segment
   # that is gone or dies mid-call (including a remote one whose node disconnects)
   # returns `{:error, {:segment_unavailable, reason}}` at once. Queries rely on this
@@ -281,12 +280,6 @@ defmodule Guardian.Storage.Segment do
     read(segment, {:get_column, key}, timeout)
   end
 
-  @spec get_row(pid(), integer(), timeout()) ::
-          {:ok, map()} | {:error, :not_found} | read_error()
-  def get_row(segment, offset, timeout \\ :infinity) when is_integer(offset) do
-    read(segment, {:get_row, offset}, timeout)
-  end
-
   @doc """
   Freezes the segment and packs its columns. The segment packs one column per call, so
   reads interleave with packing.
@@ -451,26 +444,6 @@ defmodule Guardian.Storage.Segment do
         {packed, state} = snapshot(state, key)
         state = put_in(state.columns[key], packed)
         {:reply, :ok, drop_snapshot(state, key)}
-    end
-  end
-
-  def handle_call({:get_row, offset}, _, state) do
-    if offset < 0 or offset >= state.count do
-      {:reply, {:error, :not_found}, state}
-    else
-      # Get flat row with dot-notation keys
-      row =
-        Enum.reduce(state.columns, %{}, fn {key, column}, row ->
-          values = Column.to_list(column)
-
-          case Enum.at(values, offset) do
-            nil -> row
-            value -> Map.put(row, key, value)
-          end
-        end)
-
-      # Unflatten back to nested structure
-      {:reply, {:ok, Flattening.unflatten_event(row)}, state}
     end
   end
 

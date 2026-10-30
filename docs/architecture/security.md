@@ -348,9 +348,9 @@ is not accepted, so a browser page cannot call the authenticated routes (4.2.3).
 The ingest key's boundary is "no queries, no rule reads or changes", not "no reads at
 all". Through `send_events` it can:
 
-1. Read what ingestion returns. `return_keys` gives back each stored event after the
-   table's rules, so a `TRACK` or `LOOKUP` rule lets the ingest key read the counter
-   value for any key it chooses to send (and a SET rule's computed fields). This is
+1. Read what ingestion returns. `return_keys` gives back columns of each stored row
+   after the table's rules, so a `TRACK` or `LOOKUP` rule lets the ingest key read the
+   counter value for any key it chooses to send (and a SET rule's computed fields). This is
    the product's decision path (spec section 5.1) and cannot be withheld from
    producers without breaking it.
 2. Write any valid table name, including Guardian's built-in tables (`queries`,

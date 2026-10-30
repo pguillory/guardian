@@ -92,8 +92,8 @@ Guardian is also a producer of its own tables:
 2. Full access: A full-access key can read every table and write any valid table
    name. The ingest key can write any valid table name, but cannot run queries or
    read or change rules. It can still read what ingestion returns: `return_keys`
-   gives back the stored event after rules, including a counter value a `TRACK` or
-   `LOOKUP` rule wrote into it. It can also write rows into Guardian's built-in
+   gives back columns of the stored row after rules, including a counter value a
+   `TRACK` or `LOOKUP` rule wrote into it. It can also write rows into Guardian's built-in
    tables, since those take ingestion like any other table. No
    identity is recorded and there is no namespace or per-table permission.
    Built-in tables are no exception: any full-access key holder can read `queries`,
@@ -166,12 +166,14 @@ CORS is enabled on these routes.
 
 - `table` must be a valid table name ([section 6.1](#61-tables)).
 - `events` must be a list. Items are processed independently ([section 5](#5-ingestion)).
-- `return_keys` is optional. Omitted or `null` returns each stored event in full; a
-  list of strings returns exactly those top-level fields of each successful event,
-  `null` for any the stored event lacks (until rules existed, a missing key was left
-  out); `[]` returns `{}`. The event is the one stored, after rules
-  ([section 5.1](#51-rules)), so this is how a client reads a field a rule computed,
-  such as `is_blocked`.
+- `return_keys` is optional. A successful result's `event` is the row as stored,
+  after rules ([section 5.1](#51-rules)): flat, keyed by column name
+  ([section 6.3](#63-nested-objects-and-lists)), exactly as queries see it, never
+  rebuilt into nested JSON. Omitted or `null` returns the whole row; a list of strings
+  returns exactly those columns, each named in full (`user.name`, not `user`), `null`
+  for any the row lacks; `[]` returns `{}`. `return_keys` is for reading decisions
+  and computed values, such as a rule's `is_blocked`, not for echoing a big object
+  back.
 - `idempotency_key` is optional: omitted or null preserves ordinary ingestion;
   otherwise it must be a nonempty UTF-8 string of at most 128 bytes. Matching
   retries can return a receipt instead of event results; see [section 5](#5-ingestion)
@@ -330,14 +332,11 @@ goes through the same validation and storage.
    range, lists nested deeper than storage supports (a list of lists is the maximum),
    strings or lists over 2^31 - 1 bytes or elements, and any field whose flattened key
    ([section 6.3](#63-nested-objects-and-lists)) exceeds 250 bytes. The success result
-   usually returns the event as stored, so a caller can see what was dropped. It is
-   best effort for awkward shapes: a rebuilt event can gain null padding inside lists
-   of objects, and when an event cannot be rebuilt faithfully (for example, a list
-   mixing scalars and objects with one invalid value inside, or a rule writing `user`
-   on an event that also has `user.name`), the whole top-level field is omitted from
-   the result even though its valid parts were stored, and `return_keys` reads it as
-   null. A sender can cause this for a rule's output by sending a nested key under its
-   name, so a caller must not treat a null output as a decision.
+   is the stored flat row, so a dropped value is reported by its absence: a column of
+   the flattened event that is missing from the result was dropped (or removed by a
+   rule), and `return_keys` reads it as `null`. The result does not say why, and
+   `return_keys: []` reports nothing. Empty objects and empty lists store no column,
+   so they are absent too.
 5. No enrichment: Guardian adds no timestamp, ID, source, or node field. Events are
    stored as sent, minus dropped values, changed only by the table's rules
    ([section 5.1](#51-rules)). A private arrival timestamp drives counter windows;
@@ -578,11 +577,13 @@ Clients should keep keys stable and put data in values (`{"customer_id": 123}`, 
 Nested objects are flattened into dotted column names: `{"user": {"name": "Bob"}}` is
 the column `user.name`. A list of objects adds one dot per list level:
 `{"users": [{"name": "Bob"}, {"name": "Joe"}]}` stores `users..name` as
-`["Bob", "Joe"]`. A key that contains a dot or a double quote, or is empty, is written
+`["Bob", "Joe"]`, and an item without the key holds `null` in its list, up to the last
+item that has it. A key that contains a dot or a double quote, or is empty, is written
 in double quotes within the column name, with a backslash before each `"` and `\`
 in it: `{"a.b": {"c": 1}}` is the column `"a.b".c`. Lists of scalars are stored as
-list values. Queries see the flat columns; an ingest result normally returns the event
-in its nested shape (see the exceptions in [section 5](#5-ingestion)).
+list values. Queries and ingest results both see the flat columns:
+`{"user": {"name": "Bob"}, "tags": ["a"]}` comes back from `send_events` as
+`{"user.name": "Bob", "tags": ["a"]}`.
 
 ### 6.4 Time
 
@@ -926,10 +927,9 @@ Listed here because they change what a user sees:
    events.
 4. A column labeled from `INTERVAL n WEEK` cannot be re-parsed.
 5. `users.name` does not find the list column `users..name`.
-6. Edge cases in value handling, flattening, and corrupt-file handling, such as a
-   list holding null beside a list of objects (`[null, [{"a": 1}]]`), which cannot be
-   rebuilt for the result, slow flattening of lists of objects with many distinct
-   keys, and a corrupt segment file that aborts the VM.
+6. Edge cases in value handling, flattening, and corrupt-file handling, such as slow
+   flattening of lists of objects with many distinct keys, and a corrupt segment file
+   that aborts the VM.
 7. The rule write lock is a lease in the store. A writer that stalls for more than a
    minute after checking its lease, or a write the store applies more than a minute
    after the writer gave up, can leave a rule set that validation would have refused;

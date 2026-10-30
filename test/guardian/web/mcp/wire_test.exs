@@ -103,7 +103,7 @@ defmodule Guardian.Web.MCP.WireTest do
 
     assert properties["return_keys"] == %{
              "description" =>
-               "Fields to return for successful events; omitted or null returns all, [] returns none",
+               "Columns to return for successful events, each named in full (user.name), null when missing; for reading decisions and computed values. Omitted or null returns the whole row, [] returns none",
              "oneOf" => [
                %{"type" => "array", "items" => %{"type" => "string"}},
                %{"const" => nil},

@@ -48,11 +48,25 @@ Events are inserted independently:
 - Valid requests return 200 even if every event fails.
 - Invalid tables, missing or non-list `events`, and malformed `return_keys` or
   `idempotency_key` return 400 with `info`, before any event is stored.
-- Optional `return_keys` must be a list of strings and filters what successful events
-  return. Omitting it or passing `null` returns all fields; a listed field the event
-  doesn't have comes back as `null`.
+- A successful result's `event` is the row as stored: flat, keyed by column name,
+  exactly as queries see it. Nested objects become dotted names, a list of objects
+  becomes one list per key (padded with `null` for items without the key), and a key
+  holding a dot, a quote or nothing is quoted: `{"user": {"name": "Bob"}, "users":
+  [{"id": 1}, {"id": 2, "age": 3}], "a.b": {"c": 1}}` comes back as `{"user.name":
+  "Bob", "users..id": [1, 2], "users..age": [null, 3], "\"a.b\".c": 1}`. Lists of
+  scalars stay lists. Empty objects and lists store nothing and are absent. A field
+  sent or set to `null` comes back as `null`; queries can't tell it from a missing one.
+- Optional `return_keys` must be a list of strings and picks columns of that row, each
+  named in full (`user.name`; `user` alone reads only a column named `user`).
+  Omitting it or passing `null` returns the whole row; a listed column the row
+  doesn't have comes back as `null`; `[]` returns `{}`. Use it to read decisions and
+  computed values, not to echo a big object back.
+- A value Guardian cannot store (see the [product spec](../product/spec.md#5-ingestion),
+  item 4) is dropped and the rest of the event stored. The dropped column is missing
+  from the full row and reads `null` through `return_keys`; the response doesn't say
+  why, and `return_keys: []` reports nothing.
 - If the table has [rules](../product/spec.md#51-rules), each event runs them first and
-  the response shows the event as stored, so `return_keys` is how a sender reads a
+  the response shows the row as stored, so `return_keys` is how a sender reads a
   computed field. An event whose rules fail isn't stored and gets an error naming the
   rule file and line (or the table, if its rules ran over their time or memory limit
   or are invalid).

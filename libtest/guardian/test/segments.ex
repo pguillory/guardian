@@ -38,6 +38,36 @@ defmodule Guardian.Test.Segments do
   end
 
   @doc """
+  `{:ok, row}` with the flat row at `offset` in `segment`, read column by column
+  (`keys`, then `get_column` for each) and leaving out keys whose value there is nil,
+  or `{:error, :not_found}` past the last row. For Storage tests only
+  (`lib/guardian/storage/AGENTS.md`), which may read Segment internals; other tests
+  read results through queries. The reads are separate calls, not one snapshot, so
+  rows appended meanwhile can add keys.
+  """
+  def segment_row(segment, offset) when is_integer(offset) and offset >= 0 do
+    {:ok, count} = Guardian.Storage.Segment.count(segment)
+
+    if offset < count do
+      {:ok, keys} = Guardian.Storage.Segment.keys(segment)
+
+      row =
+        Enum.reduce(keys, %{}, fn key, row ->
+          {:ok, column} = Guardian.Storage.Segment.get_column(segment, key)
+
+          case column |> Guardian.Storage.Column.to_list() |> Enum.at(offset) do
+            nil -> row
+            value -> Map.put(row, key, value)
+          end
+        end)
+
+      {:ok, row}
+    else
+      {:error, :not_found}
+    end
+  end
+
+  @doc """
   Writes a segment file holding flat `rows` to `filename`, through a temporary
   in-memory segment (appended, packed, stored, stopped), and returns `filename`. The
   caller removes the file.

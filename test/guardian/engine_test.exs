@@ -32,22 +32,21 @@ defmodule Guardian.EngineTest do
       "items" => [%{"id" => 1, "tags" => ["t"]}, %{"id" => 2}],
     }
 
-    # The returned event is what Storage stores. A field missing from some objects in a
-    # list reads back as nil in those objects.
+    # The returned row is exactly what Storage stores: flat columns, with the invalid
+    # values (an integer over 64 bits, a list of lists of lists, a 250-byte key) left
+    # out. A list of objects is one list column per key, padded with nil up to the last
+    # object that has the key.
     expected = %{
-      "a" => %{"c" => 1},
-      "x" => [%{"b" => 2}, %{"b" => 3}],
-      "deep" => %{"ok" => true},
-      "dotted.key" => %{"q\"uote" => "v"},
-      "items" => [%{"id" => 1, "tags" => ["t"]}, %{"id" => 2, "tags" => nil}],
+      "a.c" => 1,
+      "x..b" => [2, 3],
+      "deep.ok" => true,
+      ~S("dotted.key"."q\"uote") => "v",
+      "items..id" => [1, 2],
+      "items..tags" => [["t"]],
     }
 
     assert ingest_event(table, event) == expected
-
-    assert Guardian.Storage.dump_table(table)
-           |> Enum.map(&Guardian.Storage.Flattening.unflatten_event/1) == [
-             expected,
-           ]
+    assert Guardian.Storage.dump_table(table) == [expected]
   end
 
   test "stores arrays mixing scalars, objects, and lists" do
@@ -61,7 +60,7 @@ defmodule Guardian.EngineTest do
 
     for event <- events do
       flat_row = Guardian.Storage.Flattening.flatten_event(event)
-      assert ingest_event(table, event) == event
+      assert ingest_event(table, event) == flat_row
       assert flat_row in Guardian.Storage.dump_table(table)
     end
   end
@@ -70,35 +69,21 @@ defmodule Guardian.EngineTest do
     table = "engine_mixed_invalid_#{System.unique_integer([:positive])}"
     event = %{"x" => [1, %{"a" => 2, "b" => 2 ** 64}], "y" => 1}
 
-    # This shape cannot be rebuilt from its flattened form, so the reported event
-    # omits the whole top-level field that lost a value.
-    assert ingest_event(table, event) == %{"y" => 1}
-
-    assert Guardian.Storage.dump_table(table) == [%{"x" => [1], "x..a" => [nil, 2], "y" => 1}]
+    expected = %{"x" => [1], "x..a" => [nil, 2], "y" => 1}
+    assert ingest_event(table, event) == expected
+    assert Guardian.Storage.dump_table(table) == [expected]
   end
 
   test "merges nested objects whose keys collide as strings" do
     table = "engine_key_collision_#{System.unique_integer([:positive])}"
     event = %{"x" => %{"b" => 2}, x: %{a: 1}}
 
-    assert ingest_event(table, event) == %{"x" => %{"a" => 1, "b" => 2}}
+    assert ingest_event(table, event) == %{"x.a" => 1, "x.b" => 2}
     assert Guardian.Storage.dump_table(table) == [%{"x.a" => 1, "x.b" => 2}]
 
-    # Colliding lists of objects are merged by flattening, so the reported event is
-    # rebuilt from what was stored.
     event = %{"x" => [%{"b" => 2}], x: [%{a: 1}]}
-    assert ingest_event(table, event) == %{"x" => [%{"a" => 1, "b" => 2}]}
+    assert ingest_event(table, event) == %{"x..a" => [1], "x..b" => [2]}
     assert %{"x..a" => [1], "x..b" => [2]} in Guardian.Storage.dump_table(table)
-  end
-
-  test "reports a mixed array faithfully in large events" do
-    # Maps with more than 32 keys iterate in hash order, where rebuilding a mixed array
-    # may overwrite it silently instead of raising.
-    table = "engine_mixed_large_#{System.unique_integer([:positive])}"
-    others = Map.new(1..40, fn i -> {"k#{i}", i} end)
-    event = Map.merge(others, %{"x" => [1, %{"a" => 2, "b" => 2 ** 64}]})
-
-    assert ingest_event(table, event) == others
   end
 
   test "stores long strings and lists whole" do
@@ -107,16 +92,14 @@ defmodule Guardian.EngineTest do
     list = Enum.to_list(1..70_000)
     event = %{"s" => string, "l" => list, "nested" => %{"s" => string}}
 
-    assert ingest_event(table, event) == event
-
-    assert Guardian.Storage.dump_table(table) == [
-             %{"s" => string, "l" => list, "nested.s" => string},
-           ]
+    expected = %{"s" => string, "l" => list, "nested.s" => string}
+    assert ingest_event(table, event) == expected
+    assert Guardian.Storage.dump_table(table) == [expected]
   end
 
   test "returns atom keys as strings, as they are stored" do
     table = "engine_atom_keys_#{System.unique_integer([:positive])}"
-    expected = %{"user" => %{"name" => "Alice"}, "count" => 1, "xs" => [1, %{"a" => 2}]}
+    expected = %{"user.name" => "Alice", "count" => 1, "xs" => [1], "xs..a" => [nil, 2]}
 
     assert ingest_event(table, %{
              user: %{name: "Alice"},
@@ -137,7 +120,19 @@ defmodule Guardian.EngineTest do
   test "keeps nested values that are valid" do
     table = "engine_valid_nested_#{System.unique_integer([:positive])}"
     event = %{"user" => %{"name" => "Alice", "roles" => ["a", "b"]}, "n" => nil}
-    assert ingest_event(table, event) == event
+
+    assert ingest_event(table, event) == %{
+             "user.name" => "Alice",
+             "user.roles" => ["a", "b"],
+             "n" => nil,
+           }
+  end
+
+  test "returns only what was stored, so empty objects and lists are absent" do
+    table = "engine_empty_#{System.unique_integer([:positive])}"
+    event = %{"o" => %{}, "l" => [], "x" => %{"inner" => %{}}, "n" => 1}
+    assert ingest_event(table, event) == %{"n" => 1}
+    assert ingest_events(table, [event]) == [{:ok, %{"n" => 1}}]
   end
 
   test "ingests batches" do
@@ -196,13 +191,12 @@ defmodule Guardian.EngineTest do
   test "a failure with a fun stack frame is redacted and the batch continues" do
     table = unique_table()
     marker = "private-fun-frame-marker"
-    key = %Guardian.Test.EngineKey{marker: marker}
+    value = %Guardian.Test.RaisingValue{marker: marker}
 
     log =
       ExUnit.CaptureLog.capture_log(fn ->
-        # An empty object produces no columns, so the key is stringified only while
-        # building the reported event, where the fixture raises with a fun frame.
-        assert ingest_events(table, [%{key => %{}}, %{"value" => 2}]) == [
+        # Flattening enumerates the value, which raises with a fun frame.
+        assert ingest_events(table, [%{"bad" => value}, %{"value" => 2}]) == [
                  {:error, "internal error before storage; the event was not stored"},
                  {:ok, %{"value" => 2}},
                ]

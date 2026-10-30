@@ -44,7 +44,7 @@ defmodule Guardian.Storage.PersistedSegmentsTest do
       assert Process.whereis(PersistedSegments) == persister
       assert {:ok, ^segment} = FullSegments.get_segment(segment_id)
       assert segment_id in FullSegments.segment_ids(table)
-      assert Segment.get_row(segment, 0) == {:ok, %{"v" => 1}}
+      assert Guardian.Test.Segments.segment_row(segment, 0) == {:ok, %{"v" => 1}}
       assert [_] = Regex.scan(~r/Could not persist segment #{segment_id}/, log)
       assert log =~ "enametoolong"
 
