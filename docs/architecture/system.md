@@ -737,9 +737,10 @@ Limits:
 5. A store failure is handled per segment (item 4), at shutdown too, since shutdown
    runs the same persist loop. So is a segment that dies or stops answering while it
    packs: the persister moves on, and the segment is unregistered when its exit
-   arrives, or retried next pass if it is alive. A pack step that raises (an
-   unexpected reply such as `{:error, :not_frozen}`) still crashes the persister, and
-   at shutdown aborts persistence of the remaining full segments.
+   arrives, or retried next pass if it is alive. A live segment that does not answer
+   a pack step within its 5 s call timeout is logged once, as in item 4. A pack step
+   that raises (an unexpected reply such as `{:error, :not_frozen}`) still crashes
+   the persister, and at shutdown aborts persistence of the remaining full segments.
 6. Temporary files left by a crash mid-write are never cleaned up; their names do not
    parse as segments, so they are ignored without a warning.
 

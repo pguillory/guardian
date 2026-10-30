@@ -166,9 +166,14 @@ defmodule Guardian.Storage.PersistedSegments do
     try do
       :ok = Segment.pack(segment)
     catch
-      # The segment died or stopped answering (deleted, crashed, or busy past the call
-      # timeout). FullSegments unregisters a dead one when its EXIT arrives; a live one
-      # is retried on the next pass, and GenServer.call drops its late reply.
+      # The segment is stuck or slow past the call timeout: still alive, so it is
+      # retried on the next pass (GenServer.call drops its late reply), but its rows
+      # stay only in memory meanwhile, so it is logged once like a failed write.
+      :exit, {:timeout, {GenServer, :call, _}} ->
+        unstorable(state, segment_id, table, {:pack, :timeout})
+
+      # The segment died (deleted, or crashed, which its own crash report logs).
+      # FullSegments unregisters it when its EXIT arrives.
       :exit, _reason ->
         state
     else

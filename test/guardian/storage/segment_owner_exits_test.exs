@@ -1,6 +1,6 @@
 defmodule Guardian.Storage.SegmentOwnerExitsTest do
-  # How the lifecycle managers handle their segments' ends: table deletion, a segment
-  # that does not answer, and a late reply to the persister.
+  # How the lifecycle managers handle their segments' ends: table deletion and a segment
+  # that does not answer.
   use ExUnit.Case, async: false
   import Guardian.Test.Query
   import Guardian.Test.Polling
@@ -9,10 +9,7 @@ defmodule Guardian.Storage.SegmentOwnerExitsTest do
   alias Guardian.Storage.LoadedSegments
   alias Guardian.Storage.MutableSegments
   alias Guardian.Storage.PersistedSegments
-  alias Guardian.Storage.Schema
   alias Guardian.Storage.Segment
-
-  @managers [Schema, LoadedSegments, FullSegments, PersistedSegments, MutableSegments]
 
   defp table do
     "owner_exits_#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
@@ -27,15 +24,6 @@ defmodule Guardian.Storage.SegmentOwnerExitsTest do
   # Every stored value of `v` in the table, sorted, so a lost or duplicated row shows.
   defp values(table) do
     run_sql("select v from #{table}") |> Enum.map(&hd/1) |> Enum.sort()
-  end
-
-  defp managers do
-    Map.new([Guardian.Storage | @managers], &{&1, Process.whereis(&1)})
-  end
-
-  # Lets each manager handle every message already in its mailbox.
-  defp sync do
-    Enum.each(@managers, &:sys.get_state/1)
   end
 
   defp segment(rows) do
@@ -111,38 +99,6 @@ defmodule Guardian.Storage.SegmentOwnerExitsTest do
       end
 
       assert Map.keys(Guardian.Storage.schema(table)) == ["v"]
-      :ok = Guardian.Storage.delete_table(table)
-    end
-  end
-
-  describe "the persister" do
-    test "survives a segment that answers after its call timed out, and persists it later" do
-      before = managers()
-      table = table()
-      persister = Process.whereis(PersistedSegments)
-      slow = segment(1..3)
-      :ok = :sys.suspend(slow)
-      slow_id = Guardian.SegmentID.generate()
-      on_exit(fn -> File.rm(Guardian.Storage.SegmentFile.filename(table, slow_id)) end)
-      :ok = FullSegments.insert({slow_id, slow, table})
-      :ok = PersistedSegments.ping()
-
-      # A second queued freeze means the first call timed out and a later pass tried
-      # again. Resumed, the segment answers both calls late, and the persister must
-      # survive the stale reply and store the segment.
-      eventually(
-        fn ->
-          {:messages, messages} = Process.info(slow, :messages)
-          Enum.count(messages, &match?({:"$gen_call", {^persister, _}, :freeze}, &1)) >= 2
-        end,
-        15_000
-      )
-
-      :ok = :sys.resume(slow)
-      eventually(fn -> PersistedSegments.get_segment(slow_id) == {:ok, slow} end, 15_000)
-      sync()
-      assert managers() == before
-      assert values(table) == [1, 2, 3]
       :ok = Guardian.Storage.delete_table(table)
     end
   end

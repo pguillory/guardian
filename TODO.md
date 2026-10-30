@@ -17,6 +17,9 @@ privately, not in this repository.
       (`docs/changes/ingest-idempotency.md`)
 - [ ] ingest-idempotency-cluster: route keyed ingests to an owner so retries through
       different nodes can share receipts; define membership/failure behavior
+- [x] pack-timeout-logged: a full segment that does not answer a pack step within
+      its call timeout is logged once at error level and retried, like a failed write,
+      instead of retrying silently (`docs/changes/fail-closed-findings.md`)
 - [ ] harden-shutdown-persist: a segment whose pack raises during shutdown (an
       unexpected reply such as `{:error, :not_frozen}` fails a match) aborts persistence
       of every remaining full segment

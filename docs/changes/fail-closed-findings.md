@@ -31,6 +31,21 @@ already finished.
 Unit tests cover the healthy relay and a collector that is gone (a process that has
 already exited normally).
 
+## A segment stuck while packing
+
+The persister packs each full segment through 5-second calls before writing its
+file. A segment that died is unregistered when its exit arrives, and a crash logs
+itself. But a live segment that kept missing the call timeout was retried every
+second with nothing logged, while its rows stayed only in memory. A call timeout now
+goes through the same path as a failed write: logged once at error level, retried
+every pass, and forgotten once the segment persists. A segment that is merely slow
+logs once and then persists quietly.
+
+There is no test: producing a stuck segment means freezing a segment process, which
+the testing rules rule out. The one test that did that, suspending a segment past
+the timeout to check the persister survives its late reply, is removed: it now logs
+an error on purpose, which the logging rules rule out too.
+
 ## Not changed: peers slow to answer the readiness check
 
 `Guardian.Cluster.connected_nodes/0` leaves out a connected peer that does not say
