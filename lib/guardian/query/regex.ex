@@ -132,6 +132,7 @@ defmodule Guardian.Query.Regex do
             try do
               {:ok, replace_inline(regex, subject, replacement)}
             catch
+              # A relay: the failure is raised again in the caller.
               kind, reason -> {:raise, kind, reason, __STACKTRACE__}
             end
 

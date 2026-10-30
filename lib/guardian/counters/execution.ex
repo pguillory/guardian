@@ -35,30 +35,23 @@ defmodule Guardian.Counters.Execution do
   @type op :: TrackOperation.t() | LookupOperation.t()
 
   @doc """
-  One result per op, in order. A failed bucket (timeout, unavailable, cooldown,
-  exhausted budget, expiry, invalid request) defaults its op to the operator's
-  missing result, `{:ok, missing}`. `{:error, failure_kind}` means expansion, the
-  round or combination raised; the caller logs it and writes the missing result.
+  One result per op, in order, as `{:ok, value}`. A failed bucket (timeout, unavailable,
+  cooldown, exhausted budget, expiry, invalid request) defaults its op to the operator's
+  missing result. That is how an unreachable store fails open, by data; anything that
+  raises here is a bug and takes the event's worker with it.
   """
-  @spec run_counters([op()], Arrival.t(), Context.t()) :: [
-          {:ok, term()} | {:error, String.t()},
-        ]
+  @spec run_counters([op()], Arrival.t(), Context.t()) :: [{:ok, term()}]
   def run_counters(ops, arrival, context) do
     expanded = Enum.map(ops, &expand(&1, arrival))
-    nested = Enum.map(expanded, &machines/1)
+    nested = Enum.map(expanded, fn {_aggregation, machines} -> machines end)
 
-    try do
+    finished =
       nested
       |> Lists.flatten()
       |> run_state_machines(context)
       |> Lists.unflatten(nested)
-    catch
-      kind, reason ->
-        failure = Guardian.Failure.kind(kind, reason, __STACKTRACE__)
-        Enum.map(expanded, &round_failed(&1, failure))
-    else
-      finished -> Enum.zip_with(expanded, finished, &combine/2)
-    end
+
+    Enum.zip_with(expanded, finished, &combine/2)
   end
 
   @doc "Runs machines until every one has finished, returning them in input order."
@@ -85,20 +78,10 @@ defmodule Guardian.Counters.Execution do
     not Machine.done?(machine)
   end
 
-  # An op's aggregation and bucket machines, or the expansion's failure kind.
+  # An op's aggregation and bucket machines.
   defp expand(op, arrival) do
     aggregation = Definition.aggregation(op.definition)
-    {:ok, aggregation, expand_machines(op, aggregation, arrival)}
-  catch
-    kind, reason -> {:error, Guardian.Failure.kind(kind, reason, __STACKTRACE__)}
-  end
-
-  defp machines({:ok, _aggregation, machines}) do
-    machines
-  end
-
-  defp machines({:error, _kind}) do
-    []
+    {aggregation, expand_machines(op, aggregation, arrival)}
   end
 
   defp expand_machines(
@@ -135,26 +118,7 @@ defmodule Guardian.Counters.Execution do
     end
   end
 
-  # A raised round fails every op that dispatched machines; expansion failures
-  # keep their own kind.
-  defp round_failed({:ok, _aggregation, []} = expanded, _failure) do
-    combine(expanded, [])
-  end
-
-  defp round_failed({:ok, _aggregation, _machines}, failure) do
-    {:error, failure}
-  end
-
-  defp round_failed({:error, _kind} = error, _failure) do
-    error
-  end
-
-  # A failed expansion has no machines (machines/1), so nothing finished for it.
-  defp combine({:error, _kind} = error, []) do
-    error
-  end
-
-  defp combine({:ok, aggregation, _machines}, finished) do
+  defp combine({aggregation, _machines}, finished) do
     results = Enum.map(finished, & &1.result)
 
     if Enum.any?(results, &match?({:error, _}, &1)) do
@@ -167,8 +131,6 @@ defmodule Guardian.Counters.Execution do
       end)
       |> then(&{:ok, Aggregation.finish(aggregation, &1)})
     end
-  catch
-    kind, reason -> {:error, Guardian.Failure.kind(kind, reason, __STACKTRACE__)}
   end
 
   defp keys(definition, group, arrival) do

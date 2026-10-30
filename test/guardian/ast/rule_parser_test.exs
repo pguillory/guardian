@@ -8,9 +8,19 @@ defmodule Guardian.AST.RuleParserTest do
   alias Guardian.AST.Node.Statements.UnsetStatement
   alias Guardian.AST.Parser
 
+  defp parse_rules(source) do
+    {:ok, statements} = Parser.parse_rules(source)
+    statements
+  end
+
+  defp statements(source) do
+    {:ok, statements} = Guardian.AST.parse_statements(source)
+    statements
+  end
+
   defp sources(source) do
     source
-    |> Parser.parse_rules()
+    |> parse_rules()
     |> Enum.map(fn {s, line} -> {Guardian.AST.unparse(s), line} end)
   end
 
@@ -32,7 +42,7 @@ defmodule Guardian.AST.RuleParserTest do
            ]
 
     assert [{%SetStatement{field: %Identifier{name: "severity"}, where_expr: nil}, 2} | _] =
-             Parser.parse_rules(source)
+             parse_rules(source)
   end
 
   test "round trips through to_source" do
@@ -42,9 +52,9 @@ defmodule Guardian.AST.RuleParserTest do
           "UNSET user.password WHERE NOT keep",
           "SET n = n + 1",
         ] do
-      [{statement, 1}] = Parser.parse_rules(source)
+      [{statement, 1}] = parse_rules(source)
       assert Guardian.AST.unparse(statement) == source
-      [{again, 1}] = Parser.parse_rules(Guardian.AST.unparse(statement))
+      [{again, 1}] = parse_rules(Guardian.AST.unparse(statement))
       assert again == statement
     end
   end
@@ -58,7 +68,7 @@ defmodule Guardian.AST.RuleParserTest do
 
     # And still plain identifiers in queries and as table names.
     assert [%Guardian.AST.Node.Statements.SelectStatement{}] =
-             Guardian.AST.parse_statements("SELECT set, last FROM set")
+             statements("SELECT set, last FROM set")
 
     assert Guardian.Engine.valid_table_name?("set") and Guardian.Engine.valid_table_name?("last")
   end
@@ -71,9 +81,9 @@ defmodule Guardian.AST.RuleParserTest do
           "TRACK c = count() WHERE #{predicate} LAST '1h'",
           "LOOKUP x = c WHERE #{predicate}",
         ] do
-      [{statement, 1}] = Parser.parse_rules(source)
+      [{statement, 1}] = parse_rules(source)
       assert Guardian.AST.unparse(statement) == source
-      assert Parser.parse_rules(Guardian.AST.unparse(statement)) == [{statement, 1}]
+      assert parse_rules(Guardian.AST.unparse(statement)) == [{statement, 1}]
     end
   end
 
@@ -96,10 +106,10 @@ defmodule Guardian.AST.RuleParserTest do
            ]
 
     assert [{%TrackStatement{field: %Identifier{name: "logins_last_hour"}}, 2} | _] =
-             Parser.parse_rules(source)
+             parse_rules(source)
 
     assert [{%LookupStatement{counter: %Identifier{name: "c"}, from_table: nil, by_exprs: []}, 1}] =
-             Parser.parse_rules("LOOKUP value = c")
+             parse_rules("LOOKUP value = c")
   end
 
   test "counter syntax round trips with optional clauses, scalar expressions and all v1 aggregates" do
@@ -126,19 +136,19 @@ defmodule Guardian.AST.RuleParserTest do
           "TRACK track = count() BY lookup, last WHERE unset LAST '1h'",
           "LOOKUP lookup = track FROM last BY set WHERE unset",
         ] do
-      [{statement, 1}] = Parser.parse_rules(source)
+      [{statement, 1}] = parse_rules(source)
       assert Guardian.AST.unparse(statement) == source
-      assert Parser.parse_rules(Guardian.AST.unparse(statement)) == [{statement, 1}]
+      assert parse_rules(Guardian.AST.unparse(statement)) == [{statement, 1}]
     end
   end
 
   test "canonical counter source ignores comments, word case and spacing but preserves names" do
     [{statement, 2}] =
-      Parser.parse_rules("-- same definition\ntrack c=COUNT(*) by ip,last where keep last '1h';")
+      parse_rules("-- same definition\ntrack c=COUNT(*) by ip,last where keep last '1h';")
 
     canonical = "TRACK c = count() BY ip, last WHERE keep LAST '1h'"
     assert Guardian.AST.unparse(statement) == canonical
-    assert Parser.parse_rules(canonical) == [{statement, 1}]
+    assert parse_rules(canonical) == [{statement, 1}]
 
     for changed <- [
           "TRACK renamed = count() BY ip, last WHERE keep LAST '1h'",
@@ -149,7 +159,7 @@ defmodule Guardian.AST.RuleParserTest do
           "TRACK c = count() BY ip, last WHERE other LAST '1h'",
           "TRACK c = count() BY ip, last WHERE keep LAST '2h'",
         ] do
-      [{different, 1}] = Parser.parse_rules(changed)
+      [{different, 1}] = parse_rules(changed)
       refute Guardian.AST.unparse(different) == canonical
     end
 
@@ -169,7 +179,7 @@ defmodule Guardian.AST.RuleParserTest do
           {"TRACK c = count() LAST '1h'", ["c", "count()", "'1h'"], ["c", "count()", "'1h'"]},
           {"LOOKUP x = c", ["x", "c"], ["x", "c"]},
         ] do
-      [{statement, 1}] = Parser.parse_rules(source)
+      [{statement, 1}] = parse_rules(source)
 
       {_, pre} =
         Guardian.AST.prewalk(statement, [], fn node, acc ->
@@ -193,7 +203,7 @@ defmodule Guardian.AST.RuleParserTest do
 
       rewritten = Guardian.AST.unparse(modified)
       refute rewritten == source
-      assert Parser.parse_rules(rewritten) == [{modified, 1}]
+      assert parse_rules(rewritten) == [{modified, 1}]
     end
   end
 
@@ -203,18 +213,18 @@ defmodule Guardian.AST.RuleParserTest do
           "TRACK c = sum(count()) BY x AS y WHERE avg(a) > 1 LAST '0s'",
           "LOOKUP x = c FROM current_timestamp BY * WHERE count() > 1",
         ] do
-      assert [{_, 1}] = Parser.parse_rules(source)
+      assert [{_, 1}] = parse_rules(source)
     end
   end
 
   test "counter syntax stays out of query parsing and statement words stay identifiers" do
     assert [%Guardian.AST.Node.Statements.SelectStatement{}] =
-             Guardian.AST.parse_statements("SELECT track, lookup, last FROM last")
+             statements("SELECT track, lookup, last FROM last")
 
     for name <- ~w[track lookup last], do: assert(Guardian.Engine.valid_table_name?(name))
 
     for source <- ["TRACK c = count() LAST '1h'", "LOOKUP x = c"] do
-      assert_raise Guardian.AST.ParseError, fn -> Guardian.AST.parse_statements(source) end
+      assert {:error, %Guardian.AST.ParseError{}} = Guardian.AST.parse_statements(source)
     end
   end
 
@@ -247,40 +257,39 @@ defmodule Guardian.AST.RuleParserTest do
           {"LOOKUP x = c BY ip FROM t", "Expected end of statement, got FROM"},
           {"LOOKUP x = c FROM t FROM u", "Expected end of statement, got FROM"},
         ] do
-      error = assert_raise Guardian.AST.ParseError, fn -> Parser.parse_rules(source) end
-      assert Exception.message(error) =~ message
+      {:error, error} = Parser.parse_rules(source)
+      assert Guardian.AST.ParseError.message(error) =~ message
     end
   end
 
   test "an expression stops before a trailing word it cannot continue with" do
-    assert_raise Guardian.AST.ParseError, ~r/Expected end of statement, got last/, fn ->
-      Parser.parse_rules("SET x = a WHERE b > 1 last '1h'")
-    end
+    assert {:error, error} = Parser.parse_rules("SET x = a WHERE b > 1 last '1h'")
+    assert Guardian.AST.ParseError.message(error) =~ "Expected end of statement, got last"
   end
 
   test "empty files and empty statements" do
-    assert Parser.parse_rules("") == []
-    assert Parser.parse_rules("-- nothing\n;;") == []
-    assert [{%UnsetStatement{}, 1}] = Parser.parse_rules("UNSET a;")
+    assert parse_rules("") == []
+    assert parse_rules("-- nothing\n;;") == []
+    assert [{%UnsetStatement{}, 1}] = parse_rules("UNSET a;")
   end
 
   test "statement words match in any case, field names keep theirs" do
     assert [{%SetStatement{field: %Identifier{name: "isBlocked"}}, 1}] =
-             Parser.parse_rules("sEt isBlocked = 1")
+             parse_rules("sEt isBlocked = 1")
 
     assert [{%UnsetStatement{field: %Identifier{name: "User.Name"}}, 1}] =
-             Parser.parse_rules("Unset User.Name")
+             parse_rules("Unset User.Name")
 
     assert [{%TrackStatement{field: %Identifier{name: "Hits"}}, 1}] =
-             Parser.parse_rules("Track Hits = Count() lAsT '1h'")
+             parse_rules("Track Hits = Count() lAsT '1h'")
 
     assert [{%LookupStatement{counter: %Identifier{name: "Hits"}}, 1}] =
-             Parser.parse_rules("LOOKUP prior = Hits")
+             parse_rules("LOOKUP prior = Hits")
   end
 
   test "UNSET takes any addressable column, including a list path" do
     assert [{%UnsetStatement{field: %Identifier{name: "users..email"}} = statement, 1}] =
-             Parser.parse_rules("UNSET users..email")
+             parse_rules("UNSET users..email")
 
     assert Guardian.AST.unparse(statement) == "UNSET users..email"
   end
@@ -293,8 +302,8 @@ defmodule Guardian.AST.RuleParserTest do
           {"\nSET x = nosuch(1)", "line 2 column 9: Invalid function nosuch"},
           {"SET x = 1 SET y = 2", "Expected end of statement, got SET"},
         ] do
-      error = assert_raise Guardian.AST.ParseError, fn -> Parser.parse_rules(source) end
-      assert Exception.message(error) =~ message
+      {:error, error} = Parser.parse_rules(source)
+      assert Guardian.AST.ParseError.message(error) =~ message
     end
   end
 end

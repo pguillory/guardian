@@ -165,47 +165,14 @@ defmodule Guardian.EngineTest do
     end
   end
 
-  test "a preparation exception is reported as not stored and the batch continues" do
+  test "an unexpected raise fails the whole batch; events before it stay stored" do
     table = unique_table()
 
-    log =
-      ExUnit.CaptureLog.capture_log(fn ->
-        assert ingest_events(table, [
-                 %{{:bad, "ingest-log-marker"} => "ingest-log-marker"},
-                 %{"value" => 2},
-               ]) == [
-                 {:error, "internal error before storage; the event was not stored"},
-                 {:ok, %{"value" => 2}},
-               ]
-      end)
+    assert_raise FunctionClauseError, fn ->
+      ingest_events(table, [%{"value" => 1}, %{{:bad} => 2}, %{"value" => 3}])
+    end
 
-    # The kind and the stack trace, never the event's contents (the failing call's
-    # argument is the key) or the exception's message.
-    assert log =~ "Event ingestion failed for #{table}: FunctionClauseError"
-    assert log =~ "lib/"
-    refute log =~ "ingest-log-marker"
-    refute log =~ "{:bad"
-    assert Guardian.Storage.dump_table(table) == [%{"value" => 2}]
-  end
-
-  test "a failure with a fun stack frame is redacted and the batch continues" do
-    table = unique_table()
-    marker = "private-fun-frame-marker"
-    value = %Guardian.Test.RaisingValue{marker: marker}
-
-    log =
-      ExUnit.CaptureLog.capture_log(fn ->
-        # Flattening enumerates the value, which raises with a fun frame.
-        assert ingest_events(table, [%{"bad" => value}, %{"value" => 2}]) == [
-                 {:error, "internal error before storage; the event was not stored"},
-                 {:ok, %{"value" => 2}},
-               ]
-      end)
-
-    assert log =~ "Event ingestion failed for #{table}: RuntimeError"
-    assert log =~ "Guardian.Failure.redacted/0"
-    refute log =~ marker
-    assert Guardian.Storage.dump_table(table) == [%{"value" => 2}]
+    assert Guardian.Storage.dump_table(table) == [%{"value" => 1}]
   end
 
   test "an explicit segment refusal is reported as not stored and the batch continues" do
@@ -230,61 +197,11 @@ defmodule Guardian.EngineTest do
     end
   end
 
-  test "a segment call exit is reported as uncertain and the batch continues" do
+  test "a segment that crashes on an append fails the batch" do
     table = unique_table()
     intercept_append(table, fn _from, _row -> exit(:ingest_test_failure) end)
 
-    log =
-      ExUnit.CaptureLog.capture_log(fn ->
-        assert ingest_events(table, [%{"value" => 1}, %{"value" => 2}]) == [
-                 {:error, "internal error; the event may have been stored"},
-                 {:ok, %{"value" => 2}},
-               ]
-      end)
-
-    assert log =~ "ingest_test_failure"
-    assert Guardian.Storage.dump_table(table) == [%{"value" => 2}]
-  end
-
-  test "HTTP reports a timed-out append as uncertain even when the event was stored" do
-    table = unique_table()
-
-    intercept_append(table, fn from, row ->
-      :ok = Guardian.Storage.append_flattened(table, row)
-      Process.sleep(5_200)
-      GenServer.reply(from, :ok)
-    end)
-
-    log =
-      ExUnit.CaptureLog.capture_log(fn ->
-        conn =
-          Plug.Test.conn(:post, "/api/json/send_events", %{
-            "table" => table,
-            "events" => [%{"value" => 1}, %{"value" => 2}],
-          })
-          |> Plug.Conn.put_req_header("content-type", "application/json")
-          |> Plug.Conn.put_req_header(
-            "x-api-key",
-            Application.fetch_env!(:guardian, :admin_api_key)
-          )
-          |> Guardian.Web.MainRouter.call(nil)
-
-        assert conn.status == 200
-
-        assert Jason.decode!(conn.resp_body) == %{
-                 "status" => 200,
-                 "results" => [
-                   %{
-                     "success" => false,
-                     "error" => "internal error; the event may have been stored",
-                   },
-                   %{"success" => true, "event" => %{"value" => 2}},
-                 ],
-               }
-      end)
-
-    assert log =~ "exit :timeout"
-    assert Guardian.Storage.dump_table(table) == [%{"value" => 1}, %{"value" => 2}]
+    assert {:ingest_test_failure, _} = catch_exit(ingest_events(table, [%{"value" => 1}]))
   end
 
   defp unique_table do
@@ -383,18 +300,20 @@ defmodule Guardian.EngineTest do
 
     test "every accepted name parses back as the same SQL table reference" do
       for table <- @valid_table_names do
-        assert [
-                 %Guardian.AST.Node.Statements.SelectStatement{
-                   from_expr: %Guardian.AST.Node.Identifier{name: ^table},
-                 },
-               ] =
+        assert {:ok,
+                [
+                  %Guardian.AST.Node.Statements.SelectStatement{
+                    from_expr: %Guardian.AST.Node.Identifier{name: ^table},
+                  },
+                ]} =
                  Guardian.AST.parse_statements("SELECT x FROM #{table}")
 
-        assert [
-                 %Guardian.AST.Node.Statements.DescStatement{
-                   expr: %Guardian.AST.Node.Identifier{name: ^table},
-                 },
-               ] =
+        assert {:ok,
+                [
+                  %Guardian.AST.Node.Statements.DescStatement{
+                    expr: %Guardian.AST.Node.Identifier{name: ^table},
+                  },
+                ]} =
                  Guardian.AST.parse_statements("DESC #{table}")
       end
     end
@@ -436,17 +355,16 @@ defmodule Guardian.EngineTest do
   defp same_table_reference?(table) do
     case Guardian.AST.parse_statements("SELECT x FROM #{table}") do
       # "schema" parses as an identifier but resolves to the virtual schema table.
-      [
-        %Guardian.AST.Node.Statements.SelectStatement{
-          from_expr: %Guardian.AST.Node.Identifier{name: ^table},
-        },
-      ] ->
+      {:ok,
+       [
+         %Guardian.AST.Node.Statements.SelectStatement{
+           from_expr: %Guardian.AST.Node.Identifier{name: ^table},
+         },
+       ]} ->
         table != "schema"
 
       _ ->
         false
     end
-  rescue
-    Guardian.AST.ParseError -> false
   end
 end

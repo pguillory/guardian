@@ -99,7 +99,7 @@ defmodule Guardian.Query.TotalityTest do
 
   test "every operator is total on every pair of edge values" do
     for source <- @operators do
-      expr = Guardian.AST.parse_expression(source)
+      {:ok, expr} = Guardian.AST.parse_expression(source)
       check(source, expr, ["a", "b"], values: @values, deterministic: true)
     end
     |> report()

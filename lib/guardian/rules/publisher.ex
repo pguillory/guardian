@@ -1,7 +1,7 @@
 defmodule Guardian.Rules.Publisher do
   @moduledoc """
   Internal synchronous owner of activation, publication and the generated-module
-  pool. Call only from Server's scrubbed callbacks; Server forwards reclamation
+  pool. Call only from Server's callbacks; Server forwards reclamation
   messages and timers target that calling process. There is no separate process.
   State contains only module atoms and retirement statuses, never sources, plans
   or diagnostics (Server's generic struct redaction passes this value through).

@@ -10,10 +10,9 @@ Engine is Guardian's event-ingestion boundary.
 - `Guardian.Engine.ingest_events/2` processes events independently and returns ordered
   `{:ok, row}` (the stored flat row) or `{:error, message}` outcomes, continuing
   after each failure.
-  Non-object events fail before storage. Unexpected failures before storage say the
-  event was not stored; failures after storage starts say it may have been stored.
-  An explicit storage refusal says it was not stored. A failure's kind and an
-  argument-free stack trace go to Logger.
+  Non-object events fail before storage. An explicit storage refusal says it was not
+  stored. Those are data; Engine catches nothing else, so anything unexpected raises
+  and fails the whole request (CONTRIBUTING.md, "Exception handling").
   `Guardian.Engine.ingest_event/2` retains its raising behavior for internal callers.
 - Both reject table names that SQL cannot address with `Guardian.Engine.InvalidTableNameError`
   before writing: names must match `[a-z_][a-z0-9_]*`, be at most 64 bytes (segment
@@ -29,8 +28,9 @@ and their metadata to `Guardian.Rules.run_with_metadata/2` (a worker, one outcom
 validates the row the rules produced the same way, and stores it; the stored row is
 the event's result. Metadata is never caller-controlled, a row field or stored automatically.
 The whole batch is prepared before execution; later rows can therefore reach rules
-after their counter window expires. A rule
-failure is that event's `{:error, message}` and it is not stored. `ingest_event/2`
+after their counter window expires. An event over a rule limit, or on a table whose
+rules are invalid, is that event's `{:error, message}` and it is not stored; a rule
+that raises fails the whole request. `ingest_event/2`
 and the `log_event` writers (Guardian's built-in tables) never run rules. Rule
 compilation and management live in `lib/guardian/rules`, not here. Keep Engine free of
 external service dependencies. HTTP `/api/json/send_events` and MCP
@@ -39,8 +39,4 @@ through `Guardian.Engine.log_event/2` and `Guardian.Engine.try_log_event/2`: `Gu
 logging and query parse errors use `try_log_event/2` and log only its failure kind;
 `Guardian.Web.QueryParseErrors` also names its own caught failures with
 `Guardian.Failure.kind/3`.
-An ingestion crash is logged the same way, by its kind and
-a stack trace without arguments; never log an exception's message or a stack trace
-with arguments here, since both can carry event values. Stack redaction uses
-`Guardian.Failure.stacktrace/1`, including a fixed placeholder for fun frames.
 SQL queries are read-only.

@@ -4,7 +4,7 @@ defmodule Guardian.ASTTest do
   use ExUnit.Case, async: true
 
   test "prewalk modifies AST" do
-    expr = Parser.parse("1 + 2")
+    {:ok, expr} = Parser.parse("1 + 2")
 
     modified_expr =
       prewalk(expr, fn
@@ -19,7 +19,7 @@ defmodule Guardian.ASTTest do
   end
 
   test "prewalk order" do
-    expr = Parser.parse("1 + 2")
+    {:ok, expr} = Parser.parse("1 + 2")
 
     {_, prewalk_order} = prewalk(expr, [], fn expr, acc -> {expr, acc ++ [expr]} end)
 
@@ -27,7 +27,7 @@ defmodule Guardian.ASTTest do
   end
 
   test "postwalk order" do
-    expr = Parser.parse("1 + 2")
+    {:ok, expr} = Parser.parse("1 + 2")
 
     {_, postwalk_order} = postwalk(expr, [], fn expr, acc -> {expr, acc ++ [expr]} end)
 
@@ -41,8 +41,8 @@ defmodule Guardian.ASTTest do
     walk = fn source ->
       expr =
         case Parser.parse(source) do
-          [statement] -> statement
-          expr -> expr
+          {:ok, [statement]} -> statement
+          {:ok, expr} -> expr
         end
 
       {_, pre} = prewalk(expr, [], fn expr, acc -> {expr, acc ++ [unparse(expr)]} end)

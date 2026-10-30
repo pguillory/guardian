@@ -2,8 +2,6 @@ defmodule Guardian.FailureTest do
   use ExUnit.Case, async: true
   import Guardian.Failure
 
-  alias Guardian.Failure
-
   test "caught failures retain their existing value-free labels" do
     stack = [{__MODULE__, :example, ["PRIVATE"], []}]
 
@@ -40,52 +38,5 @@ defmodule Guardian.FailureTest do
 
     crash = {%ArgumentError{message: "PRIVATE"}, [{__MODULE__, :fun, ["PRIVATE"], []}]}
     assert exit_kind({crash, {GenServer, :call, ["PRIVATE"]}}) == "ArgumentError"
-  end
-
-  test "raw callback reason labels stay distinct from normalized caught errors" do
-    assert reason_kind(%ArgumentError{message: "PRIVATE"}) == "ArgumentError"
-    assert reason_kind(:badarg) == ":badarg"
-    assert reason_kind({:badmatch, "PRIVATE", self()}) == ":badmatch"
-    assert reason_kind({}) == "term"
-    assert reason_kind({"PRIVATE", self()}) == "term"
-    assert reason_kind(%{"PRIVATE" => self()}) == "term"
-  end
-
-  test "MFA frames keep arity and only typed file and line locations" do
-    location = [
-      file: ~c"example.ex",
-      line: 7,
-      error_info: %{cause: "PRIVATE"},
-      file: ["PRIVATE"],
-      line: "PRIVATE",
-      line: -1,
-    ]
-
-    assert stacktrace([
-             {__MODULE__, :example, ["PRIVATE", %{value: "PRIVATE"}], location},
-             {__MODULE__, :example, 2, location},
-           ]) == [
-             {__MODULE__, :example, 2, [file: ~c"example.ex", line: 7]},
-             {__MODULE__, :example, 2, [file: ~c"example.ex", line: 7]},
-           ]
-  end
-
-  test "fun and unsupported frames become a fixed frame without closures or values" do
-    marker = "PRIVATE"
-    frame = {fn -> marker end, [marker], [file: ~c"example.ex", line: 7]}
-
-    for frame <- [
-          frame,
-          {marker, :example, 1, []},
-          {__MODULE__, marker, 1, []},
-          {__MODULE__, :example, -1, []},
-          {__MODULE__, :example, marker, []},
-          {__MODULE__, :example, 1, marker},
-          {:unknown, marker},
-        ] do
-      assert stacktrace([frame]) == [{Failure, :redacted, 0, []}]
-    end
-
-    assert stacktrace([]) == []
   end
 end

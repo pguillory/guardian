@@ -436,7 +436,7 @@ defmodule Guardian.Counters.StoreTest do
     end
   end
 
-  test "formatted status and crash formatting redact keys, values, messages and logs", %{
+  test "formatted status redacts keys, values, messages and logs", %{
     now: now,
     server: server,
     opts: opts,

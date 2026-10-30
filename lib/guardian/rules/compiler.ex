@@ -98,6 +98,8 @@ defmodule Guardian.Rules.Compiler do
 
     :ok
   rescue
+    # Fails the activation closed and tells the writer. Raising would crash Rules.Server
+    # on every node reading the same set, past its restart limit.
     e -> {:error, inspect(e.__struct__)}
   end
 end

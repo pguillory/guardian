@@ -245,29 +245,24 @@ defmodule Guardian.Rules.CounterIngestTest do
     })
 
     ExUnit.CaptureLog.capture_log(fn ->
-      assert [{:error, _}, {:ok, %{"hits" => 2}}] = ingest(table, [%{"bad" => 1}, %{}])
+      assert {_reason, _stack} = catch_exit(ingest(table, [%{"bad" => 1}]))
     end)
 
-    assert length(Guardian.Storage.dump_table(table)) == 1
+    assert Guardian.Storage.dump_table(table) == []
 
-    for {reply, error} <- [
-          {fn from, _row -> GenServer.reply(from, {:error, :invalid_value}) end,
-           "value cannot be stored; the event was not stored"},
-          {fn _from, _row -> exit(:counter_storage_failure) end,
-           "internal error; the event may have been stored"},
-        ] do
-      # A fresh table guarantees the one-call fake is its only mutable segment.
-      storage_table = unique_table("live_counter_storage_partial")
-      with_rules(%{"#{storage_table}/r.gsql" => "TRACK hits = count() LAST '1h'"})
-      Guardian.Test.Segments.intercept_append(storage_table, reply)
+    # A fresh table guarantees the one-call fake is its only mutable segment.
+    storage_table = unique_table("live_counter_storage_partial")
+    with_rules(%{"#{storage_table}/r.gsql" => "TRACK hits = count() LAST '1h'"})
 
-      ExUnit.CaptureLog.capture_log(fn ->
-        assert [{:error, ^error}] = ingest(storage_table, [%{}])
-      end)
+    Guardian.Test.Segments.intercept_append(storage_table, fn from, _row ->
+      GenServer.reply(from, {:error, :invalid_value})
+    end)
 
-      assert [{:ok, %{"hits" => 2}}] = ingest(storage_table, [%{}])
-      assert Guardian.Storage.dump_table(storage_table) == [%{"hits" => 2}]
-    end
+    assert [{:error, "value cannot be stored; the event was not stored"}] =
+             ingest(storage_table, [%{}])
+
+    assert [{:ok, %{"hits" => 2}}] = ingest(storage_table, [%{}])
+    assert Guardian.Storage.dump_table(storage_table) == [%{"hits" => 2}]
   end
 
   test "a slow local Store bounds a long many-rule batch, cools down and recovers without queued writes" do

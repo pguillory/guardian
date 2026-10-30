@@ -91,6 +91,7 @@ defmodule Guardian.Web.QueryLog do
 
     :ok
   catch
+    # Recording never changes the query's answer (spec section 8).
     kind, reason ->
       log_failure(Guardian.Failure.kind(kind, reason, __STACKTRACE__))
       :ok

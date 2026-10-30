@@ -33,7 +33,7 @@ Modules:
   that tag resets every dependent plan hash.
 - `Guardian.Rules.Activation`: pure coherent reload selection, used by Publisher.
 - `Guardian.Rules.Publisher`: synchronous activation/publication and generated-module
-  pool ownership, called inside Server's scrubbed callbacks. Recovers prior plans
+  pool ownership, called inside Server's callbacks. Recovers prior plans
   only from published modules; its state contains only free names and retired
   statuses, never plans, sources or diagnostics. Reclamation timers target Server.
 - `Guardian.Rules.Compiler`: a plan into a generated module from a fixed template, with the
@@ -82,22 +82,17 @@ Modules:
 4. Credentials never leave `Guardian.ObjectStore.S3` or `Guardian.Rules.Config` (the
    object store's rule 2). Never log or return a response body, header, request, or
    a caught exception's message from a store call.
-5. Rule failures are logged by file, line and kind only, never a value (event values
-   can be the very secret an UNSET removes). Validation errors are logged the same
-   way, never by message: a message can quote rule text. The rule worker reports
-   heap kills without the error_logger report and catches every raise. Rule text
-   stays out of Guardian.Rules.Server's status and crash reports: keep every callback
-   (`init/1` and each `handle_*`) behind `scrubbed/1`, and keep sources out of new
+5. An event over its limit tells the sender and logs nothing. Validation errors are
+   logged by file, line and kind only, never by message: a message can quote rule text.
+   The rule worker reports heap kills without the error_logger report. It catches no
+   raise: a rule crash fails the request. Keep rule text out of Guardian.Rules.Server's status: keep sources out of new
    state fields or messages unless `format_status/1` redacts them. Plans and bare
    typed steps are redacted before the generic struct case, including their AST
-   constants as well as canonical source. Unknown stack-frame shapes must become a
-   fixed redacted frame, never pass through with their closures or argument values.
-   Use `Guardian.Failure` for shared stack redaction and value-free failure labels;
-   Server retains its raw-reason labels and callback catch/reraise policy.
+   constants as well as canonical source. Callbacks crash as they are.
 6. Validation is whole-set and a write is refused only for errors it adds
    (`Guardian.Rules.RuleSet.new_errors/2`, ignoring lines), so broken sets stay repairable.
-7. Rules fail closed: a statement that raises, or an event over its time or heap
-   limit, fails the event; a table whose stored rules are invalid at boot is published
+7. Rules fail closed: a statement that raises fails the request, an event over its time
+   or heap limit fails the event; a table whose stored rules are invalid at boot is published
    as invalid (its events fail, other tables run) rather than refusing startup. There are
    no switches for either (`docs/changes/ingest-rules.md`, open questions 1 and 2).
 8. Statement words are contextual (see `lib/guardian/ast/AGENTS.md`).
@@ -112,8 +107,8 @@ Modules:
     Guardian.Counters.Client provides bounded cluster ownership,
     Guardian.Counters.Execution runs a level's counters, and
     Guardian.Aggregation provides shared mergeable operators.
-13. Counter failures fail open without changing SET/UNSET's fail-closed behavior
-    or skipping final UNSETs.
+13. An unreachable counter store fails open, without changing the fail-closed behavior
+    of anything that raises or skipping final UNSETs. Keep that path simple.
 14. BY values and arbitrary, min/max, `_by` and `_n` states may retain sensitive
     values after UNSET.
 15. Rules never retry an event or roll back counter updates: an unkeyed

@@ -80,6 +80,7 @@ defmodule Guardian.Storage.Segment do
     try do
       GenServer.stop(segment, :normal, :infinity)
     catch
+      # Already gone, which is what this call wants.
       :exit, _reason -> :ok
     end
 
@@ -178,6 +179,7 @@ defmodule Guardian.Storage.Segment do
   defp read(segment, message, timeout) do
     GenServer.call(segment, message, timeout)
   catch
+    # A segment can go at any moment, by expiry or deletion: an outcome for callers.
     :exit, {reason, {GenServer, :call, _}} -> {:error, {:segment_unavailable, reason}}
   end
 

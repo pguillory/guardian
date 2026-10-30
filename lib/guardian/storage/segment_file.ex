@@ -108,6 +108,7 @@ defmodule Guardian.Storage.SegmentFile do
     Enum.each(columns, fn {_key, column} -> Column.metadata(column) end)
     {:ok, count, columns}
   rescue
+    # A corrupt file must not stop the machine loading the rest; it is skipped and logged.
     exception -> {:error, exception.__struct__}
   catch
     :throw, {:mmap, posix} -> {:error, {:mmap, posix}}

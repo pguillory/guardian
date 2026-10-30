@@ -63,6 +63,7 @@ defmodule Guardian.Web.IngestIdempotency do
       try do
         {_value, _failed_events} = ingest.()
       catch
+        # A receipt must say the outcome is unknown before the failure carries on.
         kind, reason ->
           _ = call(pid, {:finish, token, :uncertain})
           :erlang.raise(kind, reason, __STACKTRACE__)
@@ -79,6 +80,7 @@ defmodule Guardian.Web.IngestIdempotency do
   defp call(pid, message) do
     GenServer.call(pid, message, @call_timeout)
   catch
+    # Fails open: ingest goes on without a receipt (spec section 5, item 9).
     :exit, _reason -> :unavailable
   end
 

@@ -87,6 +87,7 @@ defmodule Guardian.Counters.Restarter do
     if state.subtree, do: Supervisor.stop(state.subtree, :shutdown, :infinity)
     :ok
   catch
+    # The subtree was already gone.
     :exit, _ -> :ok
   end
 
@@ -122,6 +123,8 @@ defmodule Guardian.Counters.Restarter do
   defp start_counters(state) do
     Guardian.Counters.Supervisor.start_link(state.counters)
   catch
+    # This process's whole job: counters are advisory, and a crash loop in them must not
+    # reach Guardian.Application's restart limit.
     _, _ -> {:error, :start_failed}
   end
 

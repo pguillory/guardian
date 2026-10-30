@@ -62,6 +62,10 @@ privately, not in this repository.
 - [x] local-store-lock-id: a local folder store's conditional puts are serialized
       per folder on this node; its lock had named the folder as the requester, so
       concurrent writers all held it at once (`docs/changes/local-store-lock-id.md`)
+- [x] exception-policy: expected outcomes are data and anything else raises; catches
+      are rare and each names its reason (CONTRIBUTING.md, `docs/changes/exception-policy.md`)
+- [ ] query-error-as-data: have the Resolver return `Query.Error` instead of raising it,
+      removing `Guardian.Query`'s two rescues
 - [x] counter-rescues: `Guardian.Counters.Store` validates request options instead of
       rescuing them and keeps one documented catch-all as its fail-open boundary;
       Transport's routing no longer rescues programming errors (code review follow-up)
@@ -499,6 +503,10 @@ privately, not in this repository.
 - [x] release-cookie-file: no Guardian process carries the Erlang cookie on its command
       line; the VM reads it from an owner-only file written from `RELEASE_COOKIE`
       (`docs/changes/release-cookie-file.md`)
+
+- [ ] logging: text logs cover lifecycle only and errors mean work to do; IO.puts
+      moves to Logger, scrubbing stops, and a passing `mix test` prints only dots and
+      the summary (`docs/changes/logging.md`)
 
 ## Tests
 

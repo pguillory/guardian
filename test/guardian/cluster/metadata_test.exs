@@ -87,8 +87,8 @@ defmodule Guardian.Cluster.MetadataTest do
     on_exit(fn -> :erpc.call(peer_node, :sys, :resume, [segment]) end)
 
     # The peer's schema read gives up on the segment after 5 s.
-    error = assert_raise Guardian.Cluster.NodeError, fn -> run_sql("SELECT * FROM #{table}") end
-    assert [{^peer_node, _reason}] = error.failures
+    error = assert_raise Guardian.Query.Error, fn -> run_sql("SELECT * FROM #{table}") end
+    assert error.message =~ to_string(peer_node)
 
     # A SELECT that names its columns makes no lookup; its scan waits on the segment
     # until the query's time limit.

@@ -3,11 +3,12 @@ defmodule Guardian.Rules.Runner do
   Runs a table's rules on a batch of flattened rows, outside the calling process.
 
   The rules run in a short-lived worker with this node's query heap limit
-  (`Guardian.Query.Limits.max_heap_mb/0`, reported without the error_logger report, so no
-  crash report carries an event's values). It takes the rows in order and sends back
-  each row's result as it finishes. Each row has `time_limit_ms/0` (1 s): if the
-  worker exceeds it or its heap limit, or dies, that row fails and a new worker goes on
-  with the next row. So every row gets its own outcome, in order.
+  (`Guardian.Query.Limits.max_heap_mb/0`, reported without the error_logger report: a
+  heap kill is noise). It takes the rows in order and sends back each row's result as it
+  finishes. Each row has `time_limit_ms/0` (1 s): if the worker exceeds it or its heap
+  limit, that row fails and a new worker goes on with the next row. A worker that
+  crashes any other way takes the batch with it: its exit reason becomes this process's
+  exit, which is the caller's 500. Counter updates already made stay.
 
   The worker reads the table's compiled module once per row (`Guardian.Rules.lookup/1`), so a
   reload between rows applies to the rows after it; each row sees one rule set.
@@ -15,7 +16,8 @@ defmodule Guardian.Rules.Runner do
   One failed-counter-wait budget lives outside replaceable workers; each event
   snapshots membership and starts its own counter phase on entry to the worker.
 
-  Outcomes: `{:ok, row}`, or `{:error, message}` for a row that must not be stored.
+  Outcomes: `{:ok, row}`, or `{:error, message}` for a row over a limit or with invalid
+  rules, which must not be stored.
   """
 
   def time_limit_ms do
@@ -72,15 +74,19 @@ defmodule Guardian.Rules.Runner do
       {^ref, ^index, result} ->
         collect(rest, table, [result | acc], ref, pid, monitor, batch)
 
-      {:DOWN, ^monitor, :process, ^pid, _reason} ->
+      # The heap limit. The time limit below flushes this message, so it never lands here.
+      {:DOWN, ^monitor, :process, ^pid, :killed} ->
         flush(ref)
-        run_from(rest, table, [over_limit(table, "worker exit") | acc], batch)
+        run_from(rest, table, [over_limit(table) | acc], batch)
+
+      {:DOWN, ^monitor, :process, ^pid, reason} ->
+        exit(reason)
     after
       time_limit_ms() ->
         Process.exit(pid, :kill)
         Process.demonitor(monitor, [:flush])
         flush(ref)
-        run_from(rest, table, [over_limit(table, "time limit") | acc], batch)
+        run_from(rest, table, [over_limit(table) | acc], batch)
     end
   end
 
@@ -93,8 +99,7 @@ defmodule Guardian.Rules.Runner do
     end
   end
 
-  defp over_limit(table, kind) do
-    Guardian.Rules.Runtime.note_failure("#{table}/", "-", kind)
+  defp over_limit(table) do
     {:error, "rules for #{table} exceeded their time or memory limit; the event was not stored"}
   end
 
@@ -107,18 +112,7 @@ defmodule Guardian.Rules.Runner do
         {:error, "rules for #{table} are invalid (#{message}); the event was not stored"}
 
       module ->
-        try do
-          {:ok, module.apply(row, event)}
-        rescue
-          e in Guardian.Rules.Runtime.Failure -> {:error, Exception.message(e)}
-        catch
-          # Anything else (Guardian.Rules.Runtime catches statement failures itself) is reported
-          # by kind only: an uncaught raise here would put the row in a crash report.
-          kind, reason ->
-            failure_kind = Guardian.Failure.kind(kind, reason, __STACKTRACE__)
-            Guardian.Rules.Runtime.note_failure("#{table}/", "-", failure_kind)
-            {:error, "rules for #{table} failed (#{failure_kind}); the event was not stored"}
-        end
+        {:ok, module.apply(row, event)}
     end
   end
 

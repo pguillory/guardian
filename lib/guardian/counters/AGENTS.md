@@ -76,22 +76,22 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    event, locally only (a peer still enforces its own bound); production passes neither.
    A test that builds its own Context with local owners uses them and can stay async
    (`docs/changes/counter-budget-options.md`).
-6. Return fixed errors; no key/value/exception logging. Housekeeping callback
-   failures scrub stacks through `Guardian.Failure.stacktrace/1` and reset the
-   store. Status redacts state/messages/logs.
+6. Return fixed errors; no key/value/exception logging. Status redacts
+   state/messages/logs.
    Store takes no injected functions: tests pass `now` as data, while deadlines and
    housekeeping use real time. Fault injection pauses Transport callers through a
    gate that the test build's Backend adapter waits on before calling Store
    (`Guardian.Test.Counters.StorePause`), not the housekeeper
    (`docs/changes/clock-as-data.md`).
-   Store validates request options explicitly (`:invalid_request`) and catches any
-   other request failure as `:unavailable`; that catch is its deliberate boundary for
-   direct callers and the remote endpoint. Transport's `route/2` checks
+   Store validates request options explicitly (`:invalid_request`). Only a store whose
+   table is missing or not ready answers `:unavailable`; anything else raises, on the owner, and reaches
+   the rule worker as a crash. Transport's `route/2` checks
    anchored add/increment/CAS expiries are integers before grouping or admission, so
    malformed expiries return `:invalid_request` without reserving allowance.
    `dispatch/2` takes only operations `route/2` accepted, which `Client.batch/2`
-   ensures. It rescues nothing: bad membership is a programming error that Execution
-   reports and Rules fails open. Translate valid anchored expiries only at
+   ensures. It rescues nothing: bad membership is a programming error that crashes the
+   rule worker. An owner that is unreachable fails open: Transport names what that
+   means in `invoke` (timeout, down, or without this endpoint). Translate valid anchored expiries only at
    actual dispatch.
 
 `Guardian.Counters.Client` is what Execution's round loop calls: `batch/2` takes one
@@ -214,8 +214,8 @@ Floating-point rounding/cancellation, overflow and wrapping mixed with floats
 preclude universal associativity. Min/max share query ordering. Which side wins a tie
 (including equal integer/float values) is not a contract, and nothing may depend on
 bucket merge order (`docs/changes/counter-merge-order.md`). A merge
-that raises (top-N states with different n) is a bucket error in Machine, or a
-statement failure in combine; both fail open.
+that raises (top-N states with different n) crashes the rule worker and fails the
+request.
 
 Bucket callers merge states, compare with the prior state using `===` to skip
 unchanged writes, then finish once. Count finishes raw; the int64 limit applies

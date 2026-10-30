@@ -61,7 +61,7 @@ defmodule Guardian.Query.EvaluationTestCase do
   merging each row into the accumulator as GROUP BY does: merge(new, old).
   """
   def eval_aggregate(source, rows) when is_binary(source) do
-    %Guardian.AST.Node.AggregateFunctionCall{name: name, args: args} =
+    {:ok, %Guardian.AST.Node.AggregateFunctionCall{name: name, args: args}} =
       Guardian.AST.parse_expression(source)
 
     aggregation = Guardian.Aggregation.fetch!(name)

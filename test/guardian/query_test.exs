@@ -371,9 +371,8 @@ defmodule Guardian.QueryTest do
     assert run("select -9223372036854775807 - 1") == [[-9_223_372_036_854_775_808]]
     assert run("select 9223372036854775807") == [[9_223_372_036_854_775_807]]
 
-    assert_raise Guardian.AST.ParseError, ~r/Number out of range/, fn ->
-      run("select -9223372036854775808")
-    end
+    assert {:error, %Guardian.AST.ParseError{reason: "Number out of range"}} =
+             Guardian.Query.execute("select -9223372036854775808")
   end
 
   # A statement's column labels as the query interfaces return them.
@@ -541,17 +540,8 @@ defmodule Guardian.QueryTest do
                {:error, "Only single-statement queries are supported"}
     end
 
-    test "hands a parse error to on_parse_error, then reraises it" do
-      parent = self()
-      on_parse_error = fn error -> send(parent, {:parse_error, error}) end
-
-      error =
-        assert_raise Guardian.AST.ParseError, fn ->
-          Guardian.Query.execute("select from", on_parse_error: on_parse_error)
-        end
-
-      assert_received {:parse_error, ^error}
-      refute_received {:parse_error, _}
+    test "returns a parse error as its struct" do
+      assert {:error, %Guardian.AST.ParseError{}} = Guardian.Query.execute("select from")
     end
 
     test "returns a Guardian.Query.Error from running the query" do
@@ -583,8 +573,7 @@ defmodule Guardian.QueryTest do
       assert Guardian.Query.execute("select v from _stream") == {:ok, ["v"], []}
     end
 
-    test "returns a Guardian.Query.Error from resolving the query, without on_parse_error" do
-      on_parse_error = fn error -> flunk("unexpected #{inspect(error)}") end
+    test "returns a Guardian.Query.Error from resolving the query" do
       star = "SELECT * needs FROM and a table name"
       from = "FROM needs a table name"
       desc = "DESC needs a table name"
@@ -603,7 +592,7 @@ defmodule Guardian.QueryTest do
             {"desc 'x'", desc},
             {"let coalesce(a) = a; select coalesce(1, 2)", let_arity},
           ] do
-        assert Guardian.Query.execute(sql, on_parse_error: on_parse_error) == {:error, message},
+        assert Guardian.Query.execute(sql) == {:error, message},
                sql
       end
     end

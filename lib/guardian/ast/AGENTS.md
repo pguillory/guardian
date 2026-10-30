@@ -43,7 +43,9 @@ state the precedence order; keep them in step with the tiers.
 Errors that expect something throw `{:expected, what, tokens}`. The catch in
 `with_source_parsed/2` formats them as "Expected X, got Y", with Y being the next
 token's source text or "end of input". Other errors throw
-`{:parse_error, reason, tokens}`.
+`{:parse_error, reason, tokens}`. Those throws are the parser's control flow and stop at
+that catch: every parse function returns `{:ok, result}` or
+`{:error, %Guardian.AST.ParseError{}}`, and bad input never raises.
 
 Keep parser changes independent from execution changes where possible. The query engine
 interprets expressions through `Guardian.Query.Evaluation`.

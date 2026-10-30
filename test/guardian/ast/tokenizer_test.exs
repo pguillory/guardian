@@ -1,8 +1,23 @@
 defmodule Guardian.AST.TokenizerTest do
-  import Guardian.AST.Tokenizer
+  import Guardian.AST.Tokenizer, except: [tokenize: 1, tokenize_raw: 1]
   alias Guardian.AST.ParseError
   alias Guardian.Test.WorkBounds
   use ExUnit.Case, async: true
+
+  defp tokenize(source) do
+    {:ok, tokens} = Guardian.AST.Tokenizer.tokenize(source)
+    tokens
+  end
+
+  defp tokenize_raw(source) do
+    {:ok, tokens} = Guardian.AST.Tokenizer.tokenize_raw(source)
+    tokens
+  end
+
+  defp tokenize_failure(source) do
+    {:error, error} = Guardian.AST.Tokenizer.tokenize(source)
+    error
+  end
 
   test "tokenize" do
     assert tokenize("null") == [null: nil]
@@ -22,7 +37,7 @@ defmodule Guardian.AST.TokenizerTest do
     assert tokenize("1end") == [integer: 1, keyword: "END"]
 
     assert %ParseError{reason: "Number out of range", col: 2} =
-             catch_error(tokenize("1 1e400"))
+             tokenize_failure("1 1e400")
 
     assert tokenize("'abc'") == [string: "abc"]
     assert tokenize("foo") == [identifier: "foo"]
@@ -69,14 +84,14 @@ defmodule Guardian.AST.TokenizerTest do
            ]
 
     assert tokenize("1.5") == [float: 1.5]
-    assert_raise ParseError, fn -> tokenize("a.") end
-    assert_raise ParseError, fn -> tokenize("a..") end
+    assert %ParseError{} = tokenize_failure("a.")
+    assert %ParseError{} = tokenize_failure("a..")
     assert tokenize("a...b") == [identifier: "a...b"]
     assert tokenize("a....b") == [identifier: "a....b"]
-    assert_raise ParseError, fn -> tokenize("a...") end
-    assert_raise ParseError, fn -> tokenize("select.") end
-    assert_raise ParseError, fn -> tokenize("a . b") end
-    assert_raise ParseError, fn -> tokenize(".a") end
+    assert %ParseError{} = tokenize_failure("a...")
+    assert %ParseError{} = tokenize_failure("select.")
+    assert %ParseError{} = tokenize_failure("a . b")
+    assert %ParseError{} = tokenize_failure(".a")
   end
 
   test "tokenize_raw" do
@@ -180,7 +195,7 @@ defmodule Guardian.AST.TokenizerTest do
           {"SELECT 1\n, 0009223372036854775808", "Number out of range", 1, 2},
           {"SELECT -9223372036854775808", "Number out of range", 0, 8},
         ] do
-      assert catch_error(tokenize(source)) == %ParseError{reason: reason, row: row, col: col},
+      assert tokenize_failure(source) == %ParseError{reason: reason, row: row, col: col},
              inspect(source)
     end
   end
@@ -204,14 +219,14 @@ defmodule Guardian.AST.TokenizerTest do
           "1234567890123456789012345",
         ] do
       assert %ParseError{reason: "Number out of range", row: 0, col: 0} =
-               catch_error(tokenize(source)),
+               tokenize_failure(source),
              source
     end
   end
 
   test "a huge integer literal is rejected without converting it" do
     source = String.duplicate("9", 1_000_000)
-    {reductions, error} = WorkBounds.reductions(fn -> catch_error(tokenize(source)) end)
+    {reductions, error} = WorkBounds.reductions(fn -> tokenize_failure(source) end)
     assert %ParseError{reason: "Number out of range", col: 0} = error
     # Scanning is linear, but converting the million digits first also charges
     # enough reductions to exceed this bound on the supported runtime.
@@ -219,7 +234,7 @@ defmodule Guardian.AST.TokenizerTest do
   end
 
   test "errors" do
-    assert catch_error(tokenize("SELECT 'a")) == %ParseError{
+    assert tokenize_failure("SELECT 'a") == %ParseError{
              reason: "Unterminated string literal",
              row: 0,
              col: 7,

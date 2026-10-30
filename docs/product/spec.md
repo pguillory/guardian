@@ -112,7 +112,7 @@ Guardian is also a producer of its own tables:
    touching stored data; a node reads them at startup, so the change takes effect when the node restarts with the new
    value. On Fly.io, changing the secret restarts the machine.
 4. Unauthenticated surface: `GET /health` answers without a key; it returns `200 ok`,
-   or `503 storage unavailable` while storage restarts, and reveals nothing else. CORS
+   or `503 storage unavailable` while storage restarts or the node stops, and reveals nothing else. CORS
    preflight requests to `/api/json` (an `OPTIONS` request with
    `Access-Control-Request-Method`) also get a 204 with CORS headers
    before the key is checked; they run no handler and read or write nothing. The JSON
@@ -187,6 +187,9 @@ CORS is enabled on these routes.
   `send_events` sees no fields and returns 400.
 - An idempotency conflict (changed contents, in-flight processing or an unknown
   outcome) returns 409 with `{"status":409,"info":"..."}` without another write.
+- An unexpected failure returns 500 with `{"status":500}` and no results (section 5
+  item 6). On HTTP/1, a 400, 413, 415 or 500 from the body or query-string parser or
+  from such a failure also closes the connection.
 - Otherwise a new batch's response is 200 with one result per input event, in order, even if
   every event failed:
 
@@ -210,9 +213,10 @@ authenticated like the JSON API but only with a full-access key: the ingest key 
 
 1. Tool `query` with one argument, `sql`. It runs one statement (with optional `LET`
    prefixes) and returns the rows as a JSON list of objects keyed by column label.
-   Errors raised while running the query, including parse errors ("Expected X, got
-   Y"), come back as MCP tool errors carrying the message. Protocol and transport
-   failures, such as the timeout below, come back as MCP protocol errors instead.
+   Parse errors ("Expected X, got Y") and query failures (section 7) come back as MCP
+   tool errors carrying the message. Protocol and transport failures, such as the
+   timeout below, and unexpected failures (item 5) come back as MCP protocol errors
+   instead.
    Parse errors are also recorded in `query_parse_errors`
    ([section 8](#8-built-in-tables)) with the same message; recording never changes
    the tool result.
@@ -230,6 +234,9 @@ authenticated like the JSON API but only with a full-access key: the ingest key 
    outcome is unknown says it may have been saved.
 4. Resource `guardian://query-language`: the full query-language reference as
    Markdown.
+5. A tool call that fails unexpectedly gets JSON-RPC error -32603 "Tool execution
+   crashed", and the session continues. A `send_events` or `write_rule` that fails this
+   way may have stored events (section 5 item 6) or saved the rule.
 
 Protocol version: Guardian speaks MCP protocol version 2025-03-26 and answers every
 `initialize` with it, whatever version the client asks for; it ignores the
@@ -289,7 +296,8 @@ data. Because the web server starts only after Storage has loaded every segment 
 machine's volume, a passing check at startup also means the machine's data is loaded
 (except segment files that cannot be read, which are skipped and logged).
 After startup, if storage restarts, the check returns `503 storage unavailable` until
-storage has started again and reloaded every readable segment. A Fly.io deployment
+storage has started again and reloaded every readable segment. It returns the same 503
+from the moment the machine starts to stop. A Fly.io deployment
 with several machines, set up as the Fly guide's Scaling section describes, uses it to
 gate rolling deploys, and any load balancer or orchestrator can use it the same way.
 
@@ -298,7 +306,8 @@ gate rolling deploys, and any load balancer or orchestrator can use it the same 
 An operator with a shell on a node can run `/app/bin/guardian remote` (on Fly, through
 `fly ssh console --pty -C "/app/bin/guardian remote"`) and call
 `Guardian.Query.execute("SELECT ...")` from IEx. It returns `{:ok, columns, rows}` or
-`{:error, message}`; parse and resolution errors can raise. Direct IEx queries are
+`{:error, message}`, or `{:error, %Guardian.AST.ParseError{}}` for SQL that does not
+parse; an unexpected failure raises. Direct IEx queries are
 not recorded in `queries`. The shell has full VM access and bypasses the API keys.
 
 ### 4.5 Elixir callers
@@ -315,7 +324,7 @@ Upgrading from the earlier unprefixed module names requires a full release resta
 on every node; mixed builds cannot exchange module-bearing terms or RPCs reliably.
 Stored segments and rule files retain their existing formats and need no migration.
 New diagnostics that name Guardian exception modules use `Guardian.*`, including
-per-event ingest errors and API error messages that name an exception. Existing
+API error messages that name an exception. Existing
 built-in table rows keep their old strings, so filters on those names may need both.
 
 ## 5. Ingestion
@@ -342,10 +351,14 @@ goes through the same validation and storage.
    ([section 5.1](#51-rules)). A private arrival timestamp drives counter windows;
    it is metadata outside the event, captured before validation, never automatically
    stored, and cannot be supplied or overwritten by a producer or rule.
-6. Error wording tells the caller what is safe to retry:
-   - `value cannot be stored; the event was not stored`
-   - `internal error before storage; the event was not stored`
-   - `internal error; the event may have been stored` (retrying may duplicate it)
+6. Failures: an event Guardian refuses fails on its own, with an error saying it was
+   not stored, such as `value cannot be stored; the event was not stored`. An unexpected
+   failure fails the whole request instead: HTTP 500 or, over MCP, JSON-RPC -32603, with
+   no per-event results, and nothing says which events were stored. If it happens while
+   storing, earlier events in the batch stay stored and the failing one may have been
+   (retrying may duplicate them). On a table with rules, the batch's rules all run
+   before anything is stored, so a rule crash stores nothing, but earlier events'
+   counter updates stay.
 7. Visibility: A successful write is visible to queries on that machine as soon as
    the response returns.
 8. Size: HTTP request bodies are limited by Plug's default parser limit (8 MB); a
@@ -355,16 +368,16 @@ goes through the same validation and storage.
    identifies one batch per table on one node, shared across HTTP and MCP. For ten
    seconds after processing completes, a matching retry returns
    `{"status":200,"duplicate":true,"failed_events":N}` without running rules or
-   storing again. It has no `results` array; N counts failed events, including
-   uncertain storage outcomes. Mixed and all-failed batches are remembered too.
-   Retry only known failed subsets with a new key; uncertain events may duplicate.
+   storing again. It has no `results` array; N counts failed events. Mixed and
+   all-failed batches are remembered too. Retry only the failed subset, with a new key.
    Events and return_keys must have matching decoded values (object key order is
    ignored, but number types and list order matter; omitted/null return_keys match).
    Changed requests and in-flight duplicates get HTTP 409 or MCP tool errors.
    Retry promptly after an in-flight conflict. An MCP call may queue behind an
-   earlier call in its session, or time out, before reaching this check. A caller that
-   aborts unexpectedly leaves an unknown-outcome conflict for ten seconds: events
-   may have been stored. In-flight keys do not expire while their caller lives.
+   earlier call in its session, or time out, before reaching this check. A request
+   that fails unexpectedly (item 6), or a caller that aborts, leaves an unknown-outcome
+   conflict for ten seconds: events may have been stored. In-flight keys do not expire
+   while their caller lives.
    At most 10,000 keys are held per node across all tables; capacity evicts the
    oldest completed entries first, shortening protection. If all slots are in
    flight, or the coordinator is unavailable or slow, ingestion proceeds without
@@ -450,10 +463,9 @@ UNSET password
    stored is dropped.
 5. Rules run outside the request, each event with a 1-second limit and the query heap
    limit. Functions and operators give null rather than fail (section 7), so a
-   SET/UNSET statement fails only through a bug; such a failure or an event over a
-   limit fails that event, with an error naming the rule file
-   and line or the limit, and the event is not stored. Other events in the batch are
-   unaffected.
+   statement fails only through a bug; that fails the whole request (section 5 item 6).
+   An event over a limit fails on its own, with an error naming the limit, and is not
+   stored; other events in the batch are unaffected.
 6. A table whose stored rules are invalid (edited in the store by hand, or using a
    function a newer build lacks) fails its events with `rules for <table> are invalid`
    until fixed; other tables run normally. A running machine instead keeps that
@@ -495,9 +507,12 @@ UNSET password
    copies count once. Valid definition and dependent LOOKUP edits switch together
    on each node. In-flight events keep their old identities; old state expires or
    is evicted. Queries read historical stored output fields, never live counters.
-5. Counter operations fail open: any read/update failure or counter-expression
-   exception overwrites that statement's output with its missing result, and other
-   rules (including final UNSETs) continue. A successful increment can survive a later
+5. Counter operations fail open: a read or update the counter store cannot answer
+   (unreachable, timed out, restarting or over a limit) overwrites that statement's
+   output with its missing result, and other rules (including final UNSETs) continue.
+   A counter expression that raises, or a top-N whose n differs from the state it
+   merges with, is a rule failure instead ([section
+   5.1.3](#513-running) item 5). A successful increment can survive a later
    rule or storage failure. There is no rollback or internal event retry; unkeyed
    resubmissions count again. A matching completed same-node idempotency-key retry
    skips rules but returns only its receipt, without decision values (section 5).
@@ -715,6 +730,8 @@ the shipped surface:
    stored file instead and returns the same rows; only if no stored copy remains does
    it fail the same way. A query never returns a
    partial answer, and slow steps are waited for, up to the time limit.
+   A machine that has started to stop refuses new queries with an error saying to
+   retry. This is best effort, so a query still running as it stops can fail.
    Querying a table that does not exist is not an error: it behaves like an empty
    table: row queries return no rows, and an aggregate query without `GROUP BY`
    returns one row of empty-input defaults (`count()` is 0, `sum(x)` and `avg(x)`
@@ -798,14 +815,15 @@ they follow the same retention and query rules as producer tables.
      including resolution and schema lookups; fractional milliseconds.
    - `outcome`: `ok` or `error`. `row_count`: rows returned (null on error).
    - `error_kind` (null on success): `parse` for a parse error (including an unknown
-     function); `query` for a failure answered as a query error (HTTP 400: zero or
+     function); `query` for a failure answered as a query error (zero or
      several statements, a FROM or DESC that is not a table name, `SELECT *` without a
      table, a LET function given the wrong number of arguments, a resource or time
-     limit, a function failing on a value);
-     `internal` for anything else (HTTP 500: a machine failing the schema lookup, an
-     unexpected failure).
-   - `error`: the error message, cut to 1 KiB, as MCP returns it (for a failure that
-     is not an exception, only its kind); null on success.
+     limit, a function failing on a value, a machine failing the schema lookup, a
+     machine that is stopping);
+     `internal` for an unexpected failure, which the caller sees as JSON-RPC -32603.
+   - `error`: the error message, cut to 1 KiB, as MCP returns it; for `internal`, the
+     exception's message, which the caller does not see (for a failure that is not an
+     exception, only its kind); null on success.
    - `dropped_before`: how many rows this machine dropped since its previous recorded
      row (normally 0): writes that failed, and rows refused while 1,000 were already
      waiting to be written (Storage stalled). Rows refused while the recorder process
@@ -950,3 +968,5 @@ Listed here because they change what a user sees:
    minute after checking its lease, or a write the store applies more than a minute
    after the writer gave up, can leave a rule set that validation would have refused;
    loading then fails the affected table's events until it is fixed.
+8. A segment that crashes on an unexpected insert failure loses the rows it holds in
+   memory, including rows already acknowledged.
