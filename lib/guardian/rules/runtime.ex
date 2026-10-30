@@ -21,6 +21,8 @@ defmodule Guardian.Rules.Runtime do
   alias Guardian.Aggregation
   alias Guardian.Counters.Definition
   alias Guardian.Counters.Execution
+  alias Guardian.Counters.LookupOperation
+  alias Guardian.Counters.TrackOperation
   alias Guardian.Lists
   alias Guardian.Rules.RowIndex
   alias Guardian.Rules.Runtime.Failure
@@ -116,10 +118,10 @@ defmodule Guardian.Rules.Runtime do
             values =
               Enum.map(step.aggregate_expr.args, &Guardian.Query.Evaluation.eval(context, &1))
 
-            {:run, {:track, definition, group, values}}
+            {:run, %TrackOperation{definition: definition, group: group, values: values}}
 
           %Guardian.Rules.Step.Lookup{} ->
-            {:run, {:lookup, definition, group}}
+            {:run, %LookupOperation{definition: definition, group: group}}
         end
       else
         :skip

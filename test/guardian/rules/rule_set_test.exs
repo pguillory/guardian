@@ -1,14 +1,13 @@
 defmodule Guardian.Rules.RuleSetTest do
   use ExUnit.Case, async: true
-
-  alias Guardian.Rules.RuleSet
+  import Guardian.Rules.RuleSet
 
   defp messages(files) do
-    files |> RuleSet.validate() |> Map.fetch!(:errors) |> Enum.map(& &1.message)
+    files |> validate() |> Map.fetch!(:errors) |> Enum.map(& &1.message)
   end
 
   defp steps(files, table) do
-    {:ok, plan} = RuleSet.validate(files).tables[table]
+    {:ok, plan} = validate(files).tables[table]
     Enum.map(plan.steps, & &1.source)
   end
 
@@ -79,7 +78,7 @@ defmodule Guardian.Rules.RuleSetTest do
 
   test "counter statements validate with SET and UNSET into a resolved table plan" do
     validation =
-      RuleSet.validate(%{
+      validate(%{
         "t/a.gsql" =>
           "SET x = 1;\nTRACK c = count() BY ip LAST '1h';\nLOOKUP prior = c BY ip; UNSET password",
         "u/a.gsql" => "SET x = 2",
@@ -91,22 +90,22 @@ defmodule Guardian.Rules.RuleSetTest do
     assert {:ok, %Guardian.Rules.Plan{}} = validation.tables["u"]
 
     invalid =
-      RuleSet.validate(%{
+      validate(%{
         "t/a.gsql" =>
           "\n\nTRACK other = sum(amount) LAST '2h'; LOOKUP changed = other FROM elsewhere",
       })
 
-    assert [%{kind: :counter_target}] = RuleSet.new_errors([], invalid.errors)
+    assert [%{kind: :counter_target}] = new_errors([], invalid.errors)
   end
 
   test "a valid counter cannot hide an invalid scalar expression" do
     files = %{"t/a.gsql" => "SET x = count(); TRACK c = count() LAST '1h'"}
-    before = RuleSet.validate(files)
+    before = validate(files)
     assert messages(files) == ["t/a.gsql line 1: rules cannot use aggregate functions"]
 
-    repaired = RuleSet.validate(%{"t/a.gsql" => "SET x = count()"})
+    repaired = validate(%{"t/a.gsql" => "SET x = count()"})
 
-    assert RuleSet.new_errors(before.errors, repaired.errors) == []
+    assert new_errors(before.errors, repaired.errors) == []
   end
 
   test "rejects parse errors, bad paths and oversized files" do
@@ -137,48 +136,48 @@ defmodule Guardian.Rules.RuleSetTest do
 
   test "the tables Guardian writes itself take rule files like any other table" do
     for table <- ~w[system_stats web_requests web_responses query_parse_errors queries] do
-      assert {:ok, _plan} = RuleSet.validate(%{"#{table}/a.gsql" => "SET a = 1"}).tables[table]
+      assert {:ok, _plan} = validate(%{"#{table}/a.gsql" => "SET a = 1"}).tables[table]
     end
   end
 
   test "a misnamed file in a table's folder is an error for that table" do
     for table <- ["t", "queries"] do
       validation =
-        RuleSet.validate(%{"#{table}/a.gsql" => "SET x = 1", "#{table}/A.gsql" => ""})
+        validate(%{"#{table}/a.gsql" => "SET x = 1", "#{table}/A.gsql" => ""})
 
       assert {:error, [%{file: file, kind: :path}]} = validation.tables[table]
       assert file == "#{table}/A.gsql"
     end
 
-    assert RuleSet.validate(%{"Bad/a.gsql" => ""}).tables == %{}
+    assert validate(%{"Bad/a.gsql" => ""}).tables == %{}
   end
 
   test "deleting the first of three conflicting definitions adds no new error" do
     files = %{"t/a.gsql" => "SET x = 1", "t/b.gsql" => "SET x = 2", "t/c.gsql" => "SET x = 3"}
-    before = RuleSet.validate(files).errors
-    after_delete = RuleSet.validate(Map.delete(files, "t/a.gsql")).errors
+    before = validate(files).errors
+    after_delete = validate(Map.delete(files, "t/a.gsql")).errors
     assert [%{file: "t/c.gsql", kind: :conflict}] = after_delete
-    assert RuleSet.new_errors(before, after_delete) == []
+    assert new_errors(before, after_delete) == []
   end
 
   test "a plan's hash covers file and line, so moved statements recompile" do
-    {:ok, plan} = RuleSet.validate(%{"t/a.gsql" => "SET x = 1"}).tables["t"]
-    {:ok, moved} = RuleSet.validate(%{"t/a.gsql" => "\nSET x = 1"}).tables["t"]
+    {:ok, plan} = validate(%{"t/a.gsql" => "SET x = 1"}).tables["t"]
+    {:ok, moved} = validate(%{"t/a.gsql" => "\nSET x = 1"}).tables["t"]
     refute plan.hash == moved.hash
   end
 
   test "an error in one table leaves the others valid" do
-    validation = RuleSet.validate(%{"t/a.gsql" => "SET", "u/a.gsql" => "SET x = 1"})
+    validation = validate(%{"t/a.gsql" => "SET", "u/a.gsql" => "SET x = 1"})
     assert {:error, [_]} = validation.tables["t"]
     assert {:ok, %Guardian.Rules.Plan{}} = validation.tables["u"]
   end
 
   test "new_errors ignores lines, so moving a broken statement is not a new error" do
-    before = RuleSet.validate(%{"t/a.gsql" => "SET x = nosuch(1)"}).errors
-    moved = RuleSet.validate(%{"t/a.gsql" => "-- comment\n\nSET x = nosuch(1)"}).errors
-    assert RuleSet.new_errors(before, moved) == []
-    added = RuleSet.validate(%{"t/a.gsql" => "SET x = nosuch(1)", "t/b.gsql" => "SET"}).errors
-    assert [%{file: "t/b.gsql"}] = RuleSet.new_errors(before, added)
+    before = validate(%{"t/a.gsql" => "SET x = nosuch(1)"}).errors
+    moved = validate(%{"t/a.gsql" => "-- comment\n\nSET x = nosuch(1)"}).errors
+    assert new_errors(before, moved) == []
+    added = validate(%{"t/a.gsql" => "SET x = nosuch(1)", "t/b.gsql" => "SET"}).errors
+    assert [%{file: "t/b.gsql"}] = new_errors(before, added)
   end
 
   test "limits on statements per table" do

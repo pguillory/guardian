@@ -1,7 +1,6 @@
 defmodule Guardian.Rules.ConfigTest do
   use ExUnit.Case, async: true
-
-  alias Guardian.Rules.Config
+  import Guardian.Rules.Config
 
   @s3 %{
     "GUARDIAN_RULES_S3_BUCKET" => "b",
@@ -14,12 +13,12 @@ defmodule Guardian.Rules.ConfigTest do
     dir = Path.join(System.tmp_dir!(), "rules_config_#{System.unique_integer([:positive])}")
 
     assert {:ok, {Guardian.ObjectStore.Local, %{dir: ^dir}}} =
-             Config.from_env(%{"GUARDIAN_RULES_DIR" => dir})
+             from_env(%{"GUARDIAN_RULES_DIR" => dir})
 
     File.rm_rf!(dir)
 
     default = Path.join(Application.fetch_env!(:guardian, :data_dir), "rules")
-    assert {:ok, {Guardian.ObjectStore.Local, %{dir: ^default}}} = Config.from_env(%{})
+    assert {:ok, {Guardian.ObjectStore.Local, %{dir: ^default}}} = from_env(%{})
   end
 
   test "refuses a rule folder that is or contains the data folder, or is in its segments" do
@@ -27,20 +26,20 @@ defmodule Guardian.Rules.ConfigTest do
     message = "GUARDIAN_RULES_DIR must not be the data folder or a folder containing it"
 
     for dir <- [data_dir, data_dir <> "/", Path.dirname(data_dir), Path.join(data_dir, "..")] do
-      assert Config.from_env(%{"GUARDIAN_RULES_DIR" => dir}) == {:error, message}
+      assert from_env(%{"GUARDIAN_RULES_DIR" => dir}) == {:error, message}
     end
 
-    assert Config.from_env(%{"GUARDIAN_RULES_DIR" => Path.join(data_dir, "segments/x")}) ==
+    assert from_env(%{"GUARDIAN_RULES_DIR" => Path.join(data_dir, "segments/x")}) ==
              {:error, "GUARDIAN_RULES_DIR must not be inside the segments folder"}
 
     # A sibling whose name starts with the data folder's is not inside it.
     sibling = data_dir <> "_rules_#{System.unique_integer([:positive])}"
     on_exit(fn -> File.rm_rf!(sibling) end)
-    assert {:ok, _store} = Config.from_env(%{"GUARDIAN_RULES_DIR" => sibling})
+    assert {:ok, _store} = from_env(%{"GUARDIAN_RULES_DIR" => sibling})
   end
 
   test "an S3 store holds its secret only in a closure" do
-    assert {:ok, {Guardian.ObjectStore.S3, config}} = Config.from_env(@s3)
+    assert {:ok, {Guardian.ObjectStore.S3, config}} = from_env(@s3)
     assert config.region == "auto" and config.prefix == ""
     assert config.credentials.() == {"id", "SECRET-XYZ"}
     refute inspect(config) =~ "SECRET-XYZ"
@@ -48,27 +47,27 @@ defmodule Guardian.Rules.ConfigTest do
   end
 
   test "refuses partial, mixed or malformed settings" do
-    assert Config.from_env(Map.delete(@s3, "GUARDIAN_RULES_S3_SECRET_ACCESS_KEY")) ==
+    assert from_env(Map.delete(@s3, "GUARDIAN_RULES_S3_SECRET_ACCESS_KEY")) ==
              {:error, "rule store settings missing: GUARDIAN_RULES_S3_SECRET_ACCESS_KEY"}
 
     assert {:error, "set either GUARDIAN_RULES_DIR or" <> _} =
-             Config.from_env(Map.put(@s3, "GUARDIAN_RULES_DIR", "/tmp/x"))
+             from_env(Map.put(@s3, "GUARDIAN_RULES_DIR", "/tmp/x"))
 
     assert {:error, "GUARDIAN_RULES_S3_REGION set without GUARDIAN_RULES_S3_BUCKET"} =
-             Config.from_env(%{"GUARDIAN_RULES_S3_REGION" => "auto"})
+             from_env(%{"GUARDIAN_RULES_S3_REGION" => "auto"})
 
     assert {:error, "GUARDIAN_RULES_S3_ENDPOINT must be" <> _} =
-             Config.from_env(Map.put(@s3, "GUARDIAN_RULES_S3_ENDPOINT", "example.com"))
+             from_env(Map.put(@s3, "GUARDIAN_RULES_S3_ENDPOINT", "example.com"))
 
     assert {:error, "GUARDIAN_RULES_S3_PREFIX must end in /"} =
-             Config.from_env(Map.put(@s3, "GUARDIAN_RULES_S3_PREFIX", "rules"))
+             from_env(Map.put(@s3, "GUARDIAN_RULES_S3_PREFIX", "rules"))
 
     assert {:error, "GUARDIAN_RULES_S3_PREFIX may use only " <> _} =
-             Config.from_env(Map.put(@s3, "GUARDIAN_RULES_S3_PREFIX", "my rules/"))
+             from_env(Map.put(@s3, "GUARDIAN_RULES_S3_PREFIX", "my rules/"))
   end
 
   test "http:// only for a server on this machine" do
-    endpoint = &Config.from_env(Map.put(@s3, "GUARDIAN_RULES_S3_ENDPOINT", &1))
+    endpoint = &from_env(Map.put(@s3, "GUARDIAN_RULES_S3_ENDPOINT", &1))
 
     for url <- [
           "http://localhost:9000",

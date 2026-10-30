@@ -1,5 +1,6 @@
 defmodule Guardian.EngineTest do
   use ExUnit.Case, async: false
+  import Guardian.Engine
   import Guardian.Test.Segments, only: [intercept_append: 2]
 
   test "ingests storage-safe event values without transformation" do
@@ -11,7 +12,7 @@ defmodule Guardian.EngineTest do
       "invalid" => self(),
     }
 
-    assert Guardian.Engine.ingest_event(table, event) == %{
+    assert ingest_event(table, event) == %{
              "name" => "alice",
              "score" => 10,
            }
@@ -41,7 +42,7 @@ defmodule Guardian.EngineTest do
       "items" => [%{"id" => 1, "tags" => ["t"]}, %{"id" => 2, "tags" => nil}],
     }
 
-    assert Guardian.Engine.ingest_event(table, event) == expected
+    assert ingest_event(table, event) == expected
 
     assert Guardian.Storage.dump_table(table)
            |> Enum.map(&Guardian.Storage.Flattening.unflatten_event/1) == [
@@ -60,7 +61,7 @@ defmodule Guardian.EngineTest do
 
     for event <- events do
       flat_row = Guardian.Storage.Flattening.flatten_event(event)
-      assert Guardian.Engine.ingest_event(table, event) == event
+      assert ingest_event(table, event) == event
       assert flat_row in Guardian.Storage.dump_table(table)
     end
   end
@@ -71,7 +72,7 @@ defmodule Guardian.EngineTest do
 
     # This shape cannot be rebuilt from its flattened form, so the reported event
     # omits the whole top-level field that lost a value.
-    assert Guardian.Engine.ingest_event(table, event) == %{"y" => 1}
+    assert ingest_event(table, event) == %{"y" => 1}
 
     assert Guardian.Storage.dump_table(table) == [%{"x" => [1], "x..a" => [nil, 2], "y" => 1}]
   end
@@ -80,13 +81,13 @@ defmodule Guardian.EngineTest do
     table = "engine_key_collision_#{System.unique_integer([:positive])}"
     event = %{"x" => %{"b" => 2}, x: %{a: 1}}
 
-    assert Guardian.Engine.ingest_event(table, event) == %{"x" => %{"a" => 1, "b" => 2}}
+    assert ingest_event(table, event) == %{"x" => %{"a" => 1, "b" => 2}}
     assert Guardian.Storage.dump_table(table) == [%{"x.a" => 1, "x.b" => 2}]
 
     # Colliding lists of objects are merged by flattening, so the reported event is
     # rebuilt from what was stored.
     event = %{"x" => [%{"b" => 2}], x: [%{a: 1}]}
-    assert Guardian.Engine.ingest_event(table, event) == %{"x" => [%{"a" => 1, "b" => 2}]}
+    assert ingest_event(table, event) == %{"x" => [%{"a" => 1, "b" => 2}]}
     assert %{"x..a" => [1], "x..b" => [2]} in Guardian.Storage.dump_table(table)
   end
 
@@ -97,7 +98,7 @@ defmodule Guardian.EngineTest do
     others = Map.new(1..40, fn i -> {"k#{i}", i} end)
     event = Map.merge(others, %{"x" => [1, %{"a" => 2, "b" => 2 ** 64}]})
 
-    assert Guardian.Engine.ingest_event(table, event) == others
+    assert ingest_event(table, event) == others
   end
 
   test "stores long strings and lists whole" do
@@ -106,7 +107,7 @@ defmodule Guardian.EngineTest do
     list = Enum.to_list(1..70_000)
     event = %{"s" => string, "l" => list, "nested" => %{"s" => string}}
 
-    assert Guardian.Engine.ingest_event(table, event) == event
+    assert ingest_event(table, event) == event
 
     assert Guardian.Storage.dump_table(table) == [
              %{"s" => string, "l" => list, "nested.s" => string},
@@ -117,14 +118,14 @@ defmodule Guardian.EngineTest do
     table = "engine_atom_keys_#{System.unique_integer([:positive])}"
     expected = %{"user" => %{"name" => "Alice"}, "count" => 1, "xs" => [1, %{"a" => 2}]}
 
-    assert Guardian.Engine.ingest_event(table, %{
+    assert ingest_event(table, %{
              user: %{name: "Alice"},
              count: 1,
              xs: [1, %{a: 2}],
            }) ==
              expected
 
-    assert Guardian.Engine.ingest_event(table, %{
+    assert ingest_event(table, %{
              user: %{name: "Alice"},
              count: 1,
              xs: [1, %{a: 2}],
@@ -136,14 +137,14 @@ defmodule Guardian.EngineTest do
   test "keeps nested values that are valid" do
     table = "engine_valid_nested_#{System.unique_integer([:positive])}"
     event = %{"user" => %{"name" => "Alice", "roles" => ["a", "b"]}, "n" => nil}
-    assert Guardian.Engine.ingest_event(table, event) == event
+    assert ingest_event(table, event) == event
   end
 
   test "ingests batches" do
     table = "engine_batch_#{System.unique_integer([:positive])}"
     events = [%{"value" => 1}, %{"value" => 2}]
 
-    assert Guardian.Engine.ingest_events(table, events) == Enum.map(events, &{:ok, &1})
+    assert ingest_events(table, events) == Enum.map(events, &{:ok, &1})
     assert Guardian.Storage.dump_table(table) == events
   end
 
@@ -152,7 +153,7 @@ defmodule Guardian.EngineTest do
     first = %{"value" => 1}
     last = %{"value" => 2}
 
-    assert Guardian.Engine.ingest_events(table, [first, nil, 42, "bad", [], last]) == [
+    assert ingest_events(table, [first, nil, 42, "bad", [], last]) == [
              {:ok, first},
              {:error, "event is not a JSON object"},
              {:error, "event is not a JSON object"},
@@ -162,7 +163,7 @@ defmodule Guardian.EngineTest do
            ]
 
     assert Guardian.Storage.dump_table(table) == [first, last]
-    assert Guardian.Engine.ingest_events(table, []) == []
+    assert ingest_events(table, []) == []
     # Exercise invalid input at runtime without a compile-time type warning.
     assert_raise FunctionClauseError, fn ->
       apply(Guardian.Engine, :ingest_event, [table, nil])
@@ -174,7 +175,7 @@ defmodule Guardian.EngineTest do
 
     log =
       ExUnit.CaptureLog.capture_log(fn ->
-        assert Guardian.Engine.ingest_events(table, [
+        assert ingest_events(table, [
                  %{{:bad, "ingest-log-marker"} => "ingest-log-marker"},
                  %{"value" => 2},
                ]) == [
@@ -201,7 +202,7 @@ defmodule Guardian.EngineTest do
       ExUnit.CaptureLog.capture_log(fn ->
         # An empty object produces no columns, so the key is stringified only while
         # building the reported event, where the fixture raises with a fun frame.
-        assert Guardian.Engine.ingest_events(table, [%{key => %{}}, %{"value" => 2}]) == [
+        assert ingest_events(table, [%{key => %{}}, %{"value" => 2}]) == [
                  {:error, "internal error before storage; the event was not stored"},
                  {:ok, %{"value" => 2}},
                ]
@@ -217,7 +218,7 @@ defmodule Guardian.EngineTest do
     table = unique_table()
     intercept_append(table, fn from, _row -> GenServer.reply(from, {:error, :invalid_value}) end)
 
-    assert Guardian.Engine.ingest_events(table, [%{"value" => 1}, %{"value" => 2}]) == [
+    assert ingest_events(table, [%{"value" => 1}, %{"value" => 2}]) == [
              {:error, "value cannot be stored; the event was not stored"},
              {:ok, %{"value" => 2}},
            ]
@@ -231,7 +232,7 @@ defmodule Guardian.EngineTest do
     end)
 
     assert_raise ArgumentError, "value cannot be stored", fn ->
-      Guardian.Engine.ingest_event(raising_table, %{"value" => 3})
+      ingest_event(raising_table, %{"value" => 3})
     end
   end
 
@@ -241,7 +242,7 @@ defmodule Guardian.EngineTest do
 
     log =
       ExUnit.CaptureLog.capture_log(fn ->
-        assert Guardian.Engine.ingest_events(table, [%{"value" => 1}, %{"value" => 2}]) == [
+        assert ingest_events(table, [%{"value" => 1}, %{"value" => 2}]) == [
                  {:error, "internal error; the event may have been stored"},
                  {:ok, %{"value" => 2}},
                ]
@@ -359,23 +360,23 @@ defmodule Guardian.EngineTest do
   describe "table names" do
     test "accepts lowercase SQL identifiers" do
       for table <- @valid_table_names do
-        assert Guardian.Engine.valid_table_name?(table), table
+        assert valid_table_name?(table), table
       end
     end
 
     test "rejects names that SQL cannot address" do
       for table <- @sql_unaddressable_table_names do
-        refute Guardian.Engine.valid_table_name?(table), inspect(table)
+        refute valid_table_name?(table), inspect(table)
       end
     end
 
     test "rejects names over 64 bytes, which could not be persisted" do
-      refute Guardian.Engine.valid_table_name?(String.duplicate("a", 65))
-      refute Guardian.Engine.valid_table_name?(String.duplicate("a", 200))
+      refute valid_table_name?(String.duplicate("a", 65))
+      refute valid_table_name?(String.duplicate("a", 200))
 
       error =
         assert_raise Guardian.Engine.InvalidTableNameError, fn ->
-          Guardian.Engine.ingest_event(String.duplicate("a", 200), %{"v" => 1})
+          ingest_event(String.duplicate("a", 200), %{"v" => 1})
         end
 
       assert Exception.message(error) =~ "at most 64 characters"
@@ -383,7 +384,7 @@ defmodule Guardian.EngineTest do
 
     test "rejects names that are unsafe in segment filenames" do
       for table <- @unsafe_table_names do
-        refute Guardian.Engine.valid_table_name?(table), inspect(table)
+        refute valid_table_name?(table), inspect(table)
       end
     end
 
@@ -423,15 +424,15 @@ defmodule Guardian.EngineTest do
             "Engine_bad_#{id}",
           ] do
         assert_raise Guardian.Engine.InvalidTableNameError, ~r/invalid table name/, fn ->
-          Guardian.Engine.ingest_event(table, %{"v" => 1})
+          ingest_event(table, %{"v" => 1})
         end
 
         assert_raise Guardian.Engine.InvalidTableNameError, fn ->
-          Guardian.Engine.ingest_events(table, [%{"v" => 1}])
+          ingest_events(table, [%{"v" => 1}])
         end
 
         assert_raise Guardian.Engine.InvalidTableNameError, fn ->
-          Guardian.Engine.ingest_events(table, [])
+          ingest_events(table, [])
         end
 
         assert Guardian.Storage.dump_table(table) == []

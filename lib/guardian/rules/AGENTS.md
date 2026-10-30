@@ -47,7 +47,7 @@ Modules:
   TRACK/LOOKUP dispatch uses bound identities and aggregate defaults on failure.
   For each level, Runtime prepares every counter statement as skipped, failed or
   an op, runs the ops with the event's arrival and counter context through
-  `Guardian.Counters.Execution.run_counters/4` (the
+  `Guardian.Counters.Execution.run_counters/3` (the
   counters layer: buckets, rounds, routing, combination;
   `lib/guardian/counters/AGENTS.md`), writes each result into its field and logs
   `{:error, kind}` results by file and line (`docs/changes/counter-execution-layer.md`).

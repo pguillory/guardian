@@ -5,6 +5,7 @@ defmodule Guardian.Storage.PersistedSegmentsTest do
   alias Guardian.Storage.Segment.Registration
   require Registration
   use ExUnit.Case, async: true
+  import Guardian.Storage.PersistedSegments
   import ExUnit.CaptureLog
 
   # A segment linked to the test process would die when the test ends, under the
@@ -35,7 +36,7 @@ defmodule Guardian.Storage.PersistedSegmentsTest do
           :ok = FullSegments.insert(registration)
 
           for _ <- 1..3 do
-            PersistedSegments.ping()
+            ping()
             :sys.get_state(PersistedSegments)
           end
         end)
@@ -56,9 +57,9 @@ defmodule Guardian.Storage.PersistedSegmentsTest do
         Registration.tuple(segment_id: other_id, segment: other_segment, table: other)
 
       :ok = FullSegments.insert(other_registration)
-      PersistedSegments.ping()
+      ping()
       :sys.get_state(PersistedSegments)
-      assert {:ok, ^other_segment} = PersistedSegments.get_segment(other_id)
+      assert {:ok, ^other_segment} = get_segment(other_id)
       assert File.exists?(Guardian.Storage.SegmentFile.filename(other, other_id))
 
       :ok = FullSegments.delete(registration)

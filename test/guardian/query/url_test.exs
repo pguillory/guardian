@@ -1,7 +1,6 @@
 defmodule Guardian.Query.URLTest do
   use ExUnit.Case, async: true
-
-  alias Guardian.Query.URL
+  import Guardian.Query.URL
 
   @max_port_digits 20
 
@@ -68,10 +67,10 @@ defmodule Guardian.Query.URLTest do
   # and gives nil on fixed ones (1.19.7, for example). URL.parse/1 gives the same.
   test "a port of up to 20 digits is URI.parse's, leading zeros included" do
     value = "http://h:" <> @d20 <> "/"
-    assert URL.parse(value) == URI.parse(value)
-    assert URL.parse("http://h:" <> String.duplicate("0", 18) <> "80/").port == 80
-    assert URL.parse("http://h:" <> String.duplicate("0", 19) <> "80/").port == nil
-    assert URL.parse("http://h:" <> @d21 <> "/").port == nil
+    assert parse(value) == URI.parse(value)
+    assert parse("http://h:" <> String.duplicate("0", 18) <> "80/").port == 80
+    assert parse("http://h:" <> String.duplicate("0", 19) <> "80/").port == nil
+    assert parse("http://h:" <> @d21 <> "/").port == nil
   end
 
   # URI.parse/1 raises SystemLimitError on this port on Elixir releases without the
@@ -87,7 +86,7 @@ defmodule Guardian.Query.URLTest do
              path: "/p",
              query: "q",
              fragment: "f",
-           } = URL.parse(value)
+           } = parse(value)
   end
 
   test "a long port's result holds no slice of the cut copy" do
@@ -97,7 +96,7 @@ defmodule Guardian.Query.URLTest do
     path = "/" <> path <> String.duplicate("/x", 50_000)
     port = String.duplicate("9", 21)
     value = "http://#{userinfo}@#{host}.com:#{port}#{path}?#{query}##{fragment}"
-    uri = URL.parse(value)
+    uri = parse(value)
 
     assert %URI{scheme: "http", port: nil, path: ^path, query: ^query, fragment: ^fragment} =
              uri
@@ -115,10 +114,10 @@ defmodule Guardian.Query.URLTest do
 
   test "userinfo stops at a line feed, as URI.parse's does" do
     value = "http://h:" <> String.duplicate("9", 1_300_000) <> "\n@x:1/p#f"
-    assert %URI{host: "h", port: nil, path: "/p", fragment: "f"} = URL.parse(value)
+    assert %URI{host: "h", port: nil, path: "/p", fragment: "f"} = parse(value)
 
     value = "http://u@x:1\n@h:" <> String.duplicate("9", 1_300_000) <> "/p"
-    assert %URI{userinfo: "u", host: "x", port: 1, path: "/p"} = URL.parse(value)
+    assert %URI{userinfo: "u", host: "x", port: 1, path: "/p"} = parse(value)
   end
 
   defp combinations(0) do
@@ -136,11 +135,11 @@ defmodule Guardian.Query.URLTest do
       # nil on fixed Elixir releases, the converted digits on others.
       assert is_nil(expected.port) or expected.port >= 10 ** 19, inspect(value)
 
-      assert Map.delete(URL.parse(value), :authority) ==
+      assert Map.delete(parse(value), :authority) ==
                Map.delete(%{expected | port: nil}, :authority),
              inspect(value)
     else
-      assert URL.parse(value) == expected, inspect(value)
+      assert parse(value) == expected, inspect(value)
     end
   end
 

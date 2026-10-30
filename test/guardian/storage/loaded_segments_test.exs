@@ -1,8 +1,8 @@
 defmodule Guardian.Storage.LoadedSegmentsTest do
   alias Guardian.Storage.BlobStore
-  alias Guardian.Storage.LoadedSegments
   alias Guardian.Storage.Segment
   use ExUnit.Case, async: true
+  import Guardian.Storage.LoadedSegments
   import Guardian.Test.Polling
   import Guardian.Test.Segments
 
@@ -18,13 +18,13 @@ defmodule Guardian.Storage.LoadedSegmentsTest do
         ])
 
       # Verify not loaded yet
-      assert {:error, :not_found} = LoadedSegments.get_segment(segment_id)
+      assert {:error, :not_found} = get_segment(segment_id)
 
       # Rescan should pick up the new file
-      :ok = LoadedSegments.rescan()
+      :ok = rescan()
 
       # Now it should be loaded
-      assert {:ok, loaded_segment} = LoadedSegments.get_segment(segment_id)
+      assert {:ok, loaded_segment} = get_segment(segment_id)
       assert is_pid(loaded_segment)
 
       # Verify the data is accessible
@@ -46,17 +46,17 @@ defmodule Guardian.Storage.LoadedSegmentsTest do
         ])
 
       # Rescan to load the segment
-      :ok = LoadedSegments.rescan()
-      assert {:ok, loaded_segment} = LoadedSegments.get_segment(segment_id)
+      :ok = rescan()
+      assert {:ok, loaded_segment} = get_segment(segment_id)
 
       # Delete the file
       :ok = BlobStore.delete(filename)
 
       # Rescan should remove the segment
-      :ok = LoadedSegments.rescan()
+      :ok = rescan()
 
       # Segment should no longer be accessible
-      assert {:error, :not_found} = LoadedSegments.get_segment(segment_id)
+      assert {:error, :not_found} = get_segment(segment_id)
 
       # The process should have been stopped
       refute Process.alive?(loaded_segment)
@@ -74,9 +74,9 @@ defmodule Guardian.Storage.LoadedSegmentsTest do
       write_segment_file(filename, [%{"legacy" => true}])
       on_exit(fn -> BlobStore.delete(filename) end)
 
-      :ok = LoadedSegments.rescan()
+      :ok = rescan()
 
-      assert {:error, :not_found} = LoadedSegments.get_segment(segment_id)
+      assert {:error, :not_found} = get_segment(segment_id)
       assert "legacy_test" not in Guardian.Storage.table_names()
       assert BlobStore.exists(filename)
     end
@@ -103,15 +103,15 @@ defmodule Guardian.Storage.LoadedSegmentsTest do
       segment_id = old_segment_id(20)
       filename = store_segment(table, segment_id, [%{"a" => 1}, %{"a" => "x"}])
 
-      :ok = LoadedSegments.rescan()
-      assert {:ok, segment} = LoadedSegments.get_segment(segment_id)
+      :ok = rescan()
+      assert {:ok, segment} = get_segment(segment_id)
       assert table in Guardian.Storage.table_names()
       assert Map.keys(Guardian.Storage.schema(table)) == ["a"]
 
       Guardian.Storage.SegmentExpiration.tick()
 
       refute BlobStore.exists(filename)
-      assert {:error, :not_found} = LoadedSegments.get_segment(segment_id)
+      assert {:error, :not_found} = get_segment(segment_id)
       refute Process.alive?(segment)
       eventually(fn -> table not in Guardian.Storage.table_names() end)
       assert Guardian.Storage.schema(table) == %{}
@@ -126,16 +126,16 @@ defmodule Guardian.Storage.LoadedSegmentsTest do
       store_segment(table, old_id, [%{"shared" => 1, "old_only" => true}])
       store_segment(table, new_id, [%{"shared" => 2}, %{"shared" => 3}])
 
-      :ok = LoadedSegments.rescan()
+      :ok = rescan()
       assert Map.keys(Guardian.Storage.schema(table)) == ["old_only", "shared"]
       assert Guardian.Storage.table_row_count(table) == 3
 
-      :ok = LoadedSegments.delete_segment(old_id)
+      :ok = delete_segment(old_id)
 
       eventually(fn -> Map.keys(Guardian.Storage.schema(table)) == ["shared"] end)
       assert Guardian.Storage.table_row_count(table) == 2
       assert table in Guardian.Storage.table_names()
-      assert {:ok, _segment} = LoadedSegments.get_segment(new_id)
+      assert {:ok, _segment} = get_segment(new_id)
     end
   end
 end

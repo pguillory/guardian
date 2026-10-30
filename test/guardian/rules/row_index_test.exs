@@ -1,7 +1,7 @@
 defmodule Guardian.Rules.RowIndexTest do
   use ExUnit.Case, async: true
+  import Guardian.Rules.RowIndex
 
-  alias Guardian.Rules.RowIndex
   alias Guardian.Storage.Flattening
   alias Guardian.Test.WorkBounds
 
@@ -75,20 +75,20 @@ defmodule Guardian.Rules.RowIndexTest do
       for _ <- 1..500 do
         row = Flattening.flatten_event(random_event(3))
 
-        Enum.reduce(1..12, {row, RowIndex.ensure(RowIndex.new(row))}, fn _, {ref, index} ->
+        Enum.reduce(1..12, {row, ensure(new(row))}, fn _, {ref, index} ->
           for name <- @reads do
-            assert RowIndex.fetch(index, name) == ref_fetch(ref, name), inspect({ref, name})
+            assert fetch(index, name) == ref_fetch(ref, name), inspect({ref, name})
           end
 
           {ref, index} =
             case Enum.random([:set, :unset]) do
               :set ->
                 field = Enum.random(@fields)
-                {ref_set(ref, field, 7), RowIndex.put_field(index, field, 7)}
+                {ref_set(ref, field, 7), put_field(index, field, 7)}
 
               :unset ->
                 path = Enum.random(@paths)
-                {ref_unset(ref, path), RowIndex.remove(index, String.split(path, "."))}
+                {ref_unset(ref, path), remove(index, String.split(path, "."))}
             end
 
           assert index.row == ref

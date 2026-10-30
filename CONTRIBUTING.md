@@ -50,6 +50,14 @@ diff. Credo's `MultiAlias` check enforces this in the pre-commit hook (`mix cred
 `.credo.exs` enables only that check. Grouped `import` and `require` aren't checked,
 and Guardian has none.
 
+A test file `import`s the module it tests and calls its functions unqualified
+(`import Guardian.Lists`, then `flatten(list)`), rather than aliasing it and writing
+`Lists.flatten(list)`. Stay qualified, and keep the alias, where an import would be
+ambiguous: a function that collides with `Kernel` or with a test helper, or a test that
+covers several modules. A struct or module name used as a value (`%Event{}`, a
+supervisor child) still needs its alias, alongside the import. Nothing checks this;
+follow it in new tests and when you edit old ones.
+
 Put new shared test infrastructure under `Guardian.Test.*` in
 `libtest/guardian/test/`, split by concern; see the
 [test support namespace](docs/changes/test-support-namespace.md) for existing helpers

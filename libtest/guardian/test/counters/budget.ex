@@ -10,12 +10,13 @@ defmodule Guardian.Test.Counters.Budget do
   exposing its storage layout to callers.
 
   WARNING: use `relax/1` only in tests whose assertions do not depend on production's
-  operation or event budget values (an explicit shorter `timeout_ms` still applies,
-  and the 250 ms batch allowance is unchanged). It replaces both the default and the
-  cap that `Guardian.Counters.Context` and the remote owner endpoint enforce, so a
+  operation or event budget values (an explicit `timeout_ms` still replaces it for that event,
+  and the 250 ms batch allowance is unchanged). It replaces the default that
+  `Guardian.Counters.Context` uses and the bound the remote owner endpoint enforces, so a
   test that relies on production budget behavior would silently test something else.
   Tests of reservation decisions use `scale/1` instead (below). Tests must be
-  `async: false`, since the setting is node-wide application env.
+  `async: false`, since the setting is node-wide application env. A test whose owners
+  are all local can stay async by passing `relaxed_options/0` to its events instead.
 
   With `relax/1`'s budgets, every call, healthy or failed, is still capped by the
   batch's remaining 250 ms allowance (`Budget.reserve/2`), so the effective call
@@ -48,6 +49,16 @@ defmodule Guardian.Test.Counters.Budget do
   """
   def relax(peers \\ []) do
     put(@relaxed, peers)
+  end
+
+  @doc """
+  `relax/1`'s budgets as `Guardian.Counters.Context` options for one event, with no
+  node-wide setting. Local owners only: a peer's endpoint still enforces its own bound,
+  so it refuses a call over that bound with `{:error, :invalid_request}`, which Execution
+  would quietly turn into its fail-open default.
+  """
+  def relaxed_options do
+    [event_timeout_ms: @relaxed[:event_ms], timeout_ms: @relaxed[:operation_ms]]
   end
 
   @doc """

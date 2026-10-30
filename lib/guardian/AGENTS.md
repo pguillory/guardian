@@ -94,8 +94,8 @@ single user next to that user instead.
   order). Each inverse takes heads in one pass, with no positional ids or index
   lookups (ungroup keys a map by the semantic key), and raises when its inputs do not
   fit the shape. `merge_take/4` merges two ordered lists, keeping the first `n`.
-  Counter rounds (`Guardian.Counters.Execution`, `Guardian.Counters.Transport`) and
-  `Guardian.Rules.Runtime` use the reshaping; ORDER BY with LIMIT
+  Counter rounds (`Guardian.Counters.Execution`, `Guardian.Counters.Client`,
+  `Guardian.Counters.Transport`) and `Guardian.Rules.Runtime` use the reshaping; ORDER BY with LIMIT
   (`Guardian.Query.Sorting`) and the `_n` aggregates (`Guardian.Aggregation.Ordering`)
   use `merge_take/4`.
 - `Guardian.Detached.run/1` runs a function in an unlinked process and waits for its

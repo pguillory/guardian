@@ -2,9 +2,10 @@ defmodule Guardian.Web.QueryTest do
   # The MCP query tool's runner, called directly. Its MCP-level behavior is in
   # Guardian.Web.MCP.ClientTest; recording is in QueryLogTest and QueryParseErrorsTest.
   use ExUnit.Case, async: true
+  import Guardian.Web.Query
 
   defp run(sql) do
-    Guardian.Web.Query.execute(sql, fn -> %{"interface" => "mcp"} end)
+    execute(sql, fn -> %{"interface" => "mcp"} end)
   end
 
   test "runs a grouped query and returns labels and rows" do

@@ -1,7 +1,6 @@
 defmodule Guardian.DetachedTest do
   use ExUnit.Case, async: true
-
-  alias Guardian.Detached
+  import Guardian.Detached
 
   defmodule Raiser do
     def raise_it do
@@ -10,18 +9,18 @@ defmodule Guardian.DetachedTest do
   end
 
   test "returns the function's result" do
-    assert Detached.run(fn -> {:ok, 42} end) == {:ok, 42}
+    assert run(fn -> {:ok, 42} end) == {:ok, 42}
   end
 
   test "runs the function in another process" do
     caller = self()
-    refute Detached.run(fn -> self() end) == caller
+    refute run(fn -> self() end) == caller
   end
 
   test "re-raises a raise with the worker's stacktrace" do
     error =
       try do
-        Detached.run(&Raiser.raise_it/0)
+        run(&Raiser.raise_it/0)
       rescue
         error in ArgumentError -> {error, __STACKTRACE__}
       end
@@ -30,8 +29,8 @@ defmodule Guardian.DetachedTest do
   end
 
   test "re-raises throws and exits" do
-    assert catch_throw(Detached.run(fn -> throw(:thrown) end)) == :thrown
-    assert catch_exit(Detached.run(fn -> exit(:gone) end)) == :gone
+    assert catch_throw(run(fn -> throw(:thrown) end)) == :thrown
+    assert catch_exit(run(fn -> exit(:gone) end)) == :gone
   end
 
   test "exits with the worker's reason when the worker is killed" do
@@ -42,7 +41,7 @@ defmodule Guardian.DetachedTest do
       Process.sleep(:infinity)
     end
 
-    caller = Task.async(fn -> catch_exit(Detached.run(fun)) end)
+    caller = Task.async(fn -> catch_exit(run(fun)) end)
     assert_receive {:worker, worker}
     Process.exit(worker, :kill)
     assert Task.await(caller) == :killed
@@ -59,7 +58,7 @@ defmodule Guardian.DetachedTest do
 
     caller =
       spawn(fn ->
-        Detached.run(fn ->
+        run(fn ->
           send(test, {:worker, self()})
           fun.()
         end)

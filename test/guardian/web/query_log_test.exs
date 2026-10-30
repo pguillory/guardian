@@ -1,5 +1,6 @@
 defmodule Guardian.Web.QueryLogTest do
   use ExUnit.Case, async: false
+  import Guardian.Web.QueryLog
 
   import ExUnit.CaptureLog
 
@@ -12,9 +13,9 @@ defmodule Guardian.Web.QueryLogTest do
   end
 
   defp rows_for(sql, server \\ QueryLog) do
-    :ok = QueryLog.sync(server)
+    :ok = sync(server)
 
-    QueryLog.table()
+    table()
     |> Guardian.Storage.dump_table()
     |> Enum.filter(&(&1["sql"] == sql))
   end
@@ -158,7 +159,7 @@ defmodule Guardian.Web.QueryLogTest do
     test "the table is queryable" do
       sql = "SELECT 1 FROM #{marker()}"
       run(sql)
-      :ok = QueryLog.sync()
+      :ok = sync()
 
       assert {:ok, _, keys} = run("DESC queries")
 
@@ -267,16 +268,16 @@ defmodule Guardian.Web.QueryLogTest do
     test "long SQL and errors are cut on a UTF-8 boundary" do
       sql = "SELECT " <> String.duplicate("é", 10_000)
       message = "x" <> String.duplicate("é", 1000)
-      row = QueryLog.row(sql, {:error, "query", message}, info())
+      row = row(sql, {:error, "query", message}, info())
 
       assert row["sql_truncated"] == true
       assert row["sql_bytes"] == byte_size(sql)
       assert String.valid?(row["sql"])
-      assert byte_size(row["sql"]) in (QueryLog.max_sql_bytes() - 1)..QueryLog.max_sql_bytes()
+      assert byte_size(row["sql"]) in (max_sql_bytes() - 1)..max_sql_bytes()
       assert String.starts_with?(sql, row["sql"])
       assert String.valid?(row["error"])
 
-      assert byte_size(row["error"]) in (QueryLog.max_error_bytes() - 1)..QueryLog.max_error_bytes()
+      assert byte_size(row["error"]) in (max_error_bytes() - 1)..max_error_bytes()
     end
 
     test "only interface, remote_ip and the MCP client fields are kept from the caller" do
@@ -289,7 +290,7 @@ defmodule Guardian.Web.QueryLogTest do
         "mcp_client_version" => %{"nested" => 1},
       }
 
-      row = QueryLog.row("SELECT 1", {:ok, 1}, info(caller))
+      row = row("SELECT 1", {:ok, 1}, info(caller))
       assert row["remote_ip"] == "1.2.3.4"
       assert byte_size(row["mcp_client_name"]) == 256
       assert row["mcp_client_version"] == nil
@@ -299,7 +300,7 @@ defmodule Guardian.Web.QueryLogTest do
 
     test "duration_ms is fractional milliseconds" do
       duration = System.convert_time_unit(1500, :microsecond, :native)
-      row = QueryLog.row("SELECT 1", {:ok, 1}, %{info() | duration_native: duration})
+      row = row("SELECT 1", {:ok, 1}, %{info() | duration_native: duration})
       assert row["duration_ms"] == 1.5
     end
   end
@@ -325,15 +326,15 @@ defmodule Guardian.Web.QueryLogTest do
 
       log =
         capture_log(fn ->
-          :ok = QueryLog.record("SELECT secret", {:ok, 0}, info(), server: server)
-          :ok = QueryLog.sync(server)
+          :ok = record("SELECT secret", {:ok, 0}, info(), server: server)
+          :ok = sync(server)
         end)
 
       assert log =~ "Failed to record a query in queries: RuntimeError"
       refute log =~ "secret"
 
-      :ok = QueryLog.record("SELECT 2", {:ok, 0}, info(), server: server)
-      :ok = QueryLog.sync(server)
+      :ok = record("SELECT 2", {:ok, 0}, info(), server: server)
+      :ok = sync(server)
       assert_received {:written, "queries", %{"sql" => "SELECT 2", "dropped_before" => 1}}
     end
 
@@ -353,19 +354,19 @@ defmodule Guardian.Web.QueryLogTest do
         capture_log(fn ->
           try do
             for i <- 1..1003 do
-              :ok = QueryLog.record("SELECT #{i}", {:ok, 0}, info(), server: server)
+              :ok = record("SELECT #{i}", {:ok, 0}, info(), server: server)
             end
           after
             :ok = :sys.resume(pid)
           end
 
-          :ok = QueryLog.sync(server)
+          :ok = sync(server)
         end)
 
       assert length(String.split(log, "rows behind")) == 2
 
-      :ok = QueryLog.record("SELECT last", {:ok, 0}, info(), server: server)
-      :ok = QueryLog.sync(server)
+      :ok = record("SELECT last", {:ok, 0}, info(), server: server)
+      :ok = sync(server)
 
       written =
         for _ <- 1..1001 do
@@ -383,13 +384,13 @@ defmodule Guardian.Web.QueryLogTest do
         capture_log(fn ->
           try do
             for i <- 1..1001 do
-              :ok = QueryLog.record("SELECT again #{i}", {:ok, 0}, info(), server: server)
+              :ok = record("SELECT again #{i}", {:ok, 0}, info(), server: server)
             end
           after
             :ok = :sys.resume(pid)
           end
 
-          :ok = QueryLog.sync(server)
+          :ok = sync(server)
         end)
 
       assert length(String.split(log, "rows behind")) == 2
@@ -399,7 +400,7 @@ defmodule Guardian.Web.QueryLogTest do
       log =
         capture_log(fn ->
           bad = %{timestamp: nil, duration_native: :oops, caller_fun: fn -> raise "secret" end}
-          assert QueryLog.record("SELECT secret", {:ok, 0}, bad) == :ok
+          assert record("SELECT secret", {:ok, 0}, bad) == :ok
         end)
 
       assert log =~ "Failed to record a query in queries:"

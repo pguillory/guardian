@@ -1,5 +1,6 @@
 defmodule Guardian.StorageTest do
   use ExUnit.Case, async: false
+  import Guardian.Storage
   import Guardian.Test.Query, only: [run_sql: 1]
 
   alias Guardian.Storage.MutableSegments
@@ -7,10 +8,10 @@ defmodule Guardian.StorageTest do
 
   setup context do
     table = "storage_test_#{context.test}"
-    :ok = Guardian.Storage.delete_table(table)
+    :ok = delete_table(table)
 
     on_exit(fn ->
-      :ok = Guardian.Storage.delete_table(table)
+      :ok = delete_table(table)
     end)
 
     {:ok, table: table}
@@ -36,9 +37,9 @@ defmodule Guardian.StorageTest do
   end
 
   test "append flattens a nested, atom-keyed row into dotted columns", %{table: table} do
-    :ok = Guardian.Storage.append(table, %{user: %{name: "Alice", tags: ["a"]}, n: 1})
+    :ok = append(table, %{user: %{name: "Alice", tags: ["a"]}, n: 1})
 
-    assert Guardian.Storage.dump_table(table) == [
+    assert dump_table(table) == [
              %{"n" => 1, "user.name" => "Alice", "user.tags" => ["a"]},
            ]
   end
@@ -50,75 +51,75 @@ defmodule Guardian.StorageTest do
     Guardian.Test.Segments.intercept_append(table, refuse)
 
     assert_raise ArgumentError, "value cannot be stored", fn ->
-      Guardian.Storage.append(table, %{"a" => 1})
+      append(table, %{"a" => 1})
     end
 
     Guardian.Test.Segments.intercept_append(table, refuse)
 
     assert_raise ArgumentError, "value cannot be stored", fn ->
-      Guardian.Storage.append_flattened(table, %{"a" => 1})
+      append_flattened(table, %{"a" => 1})
     end
 
     Guardian.Test.Segments.intercept_append(table, refuse)
 
-    assert Guardian.Storage.append_flattened_result(table, %{"a" => 1}) ==
+    assert append_flattened_result(table, %{"a" => 1}) ==
              {:error, :invalid_value}
 
-    assert Guardian.Storage.dump_table(table) == []
+    assert dump_table(table) == []
   end
 
   # Guardian.Storage.Value accepts a map value, but no column holds one, so the segment refuses
   # it. Guardian.Storage.append would flatten the map away instead.
   test "a map value in a flattened row is refused by the segment", %{table: table} do
     assert_raise ArgumentError, "value cannot be stored", fn ->
-      Guardian.Storage.append_flattened(table, %{"a" => %{}})
+      append_flattened(table, %{"a" => %{}})
     end
 
-    assert Guardian.Storage.append_flattened_result(table, %{"a" => %{"b" => 1}}) ==
+    assert append_flattened_result(table, %{"a" => %{"b" => 1}}) ==
              {:error, :invalid_value}
 
-    assert Guardian.Storage.dump_table(table) == []
+    assert dump_table(table) == []
   end
 
   test "a value no column can hold raises in the caller from every append", %{table: table} do
     for append <- [
-          &Guardian.Storage.append/2,
-          &Guardian.Storage.append_flattened/2,
-          &Guardian.Storage.append_flattened_result/2,
+          &append/2,
+          &append_flattened/2,
+          &append_flattened_result/2,
         ] do
       assert_raise MatchError, fn -> append.(table, %{"a" => [[[1]]]}) end
     end
 
-    assert Guardian.Storage.dump_table(table) == []
+    assert dump_table(table) == []
   end
 
   test "segments are read by ID", %{table: table} do
-    :ok = Guardian.Storage.append(table, %{"a" => 1})
-    :ok = Guardian.Storage.append(table, %{"b" => "x"})
-    [id] = Enum.to_list(Guardian.Storage.segment_ids(table))
+    :ok = append(table, %{"a" => 1})
+    :ok = append(table, %{"b" => "x"})
+    [id] = Enum.to_list(segment_ids(table))
 
-    assert {:ok, 2} = Guardian.Storage.segment_row_count(id)
-    assert {:ok, a} = Guardian.Storage.get_column(id, "a")
+    assert {:ok, 2} = segment_row_count(id)
+    assert {:ok, a} = get_column(id, "a")
     assert Guardian.Storage.Column.to_list(a) == [1, nil]
-    assert {:ok, b} = Guardian.Storage.get_column(id, "b")
+    assert {:ok, b} = get_column(id, "b")
     assert Guardian.Storage.Column.to_list(b) == [nil, "x"]
-    assert {:ok, :missing} = Guardian.Storage.get_column(id, "c")
+    assert {:ok, :missing} = get_column(id, "c")
   end
 
   test "a segment that is gone reads as unavailable, not found", %{table: table} do
     unknown = Guardian.SegmentID.generate()
 
     assert {:error, {:segment_unavailable, :not_found}} =
-             Guardian.Storage.segment_row_count(unknown)
+             segment_row_count(unknown)
 
     assert {:error, {:segment_unavailable, :not_found}} =
-             Guardian.Storage.get_column(unknown, "a")
+             get_column(unknown, "a")
 
-    :ok = Guardian.Storage.append(table, %{"a" => 1})
-    [id] = Enum.to_list(Guardian.Storage.segment_ids(table))
-    :ok = Guardian.Storage.delete_segment(id)
-    assert {:error, {:segment_unavailable, :not_found}} = Guardian.Storage.segment_row_count(id)
-    assert {:error, {:segment_unavailable, :not_found}} = Guardian.Storage.get_column(id, "a")
+    :ok = append(table, %{"a" => 1})
+    [id] = Enum.to_list(segment_ids(table))
+    :ok = delete_segment(id)
+    assert {:error, {:segment_unavailable, :not_found}} = segment_row_count(id)
+    assert {:error, {:segment_unavailable, :not_found}} = get_column(id, "a")
   end
 
   test "segment ID streams emit overlapping lifecycle IDs only once", %{table: table} do
@@ -142,8 +143,8 @@ defmodule Guardian.StorageTest do
       end)
     end
 
-    all_ids = Guardian.Storage.segment_ids(table)
-    unloaded_ids = Guardian.Storage.unloaded_segment_ids(table)
+    all_ids = segment_ids(table)
+    unloaded_ids = unloaded_segment_ids(table)
 
     assert %Stream{} = all_ids
     assert %Stream{} = unloaded_ids
@@ -174,19 +175,19 @@ defmodule Guardian.StorageTest do
   test "list-heavy events fill segments by row count" do
     # SQL needs an addressable table name.
     table = "storage_list_rollover"
-    :ok = Guardian.Storage.delete_table(table)
-    on_exit(fn -> :ok = Guardian.Storage.delete_table(table) end)
+    :ok = delete_table(table)
+    on_exit(fn -> :ok = delete_table(table) end)
 
     # 16384 rows of 5-element lists put 81,920 values in one nested layer, past the old
     # 65535 cap. The segment fills by its row count.
     count = 20_000
 
     for i <- 1..count do
-      :ok = Guardian.Storage.append(table, %{"i" => i, "tags" => [i, i + 1, i + 2, i + 3, i + 4]})
+      :ok = append(table, %{"i" => i, "tags" => [i, i + 1, i + 2, i + 3, i + 4]})
     end
 
-    assert Guardian.Storage.table_row_count(table) == count
-    assert length(Enum.to_list(Guardian.Storage.segment_ids(table))) >= 2
+    assert table_row_count(table) == count
+    assert length(Enum.to_list(segment_ids(table))) >= 2
 
     for segment <- MutableSegments.get_mutable_segments(table) do
       :ok = MutableSegments.segment_is_full(table, segment)
@@ -206,21 +207,21 @@ defmodule Guardian.StorageTest do
 
   test "large events roll over by bytes before the row capacity" do
     table = "storage_byte_rollover_#{System.unique_integer([:positive])}"
-    on_exit(fn -> :ok = Guardian.Storage.delete_table(table) end)
+    on_exit(fn -> :ok = delete_table(table) end)
 
     # About 64 KB per event reaches the 64 MiB byte budget after about 1050 events.
     count = 1500
 
     for i <- 1..count do
       :ok =
-        Guardian.Storage.append(table, %{
+        append(table, %{
           "i" => i,
           "s" => String.duplicate("#{rem(i, 10)}", 64_000),
         })
     end
 
-    assert Guardian.Storage.table_row_count(table) == count
-    assert length(Enum.to_list(Guardian.Storage.segment_ids(table))) >= 2
+    assert table_row_count(table) == count
+    assert length(Enum.to_list(segment_ids(table))) >= 2
 
     for segment <- MutableSegments.get_mutable_segments(table) do
       :ok = MutableSegments.segment_is_full(table, segment)
@@ -238,7 +239,7 @@ defmodule Guardian.StorageTest do
   # LoadedSegments' minute scan once loaded a segment that PersistedSegments still
   # cached while the byte-rollover test above counted, and the old count added it twice.
   test "table_row_count counts a segment once while it is cached and loaded", %{table: table} do
-    for i <- 1..10, do: :ok = Guardian.Storage.append(table, %{"i" => i})
+    for i <- 1..10, do: :ok = append(table, %{"i" => i})
 
     for segment <- MutableSegments.get_mutable_segments(table) do
       :ok = MutableSegments.segment_is_full(table, segment)
@@ -248,17 +249,17 @@ defmodule Guardian.StorageTest do
     :sys.get_state(PersistedSegments)
     :ok = Guardian.Storage.LoadedSegments.rescan()
 
-    [segment_id] = Enum.to_list(Guardian.Storage.segment_ids(table))
+    [segment_id] = Enum.to_list(segment_ids(table))
     assert segment_id in PersistedSegments.segment_ids(table)
     assert segment_id in Guardian.Storage.LoadedSegments.segment_ids(table)
-    assert Guardian.Storage.table_row_count(table) == 10
+    assert table_row_count(table) == 10
   end
 
   defp assert_dump(table, rows) do
     Enum.each(rows, fn row ->
-      :ok = Guardian.Storage.append(table, row)
+      :ok = append(table, row)
     end)
 
-    assert Guardian.Storage.dump_table(table) == Enum.sort(rows)
+    assert dump_table(table) == Enum.sort(rows)
   end
 end

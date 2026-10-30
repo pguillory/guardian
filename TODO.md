@@ -144,6 +144,13 @@ privately, not in this repository.
       to `Guardian.Counters.Execution` in the counters layer; Rules.Runtime prepares
       statements and writes results; Execution owns owner dispatch order; client
       tests run through the real round loop (`docs/changes/counter-execution-layer.md`)
+- [x] counter-client-fanout: Execution hands one list of operations to
+      `Client.batch/2`, which routes, groups, runs owners in parallel and restores order;
+      the injected dispatch function goes, and Execution's tests run on the real Client,
+      async through per-event budgets (`docs/changes/counter-client-fanout.md`)
+- [x] counter-operation-structs: named TrackOperation and LookupOperation structs
+      replace the `{:track, ...}` and `{:lookup, ...}` tuples
+      (`docs/changes/counter-operation-structs.md`)
 - [x] counter-machine-nil-operation: reject nil initial and next operations instead
       of silently treating a malformed callback transition as completion
       (`docs/changes/counter-machine-nil-operation.md`)

@@ -1,9 +1,9 @@
 defmodule Guardian.Rules.PublisherTest do
   use ExUnit.Case, async: false
+  import Guardian.Rules.Publisher
   import Guardian.Test.Rules
 
   alias Guardian.Rules
-  alias Guardian.Rules.Publisher
   alias Guardian.Rules.RuleSet
 
   setup do
@@ -17,7 +17,7 @@ defmodule Guardian.Rules.PublisherTest do
   # from Server. restart_server's cleanup restores the shared Server afterward.
   defp take_publisher do
     assert :ok = Supervisor.terminate_child(Guardian.Application, Rules.Server)
-    Publisher.new(Rules.published())
+    new(Rules.published())
   end
 
   test "compiler refusal discards earlier compiled tables without changing publication or pool" do
@@ -41,7 +41,7 @@ defmodule Guardian.Rules.PublisherTest do
       | tables: Map.put(preparation.tables, refused, {:ok, %{plan | resolved?: false}}),
     }
 
-    assert {:error, message, []} = Publisher.activate(publisher, broken)
+    assert {:error, message, []} = activate(publisher, broken)
     assert message == "compiling the rules for #{refused} failed (unresolved_plan)"
 
     assert Rules.published() == before
@@ -54,7 +54,7 @@ defmodule Guardian.Rules.PublisherTest do
       refute function_exported?(module, :plan, 0)
     end
 
-    assert {:ok, activated, []} = Publisher.activate(publisher, preparation)
+    assert {:ok, activated, []} = activate(publisher, preparation)
     assert activated.free == Enum.drop(publisher.free, 2)
     assert activated.retired[old] == :pending
     refute old in activated.free
@@ -65,7 +65,7 @@ defmodule Guardian.Rules.PublisherTest do
 
     # Reusing the same hashes consumes no additional names or retirement slots.
     published = Rules.published()
-    assert {:ok, ^activated, []} = Publisher.activate(activated, preparation)
+    assert {:ok, ^activated, []} = activate(activated, preparation)
     assert Rules.published() == published
   end
 
@@ -84,7 +84,7 @@ defmodule Guardian.Rules.PublisherTest do
     assert :code.is_loaded(old) == false
     assert :erlang.check_old_code(old)
     refute :code.is_loaded(loaded) == false
-    publisher = Publisher.new(Rules.published())
+    publisher = new(Rules.published())
     for module <- [old, loaded, current], do: refute(module in publisher.free)
     assert publisher.retired[old] == :pending
     assert publisher.retired[loaded] == :pending
@@ -93,12 +93,12 @@ defmodule Guardian.Rules.PublisherTest do
 
     # Deleting already-old code emits an OTP diagnostic; reclamation still uses
     # the same delete-then-soft-purge sequence as before the extraction.
-    {reclaimed, _log} = ExUnit.CaptureLog.with_log(fn -> Publisher.reclaim(publisher, old) end)
+    {reclaimed, _log} = ExUnit.CaptureLog.with_log(fn -> reclaim(publisher, old) end)
     assert List.last(reclaimed.free) == old
     refute Map.has_key?(reclaimed.retired, old)
     refute :erlang.check_old_code(old)
-    assert Publisher.reclaim(reclaimed, old) == reclaimed
-    assert Publisher.reclaim(reclaimed, current) == reclaimed
+    assert reclaim(reclaimed, old) == reclaimed
+    assert reclaim(reclaimed, current) == reclaimed
     assert Rules.lookup(table) == current
     assert current.apply(%{}) == %{"x" => 3}
   end
@@ -124,8 +124,8 @@ defmodule Guardian.Rules.PublisherTest do
     on_exit(fn -> send(pid, :release) end)
     assert_receive {:holding, ^pid}
 
-    publisher = Publisher.new(Rules.published())
-    deleted = Publisher.reclaim(publisher, module)
+    publisher = new(Rules.published())
+    deleted = reclaim(publisher, module)
     assert Process.alive?(pid)
     assert deleted.retired[module] == :deleted
     refute module in deleted.free
@@ -134,10 +134,10 @@ defmodule Guardian.Rules.PublisherTest do
 
     send(pid, :release)
     assert_receive {:DOWN, ^ref, :process, ^pid, :normal}
-    reclaimed = Publisher.reclaim(deleted, module)
+    reclaimed = reclaim(deleted, module)
     refute Map.has_key?(reclaimed.retired, module)
     assert List.last(reclaimed.free) == module
     refute :erlang.check_old_code(module)
-    assert Publisher.reclaim(reclaimed, module) == reclaimed
+    assert reclaim(reclaimed, module) == reclaimed
   end
 end

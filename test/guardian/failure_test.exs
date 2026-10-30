@@ -1,5 +1,6 @@
 defmodule Guardian.FailureTest do
   use ExUnit.Case, async: true
+  import Guardian.Failure
 
   alias Guardian.Failure
 
@@ -11,13 +12,13 @@ defmodule Guardian.FailureTest do
           {:badarg, "ArgumentError"},
           {{:badmatch, "PRIVATE"}, "MatchError"},
         ] do
-      assert Failure.kind(:error, reason, stack) == expected
+      assert kind(:error, reason, stack) == expected
     end
 
-    assert Failure.kind(:exit, {:timeout, {GenServer, :call, ["PRIVATE"]}}, stack) ==
+    assert kind(:exit, {:timeout, {GenServer, :call, ["PRIVATE"]}}, stack) ==
              "exit :timeout"
 
-    assert Failure.kind(:throw, {"PRIVATE", self()}, stack) == "throw"
+    assert kind(:throw, {"PRIVATE", self()}, stack) == "throw"
   end
 
   test "exit labels unwrap GenServer calls without inspecting carried values" do
@@ -30,24 +31,24 @@ defmodule Guardian.FailureTest do
           {{{:badmatch, "PRIVATE"}, []}, "an abnormal exit"},
           {%{"PRIVATE" => self()}, "an abnormal exit"},
         ] do
-      assert Failure.exit_kind(reason) == expected
+      assert exit_kind(reason) == expected
 
       wrapped = {reason, {GenServer, :call, ["PRIVATE"]}}
-      assert Failure.exit_kind(wrapped) == expected
-      assert Failure.exit_kind({wrapped, {GenServer, :call, ["PRIVATE"]}}) == expected
+      assert exit_kind(wrapped) == expected
+      assert exit_kind({wrapped, {GenServer, :call, ["PRIVATE"]}}) == expected
     end
 
     crash = {%ArgumentError{message: "PRIVATE"}, [{__MODULE__, :fun, ["PRIVATE"], []}]}
-    assert Failure.exit_kind({crash, {GenServer, :call, ["PRIVATE"]}}) == "ArgumentError"
+    assert exit_kind({crash, {GenServer, :call, ["PRIVATE"]}}) == "ArgumentError"
   end
 
   test "raw callback reason labels stay distinct from normalized caught errors" do
-    assert Failure.reason_kind(%ArgumentError{message: "PRIVATE"}) == "ArgumentError"
-    assert Failure.reason_kind(:badarg) == ":badarg"
-    assert Failure.reason_kind({:badmatch, "PRIVATE", self()}) == ":badmatch"
-    assert Failure.reason_kind({}) == "term"
-    assert Failure.reason_kind({"PRIVATE", self()}) == "term"
-    assert Failure.reason_kind(%{"PRIVATE" => self()}) == "term"
+    assert reason_kind(%ArgumentError{message: "PRIVATE"}) == "ArgumentError"
+    assert reason_kind(:badarg) == ":badarg"
+    assert reason_kind({:badmatch, "PRIVATE", self()}) == ":badmatch"
+    assert reason_kind({}) == "term"
+    assert reason_kind({"PRIVATE", self()}) == "term"
+    assert reason_kind(%{"PRIVATE" => self()}) == "term"
   end
 
   test "MFA frames keep arity and only typed file and line locations" do
@@ -60,7 +61,7 @@ defmodule Guardian.FailureTest do
       line: -1,
     ]
 
-    assert Failure.stacktrace([
+    assert stacktrace([
              {__MODULE__, :example, ["PRIVATE", %{value: "PRIVATE"}], location},
              {__MODULE__, :example, 2, location},
            ]) == [
@@ -82,9 +83,9 @@ defmodule Guardian.FailureTest do
           {__MODULE__, :example, 1, marker},
           {:unknown, marker},
         ] do
-      assert Failure.stacktrace([frame]) == [{Failure, :redacted, 0, []}]
+      assert stacktrace([frame]) == [{Failure, :redacted, 0, []}]
     end
 
-    assert Failure.stacktrace([]) == []
+    assert stacktrace([]) == []
   end
 end

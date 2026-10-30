@@ -1,7 +1,6 @@
 defmodule Guardian.Test.EnvTest do
   use ExUnit.Case, async: false
-
-  alias Guardian.Test.Env
+  import Guardian.Test.Env
 
   @set :test_env_test_set
   @unset :test_env_test_unset
@@ -16,7 +15,7 @@ defmodule Guardian.Test.EnvTest do
   end
 
   test "put restores set values, nil values and absent keys through its restore function" do
-    restore = Env.put([{@set, 1}, {@unset, 2}, {:test_env_test_nil, 3}])
+    restore = put([{@set, 1}, {@unset, 2}, {:test_env_test_nil, 3}])
     assert Application.fetch_env(:guardian, @set) == {:ok, 1}
     assert Application.fetch_env(:guardian, @unset) == {:ok, 2}
     assert Application.fetch_env(:guardian, :test_env_test_nil) == {:ok, 3}
@@ -40,12 +39,12 @@ defmodule Guardian.Test.EnvTest do
       assert Application.fetch_env(:guardian, @unset) == :error
     end)
 
-    Env.put([{@set, 1}, {@unset, 2}])
+    put([{@set, 1}, {@unset, 2}])
     assert Application.fetch_env(:guardian, @set) == {:ok, 1}
   end
 
   test "a key put twice in one call ends at its original value" do
-    restore = Env.put([{@set, 1}, {@set, 2}])
+    restore = put([{@set, 1}, {@set, 2}])
     assert Application.fetch_env(:guardian, @set) == {:ok, 2}
     restore.()
     assert Application.fetch_env(:guardian, @set) == {:ok, :original}
@@ -53,8 +52,8 @@ defmodule Guardian.Test.EnvTest do
 
   test "with_env restores after the block, also when it raises, and nests" do
     result =
-      Env.with_env([{@set, :outer}], fn ->
-        Env.with_env([{@set, :inner}, {@unset, :inner}], fn ->
+      with_env([{@set, :outer}], fn ->
+        with_env([{@set, :inner}, {@unset, :inner}], fn ->
           assert Application.fetch_env(:guardian, @set) == {:ok, :inner}
         end)
 
@@ -67,7 +66,7 @@ defmodule Guardian.Test.EnvTest do
     assert Application.fetch_env(:guardian, @set) == {:ok, :original}
 
     assert_raise RuntimeError, fn ->
-      Env.with_env([{@set, :raised}], fn -> raise "boom" end)
+      with_env([{@set, :raised}], fn -> raise "boom" end)
     end
 
     assert Application.fetch_env(:guardian, @set) == {:ok, :original}

@@ -1,17 +1,18 @@
 defmodule Guardian.SystemStatsTest do
   use ExUnit.Case, async: false
+  import Guardian.SystemStats
   import ExUnit.CaptureLog
 
   test "records system_stats events through normal ingestion" do
     count_before = Guardian.Storage.table_row_count("system_stats")
 
-    assert :ok = Guardian.SystemStats.record_metrics()
+    assert :ok = record_metrics()
     assert Guardian.Storage.table_row_count("system_stats") > count_before
   end
 
   test "stamps each system_stats event with a UTC timestamp" do
     before_metrics = NaiveDateTime.utc_now(:second)
-    timestamp = Keyword.fetch!(Guardian.SystemStats.metrics(), :timestamp)
+    timestamp = Keyword.fetch!(metrics(), :timestamp)
     after_metrics = NaiveDateTime.utc_now(:second)
 
     assert {:ok, recorded} = NaiveDateTime.from_iso8601(timestamp)
@@ -21,11 +22,11 @@ defmodule Guardian.SystemStatsTest do
   end
 
   test "counter availability is visible in metrics while health remains Storage-only" do
-    assert Keyword.fetch!(Guardian.SystemStats.metrics(), :counters_available) == true
+    assert Keyword.fetch!(metrics(), :counters_available) == true
     :ok = Supervisor.terminate_child(Guardian.Application, Guardian.Counters.Restarter)
 
     try do
-      assert Keyword.fetch!(Guardian.SystemStats.metrics(), :counters_available) == false
+      assert Keyword.fetch!(metrics(), :counters_available) == false
       conn = Plug.Test.conn(:get, "/health") |> Guardian.Web.MainRouter.call(nil)
       assert conn.status == 200
       assert conn.resp_body == "ok"
@@ -33,7 +34,7 @@ defmodule Guardian.SystemStatsTest do
       {:ok, _} = Supervisor.restart_child(Guardian.Application, Guardian.Counters.Restarter)
     end
 
-    assert Keyword.fetch!(Guardian.SystemStats.metrics(), :counters_available) == true
+    assert Keyword.fetch!(metrics(), :counters_available) == true
   end
 
   # Delivers a tick now and waits until it has been handled.

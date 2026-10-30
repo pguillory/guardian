@@ -1,5 +1,6 @@
 defmodule Guardian.Web.QueryParseErrorsTest do
   use ExUnit.Case, async: false
+  import Guardian.Web.QueryParseErrors
 
   import ExUnit.CaptureLog
 
@@ -11,9 +12,9 @@ defmodule Guardian.Web.QueryParseErrorsTest do
   end
 
   defp rows_for(sql, server \\ QueryParseErrors) do
-    :ok = QueryParseErrors.sync(server)
+    :ok = sync(server)
 
-    QueryParseErrors.table()
+    table()
     |> Guardian.Storage.dump_table()
     |> Enum.filter(&(&1["sql"] == sql))
   end
@@ -71,9 +72,9 @@ defmodule Guardian.Web.QueryParseErrorsTest do
 
       assert {:ok, _, _} = run("SELECT 1 FROM #{marker}")
       assert {:error, _} = run("SELECT 1 FROM #{marker}; SELECT 2")
-      :ok = QueryParseErrors.sync()
+      :ok = sync()
 
-      rows = Guardian.Storage.dump_table(QueryParseErrors.table())
+      rows = Guardian.Storage.dump_table(table())
       refute Enum.any?(rows, &String.contains?(&1["sql"] || "", marker))
     end
 
@@ -114,7 +115,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
     test "the table is queryable like other built-in tables" do
       sql = bad_sql()
       run(sql)
-      :ok = QueryParseErrors.sync()
+      :ok = sync()
 
       assert {:ok, _, tables} = run("SHOW TABLES")
       assert ["query_parse_errors"] in tables
@@ -142,7 +143,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       for {caller_fun, kind} <- callers do
         log =
           capture_log(fn ->
-            assert QueryParseErrors.record(bad_sql(), error, caller_fun) == :ok
+            assert record(bad_sql(), error, caller_fun) == :ok
           end)
 
         assert log =~ "Failed to record a query parse error: #{kind}"
@@ -181,10 +182,10 @@ defmodule Guardian.Web.QueryParseErrorsTest do
 
       assert response.result["isError"] == true
       assert [%{"text" => "ambiguous column" <> _}] = response.result["content"]
-      :ok = QueryParseErrors.sync()
+      :ok = sync()
 
       refute Enum.any?(
-               Guardian.Storage.dump_table(QueryParseErrors.table()),
+               Guardian.Storage.dump_table(table()),
                &String.contains?(&1["sql"] || "", table)
              )
     end
@@ -206,13 +207,13 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       # "é" is two bytes after an odd-length prefix, so the cap splits a character.
       sql = "SELECT FROM x WHERE " <> String.duplicate("é", 10_000)
       error = %Guardian.AST.ParseError{reason: "test", row: 0, col: 0}
-      row = QueryParseErrors.row(sql, error, %{"interface" => "mcp"})
+      row = row(sql, error, %{"interface" => "mcp"})
 
       assert row["sql_truncated"] == true
       assert row["sql_bytes"] == byte_size(sql)
       assert String.valid?(row["sql"])
 
-      assert byte_size(row["sql"]) in (QueryParseErrors.max_sql_bytes() - 1)..QueryParseErrors.max_sql_bytes()
+      assert byte_size(row["sql"]) in (max_sql_bytes() - 1)..max_sql_bytes()
 
       assert String.starts_with?(sql, row["sql"])
     end
@@ -222,13 +223,13 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       long = String.duplicate("x", 10_000)
 
       row =
-        QueryParseErrors.row("SELECT", error, %{
+        row("SELECT", error, %{
           "interface" => "mcp",
           "mcp_client_name" => long,
           "mcp_client_version" => %{"nested" => 1},
         })
 
-      assert byte_size(row["mcp_client_name"]) == QueryParseErrors.max_caller_field_bytes()
+      assert byte_size(row["mcp_client_name"]) == max_caller_field_bytes()
       assert row["mcp_client_version"] == nil
     end
 
@@ -254,17 +255,15 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       log =
         capture_log(fn ->
           :ok =
-            QueryParseErrors.record(lost, error, fn -> %{"interface" => "mcp"} end,
-              server: server
-            )
+            record(lost, error, fn -> %{"interface" => "mcp"} end, server: server)
 
-          :ok = QueryParseErrors.sync(server)
+          :ok = sync(server)
         end)
 
       assert log =~ "Failed to record a mcp query parse error: RuntimeError"
 
       :ok =
-        QueryParseErrors.record(kept, error, fn -> %{"interface" => "mcp"} end, server: server)
+        record(kept, error, fn -> %{"interface" => "mcp"} end, server: server)
 
       assert rows_for(lost, server) == []
       assert [%{"dropped_before" => 1}] = rows_for(kept, server)
@@ -281,7 +280,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       log =
         capture_log(fn ->
           :ok =
-            QueryParseErrors.record(sql, error, fn -> %{"interface" => "mcp"} end, server: server)
+            record(sql, error, fn -> %{"interface" => "mcp"} end, server: server)
         end)
 
       assert log =~ "the recorder is 100 rows behind"
@@ -300,7 +299,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       error = %Guardian.AST.ParseError{reason: "test", row: 0, col: 0}
 
       :ok =
-        QueryParseErrors.record(
+        record(
           sql,
           error,
           fn -> %{"interface" => "mcp", "user_agent" => agent} end,
@@ -313,7 +312,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
         assert :binary.referenced_byte_size(value) == byte_size(value)
       end
 
-      assert byte_size(row["sql"]) == QueryParseErrors.max_sql_bytes()
+      assert byte_size(row["sql"]) == max_sql_bytes()
     end
 
     test "rows over the hourly cap are dropped and counted on the next recorded row" do
@@ -332,12 +331,10 @@ defmodule Guardian.Web.QueryParseErrorsTest do
           for sql <- sqls do
             error = %Guardian.AST.ParseError{reason: "test", row: 0, col: 0}
 
-            assert QueryParseErrors.record(sql, error, fn -> %{"interface" => "mcp"} end,
-                     server: server
-                   ) == :ok
+            assert record(sql, error, fn -> %{"interface" => "mcp"} end, server: server) == :ok
           end
 
-          :ok = QueryParseErrors.sync(server)
+          :ok = sync(server)
         end)
 
       assert log =~ "2 rows already recorded this hour"
@@ -349,7 +346,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       error = %Guardian.AST.ParseError{reason: "test", row: 0, col: 0}
 
       :ok =
-        QueryParseErrors.record(sql, error, fn -> %{"interface" => "mcp"} end, server: server)
+        record(sql, error, fn -> %{"interface" => "mcp"} end, server: server)
 
       assert [%{"dropped_before" => 3}] = rows_for(sql, server)
     end

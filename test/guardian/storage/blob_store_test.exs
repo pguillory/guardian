@@ -1,6 +1,6 @@
 defmodule Guardian.Storage.BlobStoreTest do
-  alias Guardian.Storage.BlobStore
   use ExUnit.Case, async: true
+  import Guardian.Storage.BlobStore
 
   @moduletag :tmp_dir
 
@@ -8,8 +8,8 @@ defmodule Guardian.Storage.BlobStoreTest do
   test "write replaces the file through the atomic writer", %{tmp_dir: dir} do
     filename = Path.join([dir, "sub", "events.seg"])
 
-    assert :ok = BlobStore.write(filename, "first")
-    assert :ok = BlobStore.write(filename, "second")
+    assert :ok = write(filename, "first")
+    assert :ok = write(filename, "second")
 
     assert File.read!(filename) == "second"
     assert File.ls!(Path.dirname(filename)) == ["events.seg"]
