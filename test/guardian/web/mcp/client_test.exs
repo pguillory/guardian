@@ -1,4 +1,6 @@
 defmodule Guardian.Web.MCP.ClientTest do
+  # Not async: drives the shared MCP server, whose tool calls are serialized
+  # (docs/changes/mcp-serialized-tool-calls.md).
   use ExUnit.Case, async: false
   import Guardian.Test.MCPClient
 

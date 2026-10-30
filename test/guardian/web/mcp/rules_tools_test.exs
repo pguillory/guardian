@@ -1,4 +1,5 @@
 defmodule Guardian.Web.MCP.RulesToolsTest do
+  # Not async: relaxes the node-wide counter budgets and changes the shared rule store.
   use ExUnit.Case, async: false
   import Guardian.Test.Rules
 

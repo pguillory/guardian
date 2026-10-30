@@ -1,5 +1,6 @@
 defmodule Guardian.ClusterTest do
   import Guardian.Cluster
+  # Not async: tests set the application env, which is node-wide.
   use ExUnit.Case, async: false
 
   test "discovery is off without a DNS query" do

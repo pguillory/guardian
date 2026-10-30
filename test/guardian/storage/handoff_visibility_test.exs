@@ -1,4 +1,5 @@
 defmodule Guardian.Storage.HandoffVisibilityTest do
+  # Not async: suspends the node-wide PersistedSegments server.
   use ExUnit.Case, async: false
   import Guardian.Test.Query
   import Guardian.Test.Processes

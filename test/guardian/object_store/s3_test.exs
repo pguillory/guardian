@@ -1,4 +1,5 @@
 defmodule Guardian.ObjectStore.S3Test do
+  # Not async: tests set the S3 timeouts in the application env, which is node-wide.
   use ExUnit.Case, async: false
   import Guardian.ObjectStore.S3
 

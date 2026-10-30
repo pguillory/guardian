@@ -1,4 +1,5 @@
 defmodule Guardian.Rules.ServerTest do
+  # Not async: restarts the node-wide Rules.Server and sets the application env.
   use ExUnit.Case, async: false
   import Guardian.Rules.Server
   import Guardian.Test.Rules

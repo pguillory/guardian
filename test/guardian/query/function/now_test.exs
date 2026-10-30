@@ -1,4 +1,6 @@
 defmodule Guardian.Query.Function.NowTest do
+  # Not async: now() has one-second granularity and eval/2 requires four evaluations to
+  # agree, so a tick mid-test fails it; load makes that likelier.
   use Guardian.Query.EvaluationTestCase, async: false
 
   test "now function" do

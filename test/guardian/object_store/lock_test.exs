@@ -1,5 +1,5 @@
 defmodule Guardian.ObjectStore.LockTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   import Guardian.ObjectStore.Lock
 
   alias Guardian.ObjectStore

@@ -2,6 +2,7 @@ defmodule Guardian.Storage.MutableSegmentsTest do
   import Guardian.Storage.MutableSegments
   alias Guardian.Storage.Segment.Registration
   require Registration
+  # Not async: changes the node-wide segment max age and suspends PersistedSegments.
   use ExUnit.Case, async: false
   import Guardian.Test.Polling
 

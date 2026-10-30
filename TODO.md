@@ -487,6 +487,10 @@ privately, not in this repository.
       batch allowance storage behind the counter test budget helper
       (`docs/changes/counter-test-budgets.md`, ClientTest allowance helpers)
 
+- [x] test-isolation: write the test-isolation pattern into CONTRIBUTING.md, drop
+      redundant table deletes, make the modules that only needed unique tables async
+      and state why the rest are serial (`docs/changes/test-isolation.md`)
+
 - [x] test-support-namespace: consolidate common helpers under `Guardian.Test.*` and
       split SQL, polling, process and segment helpers by concern without changing
       test behavior or coverage (`docs/changes/test-support-namespace.md`)

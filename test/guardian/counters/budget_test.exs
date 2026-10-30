@@ -1,4 +1,5 @@
 defmodule Guardian.Counters.BudgetTest do
+  # Not async: tests depend on 50 ms wall-clock reservation windows that load would break.
   use ExUnit.Case, async: false
   import Guardian.Counters.Budget
   alias Guardian.Counters.Budget

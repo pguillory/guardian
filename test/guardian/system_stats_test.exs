@@ -1,4 +1,5 @@
 defmodule Guardian.SystemStatsTest do
+  # Not async: stops and restarts supervised children and counts rows of the shared system_stats table.
   use ExUnit.Case, async: false
   import Guardian.SystemStats
   import ExUnit.CaptureLog

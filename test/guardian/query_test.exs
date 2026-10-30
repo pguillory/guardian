@@ -31,6 +31,7 @@ defmodule Guardian.QueryTest do
   import Guardian.Test.Query, only: [run_sql: 1]
   # import QueryTestHelper
   # require QueryTestHelper
+  # Not async: a test refutes "[error]" in captured log output, which sees every process.
   use ExUnit.Case, async: false
 
   defp run(source) do
@@ -93,7 +94,6 @@ defmodule Guardian.QueryTest do
 
   test "a node that is not an expression fails the query, naming it" do
     table = "not_expressions_#{System.unique_integer([:positive])}"
-    on_exit(fn -> :ok = Guardian.Storage.delete_table(table) end)
     :ok = Guardian.Storage.append(table, x: 1)
 
     assert_raise Guardian.Query.Error, "count() cannot be evaluated as an expression", fn ->
@@ -406,9 +406,7 @@ defmodule Guardian.QueryTest do
   end
 
   test "comparing with a number literal skips non-numbers when every number is on one side" do
-    table = "comparison_fast_path_test"
-    :ok = Guardian.Storage.delete_table(table)
-    on_exit(fn -> :ok = Guardian.Storage.delete_table(table) end)
+    table = "comparison_fast_path_test_#{System.unique_integer([:positive])}"
 
     for x <- [10, 2.5, nil, "s", true, [3]] do
       :ok = Guardian.Storage.append(table, %{"k" => inspect(x), "x" => x})
@@ -436,9 +434,7 @@ defmodule Guardian.QueryTest do
   end
 
   test "WHERE keeping only some rows of a segment with list values" do
-    table = "list_filter_test"
-    :ok = Guardian.Storage.delete_table(table)
-    on_exit(fn -> :ok = Guardian.Storage.delete_table(table) end)
+    table = "list_filter_test_#{System.unique_integer([:positive])}"
 
     for row <- [
           %{"a" => 1},
@@ -478,9 +474,7 @@ defmodule Guardian.QueryTest do
   end
 
   test "WHERE on list-of-object paths keeping only some rows" do
-    table = "list_path_filter_test"
-    :ok = Guardian.Storage.delete_table(table)
-    on_exit(fn -> :ok = Guardian.Storage.delete_table(table) end)
+    table = "list_path_filter_test_#{System.unique_integer([:positive])}"
 
     for row <- [
           %{"a" => 1},
