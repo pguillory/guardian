@@ -21,3 +21,5 @@ so there is one place for each topic.
    each change.
 7. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md): third-party components and their
    licenses; the reasons some dependency versions are held are in system.md.
+8. [docs/why.md](docs/why.md): the problem Guardian addresses and the approach it calls
+   for.
