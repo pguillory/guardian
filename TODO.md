@@ -347,6 +347,9 @@ privately, not in this repository.
       sets only it refuses to start with an error naming `GUARDIAN_ADMIN_API_KEY` and
       `GUARDIAN_INGEST_API_KEY`, and beside the admin key it is ignored
       (`docs/changes/drop-legacy-api-key.md`)
+- [x] dev-random-admin-key: a local dev Mix run without `GUARDIAN_ADMIN_API_KEY`
+      generates a random one and prints it; releases build only with `MIX_ENV=prod`
+      and still refuse to start without it (`docs/changes/dev-random-admin-key.md`)
 - [x] fly-example-config: the repository carried `fly.example.toml`, a template; a
       deployment's own `fly.toml` is gitignored or kept outside the tree; superseded
       by fly-commands-guide (`docs/changes/fly-example-config.md`)

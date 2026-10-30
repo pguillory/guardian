@@ -181,6 +181,11 @@ None of these reads or writes data.
    its presence changes the error to one naming the two replacements, and beside the
    admin key it is ignored. It stores the keys in the application environment
    (`:guardian, :ingest_api_key`, `:admin_api_key`), nil when unset.
+   One exception: a local Mix run in dev without the admin key generates a random
+   one and prints it to stderr, the only place Guardian prints a key, so the
+   developer can use it. A release cannot take this path: `config_env()` is fixed
+   at build time, `mix.exs` refuses to build a release outside `MIX_ENV=prod`, and
+   the branch also requires Mix, which a release lacks.
 2. Tests use fixed keys in `config/config.exs`; they protect nothing.
 3. Guardian does not record a key itself (the MCP router drops the header once the
    key is checked, so Anubis never holds it): the `x-api-key` header is not in

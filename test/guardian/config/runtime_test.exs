@@ -1,6 +1,8 @@
 defmodule Guardian.Config.RuntimeTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureIO
+
   @runtime_config Path.expand("../../../config/runtime.exs", __DIR__)
   @environment_variables [
     "GUARDIAN_API_KEY",
@@ -72,6 +74,8 @@ defmodule Guardian.Config.RuntimeTest do
   end
 
   test "rejects a configuration without the admin key" do
+    # The :prod env, which a release is built with; only :dev generates a key. The
+    # Mix guard can't be tested under mix test, where Mix is always loaded.
     message = "GUARDIAN_ADMIN_API_KEY must be set; generate one with: openssl rand -hex 32"
 
     assert_raise RuntimeError, message, fn -> read_runtime_config() end
@@ -79,6 +83,64 @@ defmodule Guardian.Config.RuntimeTest do
     # The ingest key alone grants no full access.
     System.put_env("GUARDIAN_INGEST_API_KEY", @key)
     assert_raise RuntimeError, message, fn -> read_runtime_config() end
+  end
+
+  test "a dev Mix run without the admin key generates one and prints it" do
+    ingest = String.duplicate("i", 32)
+
+    for ingest_value <- [nil, ingest] do
+      if ingest_value, do: System.put_env("GUARDIAN_INGEST_API_KEY", ingest_value)
+
+      {config, output} = with_io(:stderr, fn -> read_runtime_config(:dev)[:guardian] end)
+
+      assert config[:admin_api_key] =~ ~r/\A[0-9a-f]{64}\z/
+      assert config[:ingest_api_key] == ingest_value
+
+      assert output ==
+               "GUARDIAN_ADMIN_API_KEY is not set; this dev run uses a generated admin key: " <>
+                 "#{config[:admin_api_key]}\n"
+    end
+
+    # A fresh key every run, and a set key is used as is, without printing.
+    {first, _} = with_io(:stderr, fn -> read_runtime_config(:dev)[:guardian][:admin_api_key] end)
+    {second, _} = with_io(:stderr, fn -> read_runtime_config(:dev)[:guardian][:admin_api_key] end)
+    assert first != second
+
+    System.put_env("GUARDIAN_ADMIN_API_KEY", @key)
+    {config, output} = with_io(:stderr, fn -> read_runtime_config(:dev)[:guardian] end)
+    assert {config[:admin_api_key], output} == {@key, ""}
+  end
+
+  test "a dev Mix run still rejects a set but invalid key and the removed key" do
+    short = "must be at least 32 bytes; generate one with: openssl rand -hex 32"
+
+    for {value, message} <- [
+          {"", "GUARDIAN_ADMIN_API_KEY must not be empty"},
+          {"short", "GUARDIAN_ADMIN_API_KEY #{short}"},
+        ] do
+      System.put_env("GUARDIAN_ADMIN_API_KEY", value)
+      assert_raise RuntimeError, message, fn -> read_runtime_config(:dev) end
+    end
+
+    # The ingest key is checked before a key is generated, so nothing is printed.
+    System.delete_env("GUARDIAN_ADMIN_API_KEY")
+    System.put_env("GUARDIAN_INGEST_API_KEY", "short")
+
+    output =
+      capture_io(:stderr, fn ->
+        assert_raise RuntimeError, "GUARDIAN_INGEST_API_KEY #{short}", fn ->
+          read_runtime_config(:dev)
+        end
+      end)
+
+    assert output == ""
+
+    System.delete_env("GUARDIAN_INGEST_API_KEY")
+    System.put_env("GUARDIAN_API_KEY", @key)
+
+    assert_raise RuntimeError, ~r/\AGUARDIAN_API_KEY is no longer supported/, fn ->
+      read_runtime_config(:dev)
+    end
   end
 
   test "names the replacement keys when only the removed GUARDIAN_API_KEY is set" do
@@ -274,8 +336,9 @@ defmodule Guardian.Config.RuntimeTest do
     end
   end
 
-  defp read_runtime_config do
-    Config.Reader.read!(@runtime_config, env: :prod, target: :host)
+  # A release is built with MIX_ENV=prod, so :prod here is the release's path.
+  defp read_runtime_config(env \\ :prod) do
+    Config.Reader.read!(@runtime_config, env: env, target: :host)
   end
 
   test "counter memory defaults to Store's 64 MiB and accepts positive MiB overrides" do

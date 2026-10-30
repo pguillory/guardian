@@ -80,9 +80,9 @@ Guardian is also a producer of its own tables:
      accepted by `POST /api/json/send_events` and nothing else. It is meant for the
      applications that produce events, so a compromised application can add events
      but cannot query or change rules.
-   - The admin key (`GUARDIAN_ADMIN_API_KEY`, required) has full access: MCP
-     (queries, rules, ingestion) and `send_events`. It is meant for the operator and
-     their agents.
+   - The admin key (`GUARDIAN_ADMIN_API_KEY`, required; item 6 covers local
+     development) has full access: MCP (queries, rules, ingestion) and
+     `send_events`. It is meant for the operator and their agents.
 
    A key is read only from the first `x-api-key` header, never from the URL: URLs
    end up in logs and history more readily than headers. The comparison does not
@@ -132,9 +132,12 @@ Guardian is also a producer of its own tables:
    string cannot be decoded (invalid UTF-8, nesting deeper than 32, or too long) gets
    400 (414 when too long) with `info` "invalid query string".
 6. Startup: Guardian refuses to start without the admin key
-   (`GUARDIAN_ADMIN_API_KEY`); with either key variable set but empty or shorter than
-   32 bytes (generate keys with `openssl rand -hex 32`; the length is checked, not the
-   randomness); or with both set to the same value. The error names the variable,
+   (`GUARDIAN_ADMIN_API_KEY`), except in a local development run (`MIX_ENV=dev`),
+   which without it generates a random admin key for that run and prints it to
+   stderr. Releases are built only with `MIX_ENV=prod`, so a release always needs the
+   key. Guardian also refuses to start with either key variable set but empty or
+   shorter than 32 bytes (generate keys with `openssl rand -hex 32`; the length is
+   checked, not the randomness); or with both set to the same value. The error names the variable,
    never its value. `GUARDIAN_API_KEY`, the single full-access key of earlier
    releases, is no longer read: a deployment that sets it without the admin key gets
    an error naming `GUARDIAN_ADMIN_API_KEY` and `GUARDIAN_INGEST_API_KEY` instead,

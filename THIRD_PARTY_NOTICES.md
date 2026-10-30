@@ -44,7 +44,7 @@ source is published at https://hex.pm/packages/anubis_mcp (version 2.2.0) and
 https://github.com/zoedsoupe/anubis-mcp. A release or image built from this repository
 contains anubis_mcp's compiled modules. Under the LGPL you may replace them with a
 modified version: change the dependency in `mix.exs`/`mix.lock` (or point it at your
-own copy) and rebuild the release with `mix release` or `docker build`. The full
+own copy) and rebuild the release with `MIX_ENV=prod mix release` or `docker build`. The full
 license text ships with the package (`deps/anubis_mcp` after `mix deps.get`) and is
 at https://www.gnu.org/licenses/lgpl-3.0.html.
 

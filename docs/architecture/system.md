@@ -1371,7 +1371,7 @@ Environment variables:
 
 | Variable | Read by | Meaning |
 | --- | --- | --- |
-| `GUARDIAN_ADMIN_API_KEY` | `config/runtime.exs` | The full-access key (MCP and `send_events`). At least 32 bytes. Required outside tests. |
+| `GUARDIAN_ADMIN_API_KEY` | `config/runtime.exs` | The full-access key (MCP and `send_events`). At least 32 bytes. Required in a release; a dev Mix run without it generates and prints a random one. |
 | `GUARDIAN_INGEST_API_KEY` | `config/runtime.exs` | Optional insert-only key, accepted only by `POST /api/json/send_events`. At least 32 bytes when set, and different from the admin key; boot errors name the variable, never the value. |
 | `GUARDIAN_API_KEY` | `config/runtime.exs` | Removed; not read as a key. Without the admin key its presence makes the boot error name the two replacements; set alongside the admin key, it is ignored. |
 | `GUARDIAN_PORT` | `config/runtime.exs`, `bin/fly-start` | HTTP port, 1 to 65535. Default 8080. Tests use an OS-chosen port. |

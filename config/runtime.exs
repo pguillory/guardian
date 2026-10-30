@@ -28,7 +28,8 @@ if config_env() != :test do
   end
 
   # API keys: GUARDIAN_INGEST_API_KEY may only send events; GUARDIAN_ADMIN_API_KEY,
-  # required, grants everything. Values are never printed.
+  # required except in a local dev Mix run, grants everything. Values set in the
+  # environment are never printed.
   api_keys =
     for name <- ~w(GUARDIAN_INGEST_API_KEY GUARDIAN_ADMIN_API_KEY) do
       case System.get_env(name) do
@@ -53,15 +54,35 @@ if config_env() != :test do
   # GUARDIAN_API_KEY, the single full-access key from before the split, is no longer
   # read. A deployment that still sets it in place of the admin key gets an error
   # naming the replacements; alongside the admin key it is ignored.
-  if admin_api_key == nil do
-    if System.get_env("GUARDIAN_API_KEY") != nil do
-      raise "GUARDIAN_API_KEY is no longer supported; set GUARDIAN_ADMIN_API_KEY " <>
-              "(full access) and, for clients that only send events, " <>
-              "GUARDIAN_INGEST_API_KEY; generate each with: openssl rand -hex 32"
-    else
-      raise "GUARDIAN_ADMIN_API_KEY must be set; generate one with: openssl rand -hex 32"
+  #
+  # A local Mix run in dev without the admin key gets a random one, printed so it can
+  # be used. config_env/0 is the MIX_ENV the code was built with, fixed in a release,
+  # and mix.exs refuses to build a release outside MIX_ENV=prod, so a release cannot
+  # reach this path; doing so would take code or files already planted on the host.
+  # The Mix check is a second guard: a release does not include Mix.
+  admin_api_key =
+    cond do
+      admin_api_key != nil ->
+        admin_api_key
+
+      System.get_env("GUARDIAN_API_KEY") != nil ->
+        raise "GUARDIAN_API_KEY is no longer supported; set GUARDIAN_ADMIN_API_KEY " <>
+                "(full access) and, for clients that only send events, " <>
+                "GUARDIAN_INGEST_API_KEY; generate each with: openssl rand -hex 32"
+
+      config_env() == :dev and Code.ensure_loaded?(Mix) ->
+        key = Base.encode16(:crypto.strong_rand_bytes(32), case: :lower)
+
+        IO.puts(
+          :stderr,
+          "GUARDIAN_ADMIN_API_KEY is not set; this dev run uses a generated admin key: #{key}"
+        )
+
+        key
+
+      true ->
+        raise "GUARDIAN_ADMIN_API_KEY must be set; generate one with: openssl rand -hex 32"
     end
-  end
 
   # A shared value would give the ingest key full access, and make keys indistinguishable.
   if ingest_api_key == admin_api_key do

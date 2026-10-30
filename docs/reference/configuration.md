@@ -1,14 +1,15 @@
 # Configuration
 
 Everything is set through environment variables. Only the full-access key is required:
-`GUARDIAN_ADMIN_API_KEY`. Each key that is set must be at least 32 bytes (generate one
-with `openssl rand -hex 32`), and the two may not be the same; startup refuses
-otherwise, naming the variable but never its value. Each key
-rotates independently: a change takes effect at restart and doesn't affect stored data.
+`GUARDIAN_ADMIN_API_KEY` (a local `MIX_ENV=dev` run without it generates a random one
+and prints it; a release always requires it). Each key that is set must be at least
+32 bytes (generate one with `openssl rand -hex 32`), and the two may not be the same;
+startup refuses otherwise, naming the variable but never its value. Each key rotates
+independently: a change takes effect at restart and doesn't affect stored data.
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `GUARDIAN_ADMIN_API_KEY` | (unset) | The full-access key: MCP (queries, rules, ingestion) and `POST /api/json/send_events`. For the operator and their agents. Required. |
+| `GUARDIAN_ADMIN_API_KEY` | (unset) | The full-access key: MCP (queries, rules, ingestion) and `POST /api/json/send_events`. For the operator and their agents. Required in a release; a dev Mix run without it generates and prints a random one. |
 | `GUARDIAN_INGEST_API_KEY` | (unset) | Optional insert-only key, accepted only by `POST /api/json/send_events`; anywhere else it gets 403. For the applications that produce events. |
 | `GUARDIAN_API_KEY` | (removed) | The single full-access key from before the admin and ingest keys; no longer read. Without `GUARDIAN_ADMIN_API_KEY`, startup refuses and names the two replacements; set alongside the admin key, it is ignored. See [drop-legacy-api-key](../changes/drop-legacy-api-key.md). |
 | `GUARDIAN_DATA_DIR` | `/data` in the image, `/root/data` for a bare release | Where segments are stored. Startup refuses a directory it can't write, so set it when running a bare release as a non-root user. On Fly it must be the mounted volume. |

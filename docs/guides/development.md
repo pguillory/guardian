@@ -92,10 +92,15 @@ allocate gigabytes and are excluded; run them by hand with `mix test --only larg
 
 ## Running locally
 
-`iex -S mix`, `mix run --no-halt` and `make console` need a full-access key of at
-least 32 bytes in the environment, `GUARDIAN_ADMIN_API_KEY`, for example
-`export GUARDIAN_ADMIN_API_KEY="$(openssl rand -hex 32)"`, and serve HTTP on port 8080.
-Set `GUARDIAN_INGEST_API_KEY` too, to a different value, to try the insert-only key.
+`iex -S mix`, `mix run --no-halt` and `make console` serve HTTP on port 8080. They
+need no key: without `GUARDIAN_ADMIN_API_KEY` in the environment, each run generates
+a random full-access key and prints it to stderr
+(`GUARDIAN_ADMIN_API_KEY is not set; this dev run uses a generated admin key: ...`).
+To keep one key across restarts, set it yourself, at least 32 bytes, for example
+`export GUARDIAN_ADMIN_API_KEY="$(openssl rand -hex 32)"`. Set
+`GUARDIAN_INGEST_API_KEY` too, to a different value, to try the insert-only key; it
+is never generated. Only dev Mix runs generate a key: a release refuses to start
+without one.
 
 ## Docker image architectures
 

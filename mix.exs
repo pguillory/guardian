@@ -15,11 +15,22 @@ defmodule Guardian.MixProject do
       deps: deps(),
       default_release: :guardian,
       releases: [
-        guardian: [],
+        guardian: [steps: [&__MODULE__.require_prod_release/1, :assemble]],
       ],
       # Scripts that tests run in child processes, not test files.
       test_ignore_filters: [&String.starts_with?(&1, "test/fixtures/")],
     ]
+  end
+
+  # Only MIX_ENV=prod builds a release. config/runtime.exs generates an admin key when
+  # none is set in dev, and a release keeps the MIX_ENV it was built with, so a dev
+  # release would boot without a key.
+  def require_prod_release(release) do
+    if Mix.env() != :prod do
+      Mix.raise("Guardian releases must be built with MIX_ENV=prod, not #{Mix.env()}")
+    end
+
+    release
   end
 
   def elixirc_paths do
