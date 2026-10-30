@@ -1,36 +1,11 @@
 defmodule Guardian.Web.LoggerTest do
-  # Not async: it stops and restarts a Storage child.
+  # Not async: reads the shared web_requests and web_responses system tables.
   use ExUnit.Case, async: false
-  import ExUnit.CaptureLog
 
   @api_key Application.compile_env!(:guardian, :admin_api_key)
 
   # A valid send_events body that stores nothing.
   @empty_batch ~s({"table": "logger_test", "events": []})
-
-  test "a request succeeds when its log events cannot be written" do
-    log =
-      capture_log(fn ->
-        :ok = Supervisor.terminate_child(Guardian.Storage, Guardian.Storage.MutableSegments)
-
-        on_exit(fn ->
-          Supervisor.restart_child(Guardian.Storage, Guardian.Storage.MutableSegments)
-        end)
-
-        conn =
-          Plug.Test.conn(:post, "https://localhost/api/json/send_events", @empty_batch)
-          |> Plug.Conn.put_req_header("content-type", "application/json")
-          |> Plug.Conn.put_req_header("x-api-key", @api_key)
-          |> Guardian.Web.MainRouter.call(nil)
-
-        assert conn.status == 200
-        assert Jason.decode!(conn.resp_body)["results"] == []
-        {:ok, _pid} = Supervisor.restart_child(Guardian.Storage, Guardian.Storage.MutableSegments)
-      end)
-
-    assert log =~ "Could not record a web_requests event: ArgumentError"
-    assert log =~ "Could not record a web_responses event: ArgumentError"
-  end
 
   @shared_fields ~w(timestamp hostname host port method path plug_route scheme remote_ip
                     x_forwarded_for referer user_agent auth_key)

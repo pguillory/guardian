@@ -1,8 +1,7 @@
 defmodule Guardian.SystemStatsTest do
-  # Not async: stops and restarts supervised children and counts rows of the shared system_stats table.
+  # Not async: counts rows of the shared system_stats table.
   use ExUnit.Case, async: false
   import Guardian.SystemStats
-  import ExUnit.CaptureLog
 
   test "records system_stats events through normal ingestion" do
     count_before = Guardian.Storage.table_row_count("system_stats")
@@ -22,49 +21,7 @@ defmodule Guardian.SystemStatsTest do
     assert NaiveDateTime.compare(recorded, after_metrics) in [:eq, :lt]
   end
 
-  test "counter availability is visible in metrics while health remains Storage-only" do
+  test "metrics report counters as available" do
     assert Keyword.fetch!(metrics(), :counters_available) == true
-    :ok = Supervisor.terminate_child(Guardian.Application, Guardian.Counters.Restarter)
-
-    try do
-      assert Keyword.fetch!(metrics(), :counters_available) == false
-      conn = Plug.Test.conn(:get, "/health") |> Guardian.Web.MainRouter.call(nil)
-      assert conn.status == 200
-      assert conn.resp_body == "ok"
-    after
-      {:ok, _} = Supervisor.restart_child(Guardian.Application, Guardian.Counters.Restarter)
-    end
-
-    assert Keyword.fetch!(metrics(), :counters_available) == true
-  end
-
-  # Delivers a tick now and waits until it has been handled.
-  defp tick(stats) do
-    send(stats, {:tick, System.monotonic_time(:millisecond)})
-    :sys.get_state(stats)
-  end
-
-  test "skips writes while Storage is down, warning once" do
-    stats = start_supervised!(Guardian.SystemStats)
-
-    log =
-      capture_log(fn ->
-        :ok = Supervisor.terminate_child(Guardian.Storage, Guardian.Storage.MutableSegments)
-
-        on_exit(fn ->
-          Supervisor.restart_child(Guardian.Storage, Guardian.Storage.MutableSegments)
-        end)
-
-        for _ <- 1..5, do: assert(tick(stats) == %{failing: true})
-
-        {:ok, _pid} = Supervisor.restart_child(Guardian.Storage, Guardian.Storage.MutableSegments)
-        assert tick(stats) == %{failing: false}
-      end)
-
-    assert Process.alive?(stats)
-    warning = "SystemStats: could not record system_stats (ArgumentError)"
-    # The application's own SystemStats may warn once too in this window; five failed
-    # ticks of this one must not warn five times.
-    assert (length(String.split(log, warning)) - 1) in 1..2
   end
 end

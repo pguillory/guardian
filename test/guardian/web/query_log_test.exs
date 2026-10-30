@@ -146,21 +146,6 @@ defmodule Guardian.Web.QueryLogTest do
       assert [_row] = rows_for(sql)
     end
 
-    test "a stopped recorder is logged and the query still succeeds" do
-      sql = "SELECT 1 FROM #{marker()}"
-      :ok = Supervisor.terminate_child(Guardian.Application, QueryLog)
-
-      try do
-        log = capture_log(fn -> assert {:ok, _, _} = run(sql) end)
-        assert log =~ "Failed to record a query in queries: the recorder is not running"
-        refute log =~ sql
-      after
-        {:ok, _} = Supervisor.restart_child(Guardian.Application, QueryLog)
-      end
-
-      assert rows_for(sql) == []
-    end
-
     test "a query on the queries table logs exactly one row" do
       sql = "SELECT count() FROM queries WHERE sql = '#{marker()}'"
       assert {:ok, _, _} = run(sql)

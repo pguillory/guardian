@@ -204,50 +204,6 @@ defmodule Guardian.Rules.CounterReloadTest do
     assert ingest(b)["pa"] == 1
   end
 
-  test "Server restart keeps published bindings and counts through invalid and unreachable stores",
-       %{s3: s3} do
-    a = unique_table("restart_counter")
-    b = unique_table("restart_reader")
-
-    files = %{
-      "#{a}/r.gsql" => "TRACK hits = count() LAST '1h'",
-      "#{b}/r.gsql" => "LOOKUP prior = hits FROM #{a}",
-    }
-
-    load(s3, files)
-    old = Guardian.Rules.published()
-    assert ingest(a)["hits"] == 1
-    Guardian.Test.FakeS3.put_object(s3, "#{a}/r.gsql", "TRACK hits = sum(amount) LAST '1h'")
-    Guardian.Test.FakeS3.put_object(s3, "#{b}/r.gsql", "SET")
-
-    ExUnit.CaptureLog.capture_log(fn ->
-      assert :ok = Supervisor.terminate_child(Guardian.Application, Guardian.Rules.Server)
-      assert {:ok, _} = Supervisor.restart_child(Guardian.Application, Guardian.Rules.Server)
-      assert :ok = Guardian.Rules.reload()
-    end)
-
-    assert Guardian.Rules.published() == old
-    assert ingest(a)["hits"] == 2
-    assert ingest(b)["prior"] == 2
-
-    assert :ok = Supervisor.terminate_child(Guardian.Application, Guardian.Rules.Server)
-    Guardian.Test.FakeS3.fault(s3, {:status, 503})
-
-    ExUnit.CaptureLog.capture_log(fn ->
-      assert {:ok, _} = Supervisor.restart_child(Guardian.Application, Guardian.Rules.Server)
-      assert :sys.get_state(Guardian.Rules.Server).stale
-    end)
-
-    assert Guardian.Rules.published() == old
-    assert ingest(b)["prior"] == 2
-    Guardian.Test.FakeS3.fault(s3, nil)
-    Guardian.Test.FakeS3.put_object(s3, "#{b}/r.gsql", files["#{b}/r.gsql"])
-    assert :ok = Guardian.Rules.reload()
-    refute Guardian.Rules.published() == old
-    assert ingest(a, %{"amount" => 11})["hits"] == 11
-    assert ingest(b)["prior"] == 11
-  end
-
   test "clean boot propagates invalidity toward dependents without retaining a whole component",
        %{s3: s3} do
     a = unique_table("boot_target")

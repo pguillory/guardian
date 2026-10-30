@@ -494,9 +494,9 @@ privately, not in this repository.
 
 ## Tests
 
-- [ ] test-rules: bring tests in line with CONTRIBUTING's "What tests cover" rules
-      a category at a time; the Storage supervisor-tree kills are gone, the rest of
-      that category and the other categories are pending (`docs/changes/test-rules.md`)
+- [ ] test-rules: bring tests in line with CONTRIBUTING's testing philosophy a
+      category at a time; the decided supervisor-tree kills are gone, and the other
+      categories are pending Preston's decisions (`docs/changes/test-rules.md`)
 
 - [x] persisted-segment-test-synchronization: wait for fixture creation through task
       completion instead of a 1 s message deadline; preserve segment lifetime and

@@ -528,37 +528,12 @@ defmodule Guardian.Rules.ServerTest do
     assert [{:ok, %{"x" => 2}}] = Guardian.Engine.ingest_events(other, [%{}])
   end
 
-  test "restart retains last published metadata through invalid reloads and switches after repair" do
-    {s3, _store} = s3_server()
-    table = unique_table("rules_restart_metadata")
-    other = unique_table("rules_restart_unrelated")
-    deleted = unique_table("rules_restart_deleted")
+  test "formatted status redacts plans and bare steps" do
+    {_s3, _store} = s3_server()
+    table = unique_table("rules_status_redaction")
     marker = "MARKER-#{System.unique_integer([:positive])}"
     assert {:ok, _} = Guardian.Rules.write_rule(table, "a", "SET x = '#{marker}'; UNSET password")
-    assert {:ok, _} = Guardian.Rules.write_rule(other, "a", "SET x = 1")
-    assert {:ok, _} = Guardian.Rules.write_rule(deleted, "a", "SET x = 1")
-    module = Guardian.Rules.lookup(table)
-    plan = module.plan()
-    Guardian.Test.FakeS3.put_object(s3, "#{table}/a.gsql", "SET")
-    Guardian.Test.FakeS3.put_object(s3, "#{other}/a.gsql", "SET x = 2")
-    assert :ok = Guardian.ObjectStore.delete(Guardian.Test.FakeS3.store(s3), "#{deleted}/a.gsql")
-
-    ExUnit.CaptureLog.capture_log(fn ->
-      assert :ok = Supervisor.terminate_child(Guardian.Application, Guardian.Rules.Server)
-      assert Guardian.Rules.lookup(table) == module
-      assert module.plan() == plan
-      assert {:ok, _} = Supervisor.restart_child(Guardian.Application, Guardian.Rules.Server)
-      assert :ok = Guardian.Rules.reload()
-    end)
-
-    assert Guardian.Rules.lookup(table) == module
-    assert module.plan() == plan
-    refute module in :sys.get_state(Guardian.Rules.Server).publisher.free
-    assert Guardian.Rules.lookup(deleted) == nil
-    assert [{:ok, %{"x" => 2}}] = Guardian.Engine.ingest_events(other, [%{}])
-
-    assert [{:ok, %{"x" => ^marker}}] =
-             Guardian.Engine.ingest_events(table, [%{"password" => "hide"}])
+    plan = Guardian.Rules.lookup(table).plan()
 
     # Defense in depth: plans and bare steps carry expression constants, even if
     # their canonical source is cleared. Formatting must redact both forms.
@@ -568,43 +543,6 @@ defmodule Guardian.Rules.ServerTest do
     report = format_status(unredacted)
     refute inspect(report, limit: :infinity, printable_limit: :infinity) =~ marker
     refute inspect(:sys.get_status(Guardian.Rules.Server), limit: :infinity) =~ marker
-
-    # A successful repair switches code and metadata together.
-    assert {:ok, %{errors: []}} =
-             Guardian.Rules.write_rule(table, "a", "SET x = 3; UNSET password")
-
-    repaired = Guardian.Rules.lookup(table)
-    refute repaired == module
-    refute repaired.plan().hash == plan.hash
-    assert [{:ok, %{"x" => 3}}] = Guardian.Engine.ingest_events(table, [%{"password" => "hide"}])
-    assert module.plan() == plan
-  end
-
-  test "restart metadata stays available while the rule store cannot be reached" do
-    {s3, _store} = s3_server()
-    table = unique_table("rules_restart_outage")
-    assert {:ok, _} = Guardian.Rules.write_rule(table, "a", "SET x = 1")
-    module = Guardian.Rules.lookup(table)
-    plan = module.plan()
-    assert :ok = Supervisor.terminate_child(Guardian.Application, Guardian.Rules.Server)
-    Guardian.Test.FakeS3.fault(s3, {:status, 503})
-
-    log =
-      ExUnit.CaptureLog.capture_log(fn ->
-        assert {:ok, _} = Supervisor.restart_child(Guardian.Application, Guardian.Rules.Server)
-        assert %{stale: true, files: files} = :sys.get_state(Guardian.Rules.Server)
-        assert files == %{}
-        Logger.flush()
-      end)
-
-    assert log =~ "Rules: reloading failed: store unreachable (HTTP 503)"
-
-    assert Guardian.Rules.lookup(table) == module
-    assert module.plan() == plan
-    assert [{:ok, %{"x" => 1}}] = Guardian.Engine.ingest_events(table, [%{}])
-    Guardian.Test.FakeS3.put_object(s3, "#{table}/a.gsql", "SET x = 2")
-    assert :ok = Guardian.Rules.reload()
-    refute Guardian.Rules.lookup(table).plan() == plan
   end
 
   test "reload publishes nothing unless every changed table compiles" do
@@ -663,25 +601,6 @@ defmodule Guardian.Rules.ServerTest do
     {:ok, _} = Guardian.Rules.delete_rule(table, "a")
     assert held.apply(%{}) == %{"x" => 0}
     assert Guardian.Rules.lookup(table) == nil
-  end
-
-  test "a Guardian.Rules.Server restart keeps serving the published set and keeps its names reserved" do
-    {_s3, _store} = s3_server()
-    table = unique_table("rules_restart")
-    {:ok, _} = Guardian.Rules.write_rule(table, "a", "SET x = 1")
-    module = Guardian.Rules.lookup(table)
-    pid = Process.whereis(Guardian.Rules.Server)
-    ref = Process.monitor(pid)
-    Process.exit(pid, :kill)
-    assert_receive {:DOWN, ^ref, _, _, _}
-    assert [{:ok, %{"x" => 1}}] = Guardian.Engine.ingest_events(table, [%{}])
-
-    wait_until(fn -> Process.whereis(Guardian.Rules.Server) not in [nil, pid] end)
-    state = :sys.get_state(Guardian.Rules.Server)
-    refute module in state.publisher.free
-    assert Guardian.Rules.lookup(table) == module
-    {:ok, _} = Guardian.Rules.write_rule(table, "b", "SET y = 2")
-    assert [{:ok, %{"x" => 1, "y" => 2}}] = Guardian.Engine.ingest_events(table, [%{}])
   end
 
   test "a save whose outcome is unknown reports it and leaves the lock held" do

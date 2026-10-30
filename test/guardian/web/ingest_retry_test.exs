@@ -1,5 +1,6 @@
 defmodule Guardian.Web.IngestRetryTest do
-  # Not async: one test restarts a supervised child of the application.
+  # Not async: writes the web_requests and web_responses system tables and uses the
+  # application's shared IngestIdempotency coordinator.
   use ExUnit.Case, async: false
 
   @api_key Application.compile_env!(:guardian, :admin_api_key)
@@ -162,21 +163,5 @@ defmodule Guardian.Web.IngestRetryTest do
               }}
 
     assert Guardian.Storage.dump_table(table) == []
-  end
-
-  test "a stopped coordinator preserves valid HTTP ingestion" do
-    server = Guardian.Web.IngestIdempotency
-    :ok = Supervisor.terminate_child(Guardian.Application, server)
-
-    try do
-      table = table()
-      event = %{"value" => 1}
-      params = %{"table" => table, "events" => [event], "idempotency_key" => "unavailable"}
-      assert {200, %{"results" => [_]}} = post(params)
-      assert {200, %{"results" => [_]}} = post(params)
-      assert Guardian.Storage.dump_table(table) == [event, event]
-    after
-      {:ok, _pid} = Supervisor.restart_child(Guardian.Application, server)
-    end
   end
 end

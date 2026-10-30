@@ -79,24 +79,6 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       refute Enum.any?(rows, &String.contains?(&1["sql"] || "", marker))
     end
 
-    test "a stopped recorder is logged and the caller still gets the parse error" do
-      sql = bad_sql()
-      :ok = Supervisor.terminate_child(Guardian.Application, QueryParseErrors)
-
-      try do
-        log =
-          capture_log(fn ->
-            assert {:raised, %Guardian.AST.ParseError{}} = run(sql)
-          end)
-
-        assert log =~ "Failed to record a mcp query parse error: the recorder is not running"
-      after
-        {:ok, _} = Supervisor.restart_child(Guardian.Application, QueryParseErrors)
-      end
-
-      assert rows_for(sql) == []
-    end
-
     test "a stalled recorder does not delay the error; the row lands when it resumes" do
       sql = bad_sql()
       pid = Process.whereis(QueryParseErrors)

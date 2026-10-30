@@ -1,6 +1,6 @@
 defmodule Guardian.Rules.CounterIngestTest do
   # Not async: with_rules writes the shared rule store; relaxes the node-wide counter
-  # budgets and restarts the counter store.
+  # budgets and pauses the node's counter store.
   use ExUnit.Case, async: false
   import Guardian.Test.Rules
   alias Guardian.Counters.Store
@@ -13,9 +13,6 @@ defmodule Guardian.Rules.CounterIngestTest do
     :ets.delete_all_objects(Guardian.Counters.Budget)
 
     on_exit(fn ->
-      if Process.whereis(Store) == nil,
-        do: Supervisor.restart_child(Guardian.Counters.Supervisor, Store)
-
       assert Guardian.Counters.Supervisor.available?()
       :ets.delete_all_objects(Guardian.Counters.Budget)
     end)
@@ -152,9 +149,6 @@ defmodule Guardian.Rules.CounterIngestTest do
                Guardian.Rules.write_rule(table, "r", String.replace(source, "'1h'", "'2h'"))
 
       assert [{:ok, %{"hits" => 1}}] = ingest(table, [%{"ip" => "A"}])
-      assert :ok = Supervisor.terminate_child(Guardian.Counters.Supervisor, Store)
-      assert {:ok, _} = Supervisor.restart_child(Guardian.Counters.Supervisor, Store)
-      assert [{:ok, %{"hits" => 1}}] = ingest(table, [%{"ip" => "A"}])
 
       assert {:ok, _, [[49, 50, true]]} =
                Guardian.Query.execute("SELECT prior, hits, blocked FROM #{table} WHERE n = 50")
@@ -274,48 +268,6 @@ defmodule Guardian.Rules.CounterIngestTest do
       assert [{:ok, %{"hits" => 2}}] = ingest(storage_table, [%{}])
       assert Guardian.Storage.dump_table(storage_table) == [%{"hits" => 2}]
     end
-  end
-
-  test "a stopped Store defaults all operators, preserves WHERE skips, removes secrets and resets on recovery" do
-    table = unique_table("live_counter_down")
-
-    with_rules(%{
-      "#{table}/r.gsql" => """
-      TRACK hits = count() WHERE enabled LAST '1h'; LOOKUP prior = hits WHERE enabled;
-      TRACK distinct_n = count_distinct(v) LAST '1h'; TRACK total = sum(v) LAST '1h';
-      TRACK smallest = min(v) LAST '1h'; TRACK largest = max(v) LAST '1h'; TRACK mean = avg(v) LAST '1h';
-      SET safe = hits = 0; UNSET secret
-      """,
-    })
-
-    assert [{:ok, %{"hits" => 1}}] = ingest(table, [%{"enabled" => true}])
-    assert :ok = Supervisor.terminate_child(Guardian.Counters.Supervisor, Store)
-
-    assert [{:ok, row}] =
-             ingest(table, [
-               %{"enabled" => true, "v" => 2, "hits" => 99, "prior" => 99, "secret" => "private"},
-             ])
-
-    assert Map.take(row, ~w(hits prior distinct_n total smallest largest mean safe)) ==
-             %{
-               "hits" => 0,
-               "prior" => 0,
-               "distinct_n" => 0,
-               "total" => nil,
-               "smallest" => nil,
-               "largest" => nil,
-               "mean" => nil,
-               "safe" => true,
-             }
-
-    refute Map.has_key?(row, "secret")
-
-    assert [{:ok, %{"hits" => 99, "prior" => 98}}] =
-             ingest(table, [%{"enabled" => false, "hits" => 99, "prior" => 98}])
-
-    assert {:ok, _} = Supervisor.restart_child(Guardian.Counters.Supervisor, Store)
-    await_cooldown(node())
-    assert [{:ok, %{"hits" => 1, "prior" => 0}}] = ingest(table, [%{"enabled" => true}])
   end
 
   test "a slow local Store bounds a long many-rule batch, cools down and recovers without queued writes" do

@@ -60,19 +60,24 @@ covers several modules. A struct or module name used as a value (`%Event{}`, a
 supervisor child) still needs its alias, alongside the import. Nothing checks this;
 follow it in new tests and when you edit old ones.
 
-## What tests cover
+## Testing philosophy
 
-- Test success cases: what Guardian does when its parts work.
-- Don't test timeouts. A test that waits for a deadline to pass is slow and
-  load-dependent.
-- No sleeps. Wait for the condition the test needs (`Guardian.Test.Polling`), never
-  for time to pass.
-- Don't kill part of the supervisor tree. No test kills, stops or restarts a process
-  that Guardian's supervisors or managers own (a Storage manager or segment, an
-  application child, a supervised server) to see how the rest copes.
+This is the direction for new tests. Many existing tests predate it and are being
+brought in line a category at a time, so don't read the suite as a counterexample.
 
-Older tests that break these rules are being removed a category at a time; don't add
-new ones.
+The bulk of tests use the primitives users have: create or modify a rule, store
+events, run a query, and check responses and results. They're clean and async, each on
+its own table, and tests that pick different table names can't interfere. The MCP and
+HTTP layers are thin wrappers over those primitives, so network tests are minimal: per
+MCP tool and API call, one success and one error. Storage is tested at its module
+boundary. Any module with clean functions gets plenty of plain unit tests.
+
+Tests don't peek inside or touch processes; they don't kill, freeze or break internals;
+no timeout tests; no sleeps. Peer VM tests are tagged `:cluster` and excluded by
+default. Restart and durability aren't in the suite: an agent checks by hand (insert,
+stop, start, query) only when a change touches segment lifetimes or persistence.
+
+A passing run should be simple and fast.
 
 ## Test isolation
 
