@@ -559,20 +559,52 @@ defmodule Guardian.QueryTest do
                Guardian.Query.execute("select max_n(1, -1)")
     end
 
-    test "returns a Guardian.Query.Error from resolving the query" do
-      message = "SELECT * needs FROM and a table name"
-      assert Guardian.Query.execute("select *") == {:error, message}
-      assert Guardian.Query.execute("select * from 1") == {:error, message}
-      assert Guardian.Query.execute("let x = *; select x") == {:error, message}
+    test "labels each column of a LET name standing for *" do
+      table = "execute_star_test_#{System.unique_integer([:positive])}"
+      :ok = Guardian.Storage.append(table, %{"a" => 1, "b" => 2})
+
+      assert Guardian.Query.execute("let x = *; select x from #{table}") ==
+               {:ok, ["a", "b"], [[1, 2]]}
+
+      assert Guardian.Query.execute("let x = *; select b as first, x from #{table}") ==
+               {:ok, ["first", "a", "b"], [[2, 1, 2]]}
+
+      assert Guardian.Query.execute("select *, a from #{table}") ==
+               {:ok, ["a", "b", "a"], [[1, 2, 1]]}
+
+      assert Guardian.Query.execute("let coalesce(q) = *; select coalesce(1) from #{table}") ==
+               {:ok, ["a", "b"], [[1, 2]]}
+
+      assert Guardian.Query.execute("let t = #{table}; let x = *; select x from t") ==
+               {:ok, ["a", "b"], [[1, 2]]}
     end
 
-    test "raises other resolution errors without calling on_parse_error" do
-      on_parse_error = fn error -> flunk("unexpected #{inspect(error)}") end
+    test "FROM _stream is an ordinary table name" do
+      assert Guardian.Query.execute("select v from _stream") == {:ok, ["v"], []}
+    end
 
-      assert_raise RuntimeError, ~r/Wrong number of arguments/, fn ->
-        Guardian.Query.execute("let coalesce(a) = a; select coalesce(1, 2)",
-          on_parse_error: on_parse_error
-        )
+    test "returns a Guardian.Query.Error from resolving the query, without on_parse_error" do
+      on_parse_error = fn error -> flunk("unexpected #{inspect(error)}") end
+      star = "SELECT * needs FROM and a table name"
+      from = "FROM needs a table name"
+      desc = "DESC needs a table name"
+      let_arity = ~s(Wrong number of arguments to LET function "coalesce")
+
+      for {sql, message} <- [
+            {"select *", star},
+            {"let x = *; select x", star},
+            {"select * from 1", from},
+            {"select v from 1", from},
+            {"select v from '_stream'", from},
+            {"select v from (t)", from},
+            {"let t = 1; select v from t", from},
+            {"let t = '_stream'; select v from t", from},
+            {"desc 1", desc},
+            {"desc 'x'", desc},
+            {"let coalesce(a) = a; select coalesce(1, 2)", let_arity},
+          ] do
+        assert Guardian.Query.execute(sql, on_parse_error: on_parse_error) == {:error, message},
+               sql
       end
     end
   end

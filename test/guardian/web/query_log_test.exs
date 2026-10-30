@@ -112,15 +112,22 @@ defmodule Guardian.Web.QueryLogTest do
       assert row["error"] == Exception.message(error)
     end
 
-    test "an internal error is reraised unchanged and records kind internal with its message" do
+    test "a LET function given the wrong number of arguments records kind query" do
       sql = "LET coalesce(a) = a; SELECT coalesce(1, 2) AS #{marker()}"
+      assert {:error, "Wrong number of arguments" <> _} = run(sql)
+      assert [%{"error_kind" => "query", "outcome" => "error"}] = rows_for(sql)
+    end
 
-      assert {:raised, %RuntimeError{} = error} = run(sql)
+    test "an internal error is reraised unchanged and records kind internal with its message" do
+      sql = "SELECT 1 AS #{marker()}"
+      error = %RuntimeError{message: "internal failure"}
+      Guardian.Test.Web.QueryBackend.fail_next(:error, error, [])
+
+      assert {:raised, ^error} = run(sql)
 
       assert [row] = rows_for(sql)
       assert row["error_kind"] == "internal"
-      assert row["error"] == Exception.message(error)
-      assert row["error"] =~ "Wrong number of arguments"
+      assert row["error"] == "internal failure"
     end
 
     test "a stalled recorder does not delay the result; the row lands when it resumes" do
@@ -198,13 +205,11 @@ defmodule Guardian.Web.QueryLogTest do
       assert [%{"error_kind" => "query", "error" => ^text}] = rows_for(sql)
     end
 
-    test "an internal error records kind internal with its message" do
+    test "a resolve-time query error records kind query with the tool error's text" do
       sql = "LET coalesce(a) = a; SELECT coalesce(1, 2) AS #{marker()}"
-
       assert %{"isError" => true, "content" => [%{"text" => text}]} = mcp_query(sql)
-      assert [row] = rows_for(sql)
-      assert row["error_kind"] == "internal"
-      assert row["error"] == text
+      assert text =~ "Wrong number of arguments"
+      assert [%{"error_kind" => "query", "error" => ^text}] = rows_for(sql)
     end
 
     test "a parse error records kind parse with the tool error's text" do

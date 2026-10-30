@@ -22,7 +22,16 @@ defmodule Guardian.Query.ResolverTest do
 
   test "a * that LET substitutes is expanded" do
     keys = Guardian.Query.VirtualTable.Schema.keys()
-    assert [{statement, _labels}] = resolve("LET x = *; SELECT x FROM schema")
+    assert [{statement, labels}] = resolve("LET x = *; SELECT x FROM schema")
     assert statement.select_exprs == Enum.map(keys, &%Guardian.AST.Node.Identifier{name: &1})
+    assert labels == keys
+  end
+
+  test "each statement labels a substituted * with its table's columns" do
+    keys = Guardian.Query.VirtualTable.Schema.keys()
+    sql = "SELECT 1 AS a; LET x = *; ; SELECT x FROM schema; LET y = 2; SELECT y, x FROM schema"
+
+    assert [{_, ["a"]}, {_, ^keys}, {_, labels}] = resolve(sql)
+    assert labels == ["y" | keys]
   end
 end

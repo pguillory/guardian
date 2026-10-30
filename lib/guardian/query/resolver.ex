@@ -7,6 +7,7 @@ defmodule Guardian.Query.Resolver do
   - LET substitutions
   - Convert splat (SELECT *) into list of fields
   - Label each statement's columns
+  - Check that FROM and DESC name a table
   """
 
   alias Guardian.AST
@@ -26,8 +27,11 @@ defmodule Guardian.Query.Resolver do
   @doc """
   Resolves SQL text into its executable statements, each paired with its column labels
   (an alias where one is given, else the expression as written, taken from the
-  statement before LET substitution, so the labels keep LET names as written). LET and
-  empty statements yield no pair.
+  statement before LET substitution, so the labels keep LET names as written; a `*`,
+  written or substituted for a LET name, gives its table's column names). LET and
+  empty statements yield no pair. Raises `Guardian.Query.Error` for a FROM or DESC
+  that is not a table name, `SELECT *` without FROM, and a LET function called with
+  the wrong number of arguments.
   """
   @spec resolve(String.t()) :: [{struct(), [String.t()]}]
   def resolve(source) when is_binary(source) do
@@ -41,28 +45,43 @@ defmodule Guardian.Query.Resolver do
 
     # LET may substitute table names, so tables are read from substituted statements.
     statements = resolve_let_statements(statements)
+    Enum.each(statements, &check_from_table/1)
     columns = table_columns(statements)
-
-    statements = Enum.map(statements, &resolve_select_star(&1, columns))
 
     labels =
       raw_statements
       |> SuperList.zip(statements)
-      |> Enum.map(fn {raw_statement, statement} ->
-        raw_statement
-        |> copy_tables(statement)
-        |> resolve_select_star(columns)
-        |> labels()
-      end)
+      |> Enum.map(fn {raw_statement, statement} -> labels(raw_statement, statement, columns) end)
+
+    statements = Enum.map(statements, &resolve_select_star(&1, columns))
 
     SuperList.zip(statements, labels)
   end
 
-  # The column labels of a SELECT: an alias where one is given, else the expression
-  # as written back by `Guardian.AST.unparse/1`. SHOW TABLES and DESC are SELECTs by
-  # now (`resolve_show_desc/1`).
-  defp labels(%SelectStatement{} = statement) do
-    statement.select_exprs |> Enum.map(&label/1)
+  # FROM names a table. LET substitution can put any expression there, so this checks
+  # the substituted statement; the planner's internal `_stream` source is a literal and
+  # so can't be reached from SQL.
+  defp check_from_table(%SelectStatement{from_expr: from_expr})
+       when from_expr != nil and not is_struct(from_expr, Identifier) do
+    raise Guardian.Query.Error, message: "FROM needs a table name"
+  end
+
+  defp check_from_table(_statement) do
+    :ok
+  end
+
+  # The column labels of a SELECT, from its pre-LET form paired with its substituted
+  # form (LET replaces expressions, so both have the same number): a `*`, written or
+  # substituted for a LET name, is labeled with its table's column names, any other
+  # expression by `label/1`. SHOW TABLES and DESC are SELECTs by now
+  # (`resolve_show_desc/1`).
+  defp labels(%SelectStatement{} = raw, %SelectStatement{} = statement, columns) do
+    raw.select_exprs
+    |> SuperList.zip(statement.select_exprs)
+    |> Enum.flat_map(fn
+      {_raw_expr, %Splat{}} -> splat_columns(statement, columns)
+      {raw_expr, _expr} -> [label(raw_expr)]
+    end)
   end
 
   defp label(%As{right: %Identifier{name: name}}) do
@@ -76,14 +95,6 @@ defmodule Guardian.Query.Resolver do
 
   defp label(expr) do
     AST.unparse(expr)
-  end
-
-  defp copy_tables(%SelectStatement{} = raw, %SelectStatement{} = statement) do
-    %SelectStatement{raw | from_expr: statement.from_expr}
-  end
-
-  defp copy_tables(raw, _statement) do
-    raw
   end
 
   # The columns of each table a SELECT * reads, the only use of a table's schema in
@@ -122,7 +133,11 @@ defmodule Guardian.Query.Resolver do
   end
 
   def resolve_show_desc(%DescStatement{expr: expr}) do
-    %Identifier{name: table} = expr
+    table =
+      case expr do
+        %Identifier{name: table} -> table
+        _ -> raise Guardian.Query.Error, message: "DESC needs a table name"
+      end
 
     %SelectStatement{
       select_exprs: [
@@ -182,7 +197,8 @@ defmodule Guardian.Query.Resolver do
           AST.postwalk(statement, fn
             %FunctionCall{name: ^name, args: arg_values} ->
               if length(arg_keys) != length(arg_values) do
-                raise "Wrong number of arguments to LET function #{inspect(name)}"
+                raise Guardian.Query.Error,
+                  message: "Wrong number of arguments to LET function #{inspect(name)}"
               end
 
               replacement_map = Enum.zip(arg_keys, arg_values) |> Map.new()
@@ -211,13 +227,7 @@ defmodule Guardian.Query.Resolver do
     update_in(statement.select_exprs, fn select_exprs ->
       Enum.flat_map(select_exprs, fn
         %Splat{} ->
-          case statement.from_expr do
-            %Identifier{name: table} ->
-              columns |> Map.fetch!(table) |> Enum.map(&%Identifier{name: &1})
-
-            _ ->
-              raise Guardian.Query.Error, message: "SELECT * needs FROM and a table name"
-          end
+          statement |> splat_columns(columns) |> Enum.map(&%Identifier{name: &1})
 
         expr ->
           [expr]
@@ -227,6 +237,16 @@ defmodule Guardian.Query.Resolver do
 
   defp resolve_select_star(statement, _columns) do
     statement
+  end
+
+  # The column names a `*` in this statement stands for. FROM is a table name or
+  # absent by now (`check_from_table/1`).
+  defp splat_columns(%SelectStatement{from_expr: %Identifier{name: table}}, columns) do
+    Map.fetch!(columns, table)
+  end
+
+  defp splat_columns(%SelectStatement{from_expr: nil}, _columns) do
+    raise Guardian.Query.Error, message: "SELECT * needs FROM and a table name"
   end
 
   defp keys("schema") do

@@ -306,6 +306,10 @@ privately, not in this repository.
       (`docs/changes/select-schema-on-demand.md`)
 - [x] select-star-without-table: `SELECT *` with no FROM, or a FROM that is not a
       table name, crashed resolution (an internal error); it is now a query error
+- [x] query-input-errors: a FROM or DESC that is not a table name (`FROM 1`,
+      `FROM '_stream'`, also through LET) and a LET function given the wrong number of
+      arguments are query errors, not internal ones; a LET name standing for `*` labels
+      each column with its name instead of one label for all of them
 - [ ] statement-node-set: compute a statement's node set once, so a hung peer's 5 s
       readiness check is paid once per query and a `SELECT *`'s resolve and FROM see
       the same nodes

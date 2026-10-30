@@ -122,6 +122,17 @@ defmodule Guardian.Web.MCP.ClientTest do
              ]
     end
 
+    test "a LET name standing for * returns every column" do
+      Guardian.Test.MCPClient.start()
+      table = "mcp_let_star_#{System.unique_integer([:positive])}"
+      Guardian.Engine.ingest_event(table, %{"name" => "alice", "score" => 10})
+
+      {:ok, response} = call_tool("query", %{"sql" => "LET x = *; SELECT x FROM #{table}"})
+
+      [content] = response.result["content"]
+      assert Jason.decode!(content["text"]) == [%{"name" => "alice", "score" => 10}]
+    end
+
     test "executes SHOW TABLES" do
       Guardian.Test.MCPClient.start()
 

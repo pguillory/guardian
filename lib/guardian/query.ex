@@ -56,10 +56,12 @@ defmodule Guardian.Query do
   exactly one statement after LET statements, and runs it.
 
   Returns `{:ok, labels, rows}`, with the column labels taken from the statement
-  before LET substitution. Returns
-  `{:error, message}` for a failure of the query itself: zero or several statements,
-  a `Guardian.Query.Error` from resolving (`SELECT *` without a table), or one from
-  `run/1` (a resource limit, a regular expression over its backtracking limit).
+  before LET substitution (a `*`, written or through LET, labels each column by
+  name). Returns `{:error, message}` for a failure of the query itself: zero or
+  several statements, a `Guardian.Query.Error` from resolving (a FROM or DESC that is
+  not a table name, `SELECT *` without a table, a LET function given the wrong number
+  of arguments), or one from `run/1` (a resource limit, a regular expression over its
+  backtracking limit).
   Anything else raised while resolving (a `Guardian.AST.ParseError`, a failed schema
   lookup) propagates.
 

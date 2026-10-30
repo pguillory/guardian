@@ -32,10 +32,10 @@ and scalar function behavior. Add functions under `query/function/`, register th
 `Guardian.Query.Function`, and test through `Guardian.Query.EvaluationTestCase`.
 
 `Guardian.Query.execute/2` is the entry point for SQL text: it resolves (the Resolver labels
-each statement's columns from its pre-LET form), requires exactly one statement, and
-runs it, returning a `Guardian.Query.Error` from resolving or running (and a wrong
-statement count) as `{:error, message}`. The JSON API and the MCP tool use it; operators can call it
-directly from the remote IEx shell.
+each statement's columns from its pre-LET form, a `*` by its table's column names),
+requires exactly one statement, and runs it, returning a `Guardian.Query.Error` from
+resolving or running (and a wrong statement count) as `{:error, message}`. The JSON API
+and the MCP tool use it; operators can call it directly from the remote IEx shell.
 
 `Guardian.Query.run/1` runs each query in its own process, the consumer of its
 `Guardian.Query.DistributedStream` pipeline (`lib/guardian/query/distributed_stream.ex`, vendored and

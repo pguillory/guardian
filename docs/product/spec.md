@@ -608,13 +608,17 @@ Full reference: [`query_language.md`](../../lib/guardian/web/mcp/query_language.
 the shipped surface:
 
 1. Statements: `SELECT`, `SHOW TABLES`, `DESC <table>`, and `LET name = expr;`
-   substitutions before one statement. Keywords and function names match in any case.
+   substitutions before one statement. A LET function (`LET f(a) = ...`, where `f`
+   names a registered function) called with a different number of arguments than it
+   was defined with is a query error. Keywords and function names match in any case.
    Column, table, alias and LET names match exactly and keep their case (`AS Total`
    labels the column `Total`).
 2. SELECT clauses: `FROM` (one table, or none for constant expressions), `WHERE`
    (repeatable, ANDed), `GROUP BY`, `HAVING`, `ORDER BY ... ASC|DESC`, `LIMIT` (integer
-   literal only). `SELECT *` expands to every column of the table across all machines;
-   without `FROM` and a table name it is a query error.
+   literal only). `FROM` and `DESC` take a table name (for FROM, after LET
+   substitution); anything else is a query error. `SELECT *` expands to every column
+   of the table across all machines, each labeled with its name, also where a LET name
+   stands for `*`; without `FROM` it is a query error.
 3. Expressions: arithmetic, `||`, comparisons including null-safe `<=>`, `IS [NOT]`,
    `AND/OR/NOT`, `BETWEEN`, `[NOT] IN [list]` (a parenthesized list such as `('a', 'b')` or
    `('a')` is a parse error), `LIKE` and `ILIKE` (`%` any run, `_` one
@@ -778,8 +782,9 @@ they follow the same retention and query rules as producer tables.
    - `outcome`: `ok` or `error`. `row_count`: rows returned (null on error).
    - `error_kind` (null on success): `parse` for a parse error (including an unknown
      function); `query` for a failure answered as a query error (HTTP 400: zero or
-     several statements, `SELECT *` without a table, a resource or time limit, a
-     function failing on a value);
+     several statements, a FROM or DESC that is not a table name, `SELECT *` without a
+     table, a LET function given the wrong number of arguments, a resource or time
+     limit, a function failing on a value);
      `internal` for anything else (HTTP 500: a machine failing the schema lookup, an
      unexpected failure).
    - `error`: the error message, cut to 1 KiB, as MCP returns it (for a failure that

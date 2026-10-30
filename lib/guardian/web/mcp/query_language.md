@@ -15,13 +15,15 @@ DESC web_requests
 ```
 
 DESC lists a table's column names. It shows no types, because columns are untyped.
+Its argument must be a table name.
 
 ```text
 SELECT expr [AS alias], ... [FROM table] [WHERE cond] [GROUP BY expr, ...] [HAVING cond] [ORDER BY expr [ASC|DESC], ...] [LIMIT n]
 ```
 
-- `FROM` names one table. Without `FROM`, SELECT evaluates constant expressions.
-- `SELECT *` expands to every column of the table.
+- `FROM` names one table; anything else there is an error. Without `FROM`, SELECT
+  evaluates constant expressions.
+- `SELECT *` expands to every column of the table, each labeled with its name.
 - `LIMIT` takes an integer literal only.
 - A query may return at most 100,000 rows and about 64 MiB; a larger result fails
   with an error asking for a LIMIT, a WHERE, or GROUP BY (it is never cut short).
