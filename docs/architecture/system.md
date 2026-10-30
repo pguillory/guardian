@@ -76,7 +76,7 @@ The design follows from the product commitments (spec section 1):
 
 ```text
 Guardian.Application (one_for_one)
-├── Guardian.Rules.Server                     loads the rule store, publishes compiled rules, polls each minute
+├── Guardian.Rules.Server                     loads the rule store, publishes compiled rules, reloads when a writer asks
 ├── Guardian.Counters.Restarter               trapping lifecycle owner; backs off subtree recovery
 │   └── Guardian.Counters.Supervisor (one_for_one)
 │       ├── Guardian.Counters.Store           ephemeral node-local ETS counter storage
@@ -356,7 +356,7 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    has `table/0` and `hash/0`; Publisher reuses a module whose hash is unchanged.
 3. Publication: `Guardian.Rules.Publisher` owns activation, publication and the
    generated-module pool, synchronously inside Server's callbacks. Server
-   keeps store reads, reload/poll, locked writes and admission; it holds Publisher's
+   keeps store reads, reload, locked writes and admission; it holds Publisher's
    free/retired names and forwards reclamation messages. Publisher retains no plans,
    sources or diagnostics in its state. One `:persistent_term` map holds table to
    module, or `{:invalid, message}`. A reload compiles every changed table into free
@@ -382,7 +382,11 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    Runner shares one Client batch budget across worker replacements and starts
    each event's membership snapshot and counter phase on worker entry. Generated
    modules accept this context through `apply/2`; `apply/1` creates a fresh event/batch.
-5. Loading: at boot, then on every write and every minute. The store is listed (a
+5. Loading: at boot, on every write, when a writer asks a node to reload, and once in
+   the background after the rules process restarts; nothing reads on a timer, because
+   rules change only through writes. A failed reload is not retried, and the writer
+   lists the node as unconfirmed. A connected node that missed a reload catches up at
+   the next one or at restart. The store is listed (a
    bucket under its prefix, or every file in a local folder through the generic
    `Guardian.ObjectStore.Local`); objects not ending in `.gsql` are ignored, a `.gsql`
    object at any other path than `<table>/<name>.gsql` is a path error, and
@@ -1423,7 +1427,7 @@ these except through the variables above:
 | `counter_memory_budget_bytes` | 64 MiB, overridden by `GUARDIAN_COUNTER_MEMORY_MB` | `Guardian.Counters.Store`: asynchronous resident counter memory target (3.5); a non-positive or non-integer value refuses startup |
 | `query_parse_errors_per_hour` | 60 | `Guardian.Web.QueryParseErrors` (tests raise it) |
 | `rules_store` | from the variables above | `Guardian.Rules.Config` (tests set a store directly) |
-| `rules_poll_ms`, `rules_time_limit_ms`, `rules_reclaim_after_ms`, `rules_lock_lease_ms`, `rules_save_margin_ms` | 60,000; 1,000; 30,000; 120,000; 80,000 | `lib/guardian/rules` (tests shorten them) |
+| `rules_time_limit_ms`, `rules_reclaim_after_ms`, `rules_lock_lease_ms`, `rules_save_margin_ms` | 1,000; 30,000; 120,000; 80,000 | `lib/guardian/rules` (tests shorten them) |
 | `object_store_s3_receive_timeout_ms`, `object_store_s3_write_deadline_ms` | 15,000; 20,000 | `Guardian.ObjectStore.S3` (tests shorten them) |
 | `persisted_segment_cache_ms` | 600,000 | `Guardian.Storage.PersistedSegments`: how long a written segment's in-memory copy serves before it is stopped (tests shorten it); a value that is not a positive integer stops Storage from starting |
 

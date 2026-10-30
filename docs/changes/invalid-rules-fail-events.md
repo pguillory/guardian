@@ -1,6 +1,7 @@
 # Invalid stored rules fail their events, at boot and on reload alike; an unreachable store is waited for
 
-Status: implemented and validated.
+Status: implemented and validated. The poll and the direct store edits named below
+are gone since `docs/changes/rules-no-poll.md`; this document stays as history.
 
 ## Problem
 

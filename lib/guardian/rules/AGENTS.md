@@ -58,8 +58,10 @@ Modules:
   budget across replacement workers.
 - `Guardian.Rules.Runner`: runs a batch in a worker under the heap limit, 1 s per event.
 - `Guardian.Rules.Config`: chooses the store from the environment.
-- `Guardian.Rules.Server`: process, startup load, reload, poll, locked writes and
-  admission. Owns rule lock policy (key, lease and save margin). The store is a
+- `Guardian.Rules.Server`: process, startup load, reload, locked writes and
+  admission. Nothing re-reads the store on a timer: rules change only through writes,
+  which reload every connected node (`docs/changes/rules-no-poll.md`). Owns rule lock
+  policy (key, lease and save margin). The store is a
   `Guardian.ObjectStore` (`lib/guardian/object_store/AGENTS.md`): S3 or a local folder.
   Both list every object; Server and `Guardian.Rules.list_rules/1` apply the rule
   layout (`Guardian.Rules.RuleSet.parse_key/1`). The write lock is a
@@ -96,7 +98,7 @@ Modules:
 9. Whole-set preparation validates counter plans, orders expression dependencies
    with the LOOKUP barrier and binds definition identities.
 10. Compiler refuses unresolved plans and unbound LOOKUPs.
-11. Activation keeps no history: boot, reload, poll and writes all publish each
+11. Activation keeps no history: boot, reload and writes all publish each
     table's current preparation result, so an invalid table (or one whose LOOKUP
     reads an invalid table's counter) fails its events and never keeps its last
     good rules (`docs/changes/invalid-rules-fail-events.md`).

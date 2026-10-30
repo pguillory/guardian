@@ -21,7 +21,7 @@ defmodule Guardian.Rules.CounterReloadTest do
     end
 
     for {key, source} <- files, do: Guardian.Test.FakeS3.put_object(s3, key, source)
-    ExUnit.CaptureLog.capture_log(fn -> assert :ok = Guardian.Rules.reload() end)
+    assert :ok = Guardian.Rules.reload()
   end
 
   defp ingest(table, event \\ %{}) do

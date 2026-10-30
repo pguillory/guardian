@@ -54,7 +54,7 @@ writes it, and queries AAAA or A records to match. Every node in a cluster must 
 same build: mid rolling deploy, queries can fail until all nodes are upgraded.
 
 Rules run on the ingestion path, but only compiled rule sets loaded in memory; the
-rule store (a folder or an S3 bucket) is read at startup, on reload and by a poll,
+rule store (a folder or an S3 bucket) is read at startup, on writes and on reload,
 never per event. Guardian has no external metadata/runtime services. Do not add
 external calls to the ingestion path.
 

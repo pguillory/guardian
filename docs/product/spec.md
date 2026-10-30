@@ -233,8 +233,9 @@ authenticated like the JSON API but only with a full-access key: the ingest key 
    ([section 5.1](#51-rules)). A rejected write is a tool error listing every
    validation message, and nothing is saved. A saved write returns `saved: true`, the
    validation errors the set still has (from before this write), and any machine that
-   has not yet confirmed loading it (it catches up within a minute). A write whose
-   outcome is unknown says it may have been saved.
+   is connected but has not confirmed loading it (it catches up at the next write or
+   restart). A write whose outcome is unknown says it may have been saved, and if it
+   was, it takes effect at the latest at the next successful rule write.
 4. Resource `guardian://query-language`: the full query-language reference as
    Markdown.
 5. A tool call that fails unexpectedly gets JSON-RPC error -32603 "Tool execution
@@ -471,8 +472,8 @@ UNSET password
    statement fails only through a bug; that fails the whole request (section 5 item 6).
    An event over a limit fails on its own, with an error naming the limit, and is not
    stored; other events in the batch are unaffected.
-6. A table whose stored rules are invalid (edited in the store by hand, or using a
-   function a newer build lacks) fails its events with `rules for <table> are invalid`
+6. A table whose stored rules are invalid (using a function a newer build lacks, or
+   left by a stalled write, section 12) fails its events with `rules for <table> are invalid`
    until fixed, at startup and after any reload alike; there are no last good rules.
    A table whose LOOKUP reads a counter of an invalid table is invalid too. Other
    tables, queries and the rule tools work normally. A restart of the rules process
@@ -553,15 +554,19 @@ UNSET password
    machine, then every connected machine reloads. If the lock is held when a write or
    delete tries to take it, the operation fails without changing anything; the MCP
    tools try again for a few seconds, then report that something else is editing the
-   rules. A lock left by an interrupted write expires within two minutes. Machines
-   also re-read the store every minute, catching changes made directly in the store.
+   rules. A lock left by an interrupted write expires within two minutes. Rules change
+   only through these writes; editing the store directly is not supported. A machine
+   that misses the reload keeps its rules until the next write or until it restarts.
+   The write's reply names a connected machine that didn't confirm; one not connected
+   at the time isn't named.
 3. A local folder belongs to one machine, so with other machines connected, writes are
    refused: a cluster needs a bucket.
 4. A referenced TRACK cannot be deleted or changed to an incompatible grouping
    through a single-file write. Add a new named TRACK, retarget LOOKUPs to it, then
    delete the old one, or remove dependent LOOKUPs first. Rapid edits with many
    dependents can exhaust the bounded compiled-module pool; the file may be saved
-   while activation waits for reclamation and the next poll.
+   without taking effect, and the reply names the machine. The next rule write
+   activates it, once reclamation has freed names.
 
 #### 5.1.6 Startup
 
@@ -974,3 +979,5 @@ Listed here because they change what a user sees:
    loading then fails the affected table's events until it is fixed.
 8. A segment that crashes on an unexpected insert failure loses the rows it holds in
    memory, including rows already acknowledged.
+9. A machine that misses a rule write's reload, because it wasn't connected yet or its
+   reload failed, keeps its rules until the next rule write or until it restarts.

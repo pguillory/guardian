@@ -31,10 +31,11 @@
    cluster and its query results.
 9. Rules: the write lock is a lease, not a guarantee. A rule write stalled for more
    than about a minute can still land after another and leave a rule set that the check
-   would have refused; every node then rejects the table's events until the rules
-   are fixed.
-   Rules cost time on every event they run on (up to a second each), and nodes pick
-   up a write within a minute if they missed its reload.
+   would have refused; each node then rejects the table's events from its next load
+   until the rules are fixed.
+   Rules cost time on every event they run on (up to a second each), and a node that
+   misses a write's reload (not connected yet, or the reload failed) keeps its rules
+   until the next rule write or until it restarts.
 10. Counters are advisory and ephemeral. Buckets include the entire oldest
     intersecting interval (up to almost one extra bucket); distinct is approximate.
     Restarts, eviction, membership changes, partitions and uncertain writes can

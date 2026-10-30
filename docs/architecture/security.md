@@ -448,7 +448,7 @@ and no single request that takes the service down or destroys stored data.
    show event values, such as a password an UNSET was meant to remove. Either way
    rules fail closed (not stored), so a broken `UNSET password` does
    not store the password.
-8. The rule store is read at boot, on writes and once a minute, never per event, so
+8. The rule store is read at boot, on writes and on reload, never per event, so
    the ingest path makes no rule-store/external-service calls (counter peer RPCs
    stay inside Guardian). Its S3 credentials stay out of
    application config, logs and error messages (7.2). The S3 endpoint must use
@@ -653,11 +653,11 @@ Counter-specific limits:
    write lock is a lease in the store, not a fence: a writer stalled more than a
    minute past its lease check, or a request the store applies more than a minute
    after the writer abandoned it, can leave a stored set validation would have
-   refused. Every node then fails that table's events until it is fixed, and the
-   error quotes up to 40 characters of the rule to whoever sent them, the ingest
-   key included. Anyone who can write to the rule store directly (the bucket's
-   credentials, or the rule folder) controls ingest-time rules without an API key;
-   those writes still go through validation at load. The S3
+   refused. Each node then fails that table's events from its next load until it is
+   fixed, and the error quotes up to 40 characters of the rule to whoever sent them,
+   the ingest key included. Anyone who can write to the rule store directly (the
+   bucket's credentials, or the rule folder) controls ingest-time rules without an API key;
+   those writes take effect at the next load and go through validation there. The S3
    endpoint is trusted too: its list responses are parsed with `:xmerl` (entities
    off, at most 20 pages), which makes atoms of element names, so a hostile endpoint
    could grow the atom table.
@@ -900,7 +900,8 @@ Where data goes:
      reclamation. The
      synchronous Rules.Publisher helper runs inside Server's callbacks; its state
      holds only module names and retirement statuses, never sources, plans or
-     diagnostics. Raw module/process inspection remains privileged full-memory
+     diagnostics, and a compile failure's log line names the table and failure kind,
+     no rule text. Raw module/process inspection remains privileged full-memory
      access. A callback that raises crashes as is, so a crash report can show rule
      text. `Guardian.Rules.Server.write/3` turns a
      timed-out or missing server into an error without logging the exit reason, which

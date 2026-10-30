@@ -23,7 +23,7 @@ defmodule Guardian.Rules.ServerTest do
   end
 
   test "nested restarts restore the previous env and running server on exit" do
-    {_s3, original_store} = s3_server(rules_poll_ms: 120_000)
+    {_s3, original_store} = s3_server(rules_reclaim_after_ms: 120_000)
     table = unique_table("rules_restore")
     assert {:ok, _} = Guardian.Rules.write_rule(table, "original", "SET x = 1")
     assert Application.fetch_env(:guardian, :rules_test_helper_unset) == :error
@@ -36,7 +36,7 @@ defmodule Guardian.Rules.ServerTest do
     # restarted server loading the original store's rules.
     on_exit(fn ->
       assert Application.fetch_env(:guardian, :rules_store) == {:ok, original_store}
-      assert Application.fetch_env(:guardian, :rules_poll_ms) == {:ok, 120_000}
+      assert Application.fetch_env(:guardian, :rules_reclaim_after_ms) == {:ok, 120_000}
       assert Application.fetch_env(:guardian, :rules_test_helper_unset) == :error
       assert server = Process.whereis(Guardian.Rules.Server)
       assert Process.alive?(server)
@@ -46,7 +46,7 @@ defmodule Guardian.Rules.ServerTest do
 
     assert {:ok, _} =
              restart_server(temporary_store,
-               rules_poll_ms: 180_000,
+               rules_reclaim_after_ms: 180_000,
                rules_test_helper_unset: :temporary
              )
 
@@ -54,15 +54,15 @@ defmodule Guardian.Rules.ServerTest do
 
     on_exit(fn ->
       assert Application.fetch_env(:guardian, :rules_store) == {:ok, temporary_store}
-      assert Application.fetch_env(:guardian, :rules_poll_ms) == {:ok, 180_000}
+      assert Application.fetch_env(:guardian, :rules_reclaim_after_ms) == {:ok, 180_000}
       assert Application.fetch_env(:guardian, :rules_test_helper_unset) == {:ok, :temporary}
       assert server = Process.whereis(Guardian.Rules.Server)
       assert Process.alive?(server)
     end)
 
-    assert {:ok, _} = restart_server(nil, rules_poll_ms: 240_000)
+    assert {:ok, _} = restart_server(nil, rules_reclaim_after_ms: 240_000)
     assert Application.fetch_env(:guardian, :rules_store) == {:ok, temporary_store}
-    assert Application.fetch_env(:guardian, :rules_poll_ms) == {:ok, 240_000}
+    assert Application.fetch_env(:guardian, :rules_reclaim_after_ms) == {:ok, 240_000}
   end
 
   test "a rejected write saves nothing and lists every new error" do
@@ -296,7 +296,7 @@ defmodule Guardian.Rules.ServerTest do
     table = unique_table("rules_repair")
     Guardian.Test.FakeS3.put_object(s3, "#{table}/a.gsql", "SET x = nosuch(1)")
     Guardian.Test.FakeS3.put_object(s3, "#{table}/b.gsql", "SET y = nosuch(2)")
-    ExUnit.CaptureLog.capture_log(fn -> assert Guardian.Rules.reload() == :ok end)
+    assert Guardian.Rules.reload() == :ok
     assert {:invalid, _} = Guardian.Rules.lookup(table)
 
     assert {:ok, %{errors: [remaining]}} =
@@ -315,7 +315,7 @@ defmodule Guardian.Rules.ServerTest do
     {:ok, _} = Guardian.Rules.write_rule(table, "a", "SET x = 1")
     {:ok, _} = Guardian.Rules.write_rule(other, "a", "SET x = 1")
     Guardian.Test.FakeS3.put_object(s3, "#{table}/a.gsql", "SET x = ")
-    ExUnit.CaptureLog.capture_log(fn -> assert Guardian.Rules.reload() == :ok end)
+    assert Guardian.Rules.reload() == :ok
     assert {:invalid, reloaded} = Guardian.Rules.lookup(table)
 
     assert [{:error, message}] = Guardian.Engine.ingest_events(table, [%{}])
@@ -348,19 +348,17 @@ defmodule Guardian.Rules.ServerTest do
              %{"message" => "secret", "x" => true, "y" => "yes"}
   end
 
-  test "writing an unrelated table activates a hand-broken table as invalid and reports it once" do
+  test "writing an unrelated table activates a broken stored table as invalid and reports it once" do
     {s3, _store} = s3_server()
     table = unique_table("rules_broken")
     other = unique_table("rules_unrelated")
     assert {:ok, _} = Guardian.Rules.write_rule(table, "a", "SET x = 1; UNSET password")
     Guardian.Test.FakeS3.put_object(s3, "#{table}/a.gsql", "SET x = nosuch(1)")
 
-    ExUnit.CaptureLog.capture_log(fn ->
-      assert {:ok, %{errors: [error], unconfirmed: []}} =
-               Guardian.Rules.write_rule(other, "a", "SET x = 2")
+    assert {:ok, %{errors: [error], unconfirmed: []}} =
+             Guardian.Rules.write_rule(other, "a", "SET x = 2")
 
-      assert error == "#{table}/a.gsql line 1: Invalid function nosuch"
-    end)
+    assert error == "#{table}/a.gsql line 1: Invalid function nosuch"
 
     assert Guardian.Rules.lookup(table) ==
              {:invalid, "#{table}/a.gsql line 1: Invalid function nosuch"}
@@ -438,6 +436,7 @@ defmodule Guardian.Rules.ServerTest do
     ExUnit.CaptureLog.capture_log(fn ->
       assert {:error, {:unknown, message}} = Guardian.Rules.write_rule(table, "a", "SET x = 1")
       assert message =~ "may have been saved"
+      assert message =~ "at the latest at the next successful rule write"
     end)
 
     {:ok, body, _meta} = Guardian.ObjectStore.get(store, lock_key())
@@ -505,7 +504,7 @@ defmodule Guardian.Rules.ServerTest do
     assert {:ok, _} = Guardian.Rules.write_rule(table, "a", "UNSET password")
     Guardian.Test.FakeS3.put_object(s3, "#{table}/A.gsql", "UNSET password")
 
-    ExUnit.CaptureLog.capture_log(fn -> Guardian.Rules.reload() end)
+    Guardian.Rules.reload()
     assert {:invalid, _message} = Guardian.Rules.lookup(table)
     assert [{:error, _}] = Guardian.Engine.ingest_events(table, [%{"password" => "p"}])
 
@@ -514,21 +513,11 @@ defmodule Guardian.Rules.ServerTest do
     assert [{:error, _}] = Guardian.Engine.ingest_events(table, [%{"password" => "p"}])
   end
 
-  test "polling picks up changes made to the store directly" do
-    {s3, _store} = s3_server(rules_poll_ms: 100)
-    table = unique_table("rules_poll")
-    Guardian.Test.FakeS3.put_object(s3, "#{table}/a.gsql", "SET x = 1")
-
-    Guardian.Test.Polling.eventually(fn ->
-      is_atom(Guardian.Rules.lookup(table)) and Guardian.Rules.lookup(table) != nil
-    end)
-  end
-
   test "an oversized stored file is an error without being fetched" do
     {s3, _store} = s3_server()
     table = unique_table("rules_big")
     Guardian.Test.FakeS3.put_object(s3, "#{table}/a.gsql", String.duplicate(" ", 70_000))
-    ExUnit.CaptureLog.capture_log(fn -> Guardian.Rules.reload() end)
+    Guardian.Rules.reload()
     assert {:invalid, "#{table}/a.gsql: is over 65536 bytes"} == Guardian.Rules.lookup(table)
 
     refute Enum.any?(

@@ -44,12 +44,12 @@ defmodule Guardian.Rules.ClusterTest do
     Guardian.Test.Cluster.single_peer()
   end
 
-  defp s3_cluster(peer_node, peer_env \\ []) do
+  defp s3_cluster(peer_node) do
     s3 = Guardian.Test.FakeS3.start()
     on_exit(fn -> Guardian.Test.FakeS3.stop(s3) end)
     store = Guardian.Test.FakeS3.store(s3)
     {:ok, _} = restart_server(store)
-    :ok = :erpc.call(peer_node, Guardian.Test.Cluster, :start_rules, [store, peer_env])
+    :ok = :erpc.call(peer_node, Guardian.Test.Cluster, :start_rules, [store])
     s3
   end
 
@@ -113,18 +113,18 @@ defmodule Guardian.Rules.ClusterTest do
     assert Enum.count(results, loser?) == 1
   end
 
-  test "a node that missed a reload catches up by polling", %{peer_node: peer_node} do
-    s3 = s3_cluster(peer_node, rules_poll_ms: 100)
+  test "a node that missed a reload catches up at the next write", %{peer_node: peer_node} do
+    s3 = s3_cluster(peer_node)
     table = unique_table("rules_missed")
     Guardian.Test.FakeS3.put_object(s3, "#{table}/a.gsql", "SET x = 1")
 
-    Enum.reduce_while(1..100, nil, fn _, _ ->
-      case peer_ingest(peer_node, table, [%{}]) do
-        [{:ok, %{"x" => 1}}] -> {:halt, :ok}
-        _ -> Process.sleep(50) && {:cont, nil}
-      end
-    end)
-    |> then(&assert(&1 == :ok))
+    assert [{:ok, row}] = peer_ingest(peer_node, table, [%{}])
+    refute Map.has_key?(row, "x")
+
+    assert {:ok, %{unconfirmed: []}} =
+             Guardian.Rules.write_rule(unique_table("rules_later"), "a", "SET y = 1")
+
+    assert [{:ok, %{"x" => 1}}] = peer_ingest(peer_node, table, [%{}])
   end
 
   test "a local-folder store refuses writes while other nodes are connected", %{

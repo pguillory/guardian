@@ -5,6 +5,15 @@ when it needs one. This file is public: see the change-tracking rules in AGENTS.
 The maintainer's deployment records (releases, checks, rollback targets) are kept
 privately, not in this repository.
 
+## Rules
+
+- [x] rules-no-poll: rules change only through the service, so the one-minute re-read
+      and its log line are gone (`docs/changes/rules-no-poll.md`)
+- [ ] rules-reread-on-reconnect: for when a cluster is real. A machine that misses a
+      reload (disconnected, still booting since rules load before cluster discovery,
+      or its reload failed) stays on old rules until the next write or restart.
+      Re-reading on join and reconnect is the likely answer.
+
 ## Storage and ingestion
 
 - [x] flat-ingest-results: `send_events` returns the stored flat row and

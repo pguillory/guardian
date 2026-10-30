@@ -81,8 +81,9 @@ defmodule Guardian.Rules.Compiler do
 
     :ok
   rescue
-    # Fails the activation closed and tells the writer. Raising would crash Rules.Server
-    # on every node reading the same set, past its restart limit.
+    # Fails the activation closed; Publisher logs it. The file is already saved, so
+    # raising would crash Rules.Server on every node that reads the set, past its
+    # restart limit, and then refuse their boot.
     e -> {:error, inspect(e.__struct__)}
   end
 end

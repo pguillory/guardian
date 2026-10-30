@@ -239,9 +239,9 @@ defmodule Guardian.Rules.RuleSet do
         {:error, table, [error(key, e.row + 1, :parse, e.reason, e.reason, table)]}
     end
   rescue
-    # Every node reads the same store, so a bug tripped by one stored file would crash
-    # Rules.Server on every node, past its restart limit, and refuse boot. Contained
-    # here, it costs that one table its rules.
+    # Every node reads the same store at boot and when told to reload, so a bug tripped
+    # by one stored file would crash Rules.Server on every node and refuse their boot.
+    # Contained here, it costs that one table its rules.
     e ->
       kind = inspect(e.__struct__)
       {:error, table, [error(key, nil, :parse, kind, "could not be parsed (#{kind})", table)]}

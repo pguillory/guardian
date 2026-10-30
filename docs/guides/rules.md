@@ -3,7 +3,7 @@
 Rules are files named `<table>/<name>.gsql` (the language is in the
 [product spec](../product/spec.md#51-rules)). Guardian reads them from one store: a
 local folder, or an S3-compatible bucket such as Cloudflare R2. It loads every rule at
-startup, after each write through the MCP rule tools, and once a minute, and never
+startup and after each write through the MCP rule tools, and never
 reads the store while ingesting. If the store settings are invalid, or the store
 answers that they are wrong, Guardian refuses to start; if it cannot get an answer at
 startup (a mistyped host or a certificate failure included), is rate-limited or gets a
@@ -96,13 +96,14 @@ item 5).
 ## A local folder (the default)
 
 With no rule settings, rules live in `<GUARDIAN_DATA_DIR>/rules`; `GUARDIAN_RULES_DIR`
-moves them. Files edited there by hand are picked up within a minute and checked like
-any write. If a table's rules fail the check, every node rejects that table's events
-until the rules are fixed. Any `.gsql` file in a table's folder counts, so a stray or
-misnamed one (`logins/README.gsql`) fails that table. A `.gsql` file anywhere else is
+moves them. Change rules through the MCP rule tools: editing the files directly is not
+supported. A file changed by hand is not noticed until the next load, and then it is
+checked like any write. If a table's rules fail the check, every node rejects that
+table's events until the rules are fixed. Any `.gsql` file in a table's folder counts,
+so a stray or misnamed one (`logins/README.gsql`) fails that table. A `.gsql` file anywhere else is
 reported as an error too: `logins/old/rate.gsql` fails `logins`, while `rate.gsql` at
 the top names no table, so it fails none. Other files are ignored, as are names
-starting with `.`. Every file in the folder is read on each check, and a folder with
+starting with `.`. Every file in the folder is read on each load, and a folder with
 more than 20,000 entries fails to load, so keep only rules there: Guardian refuses to
 start if the folder is `GUARDIAN_DATA_DIR`, contains it, or is inside its `segments`
 folder.

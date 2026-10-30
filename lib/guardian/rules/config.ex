@@ -11,7 +11,7 @@ defmodule Guardian.Rules.Config do
     must end in `/`) are optional.
   - Otherwise a local folder: `GUARDIAN_RULES_DIR`, default `<data dir>/rules`. The
     folder may not be the data folder, contain it, or be inside the segments folder:
-    every file in the rule folder is read on each poll.
+    every file in the rule folder is read on each load.
 
   Setting the folder and the bucket, or only some of the bucket settings, is an
   error. The secrets are read here and kept only inside a closure

@@ -41,8 +41,13 @@ defmodule Guardian.Rules.PublisherTest do
       | tables: Map.put(preparation.tables, refused, {:ok, %{plan | resolved?: false}}),
     }
 
-    assert {:error, message, []} = activate(publisher, broken)
-    assert message == "compiling the rules for #{refused} failed (unresolved_plan)"
+    log =
+      ExUnit.CaptureLog.capture_log(fn ->
+        assert {:error, message, []} = activate(publisher, broken)
+        assert message == "compiling the rules for #{refused} failed (unresolved_plan)"
+      end)
+
+    assert log =~ "[error] Rules: compiling the rules for #{refused} failed (unresolved_plan)"
 
     assert Rules.published() == before
     assert old.apply(%{}) == %{"x" => 1}

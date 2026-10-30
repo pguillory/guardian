@@ -12,14 +12,16 @@ defmodule Guardian.Rules.Server do
   `{:invalid, message}`, so its events fail and other tables run normally.
 
   If this process restarts while Guardian runs, the published set (in
-  `:persistent_term`) keeps serving and the store is re-read in the background, so a
-  store outage cannot take the rest of Guardian down.
+  `:persistent_term`) keeps serving and the store is re-read once in the background,
+  so a store outage cannot take the rest of Guardian down.
 
-  ## Reload and poll
+  ## Reload
 
-  `reload/0` and a poll every 60 s re-read the store, fetching only objects whose ETag
-  changed. Activation is the same as at startup: a table whose stored rules fail
-  validation (or whose LOOKUP reads a counter of such a table) is published as
+  `reload/0` re-reads the store, fetching only objects whose ETag changed. Writers call
+  it on every connected node. Rules change only through writes, so nothing re-reads on
+  a timer, and a failed reload is not retried: a node keeps its rules until its next
+  reload or restart. Activation is the same as at startup: a table whose stored rules
+  fail validation (or whose LOOKUP reads a counter of such a table) is published as
   invalid, with no last good rules kept. Nothing changes unless every changed table
   compiles; then one map is published, switching every addition, change and deletion
   at once.
@@ -74,6 +76,8 @@ defmodule Guardian.Rules.Server do
   # holder makes, including time before the write starts. ServerTest checks that
   # dependency against the defaults; reconsider this margin when the deadline grows.
   @save_margin_ms 80_000
+  @may_be_saved "may have been saved; list the rules to check; if it was, it takes effect " <>
+                  "at the latest at the next successful rule write"
 
   @doc false
   def lock_key do
@@ -101,8 +105,7 @@ defmodule Guardian.Rules.Server do
   catch
     # Answers the writer needs: its outcome is unknown, or nothing happened.
     :exit, {:timeout, _} ->
-      {:error,
-       {:unknown, "the rule write timed out; it may have been saved; list the rules to check"}}
+      {:error, {:unknown, "the rule write timed out; it #{@may_be_saved}"}}
 
     :exit, {:noproc, _} ->
       {:error, "the rule server is unavailable; retry"}
@@ -110,11 +113,6 @@ defmodule Guardian.Rules.Server do
 
   def reload do
     GenServer.call(__MODULE__, :reload, @reload_timeout_ms)
-  end
-
-  @doc false
-  def poll_ms do
-    Application.get_env(:guardian, :rules_poll_ms, 60_000)
   end
 
   @impl true
@@ -153,7 +151,6 @@ defmodule Guardian.Rules.Server do
                 "from #{ObjectStore.describe(state.store)}"
             )
 
-            schedule_poll()
             {:ok, %{state | files: files}}
 
           {:error, message, _errors} ->
@@ -180,7 +177,7 @@ defmodule Guardian.Rules.Server do
   end
 
   defp restart(state, published) do
-    send(self(), :poll)
+    send(self(), :catch_up)
     %{state | publisher: Publisher.new(published), stale: true}
   end
 
@@ -197,16 +194,14 @@ defmodule Guardian.Rules.Server do
     {:reply, reply, state}
   end
 
+  # One read, for any write missed while this process was down. If it fails, `stale`
+  # stays set and the published rules keep serving until the next reload or write.
   @impl true
-  def handle_info(:poll, state) do
-    state =
-      case reload_state(state) do
-        {:ok, state} -> state
-        {:error, message, state} -> log_poll_failure(state, message)
-      end
-
-    schedule_poll()
-    {:noreply, state}
+  def handle_info(:catch_up, state) do
+    case reload_state(state) do
+      {:ok, state} -> {:noreply, state}
+      {:error, _message, state} -> {:noreply, state}
+    end
   end
 
   def handle_info({:reclaim, module}, state) do
@@ -406,9 +401,7 @@ defmodule Guardian.Rules.Server do
         # The save may have happened: leave the lock to expire, so the next writer
         # starts well after this request, and validates whatever it finds. The caller
         # is told.
-        {{:error,
-          {:unknown,
-           "#{ObjectStore.reason_message(reason)}; #{key} may have been saved; list the rules to check"}},
+        {{:error, {:unknown, "#{ObjectStore.reason_message(reason)}; #{key} #{@may_be_saved}"}},
          %{state | stale: true}}
 
       {:error, :precondition_failed} ->
@@ -447,25 +440,6 @@ defmodule Guardian.Rules.Server do
     case Publisher.activate(state.publisher, preparation) do
       {:ok, publisher, errors} -> {:ok, %{state | publisher: publisher}, errors}
       {:error, message, errors} -> {:error, message, errors}
-    end
-  end
-
-  ## Logging
-
-  defp schedule_poll do
-    Process.send_after(self(), :poll, poll_ms())
-  end
-
-  defp log_poll_failure(state, message) do
-    now = System.monotonic_time(:millisecond)
-
-    case Map.get(state, :poll_logged_at) do
-      at when is_integer(at) and now - at < 600_000 ->
-        state
-
-      _ ->
-        Logger.warning("Rules: reloading failed: #{message}")
-        Map.put(state, :poll_logged_at, now)
     end
   end
 end

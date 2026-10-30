@@ -15,6 +15,8 @@ defmodule Guardian.Rules.Publisher do
   the store holds now.
   """
 
+  require Logger
+
   alias Guardian.Rules
 
   @reclaim_after_ms 30_000
@@ -114,7 +116,7 @@ defmodule Guardian.Rules.Publisher do
 
   defp compile_all(%{free: []}, [_ | _], compiled) do
     discard(compiled)
-    {:error, "no free rule module names; retrying on the next poll"}
+    {:error, "no free rule module names"}
   end
 
   defp compile_all(%{free: [module | free]} = state, [plan | plans], compiled) do
@@ -124,7 +126,10 @@ defmodule Guardian.Rules.Publisher do
 
       {:error, kind} ->
         discard([{plan, module} | compiled])
-        {:error, "compiling the rules for #{plan.table} failed (#{kind})"}
+        message = "compiling the rules for #{plan.table} failed (#{kind})"
+        # Only a bug gets here, and a write's reply names the node, not this message.
+        Logger.error("Rules: #{message}")
+        {:error, message}
     end
   end
 

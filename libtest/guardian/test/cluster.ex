@@ -168,13 +168,12 @@ defmodule Guardian.Test.Cluster do
   end
 
   @doc """
-  Starts Guardian.Rules.Server on this node (a peer) with `store` and extra app env, from a
-  process that outlives the RPC, as `start_storage/1` does for Storage.
+  Starts Guardian.Rules.Server on this node (a peer) with `store`, from a process that
+  outlives the RPC, as `start_storage/1` does for Storage.
   """
-  def start_rules(store, app_env \\ []) do
+  def start_rules(store) do
     {:ok, _} = Application.ensure_all_started(:req)
     Application.put_env(:guardian, :rules_store, store)
-    for {key, value} <- app_env, do: Application.put_env(:guardian, key, value)
     caller = self()
 
     spawn(fn ->

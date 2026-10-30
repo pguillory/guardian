@@ -365,7 +365,7 @@ defmodule Guardian.ObjectStore.S3 do
   end
 
   # A store's garbage answer is an expected outcome, so it is `{:error, reason}`, never a
-  # crash: Rules.Server polls this on every node.
+  # crash in the caller.
   @malformed_listing {:error, {:unreachable, "malformed listing"}}
 
   @doc false
