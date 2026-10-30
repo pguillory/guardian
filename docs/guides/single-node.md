@@ -2,6 +2,9 @@
 
 ## Docker
 
+Before building a checkout you have changed, run `mix test --include cluster`: the
+default suite and the pre-commit hook leave out the peer-VM tests.
+
 Supported architecture: linux/amd64; arm64 is untested (details in
 [system.md 10.1](../architecture/system.md#101-build)).
 

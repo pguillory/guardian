@@ -1563,7 +1563,8 @@ The image uses Elixir 1.19.7 on OTP 28.5.0.8. See the
 
 Tests run locally at commit time, with no hosted CI: the pre-commit hook
 (`bin/pre-commit`) runs the checks listed in the
-[development guide](../guides/development.md#checks), the full suite among them.
+[development guide](../guides/development.md#checks), the default suite among them
+(`mix test`, without the `:large` and `:cluster` tests).
 About 150 test files cover:
 
 1. Units per subsystem: tokenizer and parser round trips, every operator, function,
@@ -1590,7 +1591,9 @@ About 150 test files cover:
    each running only Storage in its own data directory, and connects them, so schema
    merging, GROUP BY merging of groups split across nodes, node failures, a peer whose
    Storage has not started, and errors on a peer are tested with real distribution.
-   Tests with peers run `async: false`, since every query fans out to them.
+   Tests with peers run `async: false`, since every query fans out to them, and are
+   tagged `:cluster`: the default `mix test` excludes them; run
+   `mix test --include cluster` before every deploy.
    DistributedStream's failure protocol is tested (`test/guardian/query/distributed_stream/`)
    on one node (crashes, halts, nested pipelines, a forged marker, workers that exit
    early) and on three (two peers whose connection to each other drops
@@ -1598,8 +1601,8 @@ About 150 test files cover:
    `libtest/guardian/test/distributed_stream_stages.ex`, because test modules are not loaded
    there.
 5. Rules: the parser, whole-set validation, semantics through real ingestion, the
-   worker's limits, the server (boot refusals, repair, activation, the module pool,
-   restarts), both rule stores, and a peer cluster sharing a store; the object-store
+   worker's limits, the server (boot refusals, repair, activation, the module pool),
+   both rule stores, and a peer cluster sharing a store; the object-store
    client's S3 and folder implementations, their shared contract and the key lock
    have their own tests. `Guardian.Test.FakeS3` (in
    `libtest/guardian/test/`) is a small S3 server that checks every request's SigV4 signature with

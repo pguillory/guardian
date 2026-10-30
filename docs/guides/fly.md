@@ -85,6 +85,10 @@ needs it.
 
 ### 6. Deploy
 
+Before deploying a checkout you have changed, here and on every later deploy, run
+`mix test --include cluster`: the default suite and the pre-commit hook leave out the
+peer-VM tests.
+
 ```sh
 fly deploy
 ```

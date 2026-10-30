@@ -143,6 +143,8 @@ defmodule Guardian.Query.HeapLimitTest do
   end
 
   describe "on a peer node" do
+    @describetag :cluster
+
     setup do
       started_distribution = Guardian.Test.Cluster.ensure_distributed()
       {peer, peer_node} = Guardian.Test.Cluster.start_peer(nil)

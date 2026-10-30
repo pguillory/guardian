@@ -49,6 +49,21 @@ decides each.
    `restart_server` as test infrastructure, and kills of query workers, segments in
    query tests and other test-started processes.
 
+3. Peer VM tests are tagged `:cluster` and `test_helper.exs` excludes them: the
+   `Guardian.Cluster.*` modules, ClientPeerTest, DistributedStream's ClusterTest and
+   PartitionsTest, and Rules.ClusterTest as whole modules, and HeapLimitTest's peer
+   describe and CounterIngestTest's peer test alone. `mix test --include cluster` runs
+   them; run it before every deploy (CONTRIBUTING.md, the development, Fly and
+   single-node guides). The pre-commit hook keeps the default run. Tests that start a
+   child VM without joining it to the cluster (DeploymentTest's cookie check,
+   SegmentTest's column race) are not peers and stay in the default run.
+
+4. MetadataTest's frozen-node tests go, with their setup: "schema lookups raise
+   instead of under-reporting" suspended a peer's Schema and waited out its timeouts
+   (about 20 s), and "SELECTs that name their columns need no schema lookup" shared
+   that setup. Cluster reliability is for a load test later (run a cluster, send
+   traffic, check results), not the suite.
+
 Coverage given up:
 
 - Storage: the only behavioral check that a graceful MutableSegments or
@@ -67,3 +82,6 @@ Coverage given up:
   LOOKUP), WHERE skips during an outage and the reset after recovery; the paused-store
   tests still cover `count()` fail-open, and secret removal stays covered.
 - A Rules.Server restart keeping the published set and its names (spec).
+- A started peer that fails a schema lookup failing the statement with a node error
+  (spec.md, clustering item 6), and, from the same setup, column-naming SELECTs and
+  `count()` reading that peer's rows and a missing table answering `[]` and `[[0]]`.

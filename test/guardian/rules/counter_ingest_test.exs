@@ -341,6 +341,7 @@ defmodule Guardian.Rules.CounterIngestTest do
     end
   end
 
+  @tag :cluster
   test "real peer owner handles healthy concurrent events, failure cooldown and recovery" do
     table = unique_table("live_counter_peer")
 

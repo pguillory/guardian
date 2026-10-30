@@ -6,6 +6,7 @@ defmodule Guardian.Counters.ClientPeerTest do
   # Not async: starts a connected peer node, which changes every test on this node, and
   # counts helper processes across the whole VM.
   use ExUnit.Case, async: false
+  @moduletag :cluster
   import Guardian.Counters.Client
   import Guardian.Test.Counters.Client, only: [batch_one: 2, key: 0, key: 1, named: 2]
   alias Guardian.Counters.Budget

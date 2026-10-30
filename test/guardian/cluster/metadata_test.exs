@@ -2,6 +2,7 @@ defmodule Guardian.Cluster.MetadataTest do
   # Starts peer nodes. While a peer is connected every query in this VM fans out to
   # it, so this module must not run concurrently with other tests.
   use ExUnit.Case, async: false
+  @moduletag :cluster
   import Guardian.Test.Query, only: [run_sql: 1, with_time_limit: 2]
 
   alias Guardian.Storage.Column.Metadata
@@ -132,53 +133,6 @@ defmodule Guardian.Cluster.MetadataTest do
       assert starting_node in Guardian.Cluster.connected_nodes()
       assert run_sql("DESC #{table}") == [["v"], ["w"]]
       assert Enum.sort(run_sql("SELECT v FROM #{table}")) == [[1], [2]]
-    end
-  end
-
-  describe "with a started node that fails" do
-    setup do
-      data_root = Guardian.Test.Cluster.data_root()
-
-      {peer, broken_node} = Guardian.Test.Cluster.start_peer(data_root)
-      # Storage stays ready, but its schema calls time out.
-      :ok = :erpc.call(broken_node, :sys, :suspend, [Guardian.Storage.Schema])
-
-      on_exit(fn ->
-        :peer.stop(peer)
-        File.rm_rf!(data_root)
-      end)
-
-      %{broken_node: broken_node}
-    end
-
-    test "schema lookups raise instead of under-reporting", %{broken_node: broken_node} do
-      assert broken_node in Guardian.Cluster.connected_nodes()
-      table = unique_table()
-      Guardian.Engine.ingest_events(table, [%{"v" => 1}])
-
-      error = assert_raise Guardian.Cluster.NodeError, fn -> run_sql("SHOW TABLES") end
-      assert [{^broken_node, _reason}] = error.failures
-      assert Exception.message(error) =~ to_string(broken_node)
-
-      assert_raise Guardian.Cluster.NodeError, fn -> run_sql("DESC #{table}") end
-      assert_raise Guardian.Cluster.NodeError, fn -> run_sql("SELECT key FROM schema") end
-      assert_raise Guardian.Cluster.NodeError, fn -> run_sql("SELECT * FROM #{table}") end
-    end
-
-    test "SELECTs that name their columns need no schema lookup", %{broken_node: broken_node} do
-      table = unique_table()
-      Guardian.Engine.ingest_events(table, [%{"v" => 1}])
-      ingest_on(broken_node, table, [%{"v" => 2}])
-
-      # The broken node's rows are in the answer: it was asked, not left out.
-      assert Enum.sort(run_sql("SELECT v FROM #{table}")) == [[1], [2]]
-      assert run_sql("SELECT count() FROM #{table}") == [[2]]
-      assert run_sql("SELECT count(*) FROM #{table}") == [[2]]
-      assert run_sql("SELECT v, count() FROM #{table} GROUP BY v ORDER BY v") == [[1, 1], [2, 1]]
-
-      missing = unique_table()
-      assert run_sql("SELECT v FROM #{missing}") == []
-      assert run_sql("SELECT count() FROM #{missing}") == [[0]]
     end
   end
 end

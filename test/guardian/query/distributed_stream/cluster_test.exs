@@ -2,6 +2,7 @@ defmodule Guardian.Query.DistributedStream.ClusterTest do
   # Starts peer nodes. While a peer is connected every query in this VM fans out to
   # it, so this module must not run concurrently with other tests.
   use ExUnit.Case, async: false
+  @moduletag :cluster
 
   # Crashing workers are plain processes, which log their exceptions.
   @moduletag :capture_log

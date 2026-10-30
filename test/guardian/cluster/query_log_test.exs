@@ -2,6 +2,7 @@ defmodule Guardian.Cluster.QueryLogTest do
   # Starts and stops a peer node. While a peer is connected every query in this VM fans
   # out to it, so this module must not run concurrently with other tests.
   use ExUnit.Case, async: false
+  @moduletag :cluster
 
   setup do
     %{peer_node: peer_node} = context = Guardian.Test.Cluster.single_peer()

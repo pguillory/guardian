@@ -20,8 +20,8 @@ at every commit, and how to run Guardian locally.
   or structure changes.
 - Keep the ingestion path free of external service calls, and keep tests free of
   external services.
-- Add a test with every behavior change, and run the full suite before sending a
-  change.
+- Add a test with every behavior change, and run the default suite (`mix test`)
+  before sending a change.
 
 ## Elixir style
 
@@ -76,6 +76,9 @@ Tests don't peek inside or touch processes; they don't kill, freeze or break int
 no timeout tests; no sleeps. Peer VM tests are tagged `:cluster` and excluded by
 default. Restart and durability aren't in the suite: an agent checks by hand (insert,
 stop, start, query) only when a change touches segment lifetimes or persistence.
+
+Run `mix test --include cluster` before every deploy. With no CI and the pre-commit
+hook on the default run, that is what keeps the cluster tests from rotting unseen.
 
 A passing run should be simple and fast.
 

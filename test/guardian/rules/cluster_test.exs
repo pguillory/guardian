@@ -1,6 +1,7 @@
 defmodule Guardian.Rules.ClusterTest do
   # Starts a peer node, so this module must not run concurrently with other tests.
   use ExUnit.Case, async: false
+  @moduletag :cluster
   import Guardian.Test.Rules
 
   # Existing custom stores need not implement the optional shared?/1 callback.
