@@ -51,29 +51,11 @@ defmodule Guardian.Web.MCP.SessionTest do
       )
 
     assert conn.status == 202
-    # Anubis handles the notification asynchronously. Wait for it, because closing the
-    # session first would crash Anubis's server process (an Anubis 0.16 race).
-    wait_until_initialized(session_id)
     session_id
   end
 
-  defp wait_until_initialized(session_id, retries \\ 100) do
-    pid = Anubis.Server.Registry.whereis_server_session(Guardian.Web.MCP.Server, session_id)
-
-    cond do
-      pid == nil ->
-        flunk("session #{session_id} has no process")
-
-      Anubis.Server.Session.get(pid).initialized ->
-        :ok
-
-      retries > 0 ->
-        Process.sleep(10)
-        wait_until_initialized(session_id, retries - 1)
-
-      true ->
-        flunk("session #{session_id} never initialized")
-    end
+  defp session_pid(session_id) do
+    Guardian.Test.MCPHTTP.session_pid(session_id)
   end
 
   defp tools_list(session_id) do
@@ -105,7 +87,7 @@ defmodule Guardian.Web.MCP.SessionTest do
   test "a rejected session ID does not create a session" do
     headers = authed([{"mcp-session-id", "never-created"}])
     assert_session_not_found(mcp(:post, %{jsonrpc: "2.0", id: 1, method: "tools/list"}, headers))
-    refute Anubis.Server.Registry.whereis_server_session(Guardian.Web.MCP.Server, "never-created")
+    refute session_pid("never-created")
   end
 
   test "initialize with a stale session ID gets 404" do
@@ -128,27 +110,27 @@ defmodule Guardian.Web.MCP.SessionTest do
     assert_session_not_found(conn)
   end
 
-  test "a session Anubis recreated without initialize gets 404" do
-    # What Anubis does when an expiry races the router's check: it recreates the
-    # session under the same ID, uninitialized.
-    session_id = "recreated-#{System.unique_integer([:positive])}"
+  # Anubis 0.16 answered a request without a session ID from a throwaway session
+  # ("Server not initialized"), and Anubis 2.x with its own 404 body. Guardian answers
+  # every POST other than initialize that names no session like an unknown session.
+  test "a POST other than initialize without a session ID gets 404" do
+    for message <- [
+          %{jsonrpc: "2.0", id: 1, method: "tools/list"},
+          %{jsonrpc: "2.0", id: 1, method: "ping"},
+          %{jsonrpc: "2.0", method: "notifications/initialized"},
+          %{jsonrpc: "2.0", id: 1, result: %{}},
+        ] do
+      conn = mcp(:post, message, authed([]))
+      assert conn.status == 404
 
-    {:ok, pid} =
-      Anubis.Server.Session.Supervisor.create_session(
-        Anubis.Server.Registry,
-        Guardian.Web.MCP.Server,
-        session_id
-      )
+      assert Jason.decode!(conn.resp_body) == %{
+               "jsonrpc" => "2.0",
+               "id" => nil,
+               "error" => %{"code" => -32001, "message" => "Session not found"},
+             }
 
-    assert_session_not_found(tools_list(session_id))
-
-    Anubis.Server.Session.Supervisor.close_session(
-      Anubis.Server.Registry,
-      Guardian.Web.MCP.Server,
-      session_id
-    )
-
-    refute Process.alive?(pid)
+      assert_session_not_found(mcp(:post, message, authed([{"mcp-session-id", ""}])))
+    end
   end
 
   test "a session closed by DELETE is unknown afterwards" do
@@ -177,14 +159,10 @@ defmodule Guardian.Web.MCP.SessionTest do
     assert %{"result" => %{"tools" => [_ | _]}} = body
 
     # Drop the session through Anubis's idle-expiry path, as a restart or expiry would.
-    pid = Anubis.Server.Registry.whereis_server_session(Guardian.Web.MCP.Server, session_id)
+    pid = session_pid(session_id)
     assert is_pid(pid)
     ref = Process.monitor(pid)
-
-    send(
-      Anubis.Server.Registry.whereis_server(Guardian.Web.MCP.Server),
-      {:session_expired, session_id}
-    )
+    send(pid, :session_expired)
 
     assert_receive {:DOWN, ^ref, :process, ^pid, _}
 
@@ -221,41 +199,19 @@ defmodule Guardian.Web.MCP.SessionTest do
   end
 
   defp close_session(session_id, how) do
-    pid = Anubis.Server.Registry.whereis_server_session(Guardian.Web.MCP.Server, session_id)
+    pid = session_pid(session_id)
     ref = Process.monitor(pid)
 
     case how do
       :delete ->
         assert mcp(:delete, nil, authed([{"mcp-session-id", session_id}])).status == 200
 
+      # The message Anubis's idle timer sends the session.
       :expire ->
-        send(
-          Anubis.Server.Registry.whereis_server(Guardian.Web.MCP.Server),
-          {:session_expired, session_id}
-        )
+        send(pid, :session_expired)
     end
 
     assert_receive {:DOWN, ^ref, :process, ^pid, _}
-    wait_until_server_forgot(session_id)
-  end
-
-  # Anubis's server process handles a DELETEd session's DOWN asynchronously, removing
-  # it from its sessions map and clearing the frame in the same step. Idle expiry
-  # removes it before the session stops.
-  defp wait_until_server_forgot(session_id, retries \\ 100) do
-    state = :sys.get_state(Anubis.Server.Registry.whereis_server(Guardian.Web.MCP.Server))
-
-    cond do
-      not Map.has_key?(state.sessions, session_id) ->
-        state
-
-      retries > 0 ->
-        Process.sleep(10)
-        wait_until_server_forgot(session_id, retries - 1)
-
-      true ->
-        flunk("server never processed the end of session #{session_id}")
-    end
   end
 
   defp read_query_language(session_id) do
@@ -271,11 +227,10 @@ defmodule Guardian.Web.MCP.SessionTest do
     )
   end
 
-  # Anubis 0.16 keeps runtime-registered tools and resources in the shared server
-  # frame's private map, and wipes that map when a tracked session it served last ends
-  # (DELETE). Other live sessions then got "Tool not found: query" until some client
-  # re-initialized. Idle expiry never
-  # wiped it; it is covered as the neighboring path.
+  # Anubis 0.16 kept runtime-registered tools and resources in one frame shared by all
+  # sessions and wiped it when a DELETEd session it served last ended, so other live
+  # sessions got "Tool not found: query". 2.x gives each session its own frame; these
+  # keep the guarantee pinned.
   defp assert_works_first(:query, session_id) do
     assert_query_tool_works(session_id)
   end
@@ -302,10 +257,6 @@ defmodule Guardian.Web.MCP.SessionTest do
              Jason.decode!(conn.resp_body)
   end
 
-  defp server_frame_private do
-    :sys.get_state(Anubis.Server.Registry.whereis_server(Guardian.Web.MCP.Server)).frame.private
-  end
-
   for {how, first} <- [
         delete: :query,
         delete: :tools_list,
@@ -316,16 +267,8 @@ defmodule Guardian.Web.MCP.SessionTest do
       other = initialize()
       closing = initialize()
 
-      # The closing session is the last one the server process served.
       assert tools_list(closing).status == 200
       close_session(closing, unquote(how))
-
-      case unquote(how) do
-        # The bug's precondition: the frame's private map, tools included, is empty.
-        :delete -> assert server_frame_private() == %{}
-        # Idle expiry never cleared it.
-        :expire -> assert [_ | _] = server_frame_private()[:__mcp_components__]
-      end
 
       assert_works_first(unquote(first), other)
       assert_query_tool_works(other)
@@ -338,14 +281,9 @@ defmodule Guardian.Web.MCP.SessionTest do
     assert %{"error" => %{"message" => "Method not allowed" <> _}} = Jason.decode!(conn.resp_body)
   end
 
-  defp sse_handler(session_id) do
-    transport = Anubis.Server.Registry.transport(Guardian.Web.MCP.Server, :streamable_http)
-    Anubis.Server.Transport.StreamableHTTP.get_sse_handler(transport, session_id)
-  end
-
   describe "GET (server-push stream)" do
-    # Anubis 0.16 sends request results down a registered GET stream and answers the
-    # POST with 202, so a dropped stream loses results. Guardian offers no stream.
+    # Anubis 0.16 sent request results down a registered GET stream and answered the
+    # POST with 202, so a dropped stream lost results. Guardian offers no stream.
 
     test "a GET without a session gets 405, whatever its Accept header" do
       assert_get_not_allowed(mcp(:get, nil, authed([])))
@@ -353,11 +291,10 @@ defmodule Guardian.Web.MCP.SessionTest do
       assert_get_not_allowed(mcp(:get, nil, authed([]), "application/json"))
     end
 
-    test "a GET on a live session gets 405, opens no stream, and leaves the session usable" do
+    test "a GET on a live session gets 405 and leaves the session usable" do
       session_id = initialize()
 
       assert_get_not_allowed(mcp(:get, nil, authed([{"mcp-session-id", session_id}])))
-      assert sse_handler(session_id) == nil
 
       table = "mcp_get_405_#{System.unique_integer([:positive])}"
       Guardian.Engine.ingest_event(table, %{"value" => 1})

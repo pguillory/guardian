@@ -11,7 +11,7 @@ the release. Licenses are as each package declares them on Hex.
 
 | Package | Version | License | Used in |
 | --- | --- | --- | --- |
-| anubis_mcp | 0.16.0 | LGPL-3.0 | release |
+| anubis_mcp | 2.2.0 | LGPL-3.0 | release |
 | bandit | 1.13.1 | MIT | release |
 | cors_plug | 3.0.3 | Apache-2.0 | release |
 | dns_cluster | 0.3.1 | MIT | release |
@@ -24,7 +24,7 @@ the release. Licenses are as each package declares them on Hex.
 | mint | 1.11.0 | Apache-2.0 | release |
 | nimble_options | 1.1.1 | Apache-2.0 | release |
 | nimble_pool | 1.1.0 | Apache-2.0 | release |
-| peri | 0.6.2 | MIT | release |
+| peri | 0.11.3 | MIT | release |
 | plug | 1.20.3 | Apache-2.0 | release |
 | plug_crypto | 2.2.0 | Apache-2.0 | release |
 | req | 0.7.5 | Apache-2.0 | release |
@@ -39,7 +39,7 @@ the release. Licenses are as each package declares them on Hex.
 ### anubis_mcp (LGPL-3.0)
 
 Guardian uses anubis_mcp, the MCP server library, unmodified as a Hex dependency. Its
-source is published at https://hex.pm/packages/anubis_mcp (version 0.16.0) and
+source is published at https://hex.pm/packages/anubis_mcp (version 2.2.0) and
 https://github.com/zoedsoupe/anubis-mcp. A release or image built from this repository
 contains anubis_mcp's compiled modules. Under the LGPL you may replace them with a
 modified version: change the dependency in `mix.exs`/`mix.lock` (or point it at your

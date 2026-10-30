@@ -11,9 +11,11 @@ defmodule Guardian.Web do
       port: http_port(),
     ]
 
+    # Anubis starts its own session registry and supervisors under the server's
+    # child. `start: true` serves MCP whatever Phoenix-specific environment variables
+    # say (Anubis otherwise guesses from PHX_SERVER and :phoenix config).
     children = [
-      Anubis.Server.Registry,
-      {Guardian.Web.MCP.Server, transport: :streamable_http},
+      {Guardian.Web.MCP.Server, transport: {:streamable_http, start: true}},
       %{
         id: Bandit.HTTP,
         start: {Bandit, :start_link, [http_opts]},

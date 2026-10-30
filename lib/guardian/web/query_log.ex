@@ -6,8 +6,8 @@ defmodule Guardian.Web.QueryLog do
   `Guardian.Web.Query.execute/3` runs on the machine that received the request, which
   coordinates the query, so each query is recorded once there; peers running parts of
   it record nothing. It hands one row per query to `record/4`, which casts it to this
-  GenServer: the request never waits on the recorder or Storage, so an MCP call (run
-  inside Anubis's shared server process) is never held up by a stalled write. Writing
+  GenServer: the request never waits on the recorder or Storage, so an MCP call (and
+  every later request in its session) is never held up by a stalled write. Writing
   a row is an ingest, never a query, so recording cannot cause more recording.
 
   Any failure to build, hand off, or write a row is logged with `Logger.error`, naming

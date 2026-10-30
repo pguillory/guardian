@@ -55,8 +55,8 @@ describes claims, digests, monitors and expiry. Implementation rules to keep:
 
 - Keep payloads and full replies out of coordinator state.
 - Never expire or evict a live pending claim. Catch every ingestion failure to mark
-  uncertainty before reraising, since callers can be reused HTTP processes or
-  Anubis's long-lived MCP server.
+  uncertainty before reraising, since callers can be reused HTTP processes. (MCP
+  runs `send_events` in a `Guardian.Detached` worker that ends with the call.)
 - Bound coordinator calls to 100 ms. Cancel timed-out claims on the exact pid with
   their caller-generated token. Unavailable claims fail open with a fixed info log
   containing no client data; completion failures never hide the original response.
@@ -71,8 +71,8 @@ pre-LET statement, run). Don't resolve or run queries in Web any other way. On a
 `Guardian.AST.ParseError` it has `Guardian.Web.QueryParseErrors.record/4` record a `query_parse_errors`
 row and the same error is reraised, so responses are unchanged.
 Recording is a cast to the `Guardian.Web.QueryParseErrors` GenServer: never make it
-synchronous, because MCP tool calls run inside Anubis's shared server process and a
-stalled Storage write would block every MCP request. Bounds (16 KiB SQL, 1 KiB error,
+synchronous: a stalled Storage write would hold up the MCP call, every later request
+in its session, and the HTTP request. Bounds (16 KiB SQL, 1 KiB error,
 256-byte caller fields, 60 rows per machine per hour) are in that module.
 
 Keep application failures inside `Guardian.Web.JsonApi.call/2`, logging at most kind

@@ -105,8 +105,9 @@ defmodule Guardian.Query do
   machine and this raises `Guardian.Query.Error`.
   Any failure inside distributed execution (a worker that raises or dies, a lost
   machine) stops the whole pipeline and fails this query with a `Guardian.Query.Error`; it
-  never returns partial rows and never takes the caller down. Callers include the MCP
-  server's shared process. The query process stops if the caller dies.
+  never returns partial rows and never takes the caller down. The query process stops
+  if the caller dies (an MCP request's task dies when the client cancels the request or
+  deletes its session).
 
   Exceptions raised while workers evaluate expressions are collected by
   `Guardian.Query.WorkerErrors` and raised here as `Guardian.Query.Error`. `Guardian.Query.Executor` runs the
@@ -144,8 +145,8 @@ defmodule Guardian.Query do
       {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
     end
 
-    # A result sent just before the kill would otherwise stay in the caller's mailbox
-    # (for MCP, Anubis's long-lived server process).
+    # A result sent just before the kill would otherwise stay in the caller's mailbox,
+    # which may be long-lived.
     receive do
       {^tag, _result} -> :ok
     after

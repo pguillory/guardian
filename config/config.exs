@@ -35,8 +35,9 @@ if config_env() == :test do
   config :logger, level: :warning
 end
 
-# Production logs at info. At debug, Anubis (the MCP library) logs every MCP message,
-# so query SQL and send_events payloads would reach Fly's log stream. This file is
+# Production logs at info. At debug, Anubis (the MCP library) logs a line for every MCP
+# message and session event (methods, request IDs, session IDs, client info; before 2.x, whole
+# messages with their SQL and events), which should not reach Fly's log stream. This file is
 # compiled into the release; config/runtime.exs is the only other config file.
 if config_env() == :prod do
   config :logger, level: :info

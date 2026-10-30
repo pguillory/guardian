@@ -11,15 +11,15 @@ defmodule Guardian.Web.MCP.ClientTest do
   end
 
   defp wait_for_server(retries \\ 10) do
-    case Registry.lookup(Anubis.Server.Registry, {:server, Guardian.Web.MCP.Server}) do
-      [{_pid, _}] ->
+    case Process.whereis(Anubis.Server.Registry.supervisor_name(Guardian.Web.MCP.Server)) do
+      pid when is_pid(pid) ->
         :ok
 
-      [] when retries > 0 ->
+      nil when retries > 0 ->
         Process.sleep(50)
         wait_for_server(retries - 1)
 
-      [] ->
+      nil ->
         raise "MCP server not available after waiting"
     end
   end

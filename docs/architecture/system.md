@@ -93,8 +93,8 @@ Guardian.Application (one_for_one)
 ├── Guardian.Web.QueryLog                     records every API query in `queries`, asynchronously
 ├── Guardian.Web.IngestIdempotency            bounded, node-local client-keyed ingest receipts
 ├── Web (supervisor, rest_for_one)
-│   ├── Anubis.Server.Registry       MCP session registry
-│   ├── Guardian.Web.MCP.Server               the Anubis MCP server process
+│   ├── Guardian.Web.MCP.Server               Anubis's MCP server supervisor: session registry,
+│   │                                         one process per session, request tasks
 │   └── Bandit.HTTP                  HTTP listener on GUARDIAN_PORT, default 8080 (shutdown 500 ms)
 └── DNSCluster                       peer discovery; does nothing unless DNS_CLUSTER_QUERY is set
 ```
@@ -244,7 +244,7 @@ coordinator pid, preventing a late claim from stranding a long-lived caller's sl
 No payload or full response is retained. No state is replicated or persisted:
 retries on another node, cache eviction, expiry, fail-open operation and coordinator
 restarts can duplicate batches. See spec section 5 for receipt/conflict semantics.
-MCP's existing tool serialization can delay the check until the first call finishes.
+An MCP call can wait behind an earlier call in the same session before reaching the check.
 
 ### 3.1 Validation in Engine
 
@@ -1141,47 +1141,51 @@ is full-access unless it opts in.
 
 ### 6.3 MCP
 
-The MCP endpoint uses the Anubis library, pinned at 0.16.0 (reasons in
-[dependency pins](#104-dependency-pins)), over Streamable HTTP.
-`Guardian.Web.MCP.Router` runs four plugs before handing the request to Anubis's transport:
+The MCP endpoint uses the Anubis library, pinned at 2.2.0 (reasons in
+[dependency pins](#104-dependency-pins)), over Streamable HTTP, offering only protocol
+version 2025-03-26. Each session is its own process, and each request runs in its own
+task (Anubis's per-session scheduler), so sessions never wait for each other; requests
+within one session run one at a time. `Guardian.Web.MCP.Router` runs these plugs before
+handing the request to Anubis's transport:
 
 1. The key check (`Guardian.Web.Auth.check_conn/2` with `:full`), on every request,
    so an MCP session carries no authority of its own and the insert-only ingest key
    gets 403. The key is read only from the `x-api-key` header.
-2. A 404 for an unknown or expired `mcp-session-id`, which Anubis 0.16 would
-   otherwise accept as a new uninitialized session.
+2. A 404 with JSON-RPC code -32001 for an unknown or expired `mcp-session-id` (Anubis's
+   own 404 has a different body).
 3. A 405 for `GET`, so Guardian never opens a server-push stream and every result
-   comes back in its POST response (Anubis 0.16 would send results down a GET stream
-   the client may have dropped).
+   comes back in its POST response.
 4. For `POST`, reading the body (8 MB limit, else 413) and decoding it as one JSON
    object that is a valid JSON-RPC message, else 400 with a JSON-RPC error (`-32700`
    for undecodable JSON, `-32600` otherwise) and a log line with only the size, a
    reason, and a known method name. The decoded map goes to Anubis as `body_params`,
-   which makes Anubis skip its own decoding: Anubis 0.16 logs the whole body of a
-   message it cannot decode, crashes on a body over its read limit, and splits
-   bodies on newlines (so pretty-printed JSON now works).
+   which makes Anubis skip its own decoding (it reads without a size limit).
+5. The same 404 for any POST other than initialize that names no session.
+6. Dropping the `MCP-Protocol-Version` header, which Anubis would otherwise check
+   against the one version Guardian serves.
+7. Replacing an Accept header that allows `application/json` with just that, so Anubis
+   answers inline JSON rather than an SSE-framed body.
 
-Steps 2 to 4 work around Anubis 0.16 behavior and depend on its internals
-(`lib/guardian/web/mcp/AGENTS.md`); recheck them on any upgrade.
+Steps 2 and 4 to 7 keep the wire what Anubis 0.16 produced and depend on Anubis
+behavior (`lib/guardian/web/mcp/AGENTS.md`); recheck them on any upgrade.
 
-`Guardian.Web.MCP.Server` defines the `query` and `send_events` tools and the
+`Guardian.Web.MCP.Server` defines the `query`, `send_events` and rule tools and the
 `guardian://query-language` resource, which serves `lib/guardian/web/mcp/query_language.md`. A
 test fails if a registered function or aggregate is missing from that file.
-It registers them on Anubis's frame before every request: Anubis 0.16 keeps
-runtime-registered components in its one frame shared by all sessions and clears them
-when a DELETEd session it served last ends, so registering once at a client's
-`notifications/initialized` left other sessions without tools. This relies on Anubis
-internals (`lib/guardian/web/mcp/AGENTS.md`); recheck on any upgrade.
+It registers them on the session's frame before every request (`init/2` runs only on
+`notifications/initialized`), strips the `$schema` key Anubis adds to tool schemas, and
+dispatches `send_events` itself so mixed batches reach Engine unchanged.
 
-Anubis 0.16 runs every tool call inside its one server process. A slow query therefore
-blocks the execution of every other MCP tool call and protocol request on the machine
-(DELETE and the GET rejection never reach that process, and notifications are
-acknowledged but processed behind it; security.md section 5.2 item 3), for up to the
-30-second query time limit (5.7) plus the schema lookup that resolves the query before
-it (up to 60 seconds per table when a machine doesn't answer). Anubis's own 30-second
-timeout abandons the caller's wait; the query, which started a little later, stops at
-its limit. This is also why parse-error recording must never be synchronous: a stalled
-Storage write would stall all MCP tool calls.
+A slow query holds up only later requests in its own session, for up to the 30-second
+query time limit (5.7) plus the schema lookup that resolves the query before it (up to
+60 seconds per table when a machine doesn't answer). Anubis's own 30-second timeout
+abandons the caller's wait without stopping the request; the query, which started a
+little later, stops at its limit. A client that cancels the request
+(`notifications/cancelled`) or deletes its session stops it: Anubis kills the request's
+task, and `Guardian.Query` kills a query whose caller dies. `send_events` runs in a
+`Guardian.Detached` worker, so its batch always completes, and rule writes complete
+inside `Guardian.Rules.Server`. Parse-error and query recording stay asynchronous, so a
+stalled Storage write never holds up a call.
 
 ### 6.4 Remote console
 
@@ -1518,15 +1522,12 @@ and Fly's defaults. The operational decisions:
 
 `mix.lock` pins the full resolved graph. A few dependencies are held back on purpose:
 
-1. `anubis_mcp` is held at exactly 0.16.0. Guardian's MCP router and server work
-   around 0.16 behavior through its internals: the unknown-session 404 uses Anubis's
-   private session registry, the `GET /mcp` 405 avoids 0.16 sending results down a
-   push stream, and `Guardian.Web.MCP.Server` registers its tools before every request because
-   0.16 clears runtime-registered components when a session ends (section 6.3). The
-   2.x releases change the protocol, transport, and session APIs, so upgrading is its
-   own migration, with session compatibility tests. 0.16 also cannot send MCP server
-   `instructions`.
-2. `peri` is transitive: Anubis 0.16.0 requires exactly 0.6.2. It moves with Anubis.
+1. `anubis_mcp` is pinned at exactly 2.2.0. Guardian's MCP router and server keep the
+   wire Anubis 0.16 produced by adjusting 2.x behavior and using some of its internals
+   (the session registry, the default request dispatch, the field DSL's schema form;
+   section 6.3 and `lib/guardian/web/mcp/AGENTS.md`). An upgrade needs those rechecked
+   and the MCP wire compared before and after.
+2. `peri` is transitive: Anubis 2.2.0 requires `~> 0.11.2`. It moves with Anubis.
 3. `hypex` is held at 1.x (`~> 1.1`). Version 2 changes the sketch representation and
    register modules, and `count_distinct` merges sketches across nodes, so an upgrade
    needs numerical regression checks and a plan for clusters running mixed versions.
@@ -1564,8 +1565,11 @@ About 150 test files cover:
    MCP endpoint end to end through a real MCP client (`Guardian.Test.MCPClient`
    in `libtest/guardian/test/`, an Anubis client started by `Guardian.Test.MCPClient.start/0`,
    using the admin key) against the
-   test listener on an OS-chosen port, including sessions, the 404 and 405 rules, and
-   authentication with each key, and a key in the URL refused.
+   test listener on an OS-chosen port, and raw requests through the router
+   (`Guardian.Test.MCPHTTP`) that pin the wire: sessions, the 404 and 405 rules,
+   inline JSON for a client that also accepts SSE, tool schemas, authentication with each key,
+   a key in the URL refused, sessions running concurrently, and what cancellation
+   stops.
 4. Clustering: `Guardian.Test.Cluster` (in `libtest/guardian/test/`) starts peer BEAM nodes on the same host,
    each running only Storage in its own data directory, and connects them, so schema
    merging, GROUP BY merging of groups split across nodes, node failures, a peer whose
@@ -1664,7 +1668,7 @@ The limits named above, in one place:
 6. Ingest: some event shapes are slow to flatten, and events flatten twice (3.3).
 7. Query: no bound on a query's total memory (the heap limit is per process) and no
    concurrency limit (5.7).
-8. MCP: one slow MCP call blocks all MCP calls on the machine (6.3).
+8. MCP: one slow MCP call delays later calls in the same session (6.3).
 9. Parser: a label from `INTERVAL n WEEK` cannot be re-parsed (5.1).
 
 Design limits: one writable segment per table bounds per-table ingest rate (3.2); one

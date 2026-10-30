@@ -30,6 +30,9 @@ defmodule Guardian.Web.MCP.Router do
   plug(:reject_unknown_session)
   plug(:reject_get)
   plug(:decode_body)
+  plug(:require_session)
+  plug(:drop_protocol_version)
+  plug(:answer_inline)
   plug(:match)
   plug(:dispatch)
 
@@ -51,54 +54,51 @@ defmodule Guardian.Web.MCP.Router do
     end
   end
 
-  # Anubis 0.16 treats an unknown session ID as a new, uninitialized session and answers
-  # 200 "Server not initialized". The Streamable HTTP spec requires 404 so the client
-  # starts a new session, e.g. after a restart or Anubis's idle-session expiry.
+  # The Streamable HTTP spec requires 404 for an unknown session, so the client starts
+  # a new one, e.g. after a restart or Anubis's 30-minute idle expiry. Anubis 2.x
+  # answers 404 itself too, but with a different JSON-RPC body (code -32600 and a
+  # random id); existing clients may look for -32001, so the router
+  # answers first. It also rejects initialize naming an unknown session, which Anubis
+  # would serve under the caller's chosen ID.
   defp reject_unknown_session(conn, _opts) do
-    case Plug.Conn.get_req_header(conn, @session_header) do
-      # Same rule as Anubis: exactly one non-empty value names a session.
-      [session_id] when session_id != "" ->
+    case named_session(conn) do
+      {:ok, session_id} ->
         if known_session?(session_id) do
           conn
         else
-          error = %{
-            jsonrpc: "2.0",
-            id: nil,
-            error: %{code: -32001, message: "Session not found"},
-          }
-
-          send_json_error(conn, 404, error)
+          session_not_found(conn)
         end
 
-      _ ->
+      :none ->
         conn
     end
   end
 
-  # A session is known if its process is live and has handled initialize. Anubis sets
-  # protocol_version before it answers initialize, so a client never holds an ID that
-  # fails this. A session Anubis recreated lazily (an expiry racing this check, or a
-  # restarted session process) has none, so its client gets 404 rather than being
-  # stuck on "Server not initialized". Anubis.Server.Registry and Session are internal
-  # to Anubis 0.16; recheck on upgrade.
-  defp known_session?(session_id) do
-    case Anubis.Server.Registry.whereis_server_session(Guardian.Web.MCP.Server, session_id) do
-      nil -> false
-      pid -> Anubis.Server.Session.get(pid).protocol_version != nil
+  # Same rule as Anubis: exactly one non-empty value names a session.
+  defp named_session(conn) do
+    case Plug.Conn.get_req_header(conn, @session_header) do
+      [session_id] when session_id != "" -> {:ok, session_id}
+      _ -> :none
     end
-  catch
-    :exit, _ -> false
+  end
+
+  # A session is known if Anubis's registry has a live process for it. Anubis 2.x
+  # starts a session only for initialize and sets up its protocol version before
+  # answering, so a client never holds the ID of a session that is not ready.
+  # Anubis.Server.Registry.Local is the registry Anubis uses for Streamable HTTP
+  # unless a server configures another; recheck on an Anubis upgrade.
+  defp known_session?(session_id) do
+    registry = Anubis.Server.Registry.registry_name(Guardian.Web.MCP.Server)
+    match?({:ok, _pid}, Anubis.Server.Registry.Local.lookup_session(registry, session_id))
   end
 
   # Guardian offers no server-push stream: GET gets 405, which the Streamable HTTP spec
-  # allows ("does not offer an SSE stream at this endpoint"). Anubis 0.16, while a
-  # session has a GET stream registered, answers each request POST with 202 and sends
-  # the result down that stream instead (against the spec, which forbids responses on
-  # the GET stream). Anubis never schedules its keepalive, so a stream the client has
-  # dropped stays registered, results vanish, and calls hang until the client times
-  # out. With no stream, every result comes back in its POST response. Runs after the
-  # session check, so a GET naming an unknown session still gets the spec's 404.
-  # Recheck on an Anubis upgrade.
+  # allows ("does not offer an SSE stream at this endpoint"). Every result comes back
+  # in its POST response, and Guardian sends no server-initiated messages. Anubis 0.16
+  # sent results down a registered GET stream it never noticed had dropped, so calls
+  # hung; 2.x keeps POST results on the POST, but a GET stream would only hold a
+  # connection open for nothing. Runs after the session check, so a GET naming an
+  # unknown session still gets the spec's 404.
   defp reject_get(%Plug.Conn{method: "GET"} = conn, _opts) do
     error = %{
       jsonrpc: "2.0",
@@ -115,13 +115,11 @@ defmodule Guardian.Web.MCP.Router do
     conn
   end
 
-  # Reads and validates a POST body before Anubis sees it. Anubis 0.16 logs the whole
-  # body of a message it cannot decode, at error level, which would put a malformed
-  # call's SQL or events into the log stream; it also crashes on a body over its read
-  # limit or one that decodes to several messages. Given an already decoded
-  # `body_params`, Anubis skips its own decoding and only revalidates the map, without
-  # logging. Rejections log size, reason, and a known method name only.
-  # Recheck on an Anubis upgrade.
+  # Reads and validates a POST body before Anubis sees it, with an 8 MB limit (Anubis
+  # reads without one and fails on a larger body) and one JSON object per request.
+  # Given an already decoded `body_params`, Anubis skips its own decoding and only
+  # revalidates the map. Rejections log size, reason, and a known method name only,
+  # never the body. Recheck on an Anubis upgrade.
   defp decode_body(%Plug.Conn{method: "POST"} = conn, _opts) do
     case Plug.Conn.read_body(conn, length: @max_body_bytes, read_timeout: @read_timeout_ms) do
       {:ok, body, conn} when byte_size(body) <= @max_body_bytes ->
@@ -149,6 +147,50 @@ defmodule Guardian.Web.MCP.Router do
   end
 
   defp decode_body(conn, _opts) do
+    conn
+  end
+
+  # Any POST other than initialize must name a session. 0.16 answered one without a
+  # session ID by starting a throwaway session ("Server not initialized"); 2.x answers
+  # 404 with its own body. The router sends the same 404 as for an unknown session, so
+  # clients see one shape. Runs after decoding, which it needs to tell initialize apart.
+  defp require_session(%Plug.Conn{method: "POST", body_params: message} = conn, _opts) do
+    if named_session(conn) == :none and message["method"] != "initialize" do
+      session_not_found(conn)
+    else
+      conn
+    end
+  end
+
+  defp require_session(conn, _opts) do
+    conn
+  end
+
+  # Guardian serves exactly one protocol version (2025-03-26, see Guardian.Web.MCP.Server),
+  # so the MCP-Protocol-Version header carries nothing it acts on. Anubis 2.x answers 400
+  # when the header names a version the server does not serve; 0.16 ignored it, and so
+  # does Guardian. Revisit if Guardian ever serves a second version.
+  defp drop_protocol_version(conn, _opts) do
+    Plug.Conn.delete_req_header(conn, "mcp-protocol-version")
+  end
+
+  # Anubis 2.x answers a POST whose Accept header includes text/event-stream with a
+  # one-event SSE stream. Guardian has always answered every POST inline as
+  # application/json, and existing clients may send both types and parse the body as
+  # JSON, so the router asks Anubis for JSON whenever the client accepts it (in any of
+  # its Accept headers). A client that does not accept JSON keeps its headers and gets
+  # Anubis's 406.
+  defp answer_inline(%Plug.Conn{method: "POST"} = conn, _opts) do
+    accept = conn |> Plug.Conn.get_req_header("accept") |> Enum.join(",")
+
+    if String.contains?(accept, "application/json") do
+      Plug.Conn.put_req_header(conn, "accept", "application/json")
+    else
+      conn
+    end
+  end
+
+  defp answer_inline(conn, _opts) do
     conn
   end
 
@@ -211,6 +253,11 @@ defmodule Guardian.Web.MCP.Router do
 
     error = %{jsonrpc: "2.0", id: nil, error: %{code: code, message: message}}
     send_json_error(conn, status, error)
+  end
+
+  defp session_not_found(conn) do
+    error = %{jsonrpc: "2.0", id: nil, error: %{code: -32001, message: "Session not found"}}
+    send_json_error(conn, 404, error)
   end
 
   # Every response this router sends itself: a JSON body (no trailing newline), then

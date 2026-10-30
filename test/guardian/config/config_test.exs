@@ -7,8 +7,8 @@ defmodule Guardian.Config.ConfigTest do
     Config.Reader.read!(@config, env: env, target: :host)
   end
 
-  # At debug, Anubis logs every MCP message (query SQL, send_events payloads) to the
-  # server log, which on Fly is outside Guardian's retention.
+  # At debug, Anubis logs a line for every MCP message and session event to the server
+  # log, which on Fly is outside Guardian's retention.
   test "production never logs at debug" do
     level = read(:prod) |> Keyword.get(:logger, []) |> Keyword.get(:level)
     assert level == :info

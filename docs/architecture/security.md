@@ -270,7 +270,9 @@ MCP (`Guardian.Web.MCP.Router`), plug order:
 3. `:decode_body` (POST): reads up to 8 MB (413 above) and decodes it as one valid
    JSON-RPC message; anything else gets 400 with a JSON-RPC error and a log line with
    only size, reason, and a known method name (any other method is logged as `other`).
-4. Forward to Anubis's Streamable HTTP plug with the decoded body, so Anubis neither
+4. `:require_session` (404 for a POST other than initialize that names no session),
+   `:drop_protocol_version`, `:answer_inline` (Accept set to `application/json`).
+5. Forward to Anubis's Streamable HTTP plug with the decoded body, so Anubis neither
    reads nor decodes it.
 
 Argument that no data moves without a key: every handler that touches Storage, the
@@ -425,7 +427,7 @@ and no single request that takes the service down or destroys stored data.
    counter on another table through bounded calls to Guardian peers, never an
    external runtime service.
    Each event's rules run in a worker with the query heap limit and a 1-second
-   limit, outside the request process and Anubis's shared process, and a SET/UNSET failure or
+   limit, outside the request process (for MCP, the request's task and its send_events worker), and a SET/UNSET failure or
    kill fails only that event. Failures are logged by rule file, line and kind, never
    a value, and heap kills skip the error_logger report, so an event's values (such
    as a password an UNSET was meant to remove) stay out of logs. A failing rule
@@ -589,24 +591,29 @@ Counter-specific limits:
    node, all of them at once. An out-of-memory kill skips the graceful shutdown
    persist, so every affected machine loses its unpersisted events (section 1, asset
    5).
-3. MCP calls are serialized. Anubis 0.16 runs tool calls inside its one server
-   process (`Anubis.Server.Base.handle_call/3`), so a slow MCP query blocks the
-   execution of every other MCP tool and protocol request on that machine
-   (notifications are acknowledged without waiting but processed behind it; DELETE and
-   the GET rejection never reach that process). The 30-second transport timeout
-   abandons the caller's wait, and the query, which started a little later, stops at
+3. MCP calls in one session are serialized. Anubis 2.x runs each session in its own
+   process and each request in its own task, one request at a time per session, so a
+   slow call holds up only later requests in its session; other sessions, and new ones,
+   are unaffected. Anubis's 30-second transport timeout abandons the caller's wait
+   without stopping the request, and the query, which started a little later, stops at
    its own 30-second time limit. Resolving the query comes first and is not covered:
    for each distinct table a statement reads from, `Guardian.Query.Resolver` asks every machine
    for that table's schema (`Guardian.Cluster.Metadata`, 60-second timeout), before the handler
    rejects input with several statements. (`DESC` and `SHOW TABLES` read the `schema`
    table, whose lookup runs inside the query and its limit.) Each lookup first asks
    every peer whether its Storage is ready, leaving out one that doesn't answer within
-   5 seconds. So one MCP query holds the process for up to 30 seconds plus up to 5
+   5 seconds. So one MCP query holds its session for up to 30 seconds plus up to 5
    seconds per table it names when a machine doesn't answer at all, or up to 60
    seconds per table when a machine reports ready but its schema lookup hangs; a slow
-   `send_events` still holds it until it finishes. Exits from a running query do not reach that shared server process:
-   `Guardian.Query.run` runs each query in its own process and turns every failure inside it,
-   such as a query worker or machine failing, into an exception the handler rescues.
+   `send_events` holds it until it finishes unless the client cancels it (the write
+   itself still finishes, below). A key holder can open many sessions, so
+   per-session isolation does not bound how many queries one caller runs at once; the
+   per-query limits (2 above) are the bound. A client can stop its own query by
+   cancelling the request or deleting its session (`Guardian.Query` kills a query whose
+   caller dies); `send_events` runs in a `Guardian.Detached` worker and always
+   completes. Exits from a running query do not reach the request: `Guardian.Query.run`
+   runs each query in its own process and turns every failure inside it, such as a
+   query worker or machine failing, into an exception the handler rescues.
 4. Error messages reach the caller. The MCP `query` tool returns `Exception.message/1`
    of whatever was raised, which can include internal detail such as peer node names
    (`guardian@<address>`). Acceptable for a single trusted principal. The same text,
@@ -858,7 +865,7 @@ Where data goes:
      exception's message, and the request, if any, still answers normally.
      `query_parse_errors` and `queries` log the same way when building or handing off
      a row fails.
-   - OTP crash reports for crashed processes (segments, the Anubis server) include the
+   - OTP crash reports for crashed processes (segments, an Anubis session) include the
      last message and state, which can hold event data. A segment file that fails to
      load is not a crash: its process stops with a `:shutdown` reason naming only the
      failure's kind, so no crash report carries the file's bytes.
@@ -907,23 +914,26 @@ connected to Guardian (on Fly, Fly's proxy; for tunnel traffic, `127.0.0.1`), an
 
 Log level: production logs at `:info`, set in `config/config.exs` because that file is
 compiled into the release, and a test reads the production config and requires
-`:info`. The level matters because Anubis 0.16 logs every parsed MCP message at debug
-(`MCP transport event: parsed_messages` followed by `inspect` of the message and the
-session ID), so at debug each MCP `tools/call` would put up to about 4 KiB of query
-SQL, or roughly the first 50 events of a `send_events` call, into the log stream,
-outside Guardian's 15-day retention. Anubis decides whether to log by comparing its
-message level with `:logger, :level` (`Anubis.Logging.should_log?/1`), and its
-per-message lines are all at debug, so they are dropped; its warnings (request
-errors, timeouts) still appear and carry error structs, not message bodies.
-Production must stay at `:info` or above.
+`:info`. The level matters because Anubis logs a line for every MCP message and
+session event at debug (methods, request IDs, session IDs, client info; Anubis 0.16
+also logged each whole message there, with its query SQL or events). Anubis decides
+whether to log by comparing its message level with `:logger, :level`
+(`Anubis.Logging.should_log?/1`), so at `:info` those lines are dropped; its warnings
+and errors still appear and mostly carry error structs, not message bodies, with three
+exceptions read from Anubis's source. A request-validation error can quote the
+offending argument value, and a client-sent JSON-RPC response that answers no server
+request is logged whole (`unexpected_response`); both need the admin key. And when a
+request outlasts Anubis's 30-second call timeout, or its session exits mid-call, the
+transport logs the call's exit reason at `:error` (`session_call_failed`), which
+includes the whole message and the request's headers, the `x-api-key` header among
+them (Anubis 0.16 logged the same on its timeouts). Production must stay at `:info`
+or above.
 
-MCP bodies Anubis cannot decode: Anubis's transport plug logs the whole body of any
-MCP message it cannot decode at error level (`MCP transport event: parse_error`, then
-`MCP transport details` with `body:`), which for a malformed `tools/call` would put
-its SQL or events into the log stream. `Guardian.Web.MCP.Router` therefore decodes and
-validates the body itself (4.3) and hands Anubis the decoded map, a path on which
-Anubis does not log; rejected bodies are logged as size, reason, and a known method
-name only, never caller-chosen strings.
+MCP bodies Anubis cannot decode: Anubis 0.16's transport plug logged the whole body of
+any MCP message it could not decode; 2.x logs only its size. `Guardian.Web.MCP.Router`
+decodes and validates the body itself anyway (4.3) and hands Anubis the decoded map;
+rejected bodies are logged as size, reason, and a known method name only, never
+caller-chosen strings.
 
 The remaining stdout leaks above are accepted: they are bounded by error frequency
 and reach only operators. HTTP/Bandit failures outside the JSON boundary and MCP
@@ -953,8 +963,8 @@ Open gaps named above, by boundary:
    own heap but not ETS, native column memory, or shared binaries, and can
    overshoot; a deliberate or exotic query can still exhaust memory on every node and
    lose unpersisted events (5.2.2).
-8. B3: one slow MCP call blocks other MCP requests on that machine (a query for up to
-   its 30 s limit plus its schema lookup, an ingest until done) (5.2.3).
+8. B3: one slow MCP call delays later requests in its session (a query for up to its
+   30 s limit plus its schema lookup, an ingest until done unless cancelled) (5.2.3).
 9. B3: MCP error messages can carry internal detail such as node names (5.2.4).
 10. B3, B6: a corrupt segment file aborts the VM (5.2.5).
 11. B3: some event shapes are slow to flatten (5.2.6).
@@ -982,7 +992,7 @@ Open gaps named above, by boundary:
 Written from the code: the routers, `Guardian.Web.Auth`, `Guardian.Web.Logger`, `Guardian.Web.QueryParseErrors`,
 `Guardian.Web.QueryLog`, `Guardian.Engine`, `lib/guardian/rules`, `Guardian.Cluster`, `Guardian.Query.Limits`, `config/runtime.exs`,
 `rel/env.sh.eex`, `bin/fly-start`, `Dockerfile`, and the Fly guide in this repository,
-and the pinned dependencies `cors_plug` 3.0.3, `anubis_mcp` 0.16.0, and `req` 0.7.5
+and the pinned dependencies `cors_plug` 3.0.3, `anubis_mcp` 2.2.0, and `req` 0.7.5
 (its SigV4 step accepts an MFA for credentials, read from its source). Query
 regular expressions (`RLIKE`, `replace`) run on OTP's `:re` through `Guardian.Query.Regex`. Statements about Fly's platform
 (volume encryption, private network membership, edge behavior) come from Fly's

@@ -226,8 +226,15 @@ authenticated like the JSON API but only with a full-access key: the ingest key 
 4. Resource `guardian://query-language`: the full query-language reference as
    Markdown.
 
+Protocol version: Guardian speaks MCP protocol version 2025-03-26 and answers every
+`initialize` with it, whatever version the client asks for; it ignores the
+`MCP-Protocol-Version` header.
+
 Sessions: a request naming an unknown or expired MCP session gets HTTP 404, so clients
-re-initialize after a Guardian restart or the MCP library's 30-minute idle expiry.
+re-initialize after a Guardian restart or the MCP library's 30-minute idle expiry. A
+POST other than `initialize` that names no session gets the same 404. Sessions are
+independent: requests in one session run one at a time, and a slow request never holds
+up another session.
 
 No server-push stream: `GET /mcp` gets HTTP 405 (after authentication and the session
 check above), which the Streamable HTTP spec allows. Guardian never sends
@@ -238,9 +245,8 @@ Malformed requests: a POST body that is not one JSON object forming a valid JSON
 message gets HTTP 400 with a JSON-RPC error (`-32700` if it is not JSON, `-32600`
 otherwise) and `id: null`; a body over 8 MB gets 413. The body is not logged.
 
-Guardian sends no MCP server `instructions` (the pinned MCP library version cannot;
-see the [dependency pins](../architecture/system.md#104-dependency-pins)), so the `query` tool
-description carries the "what Guardian is" summary.
+Guardian sends no MCP server `instructions`, so the `query` tool description carries
+the "what Guardian is" summary.
 
 Timeout: the MCP library gives each request 30 seconds (its default, which Guardian
 does not override), and a query may run for 30 seconds
@@ -250,9 +256,18 @@ error rather than the query's time-limit error. Either way the query stops at it
 limit. Resolving the query comes before that limit: for each table a query reads
 from, Guardian asks every machine for that table's schema, waiting up to 60 seconds
 for one that doesn't answer. (`DESC` and `SHOW TABLES` collect their schemas while
-the query runs, within its limit.) Meanwhile no other MCP tool call on that machine
-runs. Ingestion has no such limit: a slow `send_events` keeps
-running after the client's timeout.
+the query runs, within its limit.) The library's timeout does not stop the request:
+meanwhile later requests in the same session wait, and other sessions are unaffected.
+Ingestion has no such limit: a slow `send_events` keeps running after the client's
+timeout.
+
+Cancellation: a client that cancels a request (`notifications/cancelled`) or deletes
+its session while a request runs stops it; the waiting POST gets a JSON-RPC error
+("Request cancelled", or -32603 "Session terminating"). A query stops at once (a
+schema lookup it started on other machines may run on to its own timeout). Writes
+do not: a `send_events` batch is always stored whole and a keyed receipt completed, and
+a rule write completes, even though the client was told it was cancelled. After a
+cancel or delete, the session's next request can run while such a write finishes.
 
 MCP calls are not recorded in `web_requests` or `web_responses`. Every MCP `query`
 call is recorded in `queries`, and those that fail to parse also in
@@ -337,8 +352,8 @@ goes through the same validation and storage.
    Events and return_keys must have matching decoded values (object key order is
    ignored, but number types and list order matter; omitted/null return_keys match).
    Changed requests and in-flight duplicates get HTTP 409 or MCP tool errors.
-   Retry promptly after an in-flight conflict. MCP calls may queue or time out
-   before reaching this check because its tool server is shared. A caller that
+   Retry promptly after an in-flight conflict. An MCP call may queue behind an
+   earlier call in its session, or time out, before reaching this check. A caller that
    aborts unexpectedly leaves an unknown-outcome conflict for ten seconds: events
    may have been stored. In-flight keys do not expire while their caller lives.
    At most 10,000 keys are held per node across all tables; capacity evicts the
@@ -874,9 +889,10 @@ Listed here because they change what a user sees:
 
 1. One segment that fails to pack at shutdown can lose the remaining unpersisted
    segments.
-2. One slow MCP tool call delays other MCP tool calls on that machine (a query for up
+2. One slow MCP tool call delays later calls in the same MCP session (a query for up
    to its 30-second limit, after up to 60 seconds per table of schema lookup when a
-   machine doesn't answer; an ingest until it finishes).
+   machine doesn't answer; an ingest until it finishes). Other sessions are not
+   delayed.
 3. Results, some function sizes, query time, and each query process's heap are
    capped, but a query's total memory is not: GROUP BY state, column data, and many
    processes together can still exhaust a machine's memory and lose its unpersisted

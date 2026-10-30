@@ -22,10 +22,15 @@ defmodule Guardian.Web.MCP.Server do
   insert-only ingest key gets 403. No identity is attached.
   """
 
+  # Only 2025-03-26, the version every client has negotiated with Guardian so far:
+  # a client asking for another gets 2025-03-26 back. Later versions change the
+  # tools/list and result shapes, and 2026-07-28 is a stateless, handshake-free era.
+  # Adding versions is a wire change for clients; see the mcp AGENTS.md.
   use Anubis.Server,
     name: "guardian",
     version: "0.1.0",
-    capabilities: [:tools, :resources]
+    capabilities: [:tools, :resources],
+    protocol_versions: ["2025-03-26"]
 
   alias Anubis.Server.Response
 
@@ -81,13 +86,11 @@ defmodule Guardian.Web.MCP.Server do
   rule reference: #{@query_language_uri}.\
   """
 
-  # Anubis 0.16 keeps tools and resources registered at runtime in the private map of
-  # its one shared frame, and empties that map when the session it served last ends
-  # (a client's DELETE). Registering them in init/2, which runs only on a client's
-  # notifications/initialized, left every other session with "Tool not found" until
-  # some client re-initialized. So they are registered on the frame before every
-  # request; registration is idempotent (Anubis dedups by type and name).
-  # Recheck on an Anubis upgrade.
+  # Each session has its own frame, which starts empty. init/2 runs only when a
+  # client sends notifications/initialized, and Anubis answers requests on an
+  # initialized session without it, so the tools and resource are registered on the
+  # session's frame before every request instead. Registration replaces by name, so
+  # repeating it is harmless, and the frame a request returns is kept for the next.
   defp register_components(frame) do
     frame
     |> register_tool("query",
@@ -102,12 +105,15 @@ defmodule Guardian.Web.MCP.Server do
       input_schema: %{
         table: {:required, :string, description: "Destination table name"},
         events: {:required, {:list, {:map, :any}}, description: "JSON event objects to ingest"},
+        # Written as the `{:meta, type, opts}` the field DSL builds: Anubis 2.x drops a
+        # `{{:oneof, ...}, description: ...}` to an empty schema. Only advertised; the
+        # send_events clause below validates requests itself.
         return_keys:
-          {{:oneof, [{:list, :string}, {:literal, nil}]},
+          {:meta, {:oneof, [{:list, :string}, {:literal, nil}]},
            description:
              "Fields to return for successful events; omitted or null returns all, [] returns none"},
         idempotency_key:
-          {{:oneof, [:string, {:literal, nil}]},
+          {:meta, {:oneof, [:string, {:literal, nil}]},
            description:
              "Optional retry key: 1–128 UTF-8 bytes, scoped to this table on this node; reuse only with identical events and return_keys"},
       }
@@ -152,6 +158,16 @@ defmodule Guardian.Web.MCP.Server do
     )
   end
 
+  # Anubis 2.x adds `"$schema"` (JSON Schema 2020-12) to every tool's inputSchema;
+  # Guardian's tools/list has never had it, so it is removed. Runs for tools/list and
+  # tools/call alike; validation does not read the advertised schema.
+  @impl true
+  def server_tools(tools, _frame) do
+    Enum.map(tools, fn tool ->
+      %{tool | input_schema: Map.delete(tool.input_schema, "$schema")}
+    end)
+  end
+
   @impl true
   def handle_resource_read(@query_language_uri, frame) do
     {:reply, Response.resource() |> Response.text(@query_language), frame}
@@ -173,17 +189,22 @@ defmodule Guardian.Web.MCP.Server do
     {:reply, Response.to_protocol(response), frame}
   end
 
-  # Every other request: the dispatch Anubis 0.16's own default handle_request/2 does
-  # (it is appended after these clauses at compile time, so `super` is unavailable).
+  # Every other request: the dispatch Anubis's own default handle_request/2 does (it
+  # is appended after these clauses at compile time, so `super` is unavailable).
   # Matching on "method" keeps that appended `%{}` clause reachable, so no warning.
+  # Anubis.Server.Handlers is internal to Anubis; recheck on an upgrade.
   def handle_request(%{"method" => _} = request, frame) do
     Anubis.Server.Handlers.handle(request, __MODULE__, register_components(frame))
   end
 
+  # Anubis kills a request's task when the client cancels it or deletes its session.
+  # Ingestion runs detached so a batch is never half-stored and a keyed receipt is
+  # completed by the process that claimed it; the client just stops waiting. (Rule
+  # writes need no such care: each runs entirely inside Guardian.Rules.Server.)
   @impl true
   def handle_tool_call("send_events", params, frame) do
     response =
-      case Guardian.Web.Ingest.send_events(params) do
+      case Guardian.Detached.run(fn -> Guardian.Web.Ingest.send_events(params) end) do
         {:ok, result} -> Response.tool() |> Response.json(result)
         {:error, message} -> Response.tool() |> Response.error(message)
         {:error, _status, message} -> Response.tool() |> Response.error(message)

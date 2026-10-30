@@ -126,8 +126,9 @@ HTTP 409 with `info` (or an MCP tool error). Invalid keys get HTTP 400/tool erro
 before any event is stored or key claimed.
 
 While the original is running, a retry that reaches the ingest handler gets HTTP
-409/tool error saying it is in flight; retry the same request promptly. MCP calls
-share one server and may first queue behind the original or time out. If the
+409/tool error saying it is in flight; retry the same request promptly. An MCP retry
+on the same session queues behind the original and may time out first; cancelling an
+MCP call or deleting its session does not stop its ingestion. If the
 original aborts unexpectedly, retries get an unknown-outcome conflict for ten
 seconds: events may have been stored. Guardian never automatically retries them.
 

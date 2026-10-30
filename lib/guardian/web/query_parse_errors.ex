@@ -117,30 +117,23 @@ defmodule Guardian.Web.QueryParseErrors do
   end
 
   @doc """
-  Caller fields from an Anubis frame (the MCP `query` tool). The client name and
-  version are null when Anubis has no `clientInfo` for the session.
+  Caller fields from an Anubis frame (the MCP `query` tool), read from the frame's
+  context: the request's headers (lowercased) and remote IP, and the session's
+  `clientInfo`. The client name and version are null when the session has none.
   """
   def mcp_caller(frame) do
-    transport = frame.transport || %{}
-    headers = Map.get(transport, :req_headers) || []
-    client_info = Map.get(frame.private || %{}, :client_info)
-    client_info = if is_map(client_info), do: client_info, else: %{}
+    context = frame.context
+    headers = context.headers || %{}
+    client_info = if is_map(context.client_info), do: context.client_info, else: %{}
 
     %{
       "interface" => "mcp",
-      "remote_ip" => format_ip(Map.get(transport, :remote_ip)),
-      "x_forwarded_for" => header(headers, "x-forwarded-for"),
-      "user_agent" => header(headers, "user-agent"),
+      "remote_ip" => format_ip(context.remote_ip),
+      "x_forwarded_for" => Map.get(headers, "x-forwarded-for"),
+      "user_agent" => Map.get(headers, "user-agent"),
       "mcp_client_name" => client_info["name"],
       "mcp_client_version" => client_info["version"],
     }
-  end
-
-  defp header(headers, name) do
-    case List.keyfind(headers, name, 0) do
-      {_, value} -> value
-      nil -> nil
-    end
   end
 
   defp format_ip(ip) when is_tuple(ip) do

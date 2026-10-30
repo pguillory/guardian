@@ -45,7 +45,7 @@ defmodule Guardian.MixProject do
 
   defp deps do
     [
-      {:anubis_mcp, "== 0.16.0"},
+      {:anubis_mcp, "== 2.2.0"},
       {:bandit, ">= 0.0.0"},
       {:cors_plug, ">= 0.0.0"},
       {:dns_cluster, "~> 0.3"},

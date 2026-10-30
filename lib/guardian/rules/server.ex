@@ -105,8 +105,8 @@ defmodule Guardian.Rules.Server do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  # Callers include MCP tool calls, which run in Anubis's one shared process, so an
-  # exit (a timeout, or the server restarting) becomes an error here.
+  # Callers include MCP tool calls, which run in Anubis's per-request tasks, so an exit
+  # (a timeout, or the server restarting) becomes an error here rather than a crash.
   def write(table, name, source) do
     GenServer.call(__MODULE__, {:write, table, name, source}, 90_000)
   catch

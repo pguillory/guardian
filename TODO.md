@@ -419,16 +419,19 @@ privately, not in this repository.
       1-byte DATA frames amplify memory) (`docs/changes/bandit-1141.md`)
 - [x] cloudflared-2026-10-6: update cloudflared to 2026.10.6 for the go-jose fix
       VULN-184686 (`docs/changes/cloudflared-2026-10-6.md`)
-- [ ] mcp-serialized-tool-calls: Anubis 0.16 runs tool calls in its one server
-      process, so a slow MCP query blocks every MCP session for up to the 30 s query
-      time limit. Options: answer `query` calls in `Guardian.Web.MCP.Router` before Anubis, or
-      migrate to Anubis 2.x and recheck
-- [ ] mcp-compile-time-components: during the Anubis 2.x migration, define the MCP
-      tools and resource as compile-time components and drop the per-request
-      registration and the `Handlers.handle/3` call
-- [ ] mcp-server-instructions: after an Anubis upgrade past 0.16, move the "what
-      Guardian is" sentence from the query tool description into MCP server
-      instructions (0.16 cannot send them)
+- [x] mcp-serialized-tool-calls: upgrade Anubis to 2.2 so MCP sessions run
+      independently, keeping the wire callers see
+      (`docs/changes/mcp-serialized-tool-calls.md`)
+- [ ] mcp-log-redaction: when an MCP request times out or its session exits
+      mid-call, Anubis logs the call's exit reason at error, with the request headers
+      (the API key) and the whole message; keep both out of the logs
+- [ ] mcp-compile-time-components: define the MCP tools and resource as compile-time
+      components and drop the per-request registration. send_events still needs its
+      own dispatch clause (typed validation rejects mixed batches), and the component
+      DSL builds schemas differently, so compare tools/list before and after
+- [ ] mcp-server-instructions: move the "what Guardian is" sentence from the query
+      tool description into MCP server instructions, now that Anubis 2.x can send
+      them (changes the initialize result)
 - [ ] auth-failure-visibility: failed authentication is not logged or rate limited,
       and the key's length is observable through timing
 - [x] fly-entry-drain: the Fly entry point kept the tunnel connector up while

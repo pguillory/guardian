@@ -39,7 +39,7 @@ prefix. Keep the Mix application and its configuration under `:guardian`.
   `Guardian.Cluster.Metadata` fans schema lookups out to every connected node and merges the
   results.
 - `Guardian.SystemStats`: the runtime child that records VM metrics (below).
-- Leaf helpers (`Guardian.AtomicFile`, `Guardian.Build`, `Guardian.Failure`,
+- Leaf helpers (`Guardian.AtomicFile`, `Guardian.Build`, `Guardian.Detached`, `Guardian.Failure`,
   `Guardian.Lists`, `Guardian.Rendezvous`, `Guardian.SegmentID`, `Guardian.SortedSet`, `Guardian.Timestamp`,
   `Guardian.Utils`) live directly in this directory; their rules are in "Leaf
   utilities" below.
@@ -72,7 +72,7 @@ to the file's directory. Run the full suite afterward.
 ## Leaf utilities
 
 Utilities are leaf helpers: atomic file replacement (`Guardian.AtomicFile`), build
-information (`Guardian.Build`), safe failure labels and stack redaction
+information (`Guardian.Build`), work that outlives its caller (`Guardian.Detached`), safe failure labels and stack redaction
 (`Guardian.Failure`), order-keeping list helpers (`Guardian.Lists`), rendezvous
 hashing (`Guardian.Rendezvous`), segment IDs (`Guardian.SegmentID`),
 `Guardian.SortedSet`, timestamps (`Guardian.Timestamp`), and `Guardian.Utils`
@@ -98,6 +98,12 @@ single user next to that user instead.
   `Guardian.Rules.Runtime` use the reshaping; ORDER BY with LIMIT
   (`Guardian.Query.Sorting`) and the `_n` aggregates (`Guardian.Aggregation.Ordering`)
   use `merge_take/4`.
+- `Guardian.Detached.run/1` runs a function in an unlinked process and waits for its
+  result, so the work finishes even if the caller is killed. Raises, throws and exits
+  are caught in the worker and raised again in the caller with their stacktrace (no
+  crash report for the worker); a worker killed from outside makes the caller exit with
+  its reason. MCP `send_events` uses it, because Anubis kills a request's task when the
+  client cancels it or deletes its session.
 - `Guardian.SegmentID` creates sortable 32-byte hex identifiers containing a timestamp.
 - `Guardian.Failure` owns value-free diagnostic classification and stack redaction.
   Callers keep their logging and catch/reraise policies; caller-facing query
