@@ -831,7 +831,7 @@ the machine.
 ```text
 SQL text
   -> Guardian.AST.Parser (tokenizer, recursive descent)          lib/guardian/ast
-  -> Guardian.Query.Resolver (SHOW/DESC, LET, columns, SELECT *)  uses Guardian.Cluster.Metadata
+  -> Guardian.Query.Resolver (SHOW/DESC, LET, columns, SELECT *)  SELECT * uses Guardian.Cluster.Metadata
   -> Guardian.Query.Planner (list of plan steps)
   -> Guardian.Query.run: Guardian.Query.DistributedStream over every node, Guardian.Query.Evaluation per segment
   -> rows (lists of values), with the labels Guardian.Query.Resolver.resolve/1 gave
@@ -863,8 +863,9 @@ them, and the same structs serve parsing, printing, and evaluation.
 
 It returns each statement paired with its column labels, taken from the statement
 before LET substitution: an alias where one is given, else the expression as
-written. Resolution needs schemas, so it is the one step before execution that talks
-to other machines (section 7).
+written. Only `SELECT *` needs schemas, and only the tables it reads are looked up
+(`Guardian.Cluster.Metadata`); that lookup is the one step before execution that talks
+to other machines (section 7). Other statements resolve without leaving the node.
 
 ### 5.3 Planning
 
@@ -1179,10 +1180,10 @@ It registers them on the session's frame before every request (`init/2` runs onl
 dispatches `send_events` itself so mixed batches reach Engine unchanged.
 
 A slow query holds up only later requests in its own session, for up to the 30-second
-query time limit (5.7) plus the schema lookup that resolves the query before it (up to
-60 seconds per table when a machine doesn't answer). Anubis's own 30-second timeout
-abandons the caller's wait without stopping the request; the query, which started a
-little later, stops at its limit. A client that cancels the request
+query time limit (5.7) plus, for a `SELECT *`, the schema lookup that resolves the
+query before it (up to 60 seconds per table when a machine reports ready and then
+stops answering). Anubis's own 30-second timeout abandons the caller's wait without
+stopping the request; the query, which started a little later, stops at its limit. A client that cancels the request
 (`notifications/cancelled`) or deletes its session stops it: Anubis kills the request's
 task, and `Guardian.Query` kills a query whose caller dies. `send_events` runs in a
 `Guardian.Detached` worker, so its batch always completes, and rule writes complete

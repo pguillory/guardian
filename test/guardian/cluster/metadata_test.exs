@@ -2,7 +2,7 @@ defmodule Guardian.Cluster.MetadataTest do
   # Starts peer nodes. While a peer is connected every query in this VM fans out to
   # it, so this module must not run concurrently with other tests.
   use ExUnit.Case, async: false
-  import Guardian.Test.Query, only: [run_sql: 1]
+  import Guardian.Test.Query, only: [run_sql: 1, with_time_limit: 2]
 
   alias Guardian.Storage.Column.Metadata
   require Metadata
@@ -74,6 +74,29 @@ defmodule Guardian.Cluster.MetadataTest do
     assert Enum.sort(run_sql("SELECT v FROM #{table}")) == [[1], [2], [3]]
   end
 
+  test "a hung in-memory segment fails SELECT * at its lookup, other SELECTs at the time limit",
+       %{peer_node: peer_node} do
+    table = unique_table()
+    ingest_on(peer_node, table, [%{"v" => 1}])
+
+    [segment] =
+      :erpc.call(peer_node, Guardian.Storage.MutableSegments, :get_mutable_segments, [table])
+
+    :ok = :erpc.call(peer_node, :sys, :suspend, [segment])
+    on_exit(fn -> :erpc.call(peer_node, :sys, :resume, [segment]) end)
+
+    # The peer's schema read gives up on the segment after 5 s.
+    error = assert_raise Guardian.Cluster.NodeError, fn -> run_sql("SELECT * FROM #{table}") end
+    assert [{^peer_node, _reason}] = error.failures
+
+    # A SELECT that names its columns makes no lookup; its scan waits on the segment
+    # until the query's time limit.
+    with_time_limit(500, fn ->
+      error = assert_raise Guardian.Query.Error, fn -> run_sql("SELECT v FROM #{table}") end
+      assert error.message =~ "time limit"
+    end)
+  end
+
   describe "with a node that has not started Storage" do
     setup do
       {peer, starting_node} = Guardian.Test.Cluster.start_peer(nil)
@@ -138,7 +161,24 @@ defmodule Guardian.Cluster.MetadataTest do
       assert Exception.message(error) =~ to_string(broken_node)
 
       assert_raise Guardian.Cluster.NodeError, fn -> run_sql("DESC #{table}") end
+      assert_raise Guardian.Cluster.NodeError, fn -> run_sql("SELECT key FROM schema") end
       assert_raise Guardian.Cluster.NodeError, fn -> run_sql("SELECT * FROM #{table}") end
+    end
+
+    test "SELECTs that name their columns need no schema lookup", %{broken_node: broken_node} do
+      table = unique_table()
+      Guardian.Engine.ingest_events(table, [%{"v" => 1}])
+      ingest_on(broken_node, table, [%{"v" => 2}])
+
+      # The broken node's rows are in the answer: it was asked, not left out.
+      assert Enum.sort(run_sql("SELECT v FROM #{table}")) == [[1], [2]]
+      assert run_sql("SELECT count() FROM #{table}") == [[2]]
+      assert run_sql("SELECT count(*) FROM #{table}") == [[2]]
+      assert run_sql("SELECT v, count() FROM #{table} GROUP BY v ORDER BY v") == [[1, 1], [2, 1]]
+
+      missing = unique_table()
+      assert run_sql("SELECT v FROM #{missing}") == []
+      assert run_sql("SELECT count() FROM #{missing}") == [[0]]
     end
   end
 end

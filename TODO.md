@@ -301,8 +301,12 @@ privately, not in this repository.
       ETS, column data in native memory, many processes); a deliberate or exotic query
       can still exhaust a machine and lose its unpersisted events
 - [ ] list-field-paths: let `users.name` find the list column `users..name`
+- [x] select-schema-on-demand: only `SELECT *` looks up table schemas while
+      resolving; other SELECTs make no cluster schema call before they run
+      (`docs/changes/select-schema-on-demand.md`)
 - [ ] statement-node-set: compute a statement's node set once, so a hung peer's 5 s
-      readiness check is paid once per query and resolve and FROM see the same nodes
+      readiness check is paid once per query and a `SELECT *`'s resolve and FROM see
+      the same nodes
 - [x] json-query-error-responses: obsolete; split-api-keys removed JSON `/query`
       (`docs/changes/split-api-keys.md`)
 - [x] not-in: `x NOT IN [...]` did not parse (only `NOT x IN [...]`); it is now the

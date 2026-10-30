@@ -19,4 +19,10 @@ defmodule Guardian.Query.ResolverTest do
     assert unresolve_statement_index(query, 0) == 2
     assert unresolve_statement_index(query, 1) == 3
   end
+
+  test "a * that LET substitutes is expanded" do
+    keys = Guardian.Query.VirtualTable.Schema.keys()
+    assert [{statement, _labels}] = resolve("LET x = *; SELECT x FROM schema")
+    assert statement.select_exprs == Enum.map(keys, &%Guardian.AST.Node.Identifier{name: &1})
+  end
 end

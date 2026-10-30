@@ -18,7 +18,7 @@ defmodule Guardian.Test.Query do
   @doc """
   Resolves SQL text that holds exactly one executable statement and returns that
   statement (MatchError otherwise). Use it to resolve before injecting a fault:
-  resolution reads schemas from every node.
+  resolving a `SELECT *` reads schemas from every node.
   """
   def resolve_sql(sql) do
     [{statement, _labels}] = Guardian.Query.Resolver.resolve(sql)

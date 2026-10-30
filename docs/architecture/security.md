@@ -603,14 +603,16 @@ Counter-specific limits:
    are unaffected. Anubis's 30-second transport timeout abandons the caller's wait
    without stopping the request, and the query, which started a little later, stops at
    its own 30-second time limit. Resolving the query comes first and is not covered:
-   for each distinct table a statement reads from, `Guardian.Query.Resolver` asks every machine
-   for that table's schema (`Guardian.Cluster.Metadata`, 60-second timeout), before the handler
-   rejects input with several statements. (`DESC` and `SHOW TABLES` read the `schema`
-   table, whose lookup runs inside the query and its limit.) Each lookup first asks
-   every peer whether its Storage is ready, leaving out one that doesn't answer within
-   5 seconds. So one MCP query holds its session for up to 30 seconds plus up to 5
-   seconds per table it names when a machine doesn't answer at all, or up to 60
-   seconds per table when a machine reports ready but its schema lookup hangs; a slow
+   for each distinct table a `SELECT *` reads from, `Guardian.Query.Resolver` asks every
+   machine for that table's schema (`Guardian.Cluster.Metadata`, 60-second timeout), before
+   the handler rejects input with several statements. Other SELECTs make no lookup.
+   (`DESC`, `SHOW TABLES` and the `schema` table read the `schema` table, whose lookup
+   runs inside the query and its limit.) Each lookup first asks every peer whether its
+   Storage is ready, leaving out one that doesn't answer within 5 seconds; a ready
+   machine whose Storage schema or in-memory segment doesn't answer fails the lookup
+   after 5 seconds. So one MCP query holds its session for up to 30 seconds plus, per
+   table a `SELECT *` names, up to 5 seconds when a machine doesn't answer at all, or
+   up to 60 seconds when a machine reports ready and then stops answering; a slow
    `send_events` holds it until it finishes unless the client cancels it (the write
    itself still finishes, below). A key holder can open many sessions, so
    per-session isolation does not bound how many queries one caller runs at once; the
@@ -995,7 +997,8 @@ Open gaps named above, by boundary:
    overshoot; a deliberate or exotic query can still exhaust memory on every node and
    lose unpersisted events (5.2.2).
 8. B3: one slow MCP call delays later requests in its session (a query for up to its
-   30 s limit plus its schema lookup, an ingest until done unless cancelled) (5.2.3).
+   30 s limit plus, for a `SELECT *`, its schema lookup; an ingest until done unless
+   cancelled) (5.2.3).
 9. B3: MCP error messages can carry internal detail such as node names (5.2.4).
 10. B3, B6: a corrupt segment file aborts the VM (5.2.5).
 11. B3: some event shapes are slow to flatten (5.2.6).

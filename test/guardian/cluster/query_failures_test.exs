@@ -66,8 +66,6 @@ defmodule Guardian.Cluster.QueryFailuresTest do
 
     assert run_sql("SELECT count() FROM #{table}") == [[200]]
 
-    # Resolve first: resolution reads the schema from every node, which would block on
-    # the suspended segment too.
     statement = resolve_sql("SELECT count() FROM #{table}")
 
     # Block the peer's scan on its segment, then take the peer away.

@@ -59,8 +59,8 @@ defmodule Guardian.Web.MCP.CancellationTest do
       session_id = MCPHTTP.open_session()
       :sys.suspend(segment)
 
-      # DESC looks up the schema inside the query process (a SELECT resolves it first,
-      # in the request), so the query is running when it blocks on the segment.
+      # DESC looks up the schema inside the query process (a SELECT * resolves it
+      # first, in the request), so the query is running when it blocks on the segment.
       request =
         Task.async(fn ->
           MCPHTTP.call_tool(session_id, 7, "query", %{"sql" => "DESC #{table}"})

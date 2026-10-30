@@ -15,6 +15,7 @@ defmodule Guardian.Query.Resolver do
   alias Guardian.AST.Node.Identifier
   alias Guardian.AST.Node.Literal
   alias Guardian.AST.Node.Operators.EqualOperator
+  alias Guardian.AST.Node.Splat
 
   alias Guardian.AST.Node.Statements.DescStatement
   alias Guardian.AST.Node.Statements.LetStatement
@@ -85,17 +86,24 @@ defmodule Guardian.Query.Resolver do
     raw
   end
 
+  # The columns of each table a SELECT * reads, the only use of a table's schema in
+  # resolution, so other SELECTs make no cluster schema lookup. Read from the
+  # statements after LET substitution, which can add a top-level * but never remove one.
   defp table_columns(statements) do
     statements
     |> Enum.flat_map(fn
-      %SelectStatement{from_expr: %Identifier{name: table}} ->
-        [table]
+      %SelectStatement{from_expr: %Identifier{name: table}} = statement ->
+        if select_star?(statement), do: [table], else: []
 
       _ ->
         []
     end)
     |> Enum.uniq()
     |> Map.new(&{&1, keys(&1)})
+  end
+
+  defp select_star?(%SelectStatement{select_exprs: select_exprs}) do
+    Enum.any?(select_exprs, &is_struct(&1, Splat))
   end
 
   def resolve_show_desc(%ShowTablesStatement{}) do
@@ -202,7 +210,7 @@ defmodule Guardian.Query.Resolver do
   defp resolve_select_star(%SelectStatement{} = statement, columns) do
     update_in(statement.select_exprs, fn select_exprs ->
       Enum.flat_map(select_exprs, fn
-        %Guardian.AST.Node.Splat{} ->
+        %Splat{} ->
           %Identifier{name: table} = statement.from_expr
           keys = Map.fetch!(columns, table)
           Enum.map(keys, &%Identifier{name: &1})

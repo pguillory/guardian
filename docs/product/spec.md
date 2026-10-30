@@ -256,11 +256,15 @@ does not override), and a query may run for 30 seconds
 ([section 7](#7-queries)). The two race: the query starts a little after the request,
 so a query that runs out its time usually reaches the client as the library's timeout
 error rather than the query's time-limit error. Either way the query stops at its
-limit. Resolving the query comes before that limit: for each table a query reads
-from, Guardian asks every machine for that table's schema, waiting up to 60 seconds
-for one that doesn't answer. (`DESC` and `SHOW TABLES` collect their schemas while
-the query runs, within its limit.) The library's timeout does not stop the request:
-meanwhile later requests in the same session wait, and other sessions are unaffected.
+limit. Resolving a `SELECT *` comes before that limit: to list each table's columns,
+Guardian asks every machine for that table's schema. A machine that doesn't say
+within 5 seconds whether it is ready is left out; one whose storage (such as a
+table's in-memory segment) doesn't answer for 5 seconds fails the lookup; and
+Guardian waits at most 60 seconds for each machine's answer, per table. Other
+SELECTs need no lookup. (`DESC`, `SHOW TABLES` and the `schema` table collect their
+schemas while the query runs, within its limit.) The library's timeout does not stop
+the request: meanwhile later requests in the same session wait, and other sessions
+are unaffected.
 Ingestion has no such limit: a slow `send_events` keeps running after the client's
 timeout.
 
@@ -858,10 +862,12 @@ Product-level behavior:
    lookup fans out to all connected nodes, so adding nodes needs no client change.
 6. A node that is disconnected, or still starting (loading its stored events after
    a boot or a storage restart), is silently missing from query results. A started
-   node that fails a schema lookup fails the statement with a node error. Once a
-   query is running, any failure on any node (an expression error, a crashed query
-   worker, a node that disconnects or loses traffic to another node) fails the
-   whole query with an error. It never returns a partial answer.
+   node that fails a schema lookup (`SHOW TABLES`, `DESC`, the `schema` table,
+   `SELECT *`) fails the statement with a node error. Once a query is running, any
+   failure on any node (an expression error, a crashed query worker, a node that
+   disconnects or loses traffic to another node) fails the whole query with an
+   error. It never returns a partial answer. A segment that stops answering holds a
+   query that scans it until the query's time limit.
 7. Single-node deploys stop ingestion briefly; producers must retry. Multi-node
    deploys on Fly, set up as the Fly guide's Scaling section describes, roll one
    machine at a time and wait for each to load its segments: ingestion continues on
@@ -904,9 +910,9 @@ Listed here because they change what a user sees:
 1. One segment that fails to pack at shutdown can lose the remaining unpersisted
    segments.
 2. One slow MCP tool call delays later calls in the same MCP session (a query for up
-   to its 30-second limit, after up to 60 seconds per table of schema lookup when a
-   machine doesn't answer; an ingest until it finishes). Other sessions are not
-   delayed.
+   to its 30-second limit, after, for a `SELECT *`, up to 60 seconds per table of
+   schema lookup when a machine reports ready and then stops answering; an ingest
+   until it finishes). Other sessions are not delayed.
 3. Results, some function sizes, query time, and each query process's heap are
    capped, but a query's total memory is not: GROUP BY state, column data, and many
    processes together can still exhaust a machine's memory and lose its unpersisted
