@@ -342,13 +342,16 @@ defmodule Guardian.Counters.StoreTest do
     %{entries: old_table} = :sys.get_state(owner)
     GenServer.stop(owner)
 
+    # The restarted store registers its name before init publishes it as ready, and a
+    # call in between correctly answers :unavailable, so wait for the replacement's
+    # answer, not its name.
     assert_eventually(fn ->
-      replacement = Process.whereis(:counter_generation_test)
-      assert is_pid(replacement) and replacement != owner
+      assert get(:key, now, server: :counter_generation_test) == :not_found
     end)
 
+    replacement = Process.whereis(:counter_generation_test)
+    assert is_pid(replacement) and replacement != owner
     assert incr(:key, 1, 100, now, server: old_table) == {:error, :unavailable}
-    assert get(:key, now, server: :counter_generation_test) == :not_found
   end
 
   test "value slices charge backing allocations while encoded keys detach them", %{now: now} do
