@@ -15,6 +15,8 @@ defmodule Guardian.Aggregation.MinNByTest do
       [x: "j", y: 3],
     ]
 
-    assert eval_aggregate("min_n_by(x, y, 3)", rows) == ["b", "g", "h"]
+    # g and h tie, so their order is undefined.
+    assert ["b" | tied] = eval_aggregate("min_n_by(x, y, 3)", rows)
+    assert Enum.sort(tied) == ["g", "h"]
   end
 end

@@ -19,7 +19,6 @@ defmodule Guardian.Counters.ExecutionTest do
   alias Guardian.Test.Counters.ProbeStore
 
   @sum Aggregation.fetch!("sum")
-  @min Aggregation.fetch!("min")
   @max Aggregation.fetch!("max")
 
   # No test here depends on production's budgets. Events get the scaled budgets (1 s
@@ -187,9 +186,10 @@ defmodule Guardian.Counters.ExecutionTest do
           :ok
       end)
 
+    # 1 + 0.0 is 1.0: equal to the prior 1 but not the same term, so it is written.
     assert run(
              [
-               KeyMachines.merge(@min, key("k"), 1.0, expiry()),
+               KeyMachines.merge(@sum, key("k"), 0.0, expiry()),
                KeyMachines.merge(@max, key("k"), 0, expiry()),
              ],
              store
@@ -325,21 +325,18 @@ defmodule Guardian.Counters.ExecutionTest do
     assert {:ok, 10, ^token} = Store.gets(key, now(), server: store)
   end
 
-  test "bucket merging remains chronological and retains the newest numeric tie type", %{
-    store: store,
-  } do
-    for operator <- ["min", "max"] do
+  test "an older bucket's value combines with the current write", %{store: store} do
+    # min shows the older bucket deciding, max the write.
+    for {operator, expected} <- [{"min", 1}, {"max", 2}] do
       definition = tracked({operator, 1}, 3_600_000)
       event = event(store)
       current = Integer.floor_div(event.arrival.unix_ms, definition.bucket_ms)
 
       assert :ok =
-               Store.add({definition.identity, {}, current - 1}, 1.0, 5_000, now(), server: store)
+               Store.add({definition.identity, {}, current - 1}, 1, 5_000, now(), server: store)
 
-      assert track(definition, {}, [1], event) === 1
-
-      assert lookup(definition, {}, event) === 1
-      assert track(definition, {}, [1.0], event(store)) === 1.0
+      assert track(definition, {}, [2], event) === expected
+      assert lookup(definition, {}, event) === expected
     end
   end
 

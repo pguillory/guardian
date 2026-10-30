@@ -129,7 +129,8 @@ defmodule Guardian.Counters.Execution do
           do: KeyMachines.incr(current, delta, expiry),
           else: KeyMachines.merge(aggregation, current, delta, expiry)
 
-      # Keep the current bucket last: min/max ties and floating sums depend on order.
+      # The newest bucket takes the write. Combining in any order is fine: min/max ties
+      # and float results may vary with it (docs/changes/counter-merge-order.md).
       Enum.map(previous, &KeyMachines.read/1) ++ [writer]
     end
   end

@@ -178,8 +178,8 @@ local atomic primitives.
 below `Guardian.Rules.Runtime` (which prepares statements into ops and writes
 results into fields): `run_counters/3` expands each op into bucket key machines,
 flattens them, runs them in rounds (`run_state_machines/2`), unflattens, and
-combines each op's states chronologically. Each round sends its pending operations
-through one `Client.batch/2` call, then feeds responses back in order
+combines each op's bucket states, in no promised order. Each round sends its
+pending operations through one `Client.batch/2` call, then feeds responses back in order
 (`docs/changes/counter-execution-topdown.md`, `docs/changes/counter-execution-layer.md`,
 `docs/changes/counter-client-fanout.md`).
 Any failed bucket defaults its whole statement quietly; missing buckets use empty
@@ -211,8 +211,9 @@ fixed 256-byte bitstring registers. Average keeps `{sum, count}` and skips empty
 states without arithmetic, preserving signed zero. Float overflow is absorbing;
 integer sum wraps through `Guardian.Query.Numeric`, while average keeps exact integer sums.
 Floating-point rounding/cancellation, overflow and wrapping mixed with floats
-preclude universal associativity. Min/max share query ordering, with the right
-state winning ties, including the type of equal integer/float values. A merge
+preclude universal associativity. Min/max share query ordering. Which side wins a tie
+(including equal integer/float values) is not a contract, and nothing may depend on
+bucket merge order (`docs/changes/counter-merge-order.md`). A merge
 that raises (top-N states with different n) is a bucket error in Machine, or a
 statement failure in combine; both fail open.
 

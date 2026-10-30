@@ -7,9 +7,9 @@ defmodule Guardian.Aggregation.StddevPopTest do
 
   test "stddev_pop" do
     assert stddev_pop([]) == nil
-    assert stddev_pop([4, 7, 13, 16]) === 4.743416490252569
-    assert stddev_pop([21, 42, 37, 16, 31, 28, 33, 41, 12]) === 10.110500592068734
+    assert_in_delta stddev_pop([4, 7, 13, 16]), 4.743416490252569, 1.0e-9
+    assert_in_delta stddev_pop([21, 42, 37, 16, 31, 28, 33, 41, 12]), 10.110500592068734, 1.0e-9
 
-    assert stddev_pop([4, 7, 13, 16, nil]) === 4.743416490252569
+    assert_in_delta stddev_pop([4, 7, 13, 16, nil]), 4.743416490252569, 1.0e-9
   end
 end

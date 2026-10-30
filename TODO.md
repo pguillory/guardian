@@ -134,6 +134,9 @@ privately, not in this repository.
 - [x] shared-aggregates: queries and counters use the same per-aggregate modules,
       with explicit counter opt-in and preserved defaults, precision and numeric
       policies (`docs/changes/shared-aggregates.md`)
+- [x] counter-merge-order: merge order is no longer a promise; min/max ties are
+      undefined and order-sensitive float results may vary, with no rounding
+      (`docs/changes/counter-merge-order.md`)
 - [x] counter-retirement: remove legacy scalar cluster entry points and the
       counter aggregate adapter; carry resolved shared aggregate configurations
       through rule plans and batched execution (`docs/changes/counter-retirement.md`)

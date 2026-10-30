@@ -218,17 +218,19 @@ defmodule Guardian.Rules.CounterRulesTest do
 
     run(plan, %{"v" => 1, "name" => "a", "ok" => true}, event(store))
 
-    assert Map.take(run(plan, %{"v" => 5, "name" => "e", "ok" => false}, event(store)), fields) ==
-             %{
-               "any" => 3,
-               "top" => [5, 3],
-               "low_names" => ["a", "c"],
-               "best" => "e",
-               "every" => false,
-               "oks" => 2,
-               "spread" => 8 / 3,
-               "prior_top" => [3, 1],
-             }
+    # arbitrary is any one value, and var_pop's float may vary with merge order.
+    result = run(plan, %{"v" => 5, "name" => "e", "ok" => false}, event(store))
+    assert result["any"] in [3, 1, 5]
+    assert_in_delta result["spread"], 8 / 3, 1.0e-9
+
+    assert Map.take(result, fields -- ~w(any spread)) == %{
+             "top" => [5, 3],
+             "low_names" => ["a", "c"],
+             "best" => "e",
+             "every" => false,
+             "oks" => 2,
+             "prior_top" => [3, 1],
+           }
   end
 
   test "arbitrary keeps a real null rather than treating it as no rows", %{store: store} do

@@ -38,7 +38,8 @@ statement open.
 
 The min and max families share `Guardian.Aggregation.Ordering` (the comparison, where a tie goes
 to the second accumulator, the `n` check and the matching-`n` merge), and the `_n` forms
-keep their best `n` with `Guardian.Lists.merge_take/4`.
+keep their best `n` with `Guardian.Lists.merge_take/4`. Which value wins a tie is an
+implementation detail, not a promise: ties are undefined, as in SQL.
 
 Design merges for combining partial results across segments and nodes. Floating-point
 rounding/cancellation, absorbing overflow and integer wrapping mixed with floats

@@ -566,7 +566,8 @@ batched rounds (`run_state_machines/2`) and restores the per-counter lists
 (`Guardian.Lists`). Each round sends its pending operations through
 one `Counters.Client.batch/2` call, which runs them on their owners, then feeds
 responses back in order. `Guardian.Counters.KeyMachines` supplies read, native incr,
-and gets/merge/add-or-cas callbacks. Buckets combine oldest to newest, resolving once;
+and gets/merge/add-or-cas callbacks. A statement's buckets combine once, in an
+order that is not promised, so min/max ties and float results may vary with it;
 any failed bucket defaults its whole statement. LOOKUP ancestors and LOOKUP levels
 drain before any TRACK level. Scalar work finishes before a level dispatches, and
 UNSETs remain last.

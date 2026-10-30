@@ -1,31 +1,36 @@
 defmodule Guardian.Aggregation.MinMaxFamilyTest do
-  # Behavior shared by min and max and their _by, _n and _n_by forms: which of equal
-  # keys wins, null skipping, and Erlang term order across types.
+  # Behavior shared by min and max and their _by, _n and _n_by forms: equal keys,
+  # null skipping, and Erlang term order across types.
   use Guardian.Query.EvaluationTestCase, async: true
 
   defp values(xs) do
     Enum.map(xs, &[x: &1])
   end
 
-  # 1 and 1.0 compare equal, so === shows which row won the tie: the earlier row.
-  test "of equal keys, the earlier row wins" do
-    assert eval_aggregate("min(x)", values([1, 1.0])) === 1
-    assert eval_aggregate("max(x)", values([1, 1.0])) === 1
-    assert eval_aggregate("min(x)", values([1.0, 1])) === 1.0
+  # Ties are undefined, as in SQL: any tied value may win, 1 or 1.0 included (they
+  # compare equal, so `in`, which uses ===, checks the value is one of them).
+  test "of equal keys, any tied row may win" do
+    assert eval_aggregate("min(x)", values([1, 1.0])) in [1, 1.0]
+    assert eval_aggregate("max(x)", values([1, 1.0])) in [1, 1.0]
+    assert eval_aggregate("min(x)", values([1.0, 1])) in [1, 1.0]
 
     ties = [[x: "a", y: 1], [x: "b", y: 1], [x: "c", y: 0], [x: "d", y: 2]]
     assert eval_aggregate("min_by(x, y)", ties) == "c"
     assert eval_aggregate("max_by(x, y)", ties) == "d"
-    assert eval_aggregate("min_by(x, y)", Enum.take(ties, 2)) == "a"
-    assert eval_aggregate("max_by(x, y)", Enum.take(ties, 2)) == "a"
+    assert eval_aggregate("min_by(x, y)", Enum.take(ties, 2)) in ["a", "b"]
+    assert eval_aggregate("max_by(x, y)", Enum.take(ties, 2)) in ["a", "b"]
 
-    assert eval_aggregate("min_n(x, 2)", values([1, 1.0, 2])) === [1, 1.0]
-    assert eval_aggregate("max_n(x, 2)", values([1.0, 0, 1])) === [1.0, 1]
-    assert eval_aggregate("min_n_by(x, y, 3)", ties) == ["c", "a", "b"]
-    assert eval_aggregate("max_n_by(x, y, 3)", ties) == ["d", "a", "b"]
-    # Truncated at a tie: the earlier of the tied rows is kept.
-    assert eval_aggregate("min_n_by(x, y, 2)", ties) == ["c", "a"]
-    assert eval_aggregate("max_n_by(x, y, 2)", ties) == ["d", "a"]
+    assert eval_aggregate("min_n(x, 2)", values([1, 1.0, 2])) in [[1, 1.0], [1.0, 1]]
+    assert eval_aggregate("max_n(x, 2)", values([1.0, 0, 1])) in [[1, 1.0], [1.0, 1]]
+    assert ["c" | tied] = eval_aggregate("min_n_by(x, y, 3)", ties)
+    assert Enum.sort(tied) == ["a", "b"]
+    assert ["d" | tied] = eval_aggregate("max_n_by(x, y, 3)", ties)
+    assert Enum.sort(tied) == ["a", "b"]
+    # Truncated at a tie: either tied row may be kept.
+    assert ["c", kept] = eval_aggregate("min_n_by(x, y, 2)", ties)
+    assert kept in ["a", "b"]
+    assert ["d", kept] = eval_aggregate("max_n_by(x, y, 2)", ties)
+    assert kept in ["a", "b"]
   end
 
   test "min and max skip nulls on either side" do

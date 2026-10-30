@@ -19,6 +19,7 @@ defmodule Guardian.Aggregation.SumTest do
   end
 
   test "a float sum that overflows is null, however later rows merge into it" do
+    # The row order is deliberate: the overflow comes first. Another order may differ.
     assert eval_aggregate("sum(x)", [[x: 1.0e308], [x: 1.0e308]]) == nil
     assert eval_aggregate("sum(x)", [[x: 1.0e308], [x: 1.0e308], [x: -1.0e308]]) == nil
     assert eval_aggregate("sum(x)", [[x: 1.0e308], [x: 1.0e308], [x: nil], [x: 1]]) == nil

@@ -471,9 +471,8 @@ UNSET password
    Missing/expired results and any failed operation produce the aggregate's result
    over no rows: 0 for count, count_if and count_distinct, true for all, null for
    the rest. Average retains exact integer sums. A count beyond int64 is refused
-   where the event is stored, like any value storage cannot hold. Min/max ties
-   keep the later merged value, including its type. A top-N counter (`min_n`,
-   `max_n` and the `_n_by` forms) whose events disagree on n produces null.
+   where the event is stored, like any value storage cannot hold. A top-N counter
+   (`min_n`, `max_n` and the `_n_by` forms) whose events disagree on n produces null.
 2. BY is an exact ordered tuple of typed values. Omitted BY is one global group;
    null is a valid shared component. Integer 1, float 1.0 and string '1' are distinct
    groups. LOOKUP evaluates its own BY expressions, so types and order must match.
@@ -656,6 +655,12 @@ the shipped surface:
    `min_n` and `max_n` skip nulls, and `min_by`, `max_by` and the `_n_by` forms skip
    rows whose ordering key is null. The n of `min_n`, `max_n` and the `_n_by` forms must
    be a non-negative integer, the same for every row of a group.
+   Which of tied values `min`, `max` and the `_by` forms return is undefined (1 or
+   1.0, for example); in the `_n` forms, so are the order of tied values and which of
+   them a limit of n keeps. A float `sum`, `avg`, variance or standard deviation can
+   depend on the order partial results merge in: usually only in its last bits, but
+   more when large values cancel, an overflow can give null where another order would
+   not, and an integer sum can wrap before a float joins it.
 5. Scalar functions (60 names): math, strings, conditionals, types, time, hashes,
    UUIDs, URL and email parsing, `ip_to_integer`, and `cosine_similarity`. There is
    no `jq()`; a query calling it gets a parse error saying so, since nested fields of
