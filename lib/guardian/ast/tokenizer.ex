@@ -179,7 +179,7 @@ defmodule Guardian.AST.Tokenizer do
 
   @doc """
   The tokens of `source`: `{type, value}` pairs with whitespace and comments dropped,
-  keywords upcased, identifiers downcased, and literals evaluated. Raises
+  keywords upcased, identifiers as written, and literals evaluated. Raises
   `Guardian.AST.ParseError` at the first error, scanning errors before evaluation errors.
   """
   def tokenize(source) do
@@ -258,7 +258,7 @@ defmodule Guardian.AST.Tokenizer do
   end
 
   defp evaluate_token(:identifier, raw_token) do
-    {:ok, {:identifier, String.downcase(raw_token)}}
+    {:ok, {:identifier, raw_token}}
   end
 
   defp evaluate_token(:punctuation, raw_token) do

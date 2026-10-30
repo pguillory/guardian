@@ -16,10 +16,11 @@ store only through `Guardian.Storage.SegmentExpiration`. `INSERT`, `INTO`, `VALU
 `DELETE` stay reserved tokenizer keywords so table-name validation stays unchanged.
 
 Identifiers may be dot paths (`user.name`, `users..name`) naming the stored columns of
-nested fields; each run of N dots marks N - 1 list boundaries. The tokenizer
-lowercases identifiers (`Guardian.AST.Tokenizer.tokenize/1`), so the AST holds the lowercased
-spelling; `Guardian.Query.Resolver` matches it to stored names ignoring case.
-There is no `table.column` qualification.
+nested fields; each run of N dots marks N - 1 list boundaries. Identifiers keep their
+written case and match exactly. Keywords are case-insensitive in the tokenizer. Words
+the parser matches as identifiers (rule words, function names, `current_date`,
+`current_timestamp`) are compared downcased at their position, through the parser, so
+the tokenizer stays free of them. There is no `table.column` qualification.
 
 Each node is a struct whose module implements the `Guardian.AST.Node` behaviour
 (`use Guardian.AST.Node`): `to_source/1` and `traverse/4`, and, if it can be evaluated, a

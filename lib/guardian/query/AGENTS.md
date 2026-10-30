@@ -6,10 +6,8 @@ The query engine turns resolved AST statements into distributed columnar operati
 AST -> Resolver -> Planner -> DistributedStream -> Evaluation -> rows
 ```
 
-`Guardian.Query.Resolver` expands SHOW TABLES, DESC, SELECT *, aliases, and LET substitutions,
-and rewrites column names to the stored spelling ignoring case (raising
-`Guardian.Query.AmbiguousColumnError` when two stored names match). Evaluation looks columns up by exact
-name, so statements that skip the Resolver are case-sensitive.
+`Guardian.Query.Resolver` expands SHOW TABLES, DESC, SELECT *, aliases, and LET substitutions.
+Column names are case-sensitive: evaluation looks them up by exact name.
 Schemas come from every connected node's Storage through `Guardian.Cluster.Metadata`, which
 adds the per-type counts together; there is no schema cache. `Guardian.Query.Planner` builds
 primitive steps for SELECT, WHERE, GROUP BY, HAVING, ORDER BY, and LIMIT. `Guardian.Query.Evaluation`
@@ -97,8 +95,7 @@ and in review. Tests may use any Query module.
    and the function modules its operators share (`Function.Concat`,
    `Function.DateAdd`, `Function.DateSub`).
 3. Everything else is internal to Query: `Planner`, `Executor`, `Resolver`,
-   `Sorting`, `DistributedStream`, `Failure`, `WorkerErrors`, `AmbiguousColumnError`,
-   `URL` and `VirtualTable.Schema`.
+   `Sorting`, `DistributedStream`, `Failure`, `WorkerErrors`, `URL` and `VirtualTable.Schema`.
 
 Modules in tiers 1 and 2 carry a moduledoc. Internal modules that carry one keep it
 (for example DistributedStream's failure contract and Failure's message bounds); the

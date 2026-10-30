@@ -63,10 +63,11 @@ SET busy = logins_last_hour >= 50;
 UNSET password
 ```
 
-SET replaces the whole top-level field; UNSET removes the path and everything
-beneath it, ignoring case. Missing fields are null; an exact spelling wins,
-otherwise the first case-insensitive spelling in byte order. Reads see flattened
-leaves. Output identifiers are lowercased. WHERE applies only when true; false/null
+Field names are flat and match exactly, keeping their case. SET writes the one
+column it names, and UNSET removes the one column it names: `UNSET card` leaves
+`card.number`, so remove nested values by naming each (`UNSET users..email`). A rule
+can name only columns made of letters, digits, underscores and dots. Missing fields
+are null. Reads see flattened leaves. WHERE applies only when true; false/null
 preserves the incoming output and skips updates. Do not trust skipped outputs as
 computed decisions when the caller could supply them.
 
@@ -160,8 +161,11 @@ a list, a list of the types it contains.
 Nested JSON objects are flattened into dotted column names: `{"user": {"name": "Bob"}}`
 is the column `user.name`. A list of objects adds a dot for each list level:
 `{"users": [{"name": "Bob"}, {"name": "Joe"}]}` gives `users..name`, which returns
-`["Bob", "Joe"]`. Lists of scalars are stored as list values. Column names match
-ignoring case.
+`["Bob", "Joe"]`. Lists of scalars are stored as list values.
+
+Column, table, alias and LET names are case-sensitive: `userId` and `userid` are two
+columns, and a query in another case than the stored one reads null. Keywords and
+function names match in any case.
 
 ## Timestamps
 

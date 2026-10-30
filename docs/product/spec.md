@@ -329,8 +329,11 @@ goes through the same validation and storage.
    usually returns the event as stored, so a caller can see what was dropped. It is
    best effort for awkward shapes: a rebuilt event can gain null padding inside lists
    of objects, and when an event cannot be rebuilt faithfully (for example, a list
-   mixing scalars and objects with one invalid value inside), the whole top-level field
-   is omitted from the result even though its valid parts were stored.
+   mixing scalars and objects with one invalid value inside, or a rule writing `user`
+   on an event that also has `user.name`), the whole top-level field is omitted from
+   the result even though its valid parts were stored, and `return_keys` reads it as
+   null. A sender can cause this for a rule's output by sending a nested key under its
+   name, so a caller must not treat a null output as a decision.
 5. No enrichment: Guardian adds no timestamp, ID, source, or node field. Events are
    stored as sent, minus dropped values, changed only by the table's rules
    ([section 5.1](#51-rules)). A private arrival timestamp drives counter windows;
@@ -403,18 +406,21 @@ UNSET password
 
 #### 5.1.2 Statements
 
-1. `SET field = expr [WHERE cond]` sets a top-level field, named in lowercase (names
-   are not quoted, and `SET isBlocked` stores `isblocked`). It replaces the whole
-   incoming field: every column under that name in any case (an object, a list, `X`
-   for `x`) is removed first.
-2. `UNSET path [WHERE cond]` removes a field (`password`) or a field inside an object
-   (`user.password`), in any case, and everything beneath it.
+1. `SET field = expr [WHERE cond]` writes one top-level column, spelled exactly as in
+   the statement (names are not quoted, and `SET isBlocked` stores `isBlocked`). Field
+   names are flat: `user` and `user.name` are different columns, so `SET user = 1`
+   leaves `user.name` and `User` in place.
+2. `UNSET column [WHERE cond]` removes exactly the named column: `password`,
+   `user.password`, `users..email`. `UNSET card` leaves `card.number`. Removing nested
+   values means naming each one, in each spelling that can occur. A rule can name only
+   columns made of letters, digits, underscores and dots, so a key such as
+   `headers.x-api-key`, or one not known in advance, cannot be removed by a rule.
 3. `TRACK name = aggregate(...) [BY expr, ...] [WHERE cond] LAST 'interval'`
-   updates a counter and writes its resolved window result under `name`, including
-   the current event when the update succeeds. The 50th matching event sees 50.
+   updates a counter and writes its resolved window result to the column `name`,
+   including the current event when the update succeeds. The 50th matching event sees 50.
 4. `LOOKUP field = counter [FROM table] [BY expr, ...] [WHERE cond]` reads a TRACK
-   on this table, or on its FROM table, and writes the result under `field` without
-   updating it. The number of BY expressions must match the target TRACK.
+   on this table, or on its FROM table, and writes the result to the column `field`
+   without updating it. The number of BY expressions must match the target TRACK.
 5. Expressions and conditions are the query language's scalar expressions: operators,
    CASE, and every scalar function. Aggregates are allowed only as TRACK's outer
    aggregate call, never nested or in SET, BY or WHERE.
@@ -425,13 +431,13 @@ UNSET password
 
 1. A field the event lacks is null, with no warning; nothing is declared. Rules read
    the flattened event, so an object field has no value of its own: read its leaves
-   (`card.number`). Names match ignoring case; an exact match wins, otherwise the
-   first match in byte order (queries instead reject an ambiguous name).
+   (`card.number`). Names match exactly: `status` does not read `Status`.
 2. WHERE applies a statement only when it is true; false or null leaves the field as
    sent.
 3. LOOKUPs and the SETs their inputs require run first, then remaining SETs/TRACKs in
    dependency levels, then every UNSET. A statement reading a field another statement
-   defines runs after it; a self-read sees the incoming field. Within a level, scalar
+   defines runs after it, by exact name (`SET a = b.x` does not depend on `SET b`); a
+   self-read sees the incoming field. Within a level, scalar
    work finishes before independent counters run together; their results are applied
    in file-name then statement order. A LOOKUP input or WHERE cannot depend, even
    through SETs, on a TRACK output. All of an event's LOOKUP reads precede its TRACK
@@ -556,8 +562,9 @@ expires.
 
 Columns are untyped. A column can hold nulls, booleans, 64-bit integers, floats,
 strings, and lists (of scalars, or of lists of scalars) in different events. A column
-absent from an event reads as null. Column names match ignoring case; if two stored
-names differ only by case, referencing them is an ambiguous-column error.
+absent from an event reads as null. Column names are case-sensitive and match exactly:
+`userId` and `userid` are two columns, and a query in another case than the stored one
+reads null.
 
 Clients should keep keys stable and put data in values (`{"customer_id": 123}`, not
 `{"123": true}`), because every distinct key becomes a column.
@@ -597,7 +604,9 @@ Full reference: [`query_language.md`](../../lib/guardian/web/mcp/query_language.
 the shipped surface:
 
 1. Statements: `SELECT`, `SHOW TABLES`, `DESC <table>`, and `LET name = expr;`
-   substitutions before one statement.
+   substitutions before one statement. Keywords and function names match in any case.
+   Column, table, alias and LET names match exactly and keep their case (`AS Total`
+   labels the column `Total`).
 2. SELECT clauses: `FROM` (one table, or none for constant expressions), `WHERE`
    (repeatable, ANDed), `GROUP BY`, `HAVING`, `ORDER BY ... ASC|DESC`, `LIMIT` (integer
    literal only). `SELECT *` expands to every column of the table across all machines.
@@ -666,8 +675,8 @@ the shipped surface:
    shorthand for queries on it. `DESC` lists column names only, because columns have
    no type.
 7. Read-only: There is no `INSERT`, `UPDATE`, `DELETE`, `JOIN`, `UNION`, subquery,
-   `DISTINCT`, `OFFSET`, or quoted identifier. A column named after a keyword cannot be
-   referenced.
+   `DISTINCT`, `OFFSET`, or quoted identifier. A column named after a keyword, in any
+   case, cannot be referenced.
 8. Results: A query returns all its rows in one response, with no pagination, up to
    100,000 rows and about 64 MiB; a larger result fails with an error asking for a
    `LIMIT`, `WHERE`, or `GROUP BY`, never a truncated answer. Rows scanned or
@@ -717,7 +726,7 @@ they follow the same retention and query rules as producer tables.
    tool, written on the machine that handled it,
    so wording of parse errors can be improved from real cases. "Fails to parse" means
    the message starts `Parse error on line`; that includes unknown function names.
-   Other query errors (ambiguous columns, too many statements, node failures) and the
+   Other query errors (too many statements, node failures) and the
    remote console are not recorded. Fields:
    - `timestamp`, `hostname`.
    - `interface`: `mcp` (rows from before the JSON query endpoint was removed say
@@ -765,8 +774,8 @@ they follow the same retention and query rules as producer tables.
    - `error_kind` (null on success): `parse` for a parse error (including an unknown
      function); `query` for a failure answered as a query error (HTTP 400: zero or
      several statements, a resource or time limit, a function failing on a value);
-     `internal` for anything else (HTTP 500: an ambiguous column, a machine failing
-     the schema lookup, an unexpected failure).
+     `internal` for anything else (HTTP 500: a machine failing the schema lookup, an
+     unexpected failure).
    - `error`: the error message, cut to 1 KiB, as MCP returns it (for a failure that
      is not an exception, only its kind); null on success.
    - `dropped_before`: how many rows this machine dropped since its previous recorded

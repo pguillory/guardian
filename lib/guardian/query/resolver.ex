@@ -5,7 +5,6 @@ defmodule Guardian.Query.Resolver do
   Operations:
   - Convert SHOW TABLES and DESC to SELECT
   - LET substitutions
-  - Match column names to stored column names ignoring case
   - Convert splat (SELECT *) into list of fields
   - Label each statement's columns
   """
@@ -26,9 +25,8 @@ defmodule Guardian.Query.Resolver do
   @doc """
   Resolves SQL text into its executable statements, each paired with its column labels
   (an alias where one is given, else the expression as written, taken from the
-  statement before LET substitution, so the labels name columns in
-  their stored spelling and keep LET names as written). LET and empty statements yield
-  no pair.
+  statement before LET substitution, so the labels keep LET names as written). LET and
+  empty statements yield no pair.
   """
   @spec resolve(String.t()) :: [{struct(), [String.t()]}]
   def resolve(source) when is_binary(source) do
@@ -36,36 +34,23 @@ defmodule Guardian.Query.Resolver do
     statements = Enum.map(statements, &resolve_show_desc/1)
     statements = Enum.map(statements, &resolve_aliases/1)
 
-    # Labels come from the pre-LET statements. Pair each with the LET names bound
-    # before it, which are not columns there.
-    {raw_statements, _let_names} =
-      Enum.flat_map_reduce(statements, MapSet.new(), fn
-        %NullStatement{}, let_names ->
-          {[], let_names}
-
-        %LetStatement{key_expr: %Identifier{name: name}}, let_names ->
-          {[], MapSet.put(let_names, name)}
-
-        %LetStatement{}, let_names ->
-          {[], let_names}
-
-        statement, let_names ->
-          {[{statement, let_names}], let_names}
-      end)
+    # Labels come from the pre-LET statements.
+    raw_statements =
+      Enum.reject(statements, &(is_struct(&1, NullStatement) or is_struct(&1, LetStatement)))
 
     # LET may substitute table names, so tables are read from substituted statements.
     statements = resolve_let_statements(statements)
     columns = table_columns(statements)
 
-    statements = Enum.map(statements, &resolve_columns(&1, columns, MapSet.new()))
+    statements = Enum.map(statements, &resolve_select_star(&1, columns))
 
     labels =
       raw_statements
       |> SuperList.zip(statements)
-      |> Enum.map(fn {{raw_statement, let_names}, statement} ->
+      |> Enum.map(fn {raw_statement, statement} ->
         raw_statement
         |> copy_tables(statement)
-        |> resolve_columns(columns, let_names)
+        |> resolve_select_star(columns)
         |> labels()
       end)
 
@@ -92,15 +77,6 @@ defmodule Guardian.Query.Resolver do
     AST.unparse(expr)
   end
 
-  # Column names resolve before SELECT * expands:
-  # expanded names are exact stored names and would trip the ambiguity check on a
-  # table holding two spellings of one name.
-  defp resolve_columns(statement, columns, skip_names) do
-    statement
-    |> resolve_column_names(columns, skip_names)
-    |> resolve_select_star(columns)
-  end
-
   defp copy_tables(%SelectStatement{} = raw, %SelectStatement{} = statement) do
     %SelectStatement{raw | from_expr: statement.from_expr}
   end
@@ -120,81 +96,6 @@ defmodule Guardian.Query.Resolver do
     end)
     |> Enum.uniq()
     |> Map.new(&{&1, keys(&1)})
-  end
-
-  defp resolve_column_names(
-         %SelectStatement{from_expr: %Identifier{name: table}} = statement,
-         columns,
-         skip_names
-       ) do
-    index = column_index(Map.fetch!(columns, table))
-    resolve = &resolve_expr_columns(&1, index, skip_names)
-    resolve_list = fn exprs -> exprs && Enum.map(exprs, resolve) end
-
-    %SelectStatement{
-      statement
-      | select_exprs: Enum.map(statement.select_exprs, resolve),
-        where_expr: statement.where_expr && resolve.(statement.where_expr),
-        group_by_exprs: resolve_list.(statement.group_by_exprs),
-        having_expr: statement.having_expr && resolve.(statement.having_expr),
-        order_by_exprs: resolve_list.(statement.order_by_exprs),
-    }
-  end
-
-  defp resolve_column_names(statement, _columns, _skip_names) do
-    statement
-  end
-
-  # The right side of AS is an alias, not a column, wherever AS appears. AST traversal
-  # always descends into both sides, so an AS node is resolved here and parked in a
-  # childless Literal until the post step puts it back.
-  defp resolve_expr_columns(expr, index, skip_names) do
-    pre = fn
-      %As{left: left} = expr, acc ->
-        left = resolve_expr_columns(left, index, skip_names)
-
-        {%Literal{
-           value: {:resolved_as, %As{expr | left: left}},
-         }, acc}
-
-      expr, acc ->
-        {expr, acc}
-    end
-
-    post = fn
-      %Literal{value: {:resolved_as, expr}}, acc ->
-        {expr, acc}
-
-      %Identifier{name: name} = expr, acc ->
-        if MapSet.member?(skip_names, name) do
-          {expr, acc}
-        else
-          {%Identifier{name: resolve_column_name(name, index)}, acc}
-        end
-
-      expr, acc ->
-        {expr, acc}
-    end
-
-    {expr, nil} = AST.traverse(expr, nil, pre, post)
-    expr
-  end
-
-  defp column_index(keys) do
-    Enum.group_by(keys, &String.downcase/1)
-  end
-
-  defp resolve_column_name(name, index) do
-    case Map.get(index, String.downcase(name), []) do
-      [] ->
-        name
-
-      [stored] ->
-        stored
-
-      matches ->
-        raise Guardian.Query.AmbiguousColumnError, name: name, matches: Enum.sort(matches)
-    end
   end
 
   def resolve_show_desc(%ShowTablesStatement{}) do

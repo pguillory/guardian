@@ -63,15 +63,15 @@ defmodule Guardian.Web.MCP.Server do
   Create or replace a rule file, <table>/<name>.gsql. Rules run on every event sent \
   to that table through send_events, before it is stored. A file holds statements \
   separated by semicolons, with -- comments: SET field = expr [WHERE cond] sets a \
-  top-level field (replacing it whole; the name is stored lowercased), UNSET path [WHERE cond] removes a field and \
-  everything beneath it. TRACK name = aggregate(...) [BY expr, ...] [WHERE cond] LAST '1h' \
+  top-level column, UNSET column [WHERE cond] removes one column: names are flat, so \
+  UNSET card leaves card.number. TRACK name = aggregate(...) [BY expr, ...] [WHERE cond] LAST '1h' \
   updates an ephemeral window counter and includes this event. LOOKUP field = counter \
   [FROM table] [BY expr, ...] [WHERE cond] reads a TRACK before any TRACK updates on \
   this event. Every query aggregate is supported. \
   LAST is a positive integral s/m/h/d/w interval up to 365 days. BY uses exact ordered \
   typed values, including null, and must match the target arity. Scalar expressions \
   are allowed in inputs/WHERE; no nested aggregates. Missing fields are null; names \
-  match ignoring case. WHERE false/null preserves incoming outputs. LOOKUPs and their \
+  match exactly. WHERE false/null preserves incoming outputs. LOOKUPs and their \
   prerequisite SETs run first, then SET/TRACK in dependency order, then UNSET. \
   Counter failures give the aggregate's no-rows result (0 for counts, true for all, \
   null otherwise); SET/UNSET failures reject \

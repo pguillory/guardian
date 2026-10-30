@@ -107,16 +107,14 @@ defmodule Guardian.Web.QueryLogTest do
     end
 
     test "an internal error is reraised unchanged and records kind internal with its message" do
-      table = marker()
-      Guardian.Engine.ingest_event(table, %{"a" => 1, "A" => 2})
-      sql = "SELECT a FROM #{table}"
+      sql = "LET coalesce(a) = a; SELECT coalesce(1, 2) AS #{marker()}"
 
-      assert {:raised, %Guardian.Query.AmbiguousColumnError{} = error} = run(sql)
+      assert {:raised, %RuntimeError{} = error} = run(sql)
 
       assert [row] = rows_for(sql)
       assert row["error_kind"] == "internal"
       assert row["error"] == Exception.message(error)
-      assert row["error"] =~ "ambiguous column"
+      assert row["error"] =~ "Wrong number of arguments"
     end
 
     test "a stalled recorder does not delay the result; the row lands when it resumes" do
@@ -194,10 +192,8 @@ defmodule Guardian.Web.QueryLogTest do
       assert [%{"error_kind" => "query", "error" => ^text}] = rows_for(sql)
     end
 
-    test "an internal error (ambiguous column) records kind internal with its message" do
-      table = marker()
-      Guardian.Engine.ingest_event(table, %{"a" => 1, "A" => 2})
-      sql = "SELECT a FROM #{table}"
+    test "an internal error records kind internal with its message" do
+      sql = "LET coalesce(a) = a; SELECT coalesce(1, 2) AS #{marker()}"
 
       assert %{"isError" => true, "content" => [%{"text" => text}]} = mcp_query(sql)
       assert [row] = rows_for(sql)

@@ -245,7 +245,6 @@ defmodule Guardian.QueryTest do
            ) == [["Alice", 1, 1], ["Bob", 2, 2]]
 
     assert run("select upper(user.name) from #{table} where n = 1") == [["ALICE"]]
-    assert run("select USER.NAME from #{table} where n = 1") == [["Alice"]]
 
     assert run("select users..name from #{table}") ==
              [[nil], [nil], [nil], [["Joe", "Ann"]], [nil]]
@@ -264,8 +263,8 @@ defmodule Guardian.QueryTest do
              Guardian.Query.run(statement)
   end
 
-  test "column names match stored names ignoring case" do
-    table = "case_insensitive_test"
+  test "column names match stored names exactly" do
+    table = "case_sensitive_test"
 
     :ok =
       Guardian.Storage.append(table, %{
@@ -289,43 +288,26 @@ defmodule Guardian.QueryTest do
       })
 
     assert run("select userId from #{table}") == [[1], [2], [2]]
-    assert run("select userid from #{table}") == [[1], [2], [2]]
-    assert run("select USERID from #{table} where user.firstname = 'Bob'") == [[1]]
+    assert run("select userid from #{table}") == [[nil], [nil], [nil]]
+    assert run("select userId from #{table} where user.firstname = 'Bob'") == []
+    assert run("select userId from #{table} where user.firstName = 'Bob'") == [[1]]
 
     assert run(
-             "select user.FIRSTNAME, count(*), sum(n) from #{table} " <>
-               "group by user.firstname order by userid"
+             "select user.firstName, count(*), sum(n) from #{table} " <>
+               "group by user.firstName order by userId"
            ) == [["Bob", 1, 10], ["Ann", 2, 50]]
 
-    assert run("select upper(user.firstname) from #{table} where userid = 1") == [["BOB"]]
-    assert run("select userid as u from #{table} order by u desc limit 1") == [[2]]
-    assert run("select count(*) from #{table} having max(userid) = 2") == [[3]]
-
-    assert [{_statement, ["userId", "upper(user.firstName)", "x"]}] =
+    assert [{_statement, ["userId", "USERID", "upper(user.firstName)", "x"]}] =
              Guardian.Query.Resolver.resolve(
-               "select USERID, upper(user.firstname), n as x from #{table}"
+               "select userId, USERID, upper(user.firstName), n as x from #{table}"
              )
   end
 
-  test "a name matching two stored spellings is ambiguous" do
-    table = "case_ambiguous_test"
+  test "two spellings are two columns" do
+    table = "case_two_spellings_test"
     :ok = Guardian.Storage.append(table, %{"userId" => 1, "userid" => 2, "n" => 3})
 
-    message = "ambiguous column userid: matches userId, userid"
-
-    assert_raise Guardian.Query.AmbiguousColumnError, message, fn ->
-      run("select userid from #{table}")
-    end
-
-    assert_raise Guardian.Query.AmbiguousColumnError, message, fn ->
-      run("select userId from #{table}")
-    end
-
-    assert_raise Guardian.Query.AmbiguousColumnError, message, fn ->
-      run("select n from #{table} where userid = 1")
-    end
-
-    assert run("select n from #{table}") == [[3]]
+    assert run("select userId, userid from #{table}") == [[1, 2]]
 
     assert [{statement, ["n", "userId", "userid"]}] =
              Guardian.Query.Resolver.resolve("select * from #{table}")
@@ -333,9 +315,34 @@ defmodule Guardian.QueryTest do
     assert Guardian.Query.run(statement) == [[3, 1, 2]]
   end
 
-  test "LET names and aliases are not resolved as columns" do
+  test "aliases and LET names match exactly and keep their case" do
+    table = "case_alias_test"
+    :ok = Guardian.Storage.append(table, %{"n" => 1})
+    :ok = Guardian.Storage.append(table, %{"n" => 2})
+
+    assert [{_statement, ["Total"]}] =
+             Guardian.Query.Resolver.resolve("select n as Total from #{table}")
+
+    assert run("select n as Total from #{table} order by Total desc") == [[2], [1]]
+    assert run("let Big = n > 1; select n from #{table} where Big") == [[2]]
+    assert run("let Big = n > 1; select n from #{table} where big") == []
+  end
+
+  test "keywords and function names match in any case; table names do not" do
+    table = "case_words_test"
+    :ok = Guardian.Storage.append(table, %{"n" => 1})
+
+    assert run("SeLeCt CoUnT(*), Sum(n), LOWER('A') FrOm #{table}") == [[1, 1, "a"]]
+    assert run("select count() from CASE_WORDS_TEST") == [[0]]
+    assert run("select Count from #{table}") == [[nil]]
+    assert labels("select CoUnT(*), LOWER('A')") == ["count()", "lower('A')"]
+    assert run("select CURRENT_DATE = current_date") == [[true]]
+    assert run("select TRUE, False, NULL") == [[true, false, nil]]
+  end
+
+  test "LET and labels" do
     table = "case_let_test"
-    :ok = Guardian.Storage.append(table, %{"Total" => 5, "N" => 1})
+    :ok = Guardian.Storage.append(table, %{"total" => 5, "n" => 1})
 
     assert [{statement, ["total", "n"]}] =
              Guardian.Query.Resolver.resolve(
@@ -343,26 +350,21 @@ defmodule Guardian.QueryTest do
              )
 
     assert Guardian.Query.run(statement) == [[2, 2]]
-  end
-
-  test "resolution follows LET scope, LET table names, and nested aliases" do
-    table = "case_scope_test"
-    :ok = Guardian.Storage.append(table, %{"userId" => 1, "Alias" => "a", "alias" => "b"})
 
     # A LET after the SELECT does not bind names in it.
-    assert [{_statement, ["userId"]}, {_, _}] =
+    assert [{_statement, ["total"]}, {_, _}] =
              Guardian.Query.Resolver.resolve(
-               "select userid from #{table}; let userid = 1; select 2"
+               "select total from #{table}; let total = 1; select 2"
              )
 
+    # An alias nested in an expression is not a column.
+    assert run("select (total as alias) from #{table}") == [[5]]
+
     # LET can name the table.
-    assert [{statement, ["userId"]}] =
-             Guardian.Query.Resolver.resolve("let t = #{table}; select userid from t")
+    assert [{statement, ["total"]}] =
+             Guardian.Query.Resolver.resolve("let t = #{table}; select total from t")
 
-    assert Guardian.Query.run(statement) == [[1]]
-
-    # An alias nested in an expression is not a column, even when it names an ambiguous one.
-    assert run("select (userid as alias) from #{table}") == [[1]]
+    assert Guardian.Query.run(statement) == [[5]]
   end
 
   test "the smallest int64 is written as an expression" do
@@ -527,11 +529,11 @@ defmodule Guardian.QueryTest do
   end
 
   describe "execute" do
-    test "runs one statement, labeled before LET with stored column names" do
+    test "runs one statement, labeled before LET" do
       table = "execute_test_#{System.unique_integer([:positive])}"
       :ok = Guardian.Storage.append(table, %{"N" => 1})
 
-      assert Guardian.Query.execute("let x = n + 1; select x, n from #{table}") ==
+      assert Guardian.Query.execute("let x = N + 1; select x, N from #{table}") ==
                {:ok, ["x", "N"], [[2, 1]]}
     end
 
@@ -564,12 +566,12 @@ defmodule Guardian.QueryTest do
     end
 
     test "raises other resolution errors without calling on_parse_error" do
-      table = "execute_ambiguous_#{System.unique_integer([:positive])}"
-      :ok = Guardian.Storage.append(table, %{"userId" => 1, "userid" => 2})
       on_parse_error = fn error -> flunk("unexpected #{inspect(error)}") end
 
-      assert_raise Guardian.Query.AmbiguousColumnError, fn ->
-        Guardian.Query.execute("select userid from #{table}", on_parse_error: on_parse_error)
+      assert_raise RuntimeError, ~r/Wrong number of arguments/, fn ->
+        Guardian.Query.execute("let coalesce(a) = a; select coalesce(1, 2)",
+          on_parse_error: on_parse_error
+        )
       end
     end
   end

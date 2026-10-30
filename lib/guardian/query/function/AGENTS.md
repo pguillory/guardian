@@ -8,7 +8,8 @@ This file holds the editing rules.
 
 - Each function has one `Guardian.Query.Function.FunctionName` module in its
   snake_case file. Manually register every name and arity in
-  `lib/guardian/query/function.ex`; names are lowercase, queries case-insensitive.
+  `lib/guardian/query/function.ex`; names are lowercase, and the parser downcases them,
+  so queries are case-insensitive.
   Aliases register the same module under additional names.
 - The default evaluation maps `eval/N` over arguments in order (arities 1–4);
   without `eval2/2`, provide one scalar `eval/N` for every registered arity.

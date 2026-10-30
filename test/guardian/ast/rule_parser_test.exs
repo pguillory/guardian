@@ -132,9 +132,9 @@ defmodule Guardian.AST.RuleParserTest do
     end
   end
 
-  test "canonical counter source ignores comments, case and spacing but preserves definition inputs" do
+  test "canonical counter source ignores comments, word case and spacing but preserves names" do
     [{statement, 2}] =
-      Parser.parse_rules("-- same definition\ntrack C=COUNT(*) by IP,last where keep last '1h';")
+      Parser.parse_rules("-- same definition\ntrack c=COUNT(*) by ip,last where keep last '1h';")
 
     canonical = "TRACK c = count() BY ip, last WHERE keep LAST '1h'"
     assert Guardian.AST.unparse(statement) == canonical
@@ -142,6 +142,8 @@ defmodule Guardian.AST.RuleParserTest do
 
     for changed <- [
           "TRACK renamed = count() BY ip, last WHERE keep LAST '1h'",
+          "TRACK C = count() BY ip, last WHERE keep LAST '1h'",
+          "TRACK c = count() BY IP, last WHERE keep LAST '1h'",
           "TRACK c = count(x) BY ip, last WHERE keep LAST '1h'",
           "TRACK c = count() BY last, ip WHERE keep LAST '1h'",
           "TRACK c = count() BY ip, last WHERE other LAST '1h'",
@@ -151,7 +153,7 @@ defmodule Guardian.AST.RuleParserTest do
       refute Guardian.AST.unparse(different) == canonical
     end
 
-    assert sources("lookup X=C from T by IP -- group\n where KEEP") == [
+    assert sources("lookup x=c from t by ip -- group\n where keep") == [
              {"LOOKUP x = c FROM t BY ip WHERE keep", 1},
            ]
   end
@@ -262,11 +264,31 @@ defmodule Guardian.AST.RuleParserTest do
     assert [{%UnsetStatement{}, 1}] = Parser.parse_rules("UNSET a;")
   end
 
+  test "statement words match in any case, field names keep theirs" do
+    assert [{%SetStatement{field: %Identifier{name: "isBlocked"}}, 1}] =
+             Parser.parse_rules("sEt isBlocked = 1")
+
+    assert [{%UnsetStatement{field: %Identifier{name: "User.Name"}}, 1}] =
+             Parser.parse_rules("Unset User.Name")
+
+    assert [{%TrackStatement{field: %Identifier{name: "Hits"}}, 1}] =
+             Parser.parse_rules("Track Hits = Count() lAsT '1h'")
+
+    assert [{%LookupStatement{counter: %Identifier{name: "Hits"}}, 1}] =
+             Parser.parse_rules("LOOKUP prior = Hits")
+  end
+
+  test "UNSET takes any addressable column, including a list path" do
+    assert [{%UnsetStatement{field: %Identifier{name: "users..email"}} = statement, 1}] =
+             Parser.parse_rules("UNSET users..email")
+
+    assert Guardian.AST.unparse(statement) == "UNSET users..email"
+  end
+
   test "errors carry positions" do
     for {source, message} <- [
           {"SELECT 1", "line 1 column 1: Expected rule statement, got SELECT"},
           {"SET a.b = 1", "line 1 column 5: SET takes a top-level field name, not a path"},
-          {"UNSET a..b", "line 1 column 7: UNSET takes an object path without list boundaries"},
           {"SET x 1", "line 1 column 7: Expected punctuation: =, got 1"},
           {"\nSET x = nosuch(1)", "line 2 column 9: Invalid function nosuch"},
           {"SET x = 1 SET y = 2", "Expected end of statement, got SET"},

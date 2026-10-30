@@ -313,11 +313,9 @@ defmodule Guardian.EngineTest do
     String.duplicate("a", 64),
   ]
 
-  # Names SQL cannot address: the tokenizer lowercases identifiers, has no "-", and
-  # starts a number at a leading digit; reserved words never parse as table names.
+  # Names SQL cannot address: it has no "-" in a name and starts a number at a leading
+  # digit; reserved words never parse as table names.
   @sql_unaddressable_table_names [
-    "MyEvents",
-    "A",
     "my-events",
     "-a",
     "1a",
@@ -338,6 +336,9 @@ defmodule Guardian.EngineTest do
     "current_timestamp",
     "schema",
   ]
+
+  # Addressable, since identifiers keep their case, but table names are lowercase.
+  @uppercase_table_names ["MyEvents", "A"]
 
   @unsafe_table_names [
     "",
@@ -365,7 +366,7 @@ defmodule Guardian.EngineTest do
     end
 
     test "rejects names that SQL cannot address" do
-      for table <- @sql_unaddressable_table_names do
+      for table <- @sql_unaddressable_table_names ++ @uppercase_table_names do
         refute valid_table_name?(table), inspect(table)
       end
     end

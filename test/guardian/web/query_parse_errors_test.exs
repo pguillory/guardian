@@ -174,15 +174,14 @@ defmodule Guardian.Web.QueryParseErrorsTest do
     end
 
     test "resolve errors are not recorded" do
-      table = "ambiguous_#{System.unique_integer([:positive])}_end"
-      Guardian.Engine.ingest_event(table, %{"a" => 1, "A" => 2})
+      table = "resolve_error_#{System.unique_integer([:positive])}_end"
+      sql = "LET coalesce(a) = a; SELECT coalesce(1, 2) AS #{table}"
       Guardian.Test.MCPClient.start()
 
-      {:ok, response} =
-        Guardian.Test.MCPClient.call_tool("query", %{"sql" => "SELECT a FROM #{table}"})
+      {:ok, response} = Guardian.Test.MCPClient.call_tool("query", %{"sql" => sql})
 
       assert response.result["isError"] == true
-      assert [%{"text" => "ambiguous column" <> _}] = response.result["content"]
+      assert [%{"text" => "Wrong number of arguments" <> _}] = response.result["content"]
       :ok = sync()
 
       refute Enum.any?(

@@ -340,9 +340,6 @@ defmodule Guardian.Rules.RuleSet do
     %Guardian.Rules.Plan{table: table, steps: steps, hash: Base.encode16(hash, case: :lower)}
   end
 
-  @doc "The top-level field of a field name or path (`user` for `user.name`)."
-  defdelegate top_level(name), to: Guardian.Rules.DependencyGraph
-
   defp error(file, line, kind, detail, message, table) do
     Guardian.Rules.Validation.error(file, line, kind, detail, message, table)
   end

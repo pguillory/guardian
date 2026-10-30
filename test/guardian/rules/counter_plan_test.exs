@@ -260,6 +260,8 @@ defmodule Guardian.Rules.CounterPlanTest do
     assert kinds("LOOKUP x = c FROM queries") == [:counter_target]
     assert kinds("LOOKUP x = c FROM #{String.duplicate("a", 65)}") == [:counter_table]
     assert kinds("LOOKUP x = c") == [:counter_target]
+    assert kinds("TRACK c = count() LAST '1h'; LOOKUP x = C") == [:counter_target]
+    assert kinds("LOOKUP x = c FROM Events") == [:counter_table]
     assert kinds("SET c = 1; LOOKUP x = c") == [:counter_target]
     assert kinds("TRACK c = count() BY ip LAST '1h'; LOOKUP x = c") == [:counter_arity]
 
@@ -301,7 +303,7 @@ defmodule Guardian.Rules.CounterPlanTest do
   test "LOOKUPs and prerequisite SETs precede independent SETs and TRACKs; UNSET is last" do
     p = plan(%{"t/a.gsql" => "SET independent = 1; TRACK c = sum(amount) BY group_key LAST '1h';
       SET decision = c > prior; UNSET secret; LOOKUP prior = c BY group_key;
-      SET group_key = normalized.ip; SET normalized = ip"})
+      SET group_key = normalized; SET normalized = ip"})
 
     assert Enum.map(p.steps, & &1.field) ==
              ["normalized", "group_key", "prior", "independent", "c", "decision", "secret"]
@@ -313,6 +315,9 @@ defmodule Guardian.Rules.CounterPlanTest do
         LOOKUP prior = c #{input}"
       assert :counter_barrier in kinds(source)
     end
+
+    # `c.x` is another column than the TRACK's output `c`.
+    assert kinds("TRACK c = count() BY ip LAST '1h'; LOOKUP prior = c BY c.x") == []
 
     assert kinds("TRACK c = sum(a) LAST '1h'; SET a = c") == [:cycle]
 

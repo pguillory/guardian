@@ -2,9 +2,8 @@ defmodule Guardian.Rules.DependencyGraph do
   @moduledoc """
   Field dependency ordering using Kahn's algorithm. LOOKUPs and their prerequisites
   take priority; within each phase the earliest ready statement runs by file then
-  position. A read of `user.name` depends on the
-  definition of `user`; a statement's read of its own field reads the incoming
-  value and adds no dependency.
+  position. A read depends on the definition of exactly that name; a statement's read
+  of its own field reads the incoming value and adds no dependency.
   """
 
   def order(steps) do
@@ -72,7 +71,6 @@ defmodule Guardian.Rules.DependencyGraph do
     Map.new(steps, fn step ->
       fields =
         step.reads
-        |> Enum.map(&top_level/1)
         |> Enum.filter(&(Map.has_key?(by_field, &1) and &1 != step.field))
         |> MapSet.new()
 
@@ -88,11 +86,6 @@ defmodule Guardian.Rules.DependencyGraph do
         ancestors(dep, deps, seen)
       end)
     end
-  end
-
-  @doc "The top-level field of a field name or path."
-  def top_level(name) do
-    name |> String.split(".", parts: 2) |> hd()
   end
 
   defp order([], _deps, acc) do

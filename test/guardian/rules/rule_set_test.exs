@@ -30,9 +30,16 @@ defmodule Guardian.Rules.RuleSetTest do
     assert steps(files, "orders") == ["SET z = 1"]
   end
 
-  test "dependencies count reads in WHERE and of nested paths" do
-    files = %{"t/a.gsql" => "SET x = 1 WHERE y.z > 0; SET y = 2"}
-    assert steps(files, "t") == ["SET y = 2", "SET x = 1 WHERE y.z > 0"]
+  test "dependencies count reads in WHERE, by exact name" do
+    files = %{"t/a.gsql" => "SET x = 1 WHERE y > 0; SET y = 2"}
+    assert steps(files, "t") == ["SET y = 2", "SET x = 1 WHERE y > 0"]
+
+    # `b.x` and `a.x` are other columns than `b` and `a`, so neither SET waits on the
+    # other, and these are not a cycle.
+    assert messages(%{"t/a.gsql" => "SET a = b.x; SET b = a.x"}) == []
+
+    # Another spelling is another column.
+    assert messages(%{"t/a.gsql" => "SET a = B; SET b = A"}) == []
   end
 
   test "identical duplicates are one definition, a self-read is not a cycle" do

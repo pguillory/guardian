@@ -43,7 +43,7 @@ Modules:
   never runs during ingestion. Metadata is bounded and reclaimed with the module pool.
   No rule text becomes code. Unresolved plans and unbound LOOKUPs cannot compile.
 - `Guardian.Rules.Runtime`: the dispatcher called by generated modules (reads, SET, UNSET,
-  failures), threading a `Guardian.Rules.RowIndex` through dependency levels. Internal
+  failures), threading the flat row map through dependency levels. Internal
   TRACK/LOOKUP dispatch uses bound identities and aggregate defaults on failure.
   For each level, Runtime prepares every counter statement as skipped, failed or
   an op, runs the ops with the event's arrival and counter context through
@@ -58,10 +58,6 @@ Modules:
   the row, which Engine captures before validation) and the typed Counters.Context
   that Runner adds under Event.counters on worker entry, sharing one batch atomics
   budget across replacement workers.
-- `Guardian.Rules.RowIndex`: the event's row, with a trie of its keys by lowercase object path
-  and a map of lowercase spelling to present keys, so a statement costs what it
-  touches rather than a pass over every column. Its tests check it against the old
-  scan, reimplemented in the test.
 - `Guardian.Rules.Runner`: runs a batch in a worker under the heap limit, 1 s per event.
 - `Guardian.Rules.Config`: chooses the store from the environment.
 - `Guardian.Rules.Server`: process, startup load, reload, poll, locked writes and

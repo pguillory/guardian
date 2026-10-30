@@ -42,12 +42,15 @@ defmodule Guardian.Web.QueryTest do
     assert run("") == {:error, "Query resolved to no executable statements"}
   end
 
-  test "matches column names ignoring case" do
+  test "matches column names exactly" do
     table = "web_query_case_#{System.unique_integer([:positive])}"
     Guardian.Engine.ingest_event(table, %{"userId" => 7, "user" => %{"firstName" => "Bob"}})
 
-    assert run("SELECT USERID, user.firstname FROM #{table}") ==
+    assert run("SELECT userId, user.firstName FROM #{table}") ==
              {:ok, ["userId", "user.firstName"], [[7, "Bob"]]}
+
+    assert run("SELECT USERID, user.firstname FROM #{table}") ==
+             {:ok, ["USERID", "user.firstname"], [[nil, nil]]}
   end
 
   test "reraises a parse error unchanged" do

@@ -378,16 +378,11 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
 4. Running: `Guardian.Rules.Runner` runs a batch in a worker with the query heap limit (without
    the error_logger report), sending each row's result back; a row over 1 s, or a
    worker that dies, fails that row and a new worker continues. The worker reads the
-   map per row. `Guardian.Rules.Runtime` resolves reads (exact key, else the first
-   case-insensitive match in byte order), applies WHERE (true only), SET (remove the
-   whole field in any case, then put) and UNSET (remove the path in any case and
-   everything beneath). SET/UNSET exceptions fail the event; counter exceptions
-   supply aggregate defaults and continue, including final UNSETs. At the first
-   statement it indexes the row (`Guardian.Rules.RowIndex`): each lowercase spelling's present
-   keys in order, and, at the first SET or UNSET that applies, a trie of keys by
-   lowercase object path. A SET or UNSET then touches only the keys it removes and a
-   read is a lookup, so an event's rules cost about its columns plus its statements,
-   each times a log factor, rather than columns times statements.
+   map per row. `Guardian.Rules.Runtime` threads the flattened row, a flat map, through
+   the statements: reads and the evaluation context are the map itself, WHERE applies
+   when true, SET, TRACK and LOOKUP put one key and UNSET deletes one key, so a
+   statement costs what it touches. SET/UNSET exceptions fail the event; counter
+   exceptions supply aggregate defaults and continue, including final UNSETs.
    Engine captures private Unix/monotonic arrival coordinates
    (`Guardian.Counters.Arrival`) before each event's validation; they are carried
    outside the row and never automatically stored.
@@ -863,11 +858,8 @@ them, and the same structs serve parsing, printing, and evaluation.
 
 1. `SHOW TABLES` and `DESC t` become SELECTs on the virtual `schema` table.
 2. `LET name = expr;` substitutions are applied to the statements after them.
-3. Column names are matched to stored names ignoring case, using the merged schema of
-   each table the statement reads; two stored names that differ only by case raise
-   `Guardian.Query.AmbiguousColumnError`. Evaluation itself is case-sensitive, so anything
-   that skips the Resolver is too.
-4. `SELECT *` expands to the table's columns across all machines.
+3. `SELECT *` expands to the table's columns across all machines. Column names are
+   not otherwise touched: evaluation matches them exactly as written.
 
 It returns each statement paired with its column labels, taken from the statement
 before LET substitution: an alias where one is given, else the expression as

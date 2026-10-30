@@ -1,7 +1,7 @@
 defmodule Guardian.AST.Node.Statements.UnsetStatement do
   @moduledoc """
-  A rule statement, `UNSET path [WHERE cond]`: removes a field (and everything
-  beneath it) from each incoming event of the rule file's table. Parsed only by
+  A rule statement, `UNSET path [WHERE cond]`: removes one column from each
+  incoming event of the rule file's table. Parsed only by
   `Guardian.AST.Parser.parse_rules/1`.
   """
 

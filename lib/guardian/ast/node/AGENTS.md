@@ -9,8 +9,8 @@ which declares the `Guardian.AST.Node` behaviour (its moduledoc is the contract)
   `traverse_fields(expr, fields, acc, pre, post)` with its child fields in a fixed
   order (a `nil` field is skipped, a list walked element by element). The order is
   load-bearing for walks that collect in visit order (the planner numbers HAVING's
-  aggregate columns that way), and pre-before-children, post-after is what lets
-  `Guardian.Query.Resolver` park AS nodes; `test/guardian/ast_test.exs` pins both.
+  aggregate columns that way); `test/guardian/ast_test.exs` pins it and
+  pre-before-children, post-after.
 - optionally `rewrite/1` to an equivalent node that can be evaluated
 
 An evaluable node implements the `Guardian.Query.Eval` protocol inside its own module,

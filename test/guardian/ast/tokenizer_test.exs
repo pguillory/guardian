@@ -48,7 +48,7 @@ defmodule Guardian.AST.TokenizerTest do
     assert tokenize("users..name") == [identifier: "users..name"]
     assert tokenize("users..orders..id") == [identifier: "users..orders..id"]
     assert tokenize("a..b.c") == [identifier: "a..b.c"]
-    assert tokenize("User.Name") == [identifier: "user.name"]
+    assert tokenize("User.Name") == [identifier: "User.Name"]
     assert tokenize("items.0") == [identifier: "items.0"]
     assert tokenize("_a._b") == [identifier: "_a._b"]
 

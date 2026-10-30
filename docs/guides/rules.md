@@ -25,6 +25,19 @@ Send events through HTTP or MCP `send_events`, requesting
 an IP returns 50, 49 and true. The producer decides what to do with that signal.
 Guardian stores the computed fields and queries read those historical values.
 
+Field names are flat and case-sensitive. `UNSET password` removes the column
+`password` and nothing else: not `Password`, and not `password.hash`. When a rule
+removes a secret, name every column that can hold it (`UNSET card.number`,
+`UNSET users..email`), in each spelling senders use. `SET user = 'redacted'` writes
+`user` and leaves `user.name` stored. A rule can name only columns made of letters,
+digits, underscores and dots, so it cannot remove a key such as `headers.x-api-key`
+or one it does not know in advance: keep those out of the event before sending it.
+
+A row holding both `user` and `user.name` has no single JSON form, so `return_keys:
+["user"]` reads null even though `user` was stored. A sender can cause this for a
+rule's output by sending a nested key under its name, so a caller must not treat a
+null output as a decision.
+
 TRACK includes the current event; LOOKUP reads before that event's updates. See the
 [rule execution contract](../product/spec.md#513-running) for dependencies, ordering
 and concurrency.

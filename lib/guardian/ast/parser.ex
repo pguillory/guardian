@@ -170,7 +170,7 @@ defmodule Guardian.AST.Parser do
   end
 
   defp parse_rule_statement!(tokens) do
-    case tokens do
+    case downcase_leading_word(tokens) do
       [{:identifier, "set"} | tokens] ->
         {field, tokens} = parse_rule_field!(tokens, :set)
         tokens = parse_punctuation!(tokens, "=")
@@ -220,24 +220,19 @@ defmodule Guardian.AST.Parser do
     end
   end
 
-  # Output fields are top-level; UNSET also takes an object path (`user.password`)
-  # but not list boundaries (`..`).
+  # Output fields are top-level; UNSET takes any addressable column (`user.password`,
+  # `users..email`).
   defp parse_rule_field!(tokens, kind) do
     case tokens do
       [{:identifier, name} | rest] ->
-        segments = String.split(name, ".")
-
         cond do
           String.contains?(name, "\"") ->
             throw {:parse_error, "Rule field names cannot be quoted", tokens}
 
-          kind != :unset and length(segments) > 1 ->
+          kind != :unset and String.contains?(name, ".") ->
             throw {:parse_error,
                    "#{kind |> Atom.to_string() |> String.upcase()} takes a top-level field name, not a path",
                    tokens}
-
-          "" in segments ->
-            throw {:parse_error, "UNSET takes an object path without list boundaries", tokens}
 
           true ->
             {%Guardian.AST.Node.Identifier{name: name}, rest}
@@ -286,15 +281,12 @@ defmodule Guardian.AST.Parser do
     {nil, tokens}
   end
 
-  defp parse_rule_last!([{:identifier, "last"} | tokens]) do
-    case tokens do
-      [{:string, value} | rest] -> {%Literal{value: value}, rest}
-      _ -> throw {:expected, "interval string", tokens}
-    end
-  end
-
   defp parse_rule_last!(tokens) do
-    throw({:expected, "LAST clause", tokens})
+    case downcase_leading_word(tokens) do
+      [{:identifier, "last"}, {:string, value} | rest] -> {%Literal{value: value}, rest}
+      [{:identifier, "last"} | rest] -> throw {:expected, "interval string", rest}
+      _ -> throw {:expected, "LAST clause", tokens}
+    end
   end
 
   defp maybe_parse_rule_where(tokens) do
@@ -620,7 +612,7 @@ defmodule Guardian.AST.Parser do
   end
 
   defp maybe_parse_function_call(tokens_at_function) do
-    case tokens_at_function do
+    case downcase_function_name(tokens_at_function) do
       [
         {:identifier, "count"},
         {:punctuation, "("},
@@ -680,6 +672,24 @@ defmodule Guardian.AST.Parser do
       _ ->
         nil
     end
+  end
+
+  # Function names match in any case; the registries hold lowercase names.
+  defp downcase_function_name([{:identifier, _name}, {:punctuation, "("} | _] = tokens) do
+    downcase_leading_word(tokens)
+  end
+
+  defp downcase_function_name(tokens) do
+    tokens
+  end
+
+  # For words the parser matches as identifiers. Other identifiers keep their case.
+  defp downcase_leading_word([{:identifier, word} | tokens]) do
+    [{:identifier, String.downcase(word)} | tokens]
+  end
+
+  defp downcase_leading_word(tokens) do
+    tokens
   end
 
   defp parse_expression_list_and_closing_parenthesis!(tokens) do

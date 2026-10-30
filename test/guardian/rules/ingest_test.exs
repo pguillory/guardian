@@ -58,7 +58,7 @@ defmodule Guardian.Rules.IngestTest do
     assert missing == %{"n" => 1}
   end
 
-  test "UNSET removes the field, case variants and everything beneath; SETs read it first" do
+  test "UNSET removes exactly the named column; SETs read it first" do
     table = unique_table("rules_unset")
 
     with_rules(%{
@@ -66,6 +66,7 @@ defmodule Guardian.Rules.IngestTest do
       SET has_card = card_number IS NOT NULL;
       UNSET card_number;
       UNSET password;
+      UNSET users..email;
       UNSET user.secret WHERE env = 'prod'
       """,
     })
@@ -74,27 +75,42 @@ defmodule Guardian.Rules.IngestTest do
       "card_number" => "4111",
       "Password" => "a",
       "password" => %{"hash" => "b"},
+      "users" => [%{"email" => "e", "id" => 1}],
       "user" => %{"name" => "bob", "secret" => %{"x" => 1}, "Secret" => 2},
       "env" => "prod",
     }
 
     assert [{:ok, reported}] = ingest(table, [event])
-    assert reported == %{"has_card" => true, "user" => %{"name" => "bob"}, "env" => "prod"}
+    assert reported["Password"] == "a"
+    assert reported["password"] == %{"hash" => "b"}
+    assert reported["users"] == [%{"id" => 1}]
 
     assert Guardian.Storage.dump_table(table) == [
-             %{"has_card" => true, "user.name" => "bob", "env" => "prod"},
+             %{
+               "has_card" => true,
+               "Password" => "a",
+               "password.hash" => "b",
+               "users..id" => [1],
+               "user.name" => "bob",
+               "user.secret.x" => 1,
+               "user.Secret" => 2,
+               "env" => "prod",
+             },
            ]
 
     # WHERE false leaves the field as sent.
     assert [{:ok, %{"user" => %{"secret" => 1}}}] =
              ingest(table, [%{"user" => %{"secret" => 1}, "env" => "dev"}])
+
+    assert [{:ok, reported}] = ingest(table, [%{"user" => %{"secret" => 1}, "env" => "prod"}])
+    assert reported == %{"has_card" => false, "env" => "prod"}
   end
 
-  test "SET replaces the whole incoming field: an object, a list, or another spelling" do
-    table = unique_table("rules_replace")
+  test "SET writes the one column it names, and columns beneath it stay" do
+    table = unique_table("rules_flat_set")
 
     with_rules(%{
-      "#{table}/r.gsql" => "SET user = 'redacted'; SET tags = 'none'; SET email = lower(email)",
+      "#{table}/r.gsql" => "SET user = 'redacted'; SET tags = 'none'; SET email = lower(Email)",
     })
 
     assert [{:ok, reported}] =
@@ -102,34 +118,46 @@ defmodule Guardian.Rules.IngestTest do
                %{"user" => %{"name" => "Bob"}, "tags" => [%{"a" => 1}], "Email" => "A@B.COM"},
              ])
 
-    assert reported == %{"user" => "redacted", "tags" => "none", "email" => "a@b.com"}
-
     assert Guardian.Storage.dump_table(table) == [
-             %{"user" => "redacted", "tags" => "none", "email" => "a@b.com"},
+             %{
+               "user" => "redacted",
+               "user.name" => "Bob",
+               "tags" => "none",
+               "tags..a" => [1],
+               "email" => "a@b.com",
+               "Email" => "A@B.COM",
+             },
            ]
+
+    # A top-level field with columns beneath it cannot be one JSON value, so the result
+    # leaves it out and return_keys reads it as null. Other fields are unaffected.
+    assert %{"email" => "a@b.com", "Email" => "A@B.COM"} = reported
+    refute Map.has_key?(reported, "user")
+    refute Map.has_key?(reported, "tags")
   end
 
-  test "reads: unknown fields are null, names match ignoring case, an exact match wins" do
+  test "reads: unknown fields are null, names match exactly" do
     table = unique_table("rules_reads")
 
     with_rules(%{
       "#{table}/r.gsql" => """
       SET a = missing IS NULL;
-      SET b = status;
+      SET b = Status;
       SET c = 1 WHERE missing > 1;
-      SET d = user.name
+      SET d = user.name;
+      SET e = User.Name
       """,
     })
 
     assert [{:ok, one}, {:ok, two}] =
              ingest(table, [
                %{"Status" => 1, "STATUS" => 2, "User" => %{"Name" => "x"}},
-               %{"Status" => 1, "status" => 3},
+               %{"status" => 3},
              ])
 
-    assert %{"a" => true, "b" => 2, "d" => "x"} = one
+    assert %{"a" => true, "b" => 1, "d" => nil, "e" => "x"} = one
     refute Map.has_key?(one, "c")
-    assert %{"b" => 3} = two
+    assert %{"b" => nil} = two
   end
 
   test "rules that all skip leave an event alone, whatever its keys" do

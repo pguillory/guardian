@@ -75,6 +75,8 @@ track       := TRACK name '=' aggregate_call [BY expr (',' expr)*] [WHERE expr] 
 lookup      := LOOKUP field '=' counter_name [FROM table] [BY expr (',' expr)*] [WHERE expr]
 field       := identifier without dots
 path        := identifier, dots allowed, no list boundaries ('..')
+               (superseded: list boundaries are allowed, see
+               case-sensitive-identifiers.md)
 ```
 
 1. `SET`, `UNSET`, `TRACK`, `LOOKUP` and `LAST` are recognized only by position in
@@ -88,8 +90,9 @@ path        := identifier, dots allowed, no list boundaries ('..')
    sharing its tokenizer and expression parser. A query cannot contain a rule
    statement and a rule file cannot contain a query.
 3. One field per statement; there is no `SET a = 1, b = 2`.
-4. Identifiers are lowercased by the tokenizer, as in queries, so `SET Severity`
-   defines `severity`.
+4. (Superseded by [case-sensitive-identifiers.md](case-sensitive-identifiers.md):
+   identifiers keep their case.) Identifiers are lowercased by the tokenizer, as in
+   queries, so `SET Severity` defines `severity`.
 
 ### Semantics
 
@@ -99,14 +102,17 @@ path        := identifier, dots allowed, no list boundaries ('..')
    the same way (one that cannot be stored is dropped), then the row is stored.
    Rules run on API-ingested rows, on any table; Guardian's own writes to its
    built-in tables never run rules.
-2. Reads: a field the event lacks is null, with no warning. There is no declared
+2. (Case matching superseded by [case-sensitive-identifiers.md](case-sensitive-identifiers.md):
+   reads match exactly.) Reads: a field the event lacks is null, with no warning. There is no declared
    schema and no check that a field exists. Rules see the flattened row, so an
    object field has no value of its own (`card` is null when the event has
    `card.number`); read the leaf (`card.number`). Names match ignoring case: an
    exact match wins, otherwise the first case-insensitive match in byte order. This
    differs from queries, which reject an ambiguous name, because a rule must give
    every event a result.
-3. `SET x` replaces the whole incoming field: it first removes every column whose
+3. (Superseded with item 4 by [case-sensitive-identifiers.md](case-sensitive-identifiers.md):
+   SET and UNSET now act on exactly the named column.) `SET x` replaces the whole
+   incoming field: it first removes every column whose
    top-level field matches `x` ignoring case (`x`, `X`, `x.*`, `x..*`), then stores
    the new value as `x`. So `SET email = lower(email)` on `{"Email": "A@B"}` stores
    only `email`, and `SET user = 'redacted'` on `{"user": {"name": "Bob"}}` stores
@@ -326,7 +332,9 @@ JSON API rule endpoints in phase 1.
 6. Counter v1 extended activation to dependent LOOKUP plans in C4b/C4c1, enabled
    in C4c3 below. Current coherent reload requirements are
    [Rules invariant 11](../../lib/guardian/rules/AGENTS.md#rules-to-keep).
-7. Running a statement does not scan the row. At the first statement the runtime
+7. (Superseded: names are now exact and flat, the row is a plain map, and the index
+   is gone; see [case-sensitive-identifiers.md](case-sensitive-identifiers.md).)
+   Running a statement does not scan the row. At the first statement the runtime
    indexes the event's flattened row once: a trie of its keys by lowercase
    top-level object path, and each lowercase spelling's present keys in byte order.
    SET and UNSET then remove one subtree and a read is a lookup, so 1,000 statements

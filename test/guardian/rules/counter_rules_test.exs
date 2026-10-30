@@ -113,12 +113,19 @@ defmodule Guardian.Rules.CounterRulesTest do
     end
   end
 
-  test "initial counter levels index case-insensitive and absent inputs once", %{store: store} do
+  test "TRACK and LOOKUP write one column; columns beneath it stay", %{store: store} do
+    rules = plan("TRACK hits = count() LAST '1h'; LOOKUP prior = hits")
+
+    assert %{"hits" => 1, "hits.x" => 1, "prior" => 0, "prior.y" => 2} =
+             run(rules, %{"hits.x" => 1, "prior.y" => 2}, event(store))
+  end
+
+  test "initial counter levels read inputs by exact name", %{store: store} do
     grouped = plan("TRACK hits = count() BY ip LAST '1h'")
-    assert run(grouped, %{"IP" => "a"}, event(store))["hits"] == 1
+    assert run(grouped, %{"ip" => "a"}, event(store))["hits"] == 1
     assert run(grouped, %{"ip" => "a"}, event(store))["hits"] == 2
     assert run(grouped, %{}, event(store))["hits"] == 1
-    assert run(grouped, %{"IP" => nil}, event(store))["hits"] == 2
+    assert run(grouped, %{"IP" => "a"}, event(store))["hits"] == 2
 
     conditional = plan("TRACK hits = count() WHERE enabled LAST '1h';
       LOOKUP prior = hits WHERE enabled")
@@ -126,12 +133,14 @@ defmodule Guardian.Rules.CounterRulesTest do
     assert run(conditional, %{"hits" => 99, "prior" => 98}, event(store)) ==
              %{"hits" => 99, "prior" => 98}
 
-    assert Map.take(run(conditional, %{"ENABLED" => true}, event(store)), ~w(hits prior)) ==
+    assert run(conditional, %{"ENABLED" => true}, event(store)) == %{"ENABLED" => true}
+
+    assert Map.take(run(conditional, %{"enabled" => true}, event(store)), ~w(hits prior)) ==
              %{"hits" => 1, "prior" => 0}
 
     aggregates = plan("TRACK present = count(v) LAST '1h'; TRACK total = sum(v) LAST '1h'")
 
-    assert Map.take(run(aggregates, %{"V" => 3}, event(store)), ~w(present total)) ==
+    assert Map.take(run(aggregates, %{"v" => 3}, event(store)), ~w(present total)) ==
              %{"present" => 1, "total" => 3}
 
     assert Map.take(run(aggregates, %{}, event(store)), ~w(present total)) ==

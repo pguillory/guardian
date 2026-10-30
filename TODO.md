@@ -230,6 +230,10 @@ privately, not in this repository.
 
 ## Queries
 
+- [x] case-sensitive-identifiers: field, column and table names keep their case and
+      match exactly; rule field names are flat, SET and UNSET act on exactly the named
+      column, and RowIndex and the ambiguous-column error are gone
+      (`docs/changes/case-sensitive-identifiers.md`)
 - [x] query-dispatch-policy: centralize scalar/native selection and metadata
       eligibility without changing query results (`docs/changes/query-dispatch-policy.md`)
 - [x] native-dispatch-boundary: extract the scalar/native operation policy from

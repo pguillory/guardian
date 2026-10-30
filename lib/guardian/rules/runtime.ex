@@ -3,13 +3,10 @@ defmodule Guardian.Rules.Runtime do
   The dependency-level dispatcher called by compiled table modules, on one event's
   flattened row (dot-notation keys, as Storage stores it).
 
-  - Reads: a field the row lacks is null. Names match ignoring case: an exact key wins,
-    otherwise the first case-insensitive match in byte order (`Guardian.Rules.RowIndex`). Rules read
-    the flattened row, so an object field has no value of its own.
-  - `set/2` replaces the whole top-level field, removing every column under it in any
-    case (`X`, `x.y`, `x..y`), then stores the value under the statement's spelling.
-  - `unset/2` removes every column matching the path ignoring case, and every column
-    beneath it.
+  - Reads: a field the row lacks is null. Names match exactly, and rules read the
+    flattened row, so an object field has no value of its own.
+  - SET, TRACK and LOOKUP write the one column they name, and UNSET removes the one
+    column it names. Columns beneath it are other columns.
   - WHERE applies a statement only when it evaluates to `true`.
 
   SET/UNSET failures raise `Guardian.Rules.Runtime.Failure` naming the file and line, and
@@ -24,36 +21,22 @@ defmodule Guardian.Rules.Runtime do
   alias Guardian.Counters.LookupOperation
   alias Guardian.Counters.TrackOperation
   alias Guardian.Lists
-  alias Guardian.Rules.RowIndex
   alias Guardian.Rules.Runtime.Failure
   require Logger
 
-  @doc "The row index the dispatcher threads through dependency levels."
-  def start(row) do
-    RowIndex.new(row)
-  end
-
-  @doc "The row once every statement has run."
-  def finish(%RowIndex{row: row}) do
-    row
-  end
-
   @doc false
   def run(row, levels, %Guardian.Rules.Event{} = event) do
-    levels
-    |> Enum.reduce(start(row), &level(&2, &1, event))
-    |> finish()
+    Enum.reduce(levels, row, &level(&2, &1, event))
   end
 
-  defp level(index, steps, event) do
-    index = RowIndex.ensure(index)
+  defp level(row, steps, event) do
     # Complete scalar work and prepare counter ops before dispatching any counter.
-    {index, counters} =
-      Enum.reduce(steps, {index, []}, fn step, {index, counters} ->
+    {row, counters} =
+      Enum.reduce(steps, {row, []}, fn step, {row, counters} ->
         case step do
-          %Guardian.Rules.Step.Set{} -> {set(index, step), counters}
-          %Guardian.Rules.Step.Unset{} -> {unset(index, step), counters}
-          _ -> {index, [{step, prepare_counter(index, step)} | counters]}
+          %Guardian.Rules.Step.Set{} -> {set(row, step), counters}
+          %Guardian.Rules.Step.Unset{} -> {unset(row, step), counters}
+          _ -> {row, [{step, prepare_counter(row, step)} | counters]}
         end
       end)
 
@@ -68,7 +51,7 @@ defmodule Guardian.Rules.Runtime do
 
     steps
     |> Enum.zip(results)
-    |> Enum.reduce(index, fn {step, result}, index -> write_counter(index, step, result) end)
+    |> Enum.reduce(row, fn {step, result}, row -> write_counter(row, step, result) end)
   end
 
   defp runnable?(prepared) do
@@ -79,44 +62,42 @@ defmodule Guardian.Rules.Runtime do
   # runnable statement, its run_counters result. A statement whose WHERE is not true
   # leaves its field alone. A failed one writes its operator's missing result;
   # preparation failures were logged when they happened, run failures here.
-  defp write_counter(index, _step, :skip) do
-    index
+  defp write_counter(row, _step, :skip) do
+    row
   end
 
-  defp write_counter(index, step, :failed) do
+  defp write_counter(row, step, :failed) do
     missing = Aggregation.default(Definition.aggregation(counter_definition(step)))
-    RowIndex.put_field(index, step.field, missing)
+    Map.put(row, step.field, missing)
   end
 
-  defp write_counter(index, step, {:ok, value}) do
-    RowIndex.put_field(index, step.field, value)
+  defp write_counter(row, step, {:ok, value}) do
+    Map.put(row, step.field, value)
   end
 
-  defp write_counter(index, step, {:error, kind}) do
+  defp write_counter(row, step, {:error, kind}) do
     note_failure(step.file, step.line, kind)
-    write_counter(index, step, :failed)
+    write_counter(row, step, :failed)
   end
 
   # The statement's counter op, :skip when its WHERE is not true, or :failed when
   # evaluating WHERE, BY or the TRACK arguments raised.
-  defp prepare_counter(index, step) do
+  defp prepare_counter(row, step) do
     # Step construction binds TRACK metadata; resolution binds LOOKUP targets.
     # Validation checks operators and windows before execution.
     definition = counter_definition(step)
 
     try do
-      context = context(index, step.reads)
-
-      if applies?(context, step.where_expr) do
+      if applies?(row, step.where_expr) do
         group =
           step.by_exprs
-          |> Enum.map(&Guardian.Query.Evaluation.eval(context, &1))
+          |> Enum.map(&Guardian.Query.Evaluation.eval(row, &1))
           |> List.to_tuple()
 
         case step do
           %Guardian.Rules.Step.Track{} ->
             values =
-              Enum.map(step.aggregate_expr.args, &Guardian.Query.Evaluation.eval(context, &1))
+              Enum.map(step.aggregate_expr.args, &Guardian.Query.Evaluation.eval(row, &1))
 
             {:run, %TrackOperation{definition: definition, group: group, values: values}}
 
@@ -146,28 +127,22 @@ defmodule Guardian.Rules.Runtime do
     target
   end
 
-  def set(index, step) do
+  def set(row, step) do
     guard(step, fn ->
-      index = RowIndex.ensure(index)
-      context = context(index, step.reads)
-
-      if applies?(context, step.where_expr) do
-        value = Guardian.Query.Evaluation.eval(context, step.value_expr)
-        RowIndex.put_field(index, step.field, value)
+      if applies?(row, step.where_expr) do
+        Map.put(row, step.field, Guardian.Query.Evaluation.eval(row, step.value_expr))
       else
-        index
+        row
       end
     end)
   end
 
-  def unset(index, step) do
+  def unset(row, step) do
     guard(step, fn ->
-      index = RowIndex.ensure(index)
-
-      if applies?(context(index, step.reads), step.where_expr) do
-        RowIndex.remove(index, String.split(step.field, "."))
+      if applies?(row, step.where_expr) do
+        Map.delete(row, step.field)
       else
-        index
+        row
       end
     end)
   end
@@ -208,22 +183,11 @@ defmodule Guardian.Rules.Runtime do
       raise Failure, file: step.file, line: step.line, kind: failure_kind
   end
 
-  defp applies?(_context, nil) do
+  defp applies?(_row, nil) do
     true
   end
 
-  defp applies?(context, where_expr) do
-    Guardian.Query.Evaluation.eval(context, where_expr) == true
-  end
-
-  # The row, plus each name the statement reads that has no exact key, under that
-  # name, from its case-insensitive match.
-  defp context(%RowIndex{row: row} = index, reads) do
-    Enum.reduce(reads, row, fn name, context ->
-      case RowIndex.fetch(index, name) do
-        {:ok, value} -> Map.put(context, name, value)
-        :error -> context
-      end
-    end)
+  defp applies?(row, where_expr) do
+    Guardian.Query.Evaluation.eval(row, where_expr) == true
   end
 end
