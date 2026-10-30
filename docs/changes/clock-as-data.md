@@ -85,4 +85,5 @@ node-local; a release restart replaces each process with its new message shapes.
 Transport's `now` read has no test that would fail on a wrong unit; probes ignore
 `now`. Other function-valued test seams fall under the same rule and are not changed
 here:
-QueryParseErrors' and QueryLog's `:writer` and `Guardian.Web.Query.execute/3`'s `:execute`.
+QueryParseErrors' and QueryLog's `:writer` and `Guardian.Web.Query.execute/3`'s `:execute`
+(removed since, `docs/changes/function-test-seams.md`).

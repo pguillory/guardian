@@ -87,4 +87,18 @@ defmodule Guardian.Test.Segments do
       Guardian.Storage.MutableSegments.delete_segment(segment_id)
     end)
   end
+
+  @doc """
+  Hands off `table`'s mutable segments, as if each had filled; their rows stay readable.
+  An append chooses among a table's mutable segments, so `intercept_append/2`'s fake
+  gets the next append only if it is the only one: call this first for a table that
+  can't be a fresh one, such as a built-in table. The table's writers must be idle.
+  """
+  def hand_off_mutable_segments(table) do
+    for segment <- Guardian.Storage.MutableSegments.get_mutable_segments(table) do
+      :ok = Guardian.Storage.MutableSegments.segment_is_full(table, segment)
+    end
+
+    :ok
+  end
 end

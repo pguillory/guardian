@@ -158,14 +158,12 @@ defmodule Guardian.Web.QueryLog do
 
   @impl true
   def init(opts) do
-    # A writer returns like `Guardian.Engine.try_log_event/2` and never raises.
-    writer = Keyword.get(opts, :writer, &Guardian.Engine.try_log_event/2)
     name = Keyword.fetch!(opts, :name)
     counters = :atomics.new(2, signed: false)
     :persistent_term.put({__MODULE__, name}, counters)
     # `unwritten`: rows not written since the last row that was (backlog drops already
     # taken from the atomics, and failed writes).
-    {:ok, %{writer: writer, counters: counters, unwritten: 0}}
+    {:ok, %{counters: counters, unwritten: 0}}
   end
 
   @impl true
@@ -173,7 +171,7 @@ defmodule Guardian.Web.QueryLog do
     dropped = state.unwritten + :atomics.exchange(state.counters, @backlog_drops, 0)
     clear_backlog_warning(state.counters)
 
-    case state.writer.(@table, Map.put(row, "dropped_before", dropped)) do
+    case Guardian.Engine.try_log_event(@table, Map.put(row, "dropped_before", dropped)) do
       {:ok, _event} ->
         {:noreply, %{state | unwritten: 0}}
 

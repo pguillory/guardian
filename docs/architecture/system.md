@@ -1630,7 +1630,9 @@ the VM, so global resource-count assertions require serial tests.
 `Guardian.Test.Processes` observes queued calls and pipeline worker stacks on this
 node or peers. `Guardian.Test.Segments` picks a full segment's loaded copy
 (`loaded_segment/2`), appends nested rows (`segment_append/2`), writes segment files
-(`write_segment_file/2`) and injects one-call append replies (`intercept_append/2`).
+(`write_segment_file/2`), injects one-call append replies (`intercept_append/2`) and
+clears a built-in table's mutable segments so the injection is certain to be chosen
+(`hand_off_mutable_segments/1`).
 Callers isolate observed processes, files, segments and tables; shared Storage
 process manipulation requires serial tests. `Guardian.Test.Aggregation` supplies
 pure representative aggregate arguments. The counter test family lives under
@@ -1640,7 +1642,9 @@ options for counter execution and rules tests (serial tests only);
 adapter for probes; `Guardian.Test.Counters.Backend` is the test build's Transport
 backend; `Guardian.Test.Counters.StorePause` pauses a real Store's callers and is the
 one test module that reads the Store's private descriptor;
-`Guardian.Test.Counters.PipelineProbe` holds pipelines until released. The fake S3
+`Guardian.Test.Counters.PipelineProbe` holds pipelines until released.
+`Guardian.Test.Web.QueryBackend` is the test build's `Guardian.Query` for
+`Guardian.Web.Query`, passing through unless a test asks for an exit or throw. The fake S3
 server, JSON and MCP clients, DistributedStream peer stages and the engine's
 raising key also live under `Guardian.Test.*`. `Guardian.Query.EvaluationTestCase`
 and the test-only query function `Guardian.Query.Function.TestRaise` keep their homes

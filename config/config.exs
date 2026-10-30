@@ -29,6 +29,10 @@ if config_env() == :test do
   # Internal compile-time test seam, not an operator setting. Releases call Store directly.
   config :guardian, Guardian.Counters.Transport, store_backend: Guardian.Test.Counters.Backend
 
+  # Same kind of seam: lets a test make the query path exit or throw, which nothing a
+  # query can do reaches. Releases call Guardian.Query directly.
+  config :guardian, Guardian.Web.Query, query_backend: Guardian.Test.Web.QueryBackend
+
   # Many tests send malformed queries; the hourly cap has its own test.
   config :guardian, query_parse_errors_per_hour: 1_000_000
 

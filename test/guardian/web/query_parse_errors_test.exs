@@ -3,6 +3,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
   import Guardian.Web.QueryParseErrors
 
   import ExUnit.CaptureLog
+  import Guardian.Test.Segments, only: [hand_off_mutable_segments: 1, intercept_append: 2]
 
   alias Guardian.Web.QueryParseErrors
 
@@ -234,21 +235,17 @@ defmodule Guardian.Web.QueryParseErrorsTest do
     end
 
     test "a failed write is logged and its row joins dropped_before" do
-      failures = :counters.new(1, [])
-      :counters.put(failures, 1, 1)
       server = :"writer_#{System.unique_integer([:positive])}"
+      start_supervised!({QueryParseErrors, name: server})
 
-      writer = fn table, row ->
-        if :counters.get(failures, 1) > 0 do
-          :counters.sub(failures, 1, 1)
-          # What Guardian.Engine.try_log_event/2 returns for a raised RuntimeError.
-          {:error, "RuntimeError"}
-        else
-          Guardian.Engine.try_log_event(table, row)
-        end
-      end
+      # The default recorder must have finished, so the refused row is this test's.
+      :ok = sync()
+      hand_off_mutable_segments(table())
 
-      start_supervised!({QueryParseErrors, name: server, writer: writer})
+      intercept_append(table(), fn from, _row ->
+        GenServer.reply(from, {:error, :invalid_value})
+      end)
+
       error = %Guardian.AST.ParseError{reason: "test", row: 0, col: 0}
       [lost, kept] = [bad_sql(), bad_sql()]
 
@@ -260,7 +257,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
           :ok = sync(server)
         end)
 
-      assert log =~ "Failed to record a mcp query parse error: RuntimeError"
+      assert log =~ "Failed to record a mcp query parse error: ArgumentError"
 
       :ok =
         record(kept, error, fn -> %{"interface" => "mcp"} end, now(), server: server)

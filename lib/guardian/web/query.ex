@@ -10,11 +10,15 @@ defmodule Guardian.Web.Query do
   caller's response is exactly what it would have been.
   """
 
+  # Internal compile-time test seam, not an operator setting. Releases call
+  # `Guardian.Query` directly.
+  @query_backend Application.compile_env(:guardian, [__MODULE__, :query_backend], Guardian.Query)
+
   @doc """
   Runs `sql` with `Guardian.Query.execute/2` and returns its result. `caller_fun` returns the
   caller fields of a recorded row
-  (`Guardian.Web.QueryParseErrors.mcp_caller/1`). Options: `:server` names the parse-error recorder, `:query_log`
-  the query recorder, and `:execute` replaces `Guardian.Query.execute/2` (for tests).
+  (`Guardian.Web.QueryParseErrors.mcp_caller/1`). Options: `:server` names the parse-error recorder and `:query_log`
+  the query recorder.
   """
   @spec execute(String.t(), (-> map()), keyword()) ::
           {:ok, [String.t()], [list()]} | {:error, String.t()}
@@ -33,10 +37,8 @@ defmodule Guardian.Web.Query do
         opts
       )
 
-    execute = Keyword.get(opts, :execute, &Guardian.Query.execute/2)
-
     try do
-      execute.(sql, on_parse_error: on_parse_error)
+      @query_backend.execute(sql, on_parse_error: on_parse_error)
     catch
       kind, reason ->
         stacktrace = __STACKTRACE__

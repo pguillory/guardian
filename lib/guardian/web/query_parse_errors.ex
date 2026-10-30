@@ -165,10 +165,7 @@ defmodule Guardian.Web.QueryParseErrors do
         Application.get_env(:guardian, :query_parse_errors_per_hour, @default_rows_per_hour)
       end)
 
-    # A writer returns like `Guardian.Engine.try_log_event/2` and never raises.
-    writer = Keyword.get(opts, :writer, &Guardian.Engine.try_log_event/2)
-
-    {:ok, %{limit: limit, writer: writer, hour: nil, count: 0, dropped: 0, warned: nil}}
+    {:ok, %{limit: limit, hour: nil, count: 0, dropped: 0, warned: nil}}
   end
 
   @impl true
@@ -185,7 +182,7 @@ defmodule Guardian.Web.QueryParseErrors do
       # A write that fails still counts against the cap, and its row joins the count
       # carried to the next row that is written.
       dropped =
-        case write(state.writer, Map.put(row, "dropped_before", state.dropped)) do
+        case write(Map.put(row, "dropped_before", state.dropped)) do
           :ok -> 0
           :error -> state.dropped + 1
         end
@@ -208,8 +205,8 @@ defmodule Guardian.Web.QueryParseErrors do
     {:reply, :ok, state}
   end
 
-  defp write(writer, row) do
-    case writer.(@table, row) do
+  defp write(row) do
+    case Guardian.Engine.try_log_event(@table, row) do
       {:ok, _event} ->
         :ok
 

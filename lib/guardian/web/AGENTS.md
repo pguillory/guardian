@@ -86,7 +86,10 @@ with `:erlang.raise/3`, so callers see exactly what `Guardian.Query.execute/2` p
 in recording may raise into the request. Keep recording in `Guardian.Web.Query` (the
 coordinating machine) so a distributed query is one row, and never record request
 headers there (caller fields are `interface`, always `mcp`, `remote_ip` and MCP client
-info).
+info). Exits and throws can't be provoked through the real query path, so the test
+build's `Guardian.Test.Web.QueryBackend` stands in for `Guardian.Query` at compile time
+(`docs/changes/function-test-seams.md`); no function option replaces it, and the
+recorders' write failures are tested by failing a real append.
 
 The MCP server exposes `query`, `send_events`, and the rule tools `list_rules`,
 `read_rule`, `write_rule` and `delete_rule` (through `Guardian.Rules`).

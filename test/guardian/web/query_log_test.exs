@@ -3,6 +3,7 @@ defmodule Guardian.Web.QueryLogTest do
   import Guardian.Web.QueryLog
 
   import ExUnit.CaptureLog
+  import Guardian.Test.Segments, only: [hand_off_mutable_segments: 1, intercept_append: 2]
 
   alias Guardian.Web.QueryLog
 
@@ -246,8 +247,8 @@ defmodule Guardian.Web.QueryLogTest do
 
       for {kind, reason, error} <- failures do
         sql = "SELECT 1 FROM #{marker()}"
-        execute = fn _sql, _opts -> :erlang.raise(kind, reason, stacktrace) end
-        opts = [query_log: server, execute: execute]
+        opts = [query_log: server]
+        Guardian.Test.Web.QueryBackend.fail_next(kind, reason, stacktrace)
 
         assert {^kind, ^reason, ^stacktrace} =
                  (try do
@@ -307,54 +308,44 @@ defmodule Guardian.Web.QueryLogTest do
 
   describe "recorder" do
     test "a failed write is logged by kind and counted in the next row's dropped_before" do
-      failures = :counters.new(1, [])
-      :counters.put(failures, 1, 1)
-      test_pid = self()
-
-      writer = fn table, row ->
-        if :counters.get(failures, 1) > 0 do
-          :counters.sub(failures, 1, 1)
-          {:error, "RuntimeError"}
-        else
-          send(test_pid, {:written, table, row})
-          {:ok, row}
-        end
-      end
-
       server = :"query_log_test_#{System.unique_integer([:positive])}"
-      start_supervised!({QueryLog, name: server, writer: writer})
+      start_supervised!({QueryLog, name: server})
+
+      # The default recorder must have finished, so the refused row is this test's.
+      :ok = sync()
+      hand_off_mutable_segments(table())
+
+      intercept_append(table(), fn from, _row ->
+        GenServer.reply(from, {:error, :invalid_value})
+      end)
+
+      [lost, kept] = ["SELECT secret #{marker()}", "SELECT #{marker()}"]
 
       log =
         capture_log(fn ->
-          :ok = record("SELECT secret", {:ok, 0}, info(), server: server)
+          :ok = record(lost, {:ok, 0}, info(), server: server)
           :ok = sync(server)
         end)
 
-      assert log =~ "Failed to record a query in queries: RuntimeError"
+      assert log =~ "Failed to record a query in queries: ArgumentError"
       refute log =~ "secret"
 
-      :ok = record("SELECT 2", {:ok, 0}, info(), server: server)
-      :ok = sync(server)
-      assert_received {:written, "queries", %{"sql" => "SELECT 2", "dropped_before" => 1}}
+      :ok = record(kept, {:ok, 0}, info(), server: server)
+      assert rows_for(lost, server) == []
+      assert [%{"dropped_before" => 1}] = rows_for(kept, server)
     end
 
     test "a full backlog drops rows, logs once, and counts them" do
-      test_pid = self()
-
-      writer = fn _table, row ->
-        send(test_pid, {:written, row})
-        {:ok, row}
-      end
-
       server = :"query_log_test_#{System.unique_integer([:positive])}"
-      pid = start_supervised!({QueryLog, name: server, writer: writer})
+      pid = start_supervised!({QueryLog, name: server})
+      prefix = "SELECT #{marker()} "
       :ok = :sys.suspend(pid)
 
       log =
         capture_log(fn ->
           try do
             for i <- 1..1003 do
-              :ok = record("SELECT #{i}", {:ok, 0}, info(), server: server)
+              :ok = record("#{prefix}#{i}", {:ok, 0}, info(), server: server)
             end
           after
             :ok = :sys.resume(pid)
@@ -365,15 +356,16 @@ defmodule Guardian.Web.QueryLogTest do
 
       assert length(String.split(log, "rows behind")) == 2
 
-      :ok = record("SELECT last", {:ok, 0}, info(), server: server)
+      :ok = record("#{prefix}last", {:ok, 0}, info(), server: server)
       :ok = sync(server)
 
       written =
-        for _ <- 1..1001 do
-          assert_receive {:written, row}
-          row
-        end
+        table()
+        |> Guardian.Storage.dump_table()
+        # Not every row has `sql`: other tests write to this table directly.
+        |> Enum.filter(&(is_binary(&1["sql"]) and String.starts_with?(&1["sql"], prefix)))
 
+      assert length(written) == 1001
       dropped = written |> Enum.map(& &1["dropped_before"]) |> Enum.sum()
       assert dropped == 3
 

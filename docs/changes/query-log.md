@@ -89,7 +89,8 @@ fail to parse, capped at 60 an hour.
   is left for the removal of `query_parse_errors`
   (TODO.md `drop-query-parse-errors`). `Guardian.Web.Query.execute/3` takes an `:execute`
   option replacing `Guardian.Query.execute/2`, so tests can make the query path exit or
-  throw.
+  throw. (That option and the writer option were removed since,
+  `docs/changes/function-test-seams.md`.)
 - Docs: the built-in tables list in `docs/reference/api.md` (the README links to
   it); spec sections 2 (table of Guardian's tables), 3
   (query text kept for retention), 4.1/4.2 (queries recorded), 8 (fields); overview;
