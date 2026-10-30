@@ -960,7 +960,9 @@ Process structure and failure handling:
    reports the first exception to a collector, skips the worker's remaining work, and
    raises it once the stream ends. Workers then never crash on expression errors, so
    no crash report carries row values into the log. GROUP BY's aggregate steps (start,
-   merge, finish) are guarded per element the same way.
+   merge, finish) are guarded per element the same way. A report waits for the
+   collector's acknowledgement with no timeout, and a collector that is gone when the
+   query asks for its first error fails the query, so a lost report is never success.
    HAVING's reassembly is not guarded; a crash there fails the query and is logged.
 6. A node that times out or fails DistributedStream's partition lookup
    (`partitions/1`, a 5-second multicall) gets no GROUP BY partitions; its rows hash

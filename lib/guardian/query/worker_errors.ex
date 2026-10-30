@@ -11,15 +11,16 @@ defmodule Guardian.Query.WorkerErrors do
   query (returning no rows, so nothing crashes and no crash report reaches the log),
   and the query raises the reported error once its stream has ended. The stream ends
   only after every worker has finished, and each report was acknowledged before its
-  worker finished, so no report can be missed. (A LIMIT that is satisfied early stops
-  the stream before every worker finishes; errors in work the query no longer needs
+  worker finished, so no report can be missed. The acknowledgement is waited for with
+  no timeout (the query's time limit bounds it), and a collector that is gone when the
+  query asks for its first error fails the query, so a lost report never reads as
+  success. (A LIMIT that is satisfied early stops the stream before every worker
+  finishes; errors in work the query no longer needs and that were not yet reported
   are then ignored.)
 
   Reports are reduced to a `Guardian.Query.Error` with a bounded message (`Guardian.Query.Failure.caught/3`)
   before they leave the worker, so they stay small on the wire and carry no raw terms.
   """
-
-  @ack_timeout 5_000
 
   @doc """
   Starts a collector linked to the calling process.
@@ -50,7 +51,8 @@ defmodule Guardian.Query.WorkerErrors do
   end
 
   @doc """
-  Returns the first reported error, or nil.
+  Returns the first reported error, or nil. A collector that is gone may have held an
+  error, so it returns an error too.
   """
   def first(collector) when is_pid(collector) do
     ref = Process.monitor(collector)
@@ -62,10 +64,13 @@ defmodule Guardian.Query.WorkerErrors do
         error
 
       {:DOWN, ^ref, _, _, _} ->
-        nil
+        %Guardian.Query.Error{message: "query failed: its worker error collector stopped"}
     end
   end
 
+  # No timeout: the collector acknowledges at once while it lives. A collector that is
+  # gone is not this worker's failure to raise: either the query is already over (a
+  # LIMIT that stopped early, or another failure), or first/1 fails it.
   defp report(collector, error) do
     ref = Process.monitor(collector)
     send(collector, {:report, self(), ref, error})
@@ -73,8 +78,6 @@ defmodule Guardian.Query.WorkerErrors do
     receive do
       {^ref, :ok} -> Process.demonitor(ref, [:flush])
       {:DOWN, ^ref, _, _, _} -> :ok
-    after
-      @ack_timeout -> Process.demonitor(ref, [:flush])
     end
   end
 

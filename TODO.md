@@ -375,6 +375,19 @@ privately, not in this repository.
       drop them or make them private, testing through `resolve/1`. Likewise
       `Guardian.Query.Function.Interval.from_seconds/1` has no caller but its test;
       drop it with its test
+- [x] worker-error-collector-fail-closed: a query whose worker error collector is gone
+      fails instead of reading as "no error", and a worker waits for its report's
+      acknowledgement with no timeout, so a lost report cannot give a partial answer
+      (`docs/changes/fail-closed-findings.md`)
+- [ ] ready-check-timeout: `Guardian.Cluster.connected_nodes/0` silently leaves out a
+      connected peer that does not answer the 5-second readiness check (or fails it),
+      from every query and schema lookup, so a query returns 200 missing that peer's
+      rows. The spec states this only for `SELECT *` resolution (section 4's timeout
+      paragraph); section 10 item 6 covers only disconnected and still-starting nodes.
+      Options: (a) fail closed: a connected peer that times out or errors fails the
+      query or lookup with a node error, while not-ready and disconnected peers stay
+      left out, with matching spec changes; (b) keep dropping it for availability and
+      say so in section 10 item 6. A cluster availability decision for the maintainer
 
 ## Interfaces and operations
 
