@@ -46,8 +46,9 @@ Authentication is handled by `Guardian.Web.MCP.Router` before requests reach Anu
 with `Guardian.Web.Auth.check_conn/2` and `:full` for every request: the insert-only
 ingest key gets 403 `{"error": "this key can only send events"}`, checked before the
 session lookup and body decoding, so a session ID never stands in for a full-access
-key. The key is read only from the `x-api-key` header. The router's other plugs, in
-order:
+key. The key is read only from the `x-api-key` header, and the router drops that
+header once the key is checked: Anubis keeps request headers in its session frame and
+in a failed call's log line. The router's other plugs, in order:
 
 1. Unknown session: an `mcp-session-id` that names no live session gets 404
    `{"jsonrpc":"2.0","id":null,"error":{"code":-32001,"message":"Session not found"}}`,
@@ -103,6 +104,12 @@ by the process that claimed it; rule writes run entirely inside
 `Guardian.Rules.Server`, so they complete too. After a cancel or DELETE the session's
 next request can run while that write finishes. An HTTP timeout stops nothing: the
 request keeps running, and later requests in its session wait for it.
+
+`Guardian.Web.MCP.LogFilter`: when a call times out or its session exits mid-call,
+Anubis logs the call's exit reason at error, with the whole message and the request's
+headers. The filter rewrites any Anubis line containing `{:mcp_request,` to name only
+the exit reason. It depends on Anubis's formatted text; recheck on an upgrade
+(`test/guardian/web/mcp/log_filter_test.exs` logs through Anubis's own macro).
 
 `send_events` validates requests explicitly before writes, returning MCP tool errors
 with messages for invalid tables, events lists, return_keys or idempotency_key. Its advertised schema

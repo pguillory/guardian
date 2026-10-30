@@ -107,7 +107,7 @@ Guardian is also a producer of its own tables:
    stack traces. Failures outside that boundary and OTP crash reports retain the
    logging limits described in the security architecture.
    Production logs at info, so MCP messages (query text, event payloads) are not
-   logged.
+   logged, including when an MCP call times out or its session exits mid-call.
 3. Rotation: Each key can change at any time, independently of the others, without
    touching stored data; a node reads them at startup, so the change takes effect when the node restarts with the new
    value. On Fly.io, changing the secret restarts the machine.

@@ -422,9 +422,9 @@ privately, not in this repository.
 - [x] mcp-serialized-tool-calls: upgrade Anubis to 2.2 so MCP sessions run
       independently, keeping the wire callers see
       (`docs/changes/mcp-serialized-tool-calls.md`)
-- [ ] mcp-log-redaction: when an MCP request times out or its session exits
-      mid-call, Anubis logs the call's exit reason at error, with the request headers
-      (the API key) and the whole message; keep both out of the logs
+- [x] mcp-log-redaction: keep the API key and the MCP message out of the line Anubis
+      logs when a call times out or its session exits mid-call
+      (`docs/changes/mcp-log-redaction.md`)
 - [ ] mcp-compile-time-components: define the MCP tools and resource as compile-time
       components and drop the per-request registration. send_events still needs its
       own dispatch clause (typed validation rejects mixed batches), and the component

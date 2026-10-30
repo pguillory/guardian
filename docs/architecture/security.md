@@ -182,7 +182,8 @@ None of these reads or writes data.
    admin key it is ignored. It stores the keys in the application environment
    (`:guardian, :ingest_api_key`, `:admin_api_key`), nil when unset.
 2. Tests use fixed keys in `config/config.exs`; they protect nothing.
-3. Guardian does not record a key itself: the `x-api-key` header is not in
+3. Guardian does not record a key itself (the MCP router drops the header once the
+   key is checked, so Anubis never holds it): the `x-api-key` header is not in
    `web_requests` (which records `path`, the request path without the query string,
    selected headers, and `auth_key`, which says only which key it was: `ingest` or
    `admin`; older rows may say `legacy`), not in
@@ -924,10 +925,18 @@ exceptions read from Anubis's source. A request-validation error can quote the
 offending argument value, and a client-sent JSON-RPC response that answers no server
 request is logged whole (`unexpected_response`); both need the admin key. And when a
 request outlasts Anubis's 30-second call timeout, or its session exits mid-call, the
-transport logs the call's exit reason at `:error` (`session_call_failed`), which
-includes the whole message and the request's headers, the `x-api-key` header among
-them (Anubis 0.16 logged the same on its timeouts). Production must stay at `:info`
-or above.
+transport logs the call's exit reason at `:error` (`session_call_failed`), which holds
+the whole message and the request's headers. `Guardian.Web.MCP.LogFilter`, a
+`:logger` primary filter installed by `Guardian.Web` before Anubis starts, rewrites
+any Anubis line carrying such a call to name only the exit reason (`timeout`,
+`noproc`), and the MCP router drops every `x-api-key` header once the key is checked,
+so neither the key nor the message reaches that line, and the key reaches no Anubis
+session state (the message does: a queued call waits there). A session's OTP crash
+report can still show a message, and `request_task_crashed` logs a crashed request
+task's reason at `:error`, which may hold its arguments if it crashes inside a call.
+Anubis 0.16 logged the message and headers on its timeouts, key included. The filter
+matches Anubis's formatted text (`{:mcp_request,`), so recheck it on an Anubis
+upgrade. Production must stay at `:info` or above.
 
 MCP bodies Anubis cannot decode: Anubis 0.16's transport plug logged the whole body of
 any MCP message it could not decode; 2.x logs only its size. `Guardian.Web.MCP.Router`

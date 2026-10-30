@@ -1150,7 +1150,8 @@ handing the request to Anubis's transport:
 
 1. The key check (`Guardian.Web.Auth.check_conn/2` with `:full`), on every request,
    so an MCP session carries no authority of its own and the insert-only ingest key
-   gets 403. The key is read only from the `x-api-key` header.
+   gets 403. The key is read only from the `x-api-key` header, and the header is
+   dropped once checked, so Anubis never holds or logs it.
 2. A 404 with JSON-RPC code -32001 for an unknown or expired `mcp-session-id` (Anubis's
    own 404 has a different body).
 3. A 405 for `GET`, so Guardian never opens a server-push stream and every result
@@ -1168,6 +1169,11 @@ handing the request to Anubis's transport:
 
 Steps 2 and 4 to 7 keep the wire what Anubis 0.16 produced and depend on Anubis
 behavior (`lib/guardian/web/mcp/AGENTS.md`); recheck them on any upgrade.
+
+`Guardian.Web.MCP.LogFilter`, a `:logger` primary filter that `Guardian.Web` installs
+before starting Anubis, rewrites any Anubis log line that carries an MCP call (the
+exit reason of a timed-out or failed call) to name only the exit reason. It matches
+Anubis's formatted text, so recheck it on an Anubis upgrade.
 
 `Guardian.Web.MCP.Server` defines the `query`, `send_events` and rule tools and the
 `guardian://query-language` resource, which serves `lib/guardian/web/mcp/query_language.md`. A

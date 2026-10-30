@@ -111,7 +111,7 @@ Logging: Anubis 2.x no longer logs whole incoming MCP messages at debug, or the 
 of messages it cannot decode. Production stays at `:info`. Unchanged from 0.16: a
 request that times out or whose session exits mid-call is logged at `:error` with the
 call's whole exit reason, which includes the message and the request headers, the API
-key among them. That is fixed separately (mcp-log-redaction).
+key among them. That is fixed separately (`docs/changes/mcp-log-redaction.md`).
 
 ## Product spec impact
 
