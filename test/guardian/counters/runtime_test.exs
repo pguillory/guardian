@@ -328,31 +328,4 @@ defmodule Guardian.Counters.RuntimeTest do
 
     for name <- @names, do: assert(Process.whereis(name) == nil)
   end
-
-  test "arbitrary exit details and formatted owner status stay redacted" do
-    {_root, owner, _sibling} = start_runtime()
-    subtree = :sys.get_state(owner).subtree
-    on_exit(fn -> if Process.alive?(subtree), do: Process.exit(subtree, :kill) end)
-
-    log =
-      capture_log(fn ->
-        send(owner, {:EXIT, subtree, {:unexpected, "PRIVATE"}})
-        await_down(owner)
-        crash_subtree(subtree)
-        assert is_pid(fire_timer(owner, :retry_timer, :retry).subtree)
-      end)
-
-    assert log =~ "Counters: subtree unavailable (start_or_process_failure)"
-    refute log =~ "PRIVATE"
-
-    formatted =
-      Guardian.Counters.Restarter.format_status(%{
-        state: "PRIVATE",
-        message: "PRIVATE",
-        log: ["PRIVATE"],
-        reason: "PRIVATE",
-      })
-
-    refute inspect(formatted) =~ "PRIVATE"
-  end
 end

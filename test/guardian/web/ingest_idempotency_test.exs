@@ -37,7 +37,6 @@ defmodule Guardian.Web.IngestIdempotencyTest do
     assert run(server, key, fn -> flunk("duplicate ran ingestion") end) == receipt(3)
     assert :sys.get_state(server).monitors == %{}
     refute :erlang.term_to_binary(:sys.get_state(server)) =~ payload
-    refute inspect(:sys.get_status(server)) =~ key
   end
 
   test "atomic claims prevent concurrent duplicate work without blocking unrelated keys", %{

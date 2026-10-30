@@ -3,9 +3,6 @@ defmodule Guardian.Query.HeapLimitTest do
   use ExUnit.Case, async: false
   import Guardian.Test.Query
 
-  # The VM logs a report for each process its heap limit kills.
-  @moduletag :capture_log
-
   alias Guardian.Query.DistributedStream
 
   defp set_limit(mb) do
@@ -48,7 +45,7 @@ defmodule Guardian.Query.HeapLimitTest do
     words = div(64 * 1024 * 1024, :erlang.system_info(:wordsize))
 
     assert {:max_heap_size,
-            %{size: ^words, kill: true, error_logger: true, include_shared_binaries: false}} =
+            %{size: ^words, kill: true, error_logger: false, include_shared_binaries: false}} =
              task.()
   end
 
@@ -96,18 +93,9 @@ defmodule Guardian.Query.HeapLimitTest do
 
     set_limit(1)
 
-    log =
-      ExUnit.CaptureLog.capture_log([level: :error], fn ->
-        error = catch_error(run_sql("SELECT v, w FROM #{table} ORDER BY v DESC"))
-        assert %Guardian.Query.Error{message: message} = error
-        assert message == Guardian.Query.Limits.heap_kill_message()
-        # The VM sends its report as the process dies; give the logger time to print it.
-        Process.sleep(500)
-      end)
-
-    # The VM's report names the process and sizes, never the rows on its heap.
-    assert log =~ "maximum heap size reached"
-    refute log =~ marker
+    error = catch_error(run_sql("SELECT v, w FROM #{table} ORDER BY v DESC"))
+    assert %Guardian.Query.Error{message: message} = error
+    assert message == Guardian.Query.Limits.heap_kill_message()
 
     set_limit(256)
     assert length(run_sql("SELECT v, w FROM #{table} ORDER BY v DESC")) == 40_000

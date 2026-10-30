@@ -166,13 +166,4 @@ defmodule Guardian.Counters.Budget do
         member not in members or until <= Clock.now(),
         do: :ets.delete_object(table, {member, until})
   end
-
-  @impl true
-  def format_status(status) do
-    status
-    |> Map.put(:state, :redacted)
-    |> Map.put(:message, :redacted)
-    |> Map.put(:log, [])
-    |> Map.put(:reason, :redacted)
-  end
 end

@@ -339,50 +339,6 @@ defmodule Guardian.Rules.ServerTest do
     assert [{:ok, %{"x" => 1}}] = Guardian.Engine.ingest_events(table, [%{}])
   end
 
-  test ":sys.get_status shows rule files' ETags, never their text" do
-    {s3, _store} = s3_server()
-    marker = "MARKER-#{System.unique_integer([:positive])}"
-    table = unique_table("rules_status")
-    {:ok, _} = Guardian.Rules.write_rule(table, "a", "SET x = '#{marker}'")
-    assert inspect(:sys.get_state(Guardian.Rules.Server), limit: :infinity) =~ marker
-
-    status =
-      inspect(:sys.get_status(Guardian.Rules.Server),
-        limit: :infinity,
-        printable_limit: :infinity
-      )
-
-    refute status =~ marker
-    assert status =~ Guardian.Test.FakeS3.objects(s3)["#{table}/a.gsql"].etag
-
-    # With debug logging on, the log holds each message and the state after it. The
-    # server's formatted status (the last item) redacts them; the raw debug options
-    # `:sys` returns beside it are OTP's own (see docs/architecture/security.md).
-    :ok = :sys.log(Guardian.Rules.Server, true)
-    {:ok, _} = Guardian.Rules.write_rule(table, "b", "SET y = '#{marker}'")
-    assert :ok = Guardian.Rules.reload()
-    {:ok, log} = :sys.log(Guardian.Rules.Server, :get)
-    assert inspect(log, limit: :infinity, printable_limit: :infinity) =~ marker
-
-    {:status, _pid, _module, [_pdict, _sys_state, _parent, _debug, formatted]} =
-      :sys.get_status(Guardian.Rules.Server)
-
-    # What a crash report formats: the state, the last message and the debug log.
-    report =
-      format_status(%{
-        state: :sys.get_state(Guardian.Rules.Server),
-        message: {:"$gen_call", {self(), make_ref()}, {:write, table, "c", marker}},
-        log: log,
-        reason: :normal,
-      })
-
-    :ok = :sys.log(Guardian.Rules.Server, false)
-    formatted = inspect(formatted, limit: :infinity, printable_limit: :infinity)
-    assert formatted =~ "Logged events"
-    refute formatted =~ marker
-    refute inspect(report, limit: :infinity, printable_limit: :infinity) =~ marker
-  end
-
   test "a broken stored set can be repaired one file at a time; other tables stay writable" do
     {s3, _store} = s3_server()
     table = unique_table("rules_repair")
@@ -451,23 +407,6 @@ defmodule Guardian.Rules.ServerTest do
     assert module.plan() == plan
     assert [{:ok, %{"x" => 1}}] = Guardian.Engine.ingest_events(table, [%{"password" => "hide"}])
     assert [{:ok, %{"x" => 2}}] = Guardian.Engine.ingest_events(other, [%{}])
-  end
-
-  test "formatted status redacts plans and bare steps" do
-    {_s3, _store} = s3_server()
-    table = unique_table("rules_status_redaction")
-    marker = "MARKER-#{System.unique_integer([:positive])}"
-    assert {:ok, _} = Guardian.Rules.write_rule(table, "a", "SET x = '#{marker}'; UNSET password")
-    plan = Guardian.Rules.lookup(table).plan()
-
-    # Defense in depth: plans and bare steps carry expression constants, even if
-    # their canonical source is cleared. Formatting must redact both forms.
-    steps = Enum.map(plan.steps, &%{&1 | source: nil})
-    unredacted = %{state: %{plan: %{plan | steps: steps}, steps: steps}}
-    assert inspect(unredacted, limit: :infinity, printable_limit: :infinity) =~ marker
-    report = format_status(unredacted)
-    refute inspect(report, limit: :infinity, printable_limit: :infinity) =~ marker
-    refute inspect(:sys.get_status(Guardian.Rules.Server), limit: :infinity) =~ marker
   end
 
   test "reload publishes nothing unless every changed table compiles" do

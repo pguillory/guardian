@@ -356,7 +356,7 @@ defmodule Guardian.Counters.StoreTest do
     assert bytes >= :binary.referenced_byte_size(slice)
   end
 
-  test "unavailable owners and expired deadlines are scrubbed and never mutate", %{
+  test "unavailable owners and expired deadlines return errors and never mutate", %{
     now: now,
     opts: opts,
   } do
@@ -434,26 +434,6 @@ defmodule Guardian.Counters.StoreTest do
       assert incr(:key, 1, 100, now, server: server, timeout: 5_000) == {:error, :too_large}
       assert get(:key, now, server: server, timeout: 5_000) == :not_found
     end
-  end
-
-  test "formatted status redacts keys, values, messages and logs", %{
-    now: now,
-    server: server,
-    opts: opts,
-  } do
-    assert add("PRIVATE-KEY", "PRIVATE-VALUE", 100, now, opts) == :ok
-    status = inspect(:sys.get_status(server), limit: :infinity, printable_limit: :infinity)
-    refute status =~ "PRIVATE"
-
-    formatted =
-      format_status(%{
-        state: %{secret: "PRIVATE"},
-        message: {:cas, "PRIVATE"},
-        log: [{:in, "PRIVATE"}],
-        reason: {:badarg, "PRIVATE"},
-      })
-
-    refute inspect(formatted) =~ "PRIVATE"
   end
 
   defp assert_eventually(assertion, left \\ 100)

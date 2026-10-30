@@ -59,7 +59,9 @@ defmodule Guardian.Query.Limits do
     Process.flag(:max_heap_size, %{
       size: words,
       kill: true,
-      error_logger: true,
+      # An over-limit query is the caller's outcome, answered with the heap message,
+      # not a fault to log (CONTRIBUTING.md, "Logging").
+      error_logger: false,
       include_shared_binaries: false,
     })
 

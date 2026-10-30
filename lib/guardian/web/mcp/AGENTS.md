@@ -110,11 +110,10 @@ nothing. After a cancel or DELETE the session's next request can run while that 
 finishes. An HTTP timeout stops nothing: the request keeps running, and later requests
 in its session wait for it.
 
-`Guardian.Web.MCP.LogFilter`: when a call times out or its session exits mid-call,
-Anubis logs the call's exit reason at error, with the whole message and the request's
-headers. The filter rewrites any Anubis line containing `{:mcp_request,` to name only
-the exit reason. It depends on Anubis's formatted text; recheck on an upgrade
-(`test/guardian/web/mcp/log_filter_test.exs` logs through Anubis's own macro).
+When a call times out or its session exits mid-call, Anubis logs the call's exit
+reason at error (`session_call_failed`), with the message and the request's
+headers (the router has already dropped the key). Logs are not scrubbed, so that line
+stays as Anubis writes it.
 
 `send_events` validates requests explicitly before writes, returning MCP tool errors
 with messages for invalid tables, events lists, return_keys or idempotency_key. Its advertised schema

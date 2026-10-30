@@ -76,8 +76,8 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    event, locally only (a peer still enforces its own bound); production passes neither.
    A test that builds its own Context with local owners uses them and can stay async
    (`docs/changes/counter-budget-options.md`).
-6. Return fixed errors; no key/value/exception logging. Status redacts
-   state/messages/logs.
+6. Return fixed errors; no key/value/exception logging. Formatted status is not
+   redacted.
    Store takes no injected functions: tests pass `now` as data, while deadlines and
    housekeeping use real time. Fault injection pauses Transport callers through a
    gate that the test build's Backend adapter waits on before calling Store

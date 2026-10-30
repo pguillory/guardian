@@ -4,7 +4,7 @@ defmodule Guardian.Rules.Publisher do
   pool. Call only from Server's callbacks; Server forwards reclamation
   messages and timers target that calling process. There is no separate process.
   State contains only module atoms and retirement statuses, never sources, plans
-  or diagnostics (Server's generic struct redaction passes this value through).
+  or diagnostics.
 
   Compiled modules are never reloaded in place: each change compiles into a free
   name of Compiler's pool. A module the published map stops using is retired,

@@ -6,9 +6,6 @@ defmodule Guardian.Web do
   end
 
   def init(_opts) do
-    # Before Anubis starts, so none of its lines carry an MCP request.
-    :ok = Guardian.Web.MCP.LogFilter.install()
-
     http_opts = [
       plug: Guardian.Web.MainRouter,
       port: http_port(),
