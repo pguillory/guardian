@@ -24,12 +24,15 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    value, a fresh positive unique version (threshold/reset), and expiry readout.
    Tokens carry table generation and version; every mutation, including delta zero,
    invalidates prior tokens. Never expose the token's representation as a product API.
-2. Expiry is owner's monotonic now plus the initial positive TTL, retained by
-   updates. Bucket callers send decreasing remaining TTL to bucket_end+window;
+2. Expiry is `now` plus the initial positive TTL, retained by updates. Every
+   time-dependent Store operation takes `now` as a required argument (owner-local
+   monotonic ms, read by Transport on the owner at dispatch; one `now` per request,
+   so a batch judges and sets expiry as of its start). Housekeeping reads the real
+   clock itself. Bucket callers send decreasing remaining TTL to bucket_end+window;
    remote clocks receive durations, never another VM's monotonic timestamp.
    Reads treat expiry<=now as missing. A physically present expired key can be
    conditionally deleted and reused with one retry; ordinary bucket traffic does
-   not revisit expired bucket identities. Check deadlines after clock/key encoding
+   not revisit expired bucket identities. Check deadlines after key encoding
    and before retries. Stale CAS never recreates a key. A second expired increment
    returns :expired, a definite failure alongside :not_integer and :too_large.
 3. One tagged timer chain runs bulk expiry deletion about every second. Memory
@@ -64,9 +67,11 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
 6. Return fixed errors; no key/value/exception logging. Housekeeping callback
    failures scrub stacks through `Guardian.Failure.stacktrace/1` and reset the
    store. Status redacts state/messages/logs.
-   Tests use a private injectable expiry clock, while deadlines use real time;
-   fault injection pauses callers through a libtest clock gate
-   (`Guardian.Test.Counters.StorePause`), not the housekeeper.
+   Store takes no injected functions: tests pass `now` as data, while deadlines and
+   housekeeping use real time. Fault injection pauses Transport callers through a
+   gate that the test build's Backend adapter waits on before calling Store
+   (`Guardian.Test.Counters.StorePause`), not the housekeeper
+   (`docs/changes/clock-as-data.md`).
    Store validates request options explicitly (`:invalid_request`) and catches any
    other request failure as `:unavailable`; that catch is its deliberate boundary for
    direct callers and the remote endpoint. Transport's `route/2` checks

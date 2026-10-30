@@ -136,7 +136,12 @@ defmodule Guardian.Web.IngestRetryTest do
     token = make_ref()
     digest = :crypto.hash(:sha256, :erlang.term_to_binary({events, nil}, [:deterministic]))
     server = Guardian.Web.IngestIdempotency
-    assert GenServer.call(server, {:claim, {table, key}, digest, token}) == :claimed
+
+    assert GenServer.call(
+             server,
+             {:claim, {table, key}, digest, token, System.monotonic_time(:millisecond)}
+           ) == :claimed
+
     params = %{"table" => table, "events" => events, "idempotency_key" => key}
 
     assert post(params) ==

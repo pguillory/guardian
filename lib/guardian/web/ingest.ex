@@ -11,7 +11,14 @@ defmodule Guardian.Web.Ingest do
         {result, _failed_events} = ingest_fun.()
         {:ok, result}
       else
-        Guardian.Web.IngestIdempotency.run(table, key, {events, return_keys}, ingest_fun)
+        Guardian.Web.IngestIdempotency.run(
+          table,
+          key,
+          {events, return_keys},
+          System.monotonic_time(:millisecond),
+          ingest_fun,
+          Guardian.Web.IngestIdempotency
+        )
         |> idempotent_reply()
       end
     end

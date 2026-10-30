@@ -231,7 +231,7 @@ defmodule Guardian.Rules.CounterRulesTest do
 
     definition = definition(plan)
     current = Integer.floor_div(event(store).arrival.unix_ms, definition.bucket_ms)
-    assert {:ok, nil} = Store.get({definition.identity, {}, current}, server: store)
+    assert {:ok, nil} = Store.get({definition.identity, {}, current}, now(), server: store)
   end
 
   test "top-N buckets that disagree on n fail open without affecting a sibling", %{store: store} do
@@ -247,7 +247,7 @@ defmodule Guardian.Rules.CounterRulesTest do
     context = event(store)
     current = Integer.floor_div(context.arrival.unix_ms, definition.bucket_ms)
     older = {definition.identity, {}, current - 1}
-    assert :ok = Store.cas(older, :missing, {[9], 1}, 5_000, server: store)
+    assert :ok = Store.cas(older, :missing, {[9], 1}, 5_000, now(), server: store)
 
     # Unlike a failed bucket, a failed combination is reported as a rule warning.
     log =
@@ -619,5 +619,10 @@ defmodule Guardian.Rules.CounterRulesTest do
     after
       0 -> n
     end
+  end
+
+  # Store operations take the current local monotonic milliseconds as data.
+  defp now do
+    System.monotonic_time(:millisecond)
   end
 end

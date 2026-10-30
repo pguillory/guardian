@@ -264,7 +264,8 @@ defmodule Guardian.Counters.ExecutionTest do
     first = Integer.floor_div(arrival.unix_ms - definition.window_ms, definition.bucket_ms)
 
     for bucket <- (first - 1)..current do
-      assert {:ok, 1} = Store.incr({definition.identity, {}, bucket}, 1, 10_000, server: store)
+      assert {:ok, 1} =
+               Store.incr({definition.identity, {}, bucket}, 1, 10_000, now(), server: store)
     end
 
     assert lookup(
@@ -313,9 +314,9 @@ defmodule Guardian.Counters.ExecutionTest do
     assert track(definition, {}, [10], event) == 10
     bucket = Integer.floor_div(event.arrival.unix_ms, definition.bucket_ms)
     key = {definition.identity, {}, bucket}
-    assert {:ok, 10, token} = Store.gets(key, server: store)
+    assert {:ok, 10, token} = Store.gets(key, now(), server: store)
     assert track(definition, {}, [1], event(store)) == 10
-    assert {:ok, 10, ^token} = Store.gets(key, server: store)
+    assert {:ok, 10, ^token} = Store.gets(key, now(), server: store)
   end
 
   test "bucket merging remains chronological and retains the newest numeric tie type", %{
@@ -327,7 +328,7 @@ defmodule Guardian.Counters.ExecutionTest do
       current = Integer.floor_div(event.arrival.unix_ms, definition.bucket_ms)
 
       assert :ok =
-               Store.cas({definition.identity, {}, current - 1}, :missing, 1.0, 5_000,
+               Store.cas({definition.identity, {}, current - 1}, :missing, 1.0, 5_000, now(),
                  server: store
                )
 
@@ -579,5 +580,10 @@ defmodule Guardian.Counters.ExecutionTest do
     assert length(values) > 0
     assert Enum.sort(values) == Enum.to_list(1..length(values))
     assert lookup(definition, {}, event(store)) == length(values)
+  end
+
+  # Store operations take the current local monotonic milliseconds as data.
+  defp now do
+    System.monotonic_time(:millisecond)
   end
 end

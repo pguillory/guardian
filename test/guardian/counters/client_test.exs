@@ -307,7 +307,7 @@ defmodule Guardian.Counters.ClientTest do
 
       assert results == %{local: {:ok, 1}, remote: {:error, :timeout}}
       assert CounterBudgetHelper.remaining_us(context.batch) in 200_000..225_000
-      assert Store.get(local_key, server: local) == {:ok, 1}
+      assert Store.get(local_key, now(), server: local) == {:ok, 1}
       assert [{^peer, _}] = :ets.lookup(:counter_client_test, peer)
       assert :ets.lookup(:counter_client_test, node()) == []
 
@@ -323,7 +323,7 @@ defmodule Guardian.Counters.ClientTest do
       :erpc.call(peer, Guardian.Test.Counters.StorePause, :resume, [pause])
     end
 
-    assert :erpc.call(peer, Store, :get, [remote_key, [server: remote]]) == :not_found
+    assert :erpc.call(peer, Store, :get, [remote_key, now(peer), [server: remote]]) == :not_found
     :erpc.call(peer, GenServer, :stop, [remote])
     Guardian.Test.Polling.eventually(fn -> counter_helpers() == [] end)
     assert {:messages, []} = Process.info(self(), :messages)
@@ -361,7 +361,7 @@ defmodule Guardian.Counters.ClientTest do
       Guardian.Test.Counters.StorePause.resume(pause)
     end
 
-    assert Store.get(key(), server: store) == :not_found
+    assert Store.get(key(), now(), server: store) == :not_found
   end
 
   test "malformed operations and routing keys are refused before dispatch", %{store: store} do
@@ -439,9 +439,9 @@ defmodule Guardian.Counters.ClientTest do
              expired: {:error, :expired},
            }
 
-    assert Store.get(key(), server: store) == :not_found
-    assert Store.get(incr_key, server: store) == {:ok, 2}
-    assert Store.get(cas_key, server: store) == {:ok, 3}
+    assert Store.get(key(), now(), server: store) == :not_found
+    assert Store.get(incr_key, now(), server: store) == {:ok, 2}
+    assert Store.get(cas_key, now(), server: store) == {:ok, 3}
     assert CounterBudgetHelper.remaining_us(context.batch) == 250_000
     assert :ets.lookup(:counter_client_test, node()) == []
   end
@@ -471,7 +471,7 @@ defmodule Guardian.Counters.ClientTest do
                {:error, :expired},
              ]
 
-    assert Store.get(key({}, 1), server: store) == :not_found
+    assert Store.get(key({}, 1), now(), server: store) == :not_found
     assert CounterBudgetHelper.remaining_us(context.batch) == 250_000
 
     # With every write expired nothing dispatches, and the reservation is refunded.
@@ -482,7 +482,7 @@ defmodule Guardian.Counters.ClientTest do
 
     assert batch(expired, context) == [{:error, :expired}, {:error, :expired}]
 
-    assert Store.get(key({}, 6), server: store) == :not_found
+    assert Store.get(key({}, 6), now(), server: store) == :not_found
     assert CounterBudgetHelper.remaining_us(context.batch) == 250_000
     assert :ets.lookup(:counter_client_test, node()) == []
   end
@@ -517,7 +517,7 @@ defmodule Guardian.Counters.ClientTest do
       assert Transport.remote_operation(operation, store, 50) == {:error, :invalid_request}
     end
 
-    assert Store.get(key(), server: store) == :not_found
+    assert Store.get(key(), now(), server: store) == :not_found
   end
 
   test "the renamed remote endpoint preserves batch replies and duration bounds", %{
@@ -540,7 +540,7 @@ defmodule Guardian.Counters.ClientTest do
              ]) == {:error, :invalid_request}
     end
 
-    assert :erpc.call(peer, Store, :get, [remote_key]) == :not_found
+    assert :erpc.call(peer, Store, :get, [remote_key, now(peer), []]) == :not_found
   end
 
   test "malformed pipeline replies are charged consistently and never escape as exceptions" do
@@ -635,7 +635,7 @@ defmodule Guardian.Counters.ClientTest do
     atom_key = key({:group})
 
     assert batch_one({:incr, atom_key, 1, 5_000}, context) == {:ok, 1}
-    assert Store.get(atom_key, server: store) == {:ok, 1}
+    assert Store.get(atom_key, now(), server: store) == {:ok, 1}
   end
 
   test "local native operations preserve nil, tokens, colocation and definite errors", %{
@@ -692,7 +692,7 @@ defmodule Guardian.Counters.ClientTest do
     assert named(%{one: {:get, key}, two: {:get, key}}, context) ==
              %{one: {:ok, 5}, two: {:ok, 5}}
 
-    assert :erpc.call(peer, Store, :get, [key]) == {:ok, 5}
+    assert :erpc.call(peer, Store, :get, [key, now(peer), []]) == {:ok, 5}
   end
 
   test "shared aggregate states survive ETF, local ETS and peer ETS with further merges", %{
@@ -730,16 +730,21 @@ defmodule Guardian.Counters.ClientTest do
         key = key({System.unique_integer([:positive])})
         opts = [server: server, timeout: 5_000]
 
-        assert :erpc.call(owner, Store, :cas, [key, :missing, state, 5_000, opts]) == :ok
-        assert {:ok, restored, token} = :erpc.call(owner, Store, :gets, [key, opts])
+        assert :erpc.call(owner, Store, :cas, [key, :missing, state, 5_000, now(owner), opts]) ==
+                 :ok
+
+        assert {:ok, restored, token} = :erpc.call(owner, Store, :gets, [key, now(owner), opts])
         assert :erlang.term_to_binary(restored) == encoded
         unchanged = :erpc.call(owner, Aggregation, :merge, [aggregation, restored, empty])
         assert :erlang.term_to_binary(unchanged) == encoded
         merged = :erpc.call(owner, Aggregation, :merge, [aggregation, restored, delta])
         expected = Aggregation.merge(aggregation, state, delta)
         assert :erlang.term_to_binary(merged) == :erlang.term_to_binary(expected)
-        assert :erpc.call(owner, Store, :cas, [key, token, merged, 5_000, opts]) == :ok
-        assert {:ok, reread} = :erpc.call(owner, Store, :get, [key, opts])
+
+        assert :erpc.call(owner, Store, :cas, [key, token, merged, 5_000, now(owner), opts]) ==
+                 :ok
+
+        assert {:ok, reread} = :erpc.call(owner, Store, :get, [key, now(owner), opts])
         assert :erlang.term_to_binary(reread) == :erlang.term_to_binary(expected)
 
         assert :erpc.call(owner, Aggregation, :finish, [aggregation, reread]) ===
@@ -761,7 +766,7 @@ defmodule Guardian.Counters.ClientTest do
     :ok = :peer.stop(peer)
     lost = event(store, members: [booting])
     assert batch_one({:get, key()}, lost) in [{:error, :unavailable}, {:error, :cooldown}]
-    assert Store.get(key(), server: store) == :not_found
+    assert Store.get(key(), now(), server: store) == :not_found
   end
 
   test "local stall times out, queued mutation expires, cooldown recovers", %{store: store} do
@@ -780,7 +785,7 @@ defmodule Guardian.Counters.ClientTest do
       Guardian.Test.Counters.StorePause.resume(pause)
     end
 
-    assert Store.get(key(), server: store) == :not_found
+    assert Store.get(key(), now(), server: store) == :not_found
     Process.sleep(1_010)
     assert batch_one({:incr, key(), 1, 5_000}, event(store)) == {:ok, 1}
   end
@@ -941,7 +946,7 @@ defmodule Guardian.Counters.ClientTest do
       Guardian.Test.Counters.StorePause.resume(pause)
     end
 
-    assert Store.get(key(), server: store) == :not_found
+    assert Store.get(key(), now(), server: store) == :not_found
   end
 
   test "frozen peer and distribution backpressure cannot outlive the failure budget" do
@@ -1036,5 +1041,11 @@ defmodule Guardian.Counters.ClientTest do
         GenServer.reply(from, {:ok, Enum.map(operations, fn _ -> :not_found end)})
         delayed_store()
     end
+  end
+
+  # Store operations take the current local monotonic milliseconds as data, read on
+  # the store's own node: an instant never crosses nodes.
+  defp now(node \\ node()) do
+    :erpc.call(node, System, :monotonic_time, [:millisecond])
   end
 end

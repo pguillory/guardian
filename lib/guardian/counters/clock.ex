@@ -8,7 +8,9 @@ defmodule Guardian.Counters.Clock do
   are all instants or durations in this node's `System.monotonic_time(:microsecond)`.
   Never send an instant to another node: remote endpoints receive a remaining duration
   in milliseconds and anchor it with `deadline/1` on their own clock. Store's
-  `:deadline` option is a monotonic millisecond instant (`to_store_ms/1`).
+  `:deadline` option is a monotonic millisecond instant (`to_store_ms/1`), and its
+  required `now` argument is the owner's `System.monotonic_time(:millisecond)`, read
+  by Transport at dispatch.
 
   Mutation TTLs are a separate contract: their expiries use the event's monotonic
   arrival coordinate (`Guardian.Counters.Arrival`,

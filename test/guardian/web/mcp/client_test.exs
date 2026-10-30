@@ -255,7 +255,7 @@ defmodule Guardian.Web.MCP.ClientTest do
 
       assert GenServer.call(
                Guardian.Web.IngestIdempotency,
-               {:claim, {table, "pending"}, digest, token}
+               {:claim, {table, "pending"}, digest, token, System.monotonic_time(:millisecond)}
              ) ==
                :claimed
 

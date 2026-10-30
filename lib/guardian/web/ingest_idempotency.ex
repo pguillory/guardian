@@ -21,6 +21,10 @@ defmodule Guardian.Web.IngestIdempotency do
   Runs `ingest` once for a new key, or reports what an earlier run with the key left.
   `request` is the validated `{events, return_keys}`, used only to compute a digest.
   `ingest` returns `{value, failed_events}`; the receipt keeps only the count.
+  `now` is the current local monotonic time in milliseconds
+  (`System.monotonic_time(:millisecond)`) and judges only the claim: receipts that
+  expired by then are gone. A receipt's own retention starts when the coordinator
+  records its completion, by the coordinator's clock.
 
   Returns `{:ran, value}` when this call ran `ingest` (a new claim, or without
   protection when the coordinator is full or unavailable), `{:duplicate,
@@ -28,12 +32,12 @@ defmodule Guardian.Web.IngestIdempotency do
   `:changed` (different request), `:pending` (still in flight) or `:uncertain`
   (outcome unknown). Mapping outcomes to a response belongs to the caller.
   """
-  def run(table, key, request, ingest, server \\ __MODULE__) do
+  def run(table, key, request, now, ingest, server) when is_integer(now) do
     digest = :crypto.hash(:sha256, :erlang.term_to_iovec(request, [:deterministic]))
     token = make_ref()
     pid = GenServer.whereis(server)
 
-    case call(pid, {:claim, {table, key}, digest, token}) do
+    case call(pid, {:claim, {table, key}, digest, token, now}) do
       :claimed ->
         ingest_claimed(pid, token, ingest)
 
@@ -87,7 +91,6 @@ defmodule Guardian.Web.IngestIdempotency do
       completed: :gb_trees.empty(),
       retention_ms: Keyword.get(opts, :retention_ms, @retention_ms),
       max_entries: Keyword.get(opts, :max_entries, @max_entries),
-      clock: Keyword.get(opts, :clock, fn -> System.monotonic_time(:millisecond) end),
     }
 
     schedule_sweep()
@@ -95,8 +98,8 @@ defmodule Guardian.Web.IngestIdempotency do
   end
 
   @impl true
-  def handle_call({:claim, identity, digest, token}, {owner, _tag}, state) do
-    state = expire(state)
+  def handle_call({:claim, identity, digest, token, now}, {owner, _tag}, state) do
+    state = expire(state, now)
 
     case Map.get(state.entries, identity) do
       nil ->
@@ -165,7 +168,7 @@ defmodule Guardian.Web.IngestIdempotency do
 
   def handle_info(:sweep, state) do
     schedule_sweep()
-    {:noreply, expire(state)}
+    {:noreply, expire(state, now())}
   end
 
   # No keys, digests, caller messages or past states in formatted status/reports.
@@ -196,7 +199,7 @@ defmodule Guardian.Web.IngestIdempotency do
 
       {identity, entry} ->
         state = drop_pending(state, identity, entry)
-        expires = {state.clock.() + state.retention_ms, token}
+        expires = {now() + state.retention_ms, token}
         completed = %{digest: entry.digest, status: status}
 
         %{
@@ -218,13 +221,19 @@ defmodule Guardian.Web.IngestIdempotency do
     }
   end
 
-  defp expire(state) do
+  defp expire(state, now) do
     if :gb_trees.is_empty(state.completed) do
       state
     else
       {{expires, _token}, _identity} = :gb_trees.smallest(state.completed)
-      if expires <= state.clock.(), do: state |> evict_oldest() |> expire(), else: state
+      if expires <= now, do: state |> evict_oldest() |> expire(now), else: state
     end
+  end
+
+  # Completions, caller deaths and the sweep timer happen in the coordinator, at a
+  # time no caller's argument describes, so they read the clock themselves.
+  defp now do
+    System.monotonic_time(:millisecond)
   end
 
   defp make_room(state) do

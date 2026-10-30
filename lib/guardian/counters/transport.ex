@@ -344,8 +344,12 @@ defmodule Guardian.Counters.Transport do
     opts = [server: store, timeout: timeout, deadline: Clock.to_store_ms(deadline)]
 
     case operation do
-      {:batch, operations} -> @store_backend.batch(operations, opts)
-      _ -> {:error, :invalid_request}
+      # Read on the store's own node: an instant never crosses nodes.
+      {:batch, operations} ->
+        @store_backend.batch(operations, System.monotonic_time(:millisecond), opts)
+
+      _ ->
+        {:error, :invalid_request}
     end
   catch
     _, _ -> {:error, :unavailable}

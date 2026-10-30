@@ -1,50 +1,93 @@
 defmodule Guardian.Test.Counters.StorePause do
   @moduledoc """
-  Pauses a real `Guardian.Counters.Store`'s callers through its clock, and owns the
-  test side's knowledge of the Store's private descriptor (the
-  `:counter_store_descriptor` process-dictionary key and ETS row). `store?/1` tells a
-  real Store from a probe for `Guardian.Test.Counters.ProbeStore.backend/1`.
+  Pauses a real `Guardian.Counters.Store`'s callers, and owns the test side's knowledge
+  of the Store's private descriptor (the `:counter_store_descriptor` process-dictionary
+  key and ETS row). `store?/1` tells a real Store from a probe for
+  `Guardian.Test.Counters.ProbeStore.backend/1`.
+
+  A pause is a suspended gate process recorded in the store's own ETS table (a 2-tuple
+  row, which Store's operations and housekeeping never match, and which dies with the
+  store). `Guardian.Test.Counters.Backend` calls the gate before handing a batch to the
+  Store, so Transport callers (local, or on a peer through the remote endpoint) queue
+  on the gate. The gate runs before Store's own deadline checks: a caller whose
+  deadline passed while paused gets `{:error, :timeout}` without mutating. Direct
+  Store calls bypass the gate.
   """
   use GenServer
+
+  @descriptor :counter_store_descriptor
+  @gate {__MODULE__, :gate}
 
   # Pause actual callers, not the housekeeping process. Tests can still await a
   # queued call on this gate and release its reply through ordinary sys controls.
   def pause(store) do
     {:ok, gate} = GenServer.start(__MODULE__, :gate)
     :ok = :sys.suspend(gate)
-    {table, descriptor} = descriptor(store)
-
-    clock = fn ->
-      GenServer.call(gate, :clock, :infinity)
-      descriptor.clock.()
-    end
-
-    :ets.insert(table, {:counter_store_descriptor, %{descriptor | clock: clock}})
-    {gate, table, descriptor}
+    table = table(store)
+    :ets.insert(table, {@gate, gate})
+    {gate, table}
   end
 
-  def resume({gate, table, descriptor}) do
-    :ets.insert(table, {:counter_store_descriptor, descriptor})
+  def resume({gate, table}) do
+    :ets.delete(table, @gate)
     :sys.resume(gate)
     GenServer.stop(gate)
     :ok
   end
 
-  @doc "Whether `pid` is a real Store, which publishes its descriptor in its dictionary."
-  def store?(pid) when is_pid(pid) do
-    case Process.info(pid, :dictionary) do
-      {:dictionary, dictionary} -> Keyword.has_key?(dictionary, :counter_store_descriptor)
+  @doc """
+  Waits on `server`'s gate, if it is paused. `server` is a Store option value (a
+  registered name, PID or table reference); anything else is never paused.
+  """
+  def await_gate(server) do
+    case gate(server) do
+      nil -> :ok
+      gate -> GenServer.call(gate, :pass, :infinity)
     end
   end
 
-  defp descriptor(store) do
+  @doc """
+  Publishes a descriptor whose table is `entries`, a term that is not a table, so the
+  store's callers fail inside their operations. Returns a function that restores it.
+  """
+  def break_entries(store, entries) do
+    table = table(store)
+    [{@descriptor, descriptor}] = :ets.lookup(table, @descriptor)
+    :ets.insert(table, {@descriptor, %{descriptor | entries: entries}})
+    fn -> :ets.insert(table, {@descriptor, descriptor}) end
+  end
+
+  @doc "Whether `pid` is a real Store, which publishes its descriptor in its dictionary."
+  def store?(pid) when is_pid(pid) do
+    case Process.info(pid, :dictionary) do
+      {:dictionary, dictionary} -> Keyword.has_key?(dictionary, @descriptor)
+    end
+  end
+
+  defp gate(server) do
+    table =
+      cond do
+        is_atom(server) -> :ets.whereis(server)
+        is_reference(server) -> server
+        is_pid(server) -> table(server)
+        true -> :undefined
+      end
+
+    case :ets.lookup(table, @gate) do
+      [{@gate, gate}] -> gate
+      [] -> nil
+    end
+  catch
+    _, _ -> nil
+  end
+
+  defp table(store) do
     pid = if is_pid(store), do: store, else: Process.whereis(store)
 
-    {{:dictionary, :counter_store_descriptor}, table} =
-      :erlang.process_info(pid, {:dictionary, :counter_store_descriptor})
+    {{:dictionary, @descriptor}, table} =
+      :erlang.process_info(pid, {:dictionary, @descriptor})
 
-    [{:counter_store_descriptor, descriptor}] = :ets.lookup(table, :counter_store_descriptor)
-    {table, descriptor}
+    table
   end
 
   @impl true
@@ -53,7 +96,7 @@ defmodule Guardian.Test.Counters.StorePause do
   end
 
   @impl true
-  def handle_call(:clock, _, state) do
+  def handle_call(:pass, _, state) do
     {:reply, :ok, state}
   end
 end

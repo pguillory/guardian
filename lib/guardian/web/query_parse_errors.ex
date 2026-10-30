@@ -4,11 +4,12 @@ defmodule Guardian.Web.QueryParseErrors do
   failing queries can guide better parse error messages.
 
   `Guardian.Web.Query.execute/3`, the MCP query path, hands each `Guardian.AST.ParseError` to
-  `record/4`, which hands one row to this GenServer; the original error is then
+  `record/5`, which hands one row to this GenServer; the original error is then
   reraised, so the caller's response is exactly what it would have been. The handoff
-  is a cast: the request never waits on the recorder or Guardian.Storage. Rows are written by
-  this process, capped per machine per clock hour. Any failure to build, hand off, or
-  write a row is logged with `Logger.error`, naming only the failure's kind (as
+  is a cast: the request never waits on the recorder or Guardian.Storage. Rows are
+  written by this process, capped per machine per clock hour: the hour of the caller's
+  `now`, which only moves forward. Any failure to build, hand off, or write a row is
+  logged with `Logger.error`, naming only the failure's kind (as
   `Guardian.Engine.try_log_event/2` does, never a message or stack, which could carry query
   text), and never reaches the caller.
   """
@@ -45,10 +46,12 @@ defmodule Guardian.Web.QueryParseErrors do
 
   @doc """
   Hands one parse failure to the recorder. `caller_fun` returns the caller fields
-  (see `mcp_caller/1`). Never raises, throws, or exits; always
+  (see `mcp_caller/1`). `now` is the current Unix time in seconds; the hourly cap
+  counts the row in its hour. Never raises, throws, or exits; always
   returns `:ok`. Options: `:server` names the recorder.
   """
-  def record(sql, %Guardian.AST.ParseError{} = error, caller_fun, opts \\ []) do
+  def record(sql, %Guardian.AST.ParseError{} = error, caller_fun, now, opts) do
+    true = is_integer(now)
     server = Keyword.get(opts, :server, __MODULE__)
     caller = caller_fun.()
     row = row(sql, error, caller)
@@ -64,7 +67,7 @@ defmodule Guardian.Web.QueryParseErrors do
             log_failure(row["interface"], "the recorder is #{len} rows behind")
 
           _ ->
-            GenServer.cast(pid, {:record, row})
+            GenServer.cast(pid, {:record, row, div(now, 3600)})
         end
     end
 
@@ -162,18 +165,21 @@ defmodule Guardian.Web.QueryParseErrors do
         Application.get_env(:guardian, :query_parse_errors_per_hour, @default_rows_per_hour)
       end)
 
-    clock = Keyword.get(opts, :clock, fn -> System.system_time(:second) end)
     # A writer returns like `Guardian.Engine.try_log_event/2` and never raises.
     writer = Keyword.get(opts, :writer, &Guardian.Engine.try_log_event/2)
 
-    {:ok,
-     %{limit: limit, clock: clock, writer: writer, hour: nil, count: 0, dropped: 0, warned: nil}}
+    {:ok, %{limit: limit, writer: writer, hour: nil, count: 0, dropped: 0, warned: nil}}
   end
 
   @impl true
-  def handle_cast({:record, row}, state) do
-    hour = div(state.clock.(), 3600)
-    state = if hour == state.hour, do: state, else: %{state | hour: hour, count: 0}
+  def handle_cast({:record, row, hour}, state) do
+    # The hour only moves forward: concurrent callers' casts can arrive out of order
+    # across an hour boundary, and a late row counts against the current hour, so the
+    # cap is never reset twice.
+    state =
+      if state.hour != nil and hour <= state.hour,
+        do: state,
+        else: %{state | hour: hour, count: 0}
 
     if state.count < state.limit do
       # A write that fails still counts against the cap, and its row joins the count
@@ -186,14 +192,14 @@ defmodule Guardian.Web.QueryParseErrors do
 
       {:noreply, %{state | count: state.count + 1, dropped: dropped}}
     else
-      if state.warned != hour do
+      if state.warned != state.hour do
         Logger.warning(
           "query_parse_errors: #{state.limit} rows already recorded this hour on this " <>
             "machine; dropping rows until the next hour"
         )
       end
 
-      {:noreply, %{state | dropped: state.dropped + 1, warned: hour}}
+      {:noreply, %{state | dropped: state.dropped + 1, warned: state.hour}}
     end
   end
 

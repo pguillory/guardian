@@ -9,9 +9,13 @@ defmodule Guardian.Counters.Store do
   binary backing. Housekeeping enforces it asynchronously; concurrent writes can
   temporarily exceed it. Individual oversized payloads are refused up front.
 
-  Operations accept :server (registered name, PID or table reference), :timeout
-  (50 ms by default) and a local monotonic-millisecond :deadline. Pipelines check
-  the deadline before every operation. Transport bounds caller waits separately.
+  Operations take `now`, the caller's current local monotonic milliseconds
+  (`System.monotonic_time(:millisecond)` on this node), which judges and sets
+  expiry for every operation of the request. Options are :server (registered name,
+  PID or table reference), :timeout (50 ms by default) and a local
+  monotonic-millisecond :deadline. Pipelines check the deadline, on the real clock,
+  before every operation. Transport bounds caller waits separately. Housekeeping
+  reads the real clock itself.
   """
   use GenServer
   @default_budget 64 * 1024 * 1024
@@ -30,44 +34,50 @@ defmodule Guardian.Counters.Store do
     end
   end
 
-  def get(key, opts \\ []) do
-    request({:get, key}, opts)
+  def get(key, now, opts) do
+    request({:get, key}, now, opts)
   end
 
-  def gets(key, opts \\ []) do
-    request({:gets, key}, opts)
+  def gets(key, now, opts) do
+    request({:gets, key}, now, opts)
   end
 
   @doc "Executes up to 4,000 operations in order, checking deadlines before each."
-  def batch(operations, opts \\ []) do
-    request({:batch, operations}, opts)
+  def batch(operations, now, opts) do
+    request({:batch, operations}, now, opts)
   end
 
-  def cas(key, expected, value, ttl, opts \\ []) do
-    request({:cas, key, expected, value, ttl}, opts)
+  def cas(key, expected, value, ttl, now, opts) do
+    request({:cas, key, expected, value, ttl}, now, opts)
   end
 
-  def incr(key, delta, ttl, opts \\ []) do
-    request({:incr, key, delta, ttl}, opts)
+  def incr(key, delta, ttl, now, opts) do
+    request({:incr, key, delta, ttl}, now, opts)
   end
 
   @doc "Approximate aggregate diagnostics under concurrent writes; scans resident rows."
   def stats(opts \\ []) do
-    request(:stats, opts)
+    # Stats judge no expiry, so they take no `now`; the request's is never read.
+    request(:stats, System.monotonic_time(:millisecond), opts)
   end
 
   # The public boundary for direct callers and the remote endpoint's store call:
   # malformed options are checked, never rescued, and any other failure is a fixed,
   # value-free :unavailable, since counters are advisory and fail open.
-  defp request(operation, opts) do
-    with {:ok, deadline} <- request_deadline(opts),
+  defp request(operation, now, opts) do
+    with :ok <- valid_now(now),
+         {:ok, deadline} <- request_deadline(opts),
          :ok <- before_deadline(deadline),
          {:ok, state} <- descriptor(Keyword.get(opts, :server, __MODULE__)),
          :ok <- before_deadline(deadline) do
-      execute_request(operation, state, deadline)
+      execute_request(operation, state, now, deadline)
     end
   catch
     _, _ -> {:error, :unavailable}
+  end
+
+  defp valid_now(now) do
+    if is_integer(now), do: :ok, else: {:error, :invalid_request}
   end
 
   # Validates the options, in order: a keyword list, a positive integer :timeout, then
@@ -122,10 +132,8 @@ defmodule Guardian.Counters.Store do
       )
 
     interval = Keyword.get(opts, :sweep_interval_ms, @sweep_interval_ms)
-    clock = Keyword.get(opts, :clock, fn -> System.monotonic_time(:millisecond) end)
 
-    if is_integer(budget) and budget > 0 and is_integer(interval) and interval > 0 and
-         is_function(clock, 0) do
+    if is_integer(budget) and budget > 0 and is_integer(interval) and interval > 0 do
       name = Keyword.get(opts, :name, __MODULE__)
 
       options = [
@@ -143,7 +151,6 @@ defmodule Guardian.Counters.Store do
       descriptor = %{
         entries: entries,
         budget: budget,
-        clock: clock,
         baseline_bytes: 0,
         ready: false,
       }
@@ -193,22 +200,19 @@ defmodule Guardian.Counters.Store do
     {:noreply, state}
   end
 
-  defp execute_request({:batch, operations}, state, deadline)
+  defp execute_request({:batch, operations}, state, now, deadline)
        when is_list(operations) and length(operations) <= @max_batch_operations do
-    {:ok, Enum.map(operations, &execute_one(&1, state, deadline))}
+    {:ok, Enum.map(operations, &execute_one(&1, state, now, deadline))}
   end
 
-  defp execute_request(operation, state, deadline) do
-    execute_one(operation, state, deadline)
+  defp execute_request(operation, state, now, deadline) do
+    execute_one(operation, state, now, deadline)
   end
 
-  defp execute_one(operation, state, deadline) do
-    with :ok <- before_deadline(deadline) do
-      now = state.clock.()
-      with :ok <- before_deadline(deadline), do: execute(operation, state, now, deadline)
-    end
+  defp execute_one(operation, state, now, deadline) do
+    with :ok <- before_deadline(deadline), do: execute(operation, state, now, deadline)
   catch
-    # A failing operation (the store's injected clock, say) fails alone, as :unavailable.
+    # A failing operation (its table gone mid-batch, say) fails alone, as :unavailable.
     _, _ -> {:error, :unavailable}
   end
 
@@ -357,8 +361,9 @@ defmodule Guardian.Counters.Store do
     if System.monotonic_time(:millisecond) < deadline, do: :ok, else: {:error, :timeout}
   end
 
+  # Housekeeping runs on a timer, so it reads the real clock.
   defp sweep(state) do
-    now = state.clock.()
+    now = System.monotonic_time(:millisecond)
     :ets.select_delete(state.entries, [{{:_, :_, :"$1", :_}, [{:"=<", :"$1", now}], [true]}])
     evict(state, @eviction_passes)
   end

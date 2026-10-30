@@ -4,7 +4,7 @@ defmodule Guardian.Test.Counters.ProbeStore do
   each operation of a batch with `fun.(operation)`; started with `{:pipeline, fun}`,
   it answers a whole batch with `fun.(operations)`.
 
-  `batch/2` is also the mailbox batch adapter that `Guardian.Test.Counters.Backend`
+  `batch/3` is also the mailbox batch adapter that `Guardian.Test.Counters.Backend`
   calls for a `{Guardian.Test.Counters.ProbeStore, server}` store option, for this
   probe or any other process speaking its `{:operation, deadline, {:batch, ops}}`
   call (such as `Guardian.Test.Counters.PipelineProbe`). Mailbox transport doubles
@@ -38,7 +38,8 @@ defmodule Guardian.Test.Counters.ProbeStore do
     {:reply, {:ok, Enum.map(operations, handler)}, handler}
   end
 
-  def batch(operations, opts) do
+  # Probes script their own answers, so they ignore `now`.
+  def batch(operations, _now, opts) do
     request({:batch, operations}, opts)
   end
 

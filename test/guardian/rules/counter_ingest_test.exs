@@ -207,7 +207,7 @@ defmodule Guardian.Rules.CounterIngestTest do
     definition = track(table).definition
     bucket = Integer.floor_div(System.os_time(:millisecond), definition.bucket_ms)
     max = Guardian.Query.Numeric.max_int()
-    assert {:ok, ^max} = Store.incr({definition.identity, {}, bucket}, max, 60_000)
+    assert {:ok, ^max} = Store.incr({definition.identity, {}, bucket}, max, 60_000, now(), [])
 
     assert [{:ok, row}] = ingest(table, [%{"v" => 1}])
     refute Map.has_key?(row, "hits")
@@ -458,5 +458,10 @@ defmodule Guardian.Rules.CounterIngestTest do
     Guardian.Test.Counters.Client.await_ready(peer_node)
     await_cooldown(peer_node)
     assert [{:ok, %{"hits" => 1, "prior" => 0}}] = ingest(table, [%{"g" => group}])
+  end
+
+  # Store operations take the current local monotonic milliseconds as data.
+  defp now do
+    System.monotonic_time(:millisecond)
   end
 end

@@ -143,7 +143,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       for {caller_fun, kind} <- callers do
         log =
           capture_log(fn ->
-            assert record(bad_sql(), error, caller_fun) == :ok
+            assert record(bad_sql(), error, caller_fun, now(), []) == :ok
           end)
 
         assert log =~ "Failed to record a query parse error: #{kind}"
@@ -255,7 +255,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       log =
         capture_log(fn ->
           :ok =
-            record(lost, error, fn -> %{"interface" => "mcp"} end, server: server)
+            record(lost, error, fn -> %{"interface" => "mcp"} end, now(), server: server)
 
           :ok = sync(server)
         end)
@@ -263,7 +263,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       assert log =~ "Failed to record a mcp query parse error: RuntimeError"
 
       :ok =
-        record(kept, error, fn -> %{"interface" => "mcp"} end, server: server)
+        record(kept, error, fn -> %{"interface" => "mcp"} end, now(), server: server)
 
       assert rows_for(lost, server) == []
       assert [%{"dropped_before" => 1}] = rows_for(kept, server)
@@ -280,7 +280,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       log =
         capture_log(fn ->
           :ok =
-            record(sql, error, fn -> %{"interface" => "mcp"} end, server: server)
+            record(sql, error, fn -> %{"interface" => "mcp"} end, now(), server: server)
         end)
 
       assert log =~ "the recorder is 100 rows behind"
@@ -303,10 +303,11 @@ defmodule Guardian.Web.QueryParseErrorsTest do
           sql,
           error,
           fn -> %{"interface" => "mcp", "user_agent" => agent} end,
+          now(),
           server: server
         )
 
-      {:messages, [{:"$gen_cast", {:record, row}}]} = Process.info(pid, :messages)
+      {:messages, [{:"$gen_cast", {:record, row, _hour}}]} = Process.info(pid, :messages)
 
       for {_key, value} when is_binary(value) <- row do
         assert :binary.referenced_byte_size(value) == byte_size(value)
@@ -316,22 +317,15 @@ defmodule Guardian.Web.QueryParseErrorsTest do
     end
 
     test "rows over the hourly cap are dropped and counted on the next recorded row" do
-      now = :counters.new(1, [])
-      :counters.put(now, 1, 3600 * 10)
+      hour = 3600 * 10
       server = :"limiter_#{System.unique_integer([:positive])}"
-
-      start_supervised!(
-        {QueryParseErrors, name: server, rows_per_hour: 2, clock: fn -> :counters.get(now, 1) end}
-      )
-
+      start_supervised!({QueryParseErrors, name: server, rows_per_hour: 2})
       sqls = for _ <- 1..5, do: bad_sql()
 
       log =
         capture_log(fn ->
           for sql <- sqls do
-            error = %Guardian.AST.ParseError{reason: "test", row: 0, col: 0}
-
-            assert record(sql, error, fn -> %{"interface" => "mcp"} end, server: server) == :ok
+            assert record_at(sql, hour, server) == :ok
           end
 
           :ok = sync(server)
@@ -341,14 +335,34 @@ defmodule Guardian.Web.QueryParseErrorsTest do
       assert [[_], [_], [], [], []] = Enum.map(sqls, &rows_for(&1, server))
 
       # Next hour: the first row reports the three dropped.
-      :counters.add(now, 1, 3600)
       sql = bad_sql()
-      error = %Guardian.AST.ParseError{reason: "test", row: 0, col: 0}
-
-      :ok =
-        record(sql, error, fn -> %{"interface" => "mcp"} end, server: server)
-
+      :ok = record_at(sql, hour + 3600, server)
       assert [%{"dropped_before" => 3}] = rows_for(sql, server)
     end
+
+    test "a late row from an earlier hour counts against the current hour" do
+      hour = 3600 * 10
+      server = :"limiter_#{System.unique_integer([:positive])}"
+      start_supervised!({QueryParseErrors, name: server, rows_per_hour: 2})
+      # Concurrent callers' rows can arrive out of order across an hour boundary.
+      sqls = for _ <- 1..4, do: bad_sql()
+      times = [hour + 3600, hour + 3599, hour + 3600, hour + 3600]
+
+      capture_log(fn ->
+        for {sql, now} <- Enum.zip(sqls, times), do: :ok = record_at(sql, now, server)
+        :ok = sync(server)
+      end)
+
+      assert [[_], [_], [], []] = Enum.map(sqls, &rows_for(&1, server))
+    end
+  end
+
+  defp record_at(sql, now, server) do
+    error = %Guardian.AST.ParseError{reason: "test", row: 0, col: 0}
+    record(sql, error, fn -> %{"interface" => "mcp"} end, now, server: server)
+  end
+
+  defp now do
+    System.system_time(:second)
   end
 end

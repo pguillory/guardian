@@ -61,14 +61,14 @@ describes claims, digests, monitors and expiry. Implementation rules to keep:
   their caller-generated token. Unavailable claims fail open with a fixed info log
   containing no client data; completion failures never hide the original response.
 
-`IngestIdempotency.run/5` returns plain outcomes (`{:ran, value}`, `{:duplicate,
+`IngestIdempotency.run/6` returns plain outcomes (`{:ran, value}`, `{:duplicate,
 failed_events}`, `{:conflict, :changed | :pending | :uncertain}`) and treats the
 ingest value as opaque; `Guardian.Web.Ingest` owns the receipt body, the 409 status
 and the conflict messages.
 
 The MCP `query` tool runs SQL through `Guardian.Web.Query.execute/3`, which wraps `Guardian.Query.execute/2` (resolve, require one statement, label columns from the
 pre-LET statement, run). Don't resolve or run queries in Web any other way. On an
-`Guardian.AST.ParseError` it has `Guardian.Web.QueryParseErrors.record/4` record a `query_parse_errors`
+`Guardian.AST.ParseError` it has `Guardian.Web.QueryParseErrors.record/5` record a `query_parse_errors`
 row and the same error is reraised, so responses are unchanged.
 Recording is a cast to the `Guardian.Web.QueryParseErrors` GenServer: never make it
 synchronous: a stalled Storage write would hold up the MCP call, every later request

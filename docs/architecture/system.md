@@ -195,7 +195,7 @@ Elixir), and `count_distinct` uses `hypex`, a HyperLogLog written in Elixir.
 ```text
 POST /api/json/send_events or MCP send_events
   -> Guardian.Web.Ingest.send_events/1           request validation, result shaping
-       -> Guardian.Web.IngestIdempotency.run/5   optional keyed claim/receipt around Engine
+       -> Guardian.Web.IngestIdempotency.run/6   optional keyed claim/receipt around Engine
   -> Guardian.Engine.ingest_events/2             table name check, then each event on its own
        -> Guardian.Storage.Flattening.flatten_event/1
        -> drop invalid values and over-long keys
@@ -234,8 +234,9 @@ monitoring alone cannot notice a failure caught by a reused HTTP/MCP process.
 Only independent copies of bounded table/key strings, a SHA-256 digest of
 deterministically encoded `{events, return_keys}`, tokens, monitors, status/count
 and expiry are kept. There are at most 10,000 entries. Completed and uncertain
-entries enter a monotonic expiry tree, cleared on claim and every second, and live
-for ten seconds after completion. Pending entries do not expire. At capacity the
+entries enter a monotonic expiry tree, cleared on claim (as of the caller's `now`, a
+required argument) and every second, and live for ten seconds after completion, which
+the coordinator stamps with its own clock. Pending entries do not expire. At capacity the
 oldest completed entry is evicted first; with only pending entries left, the new
 batch runs unprotected. Coordinator calls time out after 100 ms and catch exits;
 unavailable claims fail open with a fixed info log, and completion failures do not
@@ -491,7 +492,7 @@ directly in callers and remote handlers. Deterministic ETF binary keys make CAS
 select_replace and conditional expired deletion keyed operations, including for
 maps and match-spec atoms. This encoding is ephemeral and local to Store, separate
 from Transport's phash2 owner routing. A reserved atom row holds the immutable
-descriptor (clock, budget, table generation and baseline). Named stores use ETS
+descriptor (budget, table generation and baseline). Named stores use ETS
 name/descriptor lookup; unnamed PID stores retrieve the table reference from the
 owner's process dictionary. A captured table reference cannot address a replacement
 generation after restart. Suspending the named housekeeper does not stall callers.
@@ -510,7 +511,10 @@ Client accepts only batched operations; Transport's remote endpoint accepts only
 owner pipelines.
 Store retains the local atomic primitives; Store.batch executes
 up to 4,000 operations in order and checks the original deadline before each.
-Deadlines are checked after clock/key preparation and before mutations/retries.
+Every operation takes the caller's `now` (owner-local monotonic milliseconds, read
+by Transport on the owner at dispatch, one per request); deadlines use the real clock
+and are checked after key preparation and before mutations/retries. Housekeeping
+reads the real clock.
 The 50 ms default remains; Transport bounds waits on its helpers. Errors and status
 disclose no keys/values. Restart clears only counters, not Storage or Rules.Server.
 
@@ -1217,7 +1221,9 @@ Guardian observes itself by writing ordinary tables through `Guardian.Engine.log
    builds a bounded row in the request process, and casts it to the
    `Guardian.Web.QueryParseErrors` GenServer unless that GenServer's mailbox already holds about
    100 rows (a best-effort check by the sender); the GenServer applies the hourly
-   per-machine cap (60) and writes the row; it reraises the original error so the
+   per-machine cap (60), by the hour of the request's parse failure (an hour that only
+   moves forward, so a late row from an earlier hour counts against the current one),
+   and writes the row; it reraises the original error so the
    response is unchanged. A failed write or row build is logged by kind and does not
    affect the response. The bounds (spec section 8) keep a flood of bad queries from
    growing the table or delaying responses.

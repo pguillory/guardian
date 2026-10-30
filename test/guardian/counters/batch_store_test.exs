@@ -14,6 +14,7 @@ defmodule Guardian.Counters.BatchStoreTest do
                {:cas, :k, :missing, 3, 5_000},
                :bad,
              ],
+             System.monotonic_time(:millisecond),
              server: store
            ) ==
              {:ok,
@@ -26,48 +27,33 @@ defmodule Guardian.Counters.BatchStoreTest do
                 {:error, :invalid_request},
               ]}
 
-    assert Store.batch(List.duplicate({:get, :k}, 4_001), server: store) ==
+    now = System.monotonic_time(:millisecond)
+
+    assert Store.batch(List.duplicate({:get, :k}, 4_001), now, server: store) ==
              {:error, :invalid_request}
 
-    assert Store.batch([], server: store) == {:ok, []}
+    assert Store.batch([], now, server: store) == {:ok, []}
   end
 
   test "the deadline is checked between operations and skips queued writes" do
-    parent = self()
-    calls = :atomics.new(1, [])
+    store = start_supervised!({Store, name: nil, sweep_interval_ms: 3_600_000})
+    now = System.monotonic_time(:millisecond)
+    # Each key takes a while to encode, so 4,000 of them outlast a 20 ms deadline on
+    # any machine. Where the deadline falls depends on the host; the shape doesn't.
+    big = Enum.to_list(1..100_000)
+    operations = for i <- 1..4_000, do: {:incr, {i, big}, 1, 60_000}
 
-    clock = fn ->
-      if :atomics.add_get(calls, 1, 1) == 2 do
-        send(parent, {:clock, self()})
+    case Store.batch(operations, now, server: store, deadline: now + 20, timeout: 5_000) do
+      {:ok, results} ->
+        {done, skipped} = Enum.split_while(results, &match?({:ok, 1}, &1))
+        assert skipped != []
+        assert Enum.all?(skipped, &(&1 == {:error, :timeout}))
+        assert {:ok, %{keys: keys}} = Store.stats(server: store)
+        assert keys == length(done)
 
-        receive do
-          :release -> :ok
-        end
-      end
-
-      System.monotonic_time(:millisecond)
+      # A host stall past the deadline before the first operation times out the request.
+      {:error, :timeout} ->
+        assert {:ok, %{keys: 0}} = Store.stats(server: store)
     end
-
-    store = start_supervised!({Store, name: nil, clock: clock, sweep_interval_ms: 60_000})
-    deadline = System.monotonic_time(:millisecond) + 1_000
-
-    task =
-      Task.async(fn ->
-        Store.batch(
-          [{:incr, :first, 1, 5000}, {:incr, :second, 1, 5000}, {:incr, :third, 1, 5000}],
-          server: store,
-          deadline: deadline,
-          timeout: 5000
-        )
-      end)
-
-    assert_receive {:clock, caller}
-    Process.sleep(max(0, deadline - System.monotonic_time(:millisecond) + 1))
-    send(caller, :release)
-    assert Task.await(task) == {:ok, [{:ok, 1}, {:error, :timeout}, {:error, :timeout}]}
-    assert :atomics.get(calls, 1) == 2
-    assert Store.get(:first, server: store) == {:ok, 1}
-    assert Store.get(:second, server: store) == :not_found
-    assert Store.get(:third, server: store) == :not_found
   end
 end

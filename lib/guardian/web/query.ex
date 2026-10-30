@@ -5,7 +5,7 @@ defmodule Guardian.Web.Query do
 
   It calls `Guardian.Query.execute/2` and records every query, whatever its outcome, with
   `Guardian.Web.QueryLog.record/4` (the `queries` table). It also hands any `Guardian.AST.ParseError` to
-  `Guardian.Web.QueryParseErrors.record/4`, which records a `query_parse_errors` row. Results
+  `Guardian.Web.QueryParseErrors.record/5`, which records a `query_parse_errors` row. Results
   are returned and raised errors reraised unchanged with their stacktrace, so the
   caller's response is exactly what it would have been.
   """
@@ -24,7 +24,14 @@ defmodule Guardian.Web.Query do
     log = &record(sql, &1, timestamp, start, caller_fun, opts)
 
     # Reads only `:server`.
-    on_parse_error = &Guardian.Web.QueryParseErrors.record(sql, &1, caller_fun, opts)
+    on_parse_error =
+      &Guardian.Web.QueryParseErrors.record(
+        sql,
+        &1,
+        caller_fun,
+        System.system_time(:second),
+        opts
+      )
 
     execute = Keyword.get(opts, :execute, &Guardian.Query.execute/2)
 

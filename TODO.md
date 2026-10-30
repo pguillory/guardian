@@ -184,6 +184,12 @@ privately, not in this repository.
 - [x] counters-monotonic-clock: `Guardian.Counters.Clock` holds the microsecond
       clock/deadline helpers Context, Budget and Transport share, making their unit
       coupling explicit (`docs/changes/counters-monotonic-clock.md`)
+- [x] clock-as-data: Store, IngestIdempotency and QueryParseErrors take the current
+      time as a required argument instead of a `:clock` function option
+      (`docs/changes/clock-as-data.md`)
+- [ ] function-test-seams: remove the remaining function-valued test options
+      (QueryParseErrors' and QueryLog's `:writer`, `Guardian.Web.Query.execute/3`'s
+      `:execute`) under the same rule (`docs/changes/clock-as-data.md`, follow-ups)
 - [x] rules-open-questions: the failure and invalid-at-boot defaults are confirmed
       and their switches (`:rules_on_failure`, `:rules_invalid_at_boot`) removed
 - [x] rules-server-redaction: Guardian.Rules.Server's formatted status and crash reports
