@@ -69,8 +69,9 @@ The bulk of tests use the primitives users have: create or modify a rule, store
 events, run a query, and check responses and results. They're clean and async, each on
 its own table, and tests that pick different table names can't interfere. The MCP and
 HTTP layers are thin wrappers over those primitives, so network tests are minimal: per
-MCP tool and API call, one success and one error. Storage is tested at its module
-boundary. Any module with clean functions gets plenty of plain unit tests.
+MCP tool and API call, one success and one error. Storage and Counters.Store are
+tested at their module boundaries, through their public functions. Any module with
+clean functions gets plenty of plain unit tests.
 
 Tests don't peek inside or touch processes; they don't kill, freeze or break internals;
 no timeout tests; no sleeps. Peer VM tests are tagged `:cluster` and excluded by

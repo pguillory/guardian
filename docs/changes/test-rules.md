@@ -3,7 +3,8 @@
 Status: in progress.
 
 Product spec impact: none. No statements change in `docs/product/overview.md` or
-`docs/product/spec.md`. Tests, CONTRIBUTING.md and TODO.md only; no `lib/` changes.
+`docs/product/spec.md`. Tests, test support (`libtest/`), CONTRIBUTING.md and TODO.md
+only; no `lib/` changes.
 
 ## Problem
 
@@ -16,13 +17,13 @@ what it does when they work.
 
 CONTRIBUTING.md's "Testing philosophy" section, Preston's framing: most tests drive the
 user primitives (rules, events, queries) async on their own tables; network tests are
-one success and one error per MCP tool and API call; Storage is tested at its module
-boundary; clean functions get unit tests. Tests don't peek inside or touch processes,
-don't kill, freeze or break internals, test no timeouts and don't sleep. Peer VM tests
-are tagged `:cluster` and excluded by default. Restart and durability are checked by
-hand when a change touches segment lifetimes or persistence. It is the direction for
-new tests; existing tests are brought in line a category at a time, as Preston
-decides each.
+one success and one error per MCP tool and API call; Storage and Counters.Store are
+tested at their module boundaries; clean functions get unit tests. Tests don't peek
+inside or touch processes, don't kill, freeze or break internals, test no timeouts and
+don't sleep. Peer VM tests are tagged `:cluster` and excluded by default. Restart and
+durability are checked by hand when a change touches segment lifetimes or
+persistence. It is the direction for new tests; existing tests are brought in line a
+category at a time, as Preston decides each.
 
 ## Changes
 
@@ -64,6 +65,21 @@ decides each.
    that setup. Cluster reliability is for a load test later (run a cluster, send
    traffic, check results), not the suite.
 
+5. Counters.Store is a test boundary like Storage: StoreTest checks it through its
+   public functions. Three tests that reached inside it go: "large survivors require
+   multiple passes and immediate continuation ticks" (`:sys.install` on the sweep),
+   "a failing operation is scrubbed, fails alone and spares the owner" (a broken table
+   descriptor and `capture_log`; its helper `StorePause.break_entries/2` goes with it)
+   and "an actual callback crash scrubs payloads and the supervised store restarts
+   empty" (`:sys.replace_state` and `capture_log`). The scrubbing code is unchanged.
+   Kept for now, as other categories: `:sys.get_state` reads of the sweep tag and
+   table in the sweep, table-reference and value-slice tests (the last also lists the
+   store's ETS table) and as a sync barrier in the sweep tests; direct `:sweep`
+   messages in the sweep tests; `:sys.suspend` and `:sys.resume` in the housekeeper
+   suspension test; an unexpected `GenServer.call` in the invalid-operations test;
+   `:sys.get_status` in the formatted-status test; and the table-reference test's
+   `GenServer.stop` of the store it started.
+
 Coverage given up:
 
 - Storage: the only behavioral check that a graceful MutableSegments or
@@ -85,3 +101,8 @@ Coverage given up:
 - A started peer that fails a schema lookup failing the statement with a node error
   (spec.md, clustering item 6), and, from the same setup, column-naming SELECTs and
   `count()` reading that peer's rows and a missing table answering `[]` and `[[0]]`.
+- Counters.Store: a sweep that needs several median-cutoff passes continuing at once
+  rather than after its interval and ending under budget; an operation that raises
+  mid-request, alone or in a batch, returning `{:error, :unavailable}` without
+  affecting the owner or logging its key; and a callback crash restarting the
+  supervised store empty with its payloads kept out of the crash report.
