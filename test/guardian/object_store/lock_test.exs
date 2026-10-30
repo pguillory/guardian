@@ -99,6 +99,46 @@ defmodule Guardian.ObjectStore.LockTest do
     assert lock_requests(s3, "k") == ["PUT", "PUT", "PUT", "GET", "PUT"]
   end
 
+  # A store whose one object exists with the given state and no known age, as from an
+  # S3-compatible store whose responses carry no Last-Modified Guardian can parse.
+  defmodule AgelessStore do
+    @behaviour Guardian.ObjectStore
+
+    @impl true
+    def get(state, _key, _etag) do
+      {:ok, Jason.encode!(%{state: state, holder: "a"}), %{etag: "e1", age_ms: nil}}
+    end
+
+    @impl true
+    def put(_state, _key, _body, :absent) do
+      {:error, :precondition_failed}
+    end
+
+    def put(_state, _key, _body, {:etag, "e1"}) do
+      {:ok, "e2"}
+    end
+
+    @impl true
+    def list(_state) do
+      {:ok, []}
+    end
+
+    @impl true
+    def delete(_state, _key) do
+      :ok
+    end
+
+    @impl true
+    def describe(_state) do
+      "ageless"
+    end
+  end
+
+  test "a held lock of unknown age is an error, not busy forever; a released one is taken over" do
+    assert acquire({AgelessStore, "held"}, "k", "b") == {:error, {:failed, "lock age unknown"}}
+    assert {:ok, _lock} = acquire({AgelessStore, "released"}, "k", "b")
+  end
+
   test "works on a local folder too" do
     store = local_store!()
     key = "k"

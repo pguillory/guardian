@@ -88,6 +88,16 @@ defmodule Guardian.ObjectStore.S3Test do
     assert parse_http_date("garbage") == :error
   end
 
+  test "an object's age is nil without a Last-Modified it can parse" do
+    date = "Wed, 21 Oct 2015 07:28:00 GMT"
+    modified = "Wed, 21 Oct 2015 07:27:00 GMT"
+    response = fn headers -> Req.Response.new(headers: headers) end
+
+    assert age_ms(response.([{"date", date}, {"last-modified", modified}])) == 60_000
+    assert age_ms(response.([{"date", date}])) == nil
+    assert age_ms(response.([{"date", date}, {"last-modified", "yesterday"}])) == nil
+  end
+
   test "S3 list responses with entities are refused" do
     body =
       ~s(<?xml version="1.0"?><!DOCTYPE a [<!ENTITY e "x">]><ListBucketResult>&e;</ListBucketResult>)

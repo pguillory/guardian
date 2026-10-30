@@ -81,6 +81,10 @@ privately, not in this repository.
 - [x] rule-lock-once: the rule write lock is tried once and a held lock fails at once as
       busy; the only retry, a few seconds, is in the MCP write_rule and delete_rule tools
       (`docs/changes/rule-lock-once.md`)
+- [x] lock-age-unknown: an S3 response without a Last-Modified Guardian can parse
+      gives no object age instead of 0, and a held lock of unknown age fails the
+      acquire with an error rather than reading as busy forever
+      (`docs/changes/fail-closed-findings.md`)
 - [x] cas-integer-token: Counters.Store CAS tokens are one random integer and Store
       follows memcached's add/cas names and answers (`docs/changes/cas-integer-token.md`)
 - [x] local-store-lock-races: pin concurrent ETag puts and local lease creation/takeover;

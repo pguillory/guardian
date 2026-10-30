@@ -27,7 +27,7 @@ defmodule Guardian.ObjectStore do
           | :precondition_failed
           | {:unreachable | :misconfigured | :unknown | :failed, String.t()}
   @type object :: %{key: String.t(), etag: String.t(), size: non_neg_integer()}
-  @type meta :: %{etag: String.t(), age_ms: integer()}
+  @type meta :: %{etag: String.t(), age_ms: integer() | nil}
   @type condition :: :none | :absent | {:etag, String.t()}
 
   @callback list(term()) :: {:ok, [object()]} | {:error, reason()}
@@ -48,7 +48,7 @@ defmodule Guardian.ObjectStore do
   @doc """
   Gets `key`. With `etag`, only that version: a different one is
   `{:error, :precondition_failed}`. `meta.age_ms` is how long ago the object was last
-  modified, by the store's own clock.
+  modified, by the store's own clock, or nil when the store did not say.
   """
   def get({mod, config}, key, etag \\ nil) do
     mod.get(config, key, etag)

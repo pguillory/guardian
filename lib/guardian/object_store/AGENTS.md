@@ -26,7 +26,9 @@ Modules:
 - `Guardian.ObjectStore.Lock`: a lease lock on one key of any store, judged by the
   store's clock, with ownership-safe release. A lease, not a fence. Acquiring makes one
   attempt and returns `:busy` for a held lock; it never waits or retries, so any retry
-  policy is the caller's.
+  policy is the caller's. A store that gives no age (`meta.age_ms` nil, as S3 does for a
+  response without a Last-Modified it can parse) fails the acquire of a held lock with
+  `{:failed, "lock age unknown"}`.
 
 Rules to keep:
 

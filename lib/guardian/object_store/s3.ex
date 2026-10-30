@@ -316,7 +316,10 @@ defmodule Guardian.ObjectStore.S3 do
 
   # How long ago the object was modified, by the store's clock: its Date header minus
   # Last-Modified. Without a Date header, this node's clock stands in.
-  defp age_ms(response) do
+  # nil when the response has no Last-Modified this can parse: an age of 0 would make a
+  # stale lock look fresh forever.
+  @doc false
+  def age_ms(response) do
     with [modified | _] <- Req.Response.get_header(response, "last-modified"),
          {:ok, modified} <- parse_http_date(modified) do
       now =
@@ -329,7 +332,7 @@ defmodule Guardian.ObjectStore.S3 do
 
       DateTime.diff(now, modified, :millisecond)
     else
-      _ -> 0
+      _ -> nil
     end
   end
 

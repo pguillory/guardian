@@ -10,7 +10,9 @@ defmodule Guardian.ObjectStore.Lock do
     object's age, from its Last-Modified and the store's Date), is taken over with
     `If-Match` on the ETag read. A live lock is not waited for: acquiring makes one
     attempt and returns `{:error, :busy}`, and the caller decides whether and when
-    to try again.
+    to try again. A held lock whose age the store does not give is an error,
+    `{:failed, "lock age unknown"}`: it could never be taken over, and a permanent
+    `:busy` would hide why.
   - The holder's own deadline is measured from just before its create, so it never
     outlives the lease as the store sees it.
   - Release: overwrite with a released body, `If-Match` on the holder's own ETag, so a
@@ -60,10 +62,20 @@ defmodule Guardian.ObjectStore.Lock do
       {:error, :precondition_failed} ->
         case Guardian.ObjectStore.get(store, key) do
           {:ok, current, meta} ->
-            if released?(current) or meta.age_ms >= lease_ms do
-              Guardian.ObjectStore.put(store, key, body, {:etag, meta.etag})
-            else
-              {:error, :busy}
+            cond do
+              released?(current) ->
+                Guardian.ObjectStore.put(store, key, body, {:etag, meta.etag})
+
+              # A held lock of unknown age can be neither waited out nor taken over.
+              # Checked before the age comparison: nil compares above every integer.
+              is_nil(meta.age_ms) ->
+                {:error, {:failed, "lock age unknown"}}
+
+              meta.age_ms >= lease_ms ->
+                Guardian.ObjectStore.put(store, key, body, {:etag, meta.etag})
+
+              true ->
+                {:error, :busy}
             end
 
           {:error, :not_found} ->

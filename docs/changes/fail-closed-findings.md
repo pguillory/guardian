@@ -46,6 +46,24 @@ the testing rules rule out. The one test that did that, suspending a segment pas
 the timeout to check the persister survives its late reply, is removed: it now logs
 an error on purpose, which the logging rules rule out too.
 
+## A lock of unknown age
+
+The S3 client read an object's age from its Last-Modified header and the store's
+Date, and gave 0 when Last-Modified was missing or did not parse. The lease lock takes
+over a held lock only once that age passes the lease, so with such a store a crashed
+writer's lock was never taken over and every rule write answered busy forever, with
+nothing saying why. Real S3 and R2 send a parseable Last-Modified, so this needs an
+unusual S3-compatible store.
+
+The age is now nil when the store does not give one (`Guardian.ObjectStore`'s
+`meta` type allows it), and acquiring a held lock of unknown age fails with
+`{:failed, "lock age unknown"}`, which a rule write reports as "store request failed
+(lock age unknown)". A released lock is still taken over whatever its age. Other
+reads do not need the age, so they are unaffected.
+
+Tests cover the age parsing and the lock's decision, through a stub store whose
+object has no age.
+
 ## Not changed: peers slow to answer the readiness check
 
 `Guardian.Cluster.connected_nodes/0` leaves out a connected peer that does not say
