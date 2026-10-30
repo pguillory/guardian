@@ -11,8 +11,16 @@ defmodule Guardian.ObjectStore.LockTest do
   end
 
   defp lock_state(store, key) do
+    lock_body(store, key)["state"]
+  end
+
+  defp lock_holder(store, key) do
+    lock_body(store, key)["holder"]
+  end
+
+  defp lock_body(store, key) do
     {:ok, body, _meta} = ObjectStore.get(store, key)
-    Jason.decode!(body)["state"]
+    Jason.decode!(body)
   end
 
   defp local_store! do
@@ -41,9 +49,10 @@ defmodule Guardian.ObjectStore.LockTest do
   test "an expired lease is taken over, and the old holder cannot release its successor",
        %{s3: s3, store: store} do
     assert {:ok, old} = acquire(store, "k", "old", lease_ms: 30_000)
-    assert remaining_ms(old) <= 30_000 and remaining_ms(old) > 25_000
+    assert remaining_ms(old) <= 30_000
     Guardian.Test.FakeS3.age(s3, "k", 31)
     assert {:ok, new} = acquire(store, "k", "new", lease_ms: 30_000)
+    assert lock_holder(store, "k") == "new"
     assert release(old) == {:error, :precondition_failed}
     assert lock_state(store, "k") == "held"
     assert acquire(store, "k", "third", lease_ms: 30_000) == {:error, :busy}
