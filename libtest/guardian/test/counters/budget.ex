@@ -9,14 +9,19 @@ defmodule Guardian.Test.Counters.Budget do
   `remaining_us/1` reads it and `charge_us/2` simulates a retained charge, without
   exposing its storage layout to callers.
 
+  A test that builds its own Context with local owners passes `relaxed_options/0` or
+  `scaled_options/0` to that event and can stay async. `relax/1` and `scale/1` are for
+  tests with no such path: ingestion through Engine, HTTP or MCP, whose Context Runner
+  builds, and calls to a peer, whose endpoint enforces its own bound. The seam's own
+  test uses `relax/1` too.
+
   WARNING: use `relax/1` only in tests whose assertions do not depend on production's
   operation or event budget values (an explicit `timeout_ms` still replaces it for that event,
   and the 250 ms batch allowance is unchanged). It replaces the default that
   `Guardian.Counters.Context` uses and the bound the remote owner endpoint enforces, so a
   test that relies on production budget behavior would silently test something else.
-  Tests of reservation decisions use `scale/1` instead (below). Tests must be
-  `async: false`, since the setting is node-wide application env. A test whose owners
-  are all local can stay async by passing `relaxed_options/0` to its events instead.
+  Tests of reservation decisions use `scale/1` or `scaled_options/0` instead (below).
+  Tests must be `async: false`, since the setting is node-wide application env.
 
   With `relax/1`'s budgets, every call, healthy or failed, is still capped by the
   batch's remaining 250 ms allowance (`Budget.reserve/2`), so the effective call
@@ -24,10 +29,11 @@ defmodule Guardian.Test.Counters.Budget do
   of dispatching concurrently. The 900 ms event budget stays under the Runner's 1 s
   per-row limit.
 
-  `scale/1` is for tests of reservation decisions (how many owners dispatch
+  Scaling is for tests of reservation decisions (how many owners dispatch
   concurrently, who waits for a refund) or of a bound against a full call budget. It
-  sets a 1 s operation budget and a 10 s event budget, and the test sets its own batch
-  allowance to the multiple of the operation budget it means (`batch/1`, for example five units for
+  gives a 1 s operation budget and a 10 s event budget, and the test sets its own batch
+  allowance to the multiple of the operation budget it means (`scaled_batch/1` with
+  `scaled_options/0`, or `batch/1` with `scale/1`, for example five units for
   production's 250 ms of 50 ms calls). Budget compares a reservation only with the
   remaining allowance and its 10 ms minimum, so while every reservation is a whole
   unit and the event deadline does not bind, each decision is the same as in
@@ -35,6 +41,10 @@ defmodule Guardian.Test.Counters.Budget do
   cooldown threshold are not scaled. Such a test must assert no absolute durations or
   allowance values derived from production's 50 ms. Its 10 s event budget exceeds the
   Rules Runner's 1 s per-row limit, so it is not for tests that run rules.
+
+  `allowance_us/1` and `batch/1,2` read this node's current setting. Only `async: false`
+  tests change it and those never overlap async ones, so an async caller always gets
+  production's unit.
   """
 
   @context Guardian.Counters.Context
@@ -59,6 +69,27 @@ defmodule Guardian.Test.Counters.Budget do
   """
   def relaxed_options do
     [event_timeout_ms: @relaxed[:event_ms], timeout_ms: @relaxed[:operation_ms]]
+  end
+
+  @doc """
+  The scaled budgets (10 s event, 1 s operation unit) as `Guardian.Counters.Context`
+  options for one event, with no node-wide setting. Local owners only, as with
+  `relaxed_options/0`. Size the event's batch with `scaled_batch/1`.
+  """
+  def scaled_options do
+    [event_timeout_ms: @scaled[:event_ms], timeout_ms: @scaled[:operation_ms]]
+  end
+
+  @doc "A `scaled_options/0` allowance of `multiple` operation budgets, in microseconds."
+  def scaled_allowance_us(multiple) do
+    round(multiple * Guardian.Counters.Clock.from_ms(@scaled[:operation_ms]))
+  end
+
+  @doc "Creates a batch with `multiple` operation budgets of `scaled_options/0` allowance."
+  def scaled_batch(multiple) do
+    batch = Guardian.Counters.Client.new_batch()
+    :atomics.put(batch, 1, scaled_allowance_us(multiple))
+    batch
   end
 
   @doc """

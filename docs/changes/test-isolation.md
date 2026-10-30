@@ -34,7 +34,8 @@ and no tenants are added.
    Tables that tests reuse across repeated passes get per-invocation names, apart from
    the fixed tables in QueryTest's other tests, which already failed on a repeated pass.
 
-The counter budget tests that relax node-wide budgets are unchanged.
+The counter budget tests that relax node-wide budgets are unchanged. They and BudgetTest
+later moved where they could; see [counter budget options](counter-budget-options.md).
 
 ## Validation
 

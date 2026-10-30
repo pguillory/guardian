@@ -19,19 +19,23 @@ defmodule Guardian.Rules.CounterRulesTest do
   alias Guardian.Test.Counters.Budget, as: CounterBudgetHelper
   alias Guardian.Test.Counters.ProbeStore
 
+  setup do
+    Guardian.Test.Counters.private_store(:rules_counter_rules_test)
+  end
+
   # No test here depends on the production 50 ms call or 100 ms event budget: the
   # allowance test depends on the 250 ms batch allowance. Larger budgets keep healthy
   # calls, including a cold first call, from timing out under host load and setting a
   # cooldown that fails later calls open.
-  setup do
-    Guardian.Test.Counters.relaxed_store(:rules_counter_rules_test)
-  end
-
   defp event(store, batch \\ Guardian.Counters.Client.new_batch()) do
     Event.start(
       Arrival.now(),
       batch,
-      Guardian.Test.Counters.event_options(store, :rules_counter_rules_test)
+      Guardian.Test.Counters.event_options(
+        store,
+        :rules_counter_rules_test,
+        CounterBudgetHelper.relaxed_options()
+      )
     )
   end
 

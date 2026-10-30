@@ -1,8 +1,28 @@
 defmodule Guardian.Test.Counters.Client do
   @moduledoc """
-  Starts and warms counter stores for peer tests. Tests using connected peers or
-  shared named stores require `async: false`; callers own the peer lifecycle.
+  Starts and warms counter stores for peer tests, and the operation helpers shared by
+  the client tests. Tests using connected peers or shared named stores require
+  `async: false`; callers own the peer lifecycle.
   """
+
+  @doc "A routable counter key."
+  def key(group \\ {}, bucket \\ 1) do
+    {{"events", "hits", "definition-hash"}, group, bucket}
+  end
+
+  @doc """
+  `Guardian.Counters.Client.batch/2` over named operations, answering by name. A map's
+  order sets the input order; pass a list to choose it.
+  """
+  def named(operations, context) do
+    {ids, ops} = Enum.unzip(operations)
+    ids |> Enum.zip(Guardian.Counters.Client.batch(ops, context)) |> Map.new()
+  end
+
+  @doc "One operation's response."
+  def batch_one(operation, context) do
+    named(%{one: operation}, context).one
+  end
 
   @doc """
   Loads the counter endpoint's call path and test doubles on this node. Peers load

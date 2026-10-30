@@ -57,13 +57,16 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    Production calls Store directly, with no backend tuple handling or mailbox fallback.
    Context's `event_ms`/`operation_ms` application env is the other internal test
    seam: it replaces the 100/50 ms defaults and the remote endpoint bound.
-   Never set it outside tests; only `Guardian.Test.Counters.Budget` does, for
-   tests not about budgets, the seam's own test, and budget tests that scale the
+   Never set it outside tests; only `Guardian.Test.Counters.Budget` does, for its own
+   test and for tests with no per-event path, which are ingestion through Engine, HTTP
+   or MCP and calls to peers. Those not about budgets relax it; budget tests scale the
    operation budget (`scale/1`) and size their batch allowance in units of it
    (`batch/1`, with `allowance_us/1` for expected values), with no durations or allowances derived from 50 ms
    (`docs/changes/counter-test-budgets.md`).
    Context's `:timeout_ms`/`:event_timeout_ms` options replace those budgets for one
    event, locally only (a peer still enforces its own bound); production passes neither.
+   A test that builds its own Context with local owners uses them and can stay async
+   (`docs/changes/counter-budget-options.md`).
 6. Return fixed errors; no key/value/exception logging. Housekeeping callback
    failures scrub stacks through `Guardian.Failure.stacktrace/1` and reset the
    store. Status redacts state/messages/logs.

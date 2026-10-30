@@ -1650,7 +1650,9 @@ partition lookup; GROUP BY's executor and routing tests share
 `Guardian.Test.Env` (in `libtest/guardian/test/`) puts `:guardian` application env for an
 `async: false` test, on this node or on named peers, and restores it when the test or a
 block ends; `Guardian.Test.Query.with_time_limit/2`,
-`Guardian.Test.Counters.Budget.relax/1` and `scale/1` delegate to it.
+`Guardian.Test.Counters.Budget.relax/1` and `scale/1` delegate to it, for tests with no
+per-event path; `relaxed_options/0` and `scaled_options/0` give the same budgets to one
+event, with no node-wide setting.
 `Guardian.Test.WorkBounds` measures caller reductions for synchronous CPU guards, with
 bounds calibrated against representative regressions rather than host-dependent
 elapsed time (see [unit-test work bounds](../changes/unit-test-work-bounds.md)).

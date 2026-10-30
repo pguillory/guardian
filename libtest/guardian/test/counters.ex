@@ -4,24 +4,15 @@ defmodule Guardian.Test.Counters do
   `private_store/1` starts a real store; `event_options/3` also accepts a
   `Guardian.Test.Counters.ProbeStore`.
 
-  `relaxed_store/1` also relaxes node-wide counter budgets
-  (`Guardian.Test.Counters.Budget.relax/1`), so its callers must be `async: false` and
-  must not depend on production budget values. Tests whose owners are all local can
-  stay async with `private_store/1` and `Guardian.Test.Counters.Budget.relaxed_options/0`.
-  Both start processes with `start_supervised!/1`, so call them from `setup` or a test.
+  Tests that want larger budgets pass `Guardian.Test.Counters.Budget.relaxed_options/0`
+  through `event_options/3`. `private_store/1` starts processes with
+  `start_supervised!/1`, so call it from `setup` or a test.
 
   Call these by their full name or import them: `alias Guardian.Test.Counters` would
   shadow `Counters` in `Guardian.Counters.*` aliases.
   """
   import ExUnit.Callbacks, only: [start_supervised!: 1]
-  alias Guardian.Test.Counters.Budget, as: CounterBudgetHelper
   alias Guardian.Test.Counters.ProbeStore
-
-  @doc "Relaxes budgets for the calling test, then does what `private_store/1` does."
-  def relaxed_store(cooldown_table) do
-    CounterBudgetHelper.relax()
-    private_store(cooldown_table)
-  end
 
   @doc """
   Starts an unnamed Store and a `Guardian.Counters.Budget` cooldown table named

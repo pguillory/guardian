@@ -490,6 +490,12 @@ privately, not in this repository.
 - [x] test-isolation: write the test-isolation pattern into CONTRIBUTING.md, drop
       redundant table deletes, make the modules that only needed unique tables async
       and state why the rest are serial (`docs/changes/test-isolation.md`)
+- [x] counter-budget-options: counter budget tests that build their own Context use
+      per-event options; ClientTest, ContextTest and BudgetTest go async
+      (`docs/changes/counter-budget-options.md`)
+- [ ] counter-budget-seam-removal: remove the application-env budget seam, `relax/1`
+      and `scale/1`. End-to-end ingestion tests and peer owners have no per-call path;
+      the options need a decision (`docs/changes/counter-budget-options.md`)
 
 - [x] test-support-namespace: consolidate common helpers under `Guardian.Test.*` and
       split SQL, polling, process and segment helpers by concern without changing

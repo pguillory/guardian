@@ -1,13 +1,20 @@
 defmodule Guardian.Counters.BudgetTest do
-  # Not async: tests depend on 50 ms wall-clock reservation windows that load would break.
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   import Guardian.Counters.Budget
   alias Guardian.Counters.Budget
   alias Guardian.Counters.Client
 
   setup do
     start_supervised!({Budget, name: :counter_budget_test})
-    event = Client.new_event(Client.new_batch(), cooldown_table: :counter_budget_test)
+
+    # A long event budget, so however late a test reserves under load, the reservation
+    # is exactly the default 50 ms call budget.
+    event =
+      Client.new_event(Client.new_batch(),
+        cooldown_table: :counter_budget_test,
+        event_timeout_ms: 10_000
+      )
+
     %{event: event}
   end
 
@@ -93,7 +100,8 @@ defmodule Guardian.Counters.BudgetTest do
       end)
 
     try do
-      assert Task.yield(task, 250) == {:ok, :ok}
+      # Only a call that waits on the suspended owner would run out this time.
+      assert Task.yield(task, 5_000) == {:ok, :ok}
     after
       Task.shutdown(task, :brutal_kill)
       :sys.resume(owner)
