@@ -38,7 +38,7 @@
 10. Counters are advisory and ephemeral. Buckets include the entire oldest
     intersecting interval (up to almost one extra bucket); distinct is approximate.
     Restarts, eviction, membership changes, partitions and uncertain writes can
-    lose/split counts. Failed operations default and ingestion continues. A later
+    lose/split counts. Operations an unreachable store can't answer default and ingestion continues. A later
     rule/storage failure can leave increments behind, and unkeyed retries count
     again. The counter memory target covers resident rows only, excluding
     mailboxes, temporary copies and other VM memory. Housekeeping enforces it
@@ -48,3 +48,5 @@
     UNSET does not erase grouping keys or the state of value-keeping aggregates
     (arbitrary, min/max, the _by and _n forms) from counter memory.
     See the [rules guide](../guides/rules.md#counters-with-track-and-lookup).
+11. A segment that crashes on an unexpected insert failure loses the rows it holds in
+    memory, including rows already acknowledged.

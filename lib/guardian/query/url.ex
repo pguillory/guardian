@@ -54,6 +54,7 @@ defmodule Guardian.Query.URL do
         }
     end
   catch
+    # A port too long for the VM's integers: an unparseable URL gives empty parts.
     :error, :system_limit -> %URI{}
   end
 

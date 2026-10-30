@@ -80,15 +80,20 @@ defmodule Guardian.Web.MCP.RulesToolsTest do
     on_exit(fn -> Guardian.Rules.delete_rule(table, "r") end)
 
     ExUnit.CaptureLog.capture_log(fn ->
-      assert %{"results" => [failed, good]} =
+      assert {:error, %{reason: :internal_error}} =
+               Guardian.Test.MCPClient.call_tool("send_events", %{
+                 "table" => table,
+                 "events" => [%{"bad" => 1, "secret" => "private"}],
+               })
+
+      # The failed event's increment stayed.
+      assert %{"results" => [good]} =
                ok("send_events", %{
                  "table" => table,
-                 "events" => [%{"bad" => 1, "secret" => "private"}, %{"secret" => "private"}],
+                 "events" => [%{"secret" => "private"}],
                  "return_keys" => ["hits", "secret"],
                })
 
-      assert failed["success"] == false
-      assert failed["error"] =~ "the event was not stored"
       assert good == %{"success" => true, "event" => %{"hits" => 2, "secret" => nil}}
     end)
 

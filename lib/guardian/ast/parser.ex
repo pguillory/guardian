@@ -110,6 +110,10 @@ defmodule Guardian.AST.Parser do
 
   @precedences Map.new(@operators, fn {_tokens, module, precedence} -> {module, precedence} end)
 
+  @doc """
+  Parses statements or an expression: `{:ok, parsed}`, or
+  `{:error, %Guardian.AST.ParseError{}}` for bad input, as every parse function here does.
+  """
   def parse(source) when is_binary(source) do
     with_source_parsed(source, fn tokens ->
       parse_statements_or_expression!(tokens)
@@ -132,8 +136,8 @@ defmodule Guardian.AST.Parser do
   Parses a rule file: SET, UNSET, TRACK and LOOKUP statements separated by
   semicolons, empty statements allowed. `Guardian.Rules.RuleSet` validates dependencies and
   binds TRACK/LOOKUP identities before compilation. Returns
-  `[{statement, line}]`, `line` being the 1-based line the statement starts on.
-  Raises `Guardian.AST.ParseError`.
+  `{:ok, [{statement, line}]}`, `line` being the 1-based line the statement starts on,
+  or `{:error, %Guardian.AST.ParseError{}}`.
 
   The statement words (SET, UNSET, TRACK, LOOKUP and LAST) are recognized
   by position only, not as tokenizer keywords, so they stay usable as column and
@@ -296,26 +300,30 @@ defmodule Guardian.AST.Parser do
     end
   end
 
+  # Returns {:ok, parsed} or {:error, %ParseError{}}. Bad input is data at this boundary;
+  # the throws are recursive descent's non-local return, caught only here.
   defp with_source_parsed(source, func) do
-    case func.(Tokenizer.tokenize(source)) do
-      {expr, []} ->
-        expr
+    with {:ok, tokens} <- Tokenizer.tokenize(source) do
+      case func.(tokens) do
+        {expr, []} ->
+          {:ok, expr}
 
-      {_expr, [_ | _] = tokens} ->
-        throw {:expected, "end of input", tokens}
+        {_expr, [_ | _] = tokens} ->
+          throw {:expected, "end of input", tokens}
+      end
     end
   catch
     {:expected, expected, remaining_tokens} ->
       found = describe_found(source, remaining_tokens)
-      raise_parse_error(source, "Expected #{expected}, got #{found}", remaining_tokens)
+      {:error, parse_error(source, "Expected #{expected}, got #{found}", remaining_tokens)}
 
     {:parse_error, reason, remaining_tokens} ->
-      raise_parse_error(source, reason, remaining_tokens)
+      {:error, parse_error(source, reason, remaining_tokens)}
   end
 
-  defp raise_parse_error(source, reason, remaining_tokens) do
+  defp parse_error(source, reason, remaining_tokens) do
     {row, col} = Tokenizer.position(source, remaining_tokens)
-    raise ParseError, reason: reason, row: row, col: col
+    %ParseError{reason: reason, row: row, col: col}
   end
 
   defp describe_found(source, remaining_tokens) do

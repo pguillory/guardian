@@ -31,11 +31,13 @@ There is no user namespace; queries see every table. Preserve query-time aggrega
 and scalar function behavior. Add functions under `query/function/`, register them in
 `Guardian.Query.Function`, and test through `Guardian.Query.EvaluationTestCase`.
 
-`Guardian.Query.execute/2` is the entry point for SQL text: it resolves (the Resolver labels
+`Guardian.Query.execute/1` is the entry point for SQL text: it resolves (the Resolver labels
 each statement's columns from its pre-LET form, a `*` by its table's column names),
 requires exactly one statement, and runs it, returning a `Guardian.Query.Error` from
-resolving or running (and a wrong statement count) as `{:error, message}`. The JSON API
-and the MCP tool use it; operators can call it directly from the remote IEx shell.
+resolving or running (and a wrong statement count) as `{:error, message}`, and SQL that
+does not parse as `{:error, %Guardian.AST.ParseError{}}`. On a machine that has started to
+stop it refuses with an error. The MCP tool uses it; operators can call it directly from
+the remote IEx shell.
 
 `Guardian.Query.run/1` runs each query in its own process, the consumer of its
 `Guardian.Query.DistributedStream` pipeline (`lib/guardian/query/distributed_stream.ex`, vendored and
@@ -63,7 +65,7 @@ Query code reads stored segments only by ID, and only in `Guardian.Query.Evaluat
 AST nodes read columns through `read_column/2`, never from Guardian.Storage. Query code never
 holds a segment PID or calls a Storage internal module (`lib/guardian/storage/AGENTS.md`,
 "Public boundary").
-`Guardian.Query` keeps the API (`execute/2`, `run/1`) and the query process's
+`Guardian.Query` keeps the API (`execute/1`, `run/1`) and the query process's
 lifecycle (the caller watch, the time limit). `Guardian.Query.Executor` (internal) plans the
 statement and runs each step in the query process; its closures are what run in
 workers. `Guardian.Query.Failure` turns a worker's caught exception, a pipeline exit reason, or
@@ -76,7 +78,7 @@ which reports the first exception to the query and skips the rest of that worker
 work; the query then raises it as `Guardian.Query.Error`. The guard keeps row values out of
 crash reports.
 Raise `Guardian.Query.Error` with an actionable message for failures caused by the query
-itself (result and time limits); the JSON API answers it with 400. Functions and
+itself (result and time limits); the MCP tool answers it with a tool error. Functions and
 operators never raise on a value: they give null, and strings they build are cut to
 `Guardian.Query.Text`'s cap (`lib/guardian/query/function/AGENTS.md`, "Totality").
 
@@ -86,7 +88,7 @@ Three tiers, by who may call them. There is no xref check: keep to this by conve
 and in review. Tests may use any Query module.
 
 1. The rest of Guardian (Web, Rules, Aggregation) may call `Guardian.Query`
-   (`execute/2`; `run/1` runs an already-resolved statement, for tests),
+   (`execute/1`; `run/1` runs an already-resolved statement, for tests),
    `Guardian.Query.Error`, `Limits`, `Evaluation`, `Numeric`, `Text`, and
    `Function.Interval.to_seconds/1` (Rules' interval parsing).
 2. `Guardian.AST`, the parser and the nodes that evaluate themselves, is the other

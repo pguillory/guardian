@@ -2,6 +2,9 @@
 
 Status: implemented.
 
+Superseded in part by [counter-merge-order.md](counter-merge-order.md): bucket
+merge order, and so min/max ties and float results, is no longer a promise.
+
 Product spec impact: none. No statements change in `docs/product/overview.md` or
 `docs/product/spec.md`. TRACK/LOOKUP results, fail-open defaults, bucket policy,
 batching rounds, owner pipelines, deadlines and budgets are unchanged.

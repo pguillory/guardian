@@ -5,7 +5,7 @@ defmodule Guardian.Query.PlannerTest do
   alias Guardian.AST.Node.Statements.SelectStatement
 
   def debug_query_plan(source) do
-    [%SelectStatement{}] = [statement] = Guardian.AST.parse(source)
+    {:ok, [%SelectStatement{} = statement]} = Guardian.AST.parse(source)
 
     query_plan(statement)
     |> Enum.map(fn
@@ -162,7 +162,7 @@ defmodule Guardian.Query.PlannerTest do
   # The parser accepts only an integer literal after LIMIT; a statement built some
   # other way fails planning with an ArgumentError that says why.
   test "a LIMIT that is not a non-negative integer literal fails planning" do
-    [statement] = Guardian.AST.parse("select a from t limit 1")
+    {:ok, [statement]} = Guardian.AST.parse("select a from t limit 1")
 
     message = ~r/^LIMIT must be a non-negative integer literal, got: /
 

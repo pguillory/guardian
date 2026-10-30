@@ -33,6 +33,7 @@ defmodule Guardian.Query.ColumnOrConstant do
       try do
         Column.from_list(list)
       rescue
+        # A value no column can hold gives null (spec section 7).
         ArgumentError ->
           list
           |> Enum.map(&if(Guardian.Storage.Value.valid?(&1), do: &1, else: nil))

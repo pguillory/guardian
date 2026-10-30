@@ -20,8 +20,7 @@ defmodule Guardian.Counters.Transport do
   routing key. Only routed operations may be passed to `dispatch/2`.
 
   Nothing is rescued: `owner/2` raises only on members that aren't a non-empty
-  list of atoms, a programming error that Counters.Execution reports as a
-  statement failure (failing open), not request data.
+  list of atoms, a programming error, not request data.
   """
   @spec route(tuple(), Context.t()) :: {:ok, node()} | {:error, :invalid_request}
   def route(operation, %Context{members: members}) do
@@ -49,39 +48,33 @@ defmodule Guardian.Counters.Transport do
   defp pipelines(pending, running, results, event) do
     {pending, running, results} = start_pipelines(pending, running, results, event)
 
-    try do
-      if map_size(running) == 0 do
-        Enum.reduce(pending, results, fn {owner, ops}, results ->
-          Map.put(results, owner, errors(ops, {:error, :budget_exhausted}))
-        end)
-      else
-        {reply, result, completed} = await_pipeline(running)
-        handle = Map.fetch!(running, reply)
-        cleanup_call(handle)
-        result = normalize_pipeline(result, length(handle.operations))
+    if map_size(running) == 0 do
+      Enum.reduce(pending, results, fn {owner, ops}, results ->
+        Map.put(results, owner, errors(ops, {:error, :budget_exhausted}))
+      end)
+    else
+      {reply, result, completed} = await_pipeline(running)
+      handle = Map.fetch!(running, reply)
+      cleanup_call(handle)
+      result = normalize_pipeline(result, length(handle.operations))
 
-        Budget.settle(result, handle.owner, event, handle.started, handle.reserved, completed)
+      Budget.settle(result, handle.owner, event, handle.started, handle.reserved, completed)
 
-        responses =
-          case result do
-            {:ok, responses} -> responses
-            {:error, _} = error -> errors(handle.operations, error)
-          end
+      responses =
+        case result do
+          {:ok, responses} -> responses
+          {:error, _} = error -> errors(handle.operations, error)
+        end
 
-        # Operations refused at dispatch keep their error in place.
-        responses = Lists.unfilter(responses, handle.prepared, &ready?/1)
+      # Operations refused at dispatch keep their error in place.
+      responses = Lists.unfilter(responses, handle.prepared, &ready?/1)
 
-        pipelines(
-          pending,
-          Map.delete(running, reply),
-          Map.put(results, handle.owner, responses),
-          event
-        )
-      end
-    catch
-      kind, reason ->
-        Enum.each(running, fn {_, handle} -> cleanup_call(handle) end)
-        :erlang.raise(kind, reason, __STACKTRACE__)
+      pipelines(
+        pending,
+        Map.delete(running, reply),
+        Map.put(results, handle.owner, responses),
+        event
+      )
     end
   end
 
@@ -89,17 +82,7 @@ defmodule Guardian.Counters.Transport do
     {[], running, results}
   end
 
-  defp start_pipelines(pending, running, results, event) do
-    try do
-      start_pipeline(pending, running, results, event)
-    catch
-      kind, reason ->
-        Enum.each(running, fn {_, handle} -> cleanup_call(handle) end)
-        :erlang.raise(kind, reason, __STACKTRACE__)
-    end
-  end
-
-  defp start_pipeline([{owner, operations} | rest] = pending, running, results, event) do
+  defp start_pipelines([{owner, operations} | rest] = pending, running, results, event) do
     case Budget.reserve(event, owner) do
       :exhausted ->
         {pending, running, results}
@@ -194,8 +177,9 @@ defmodule Guardian.Counters.Transport do
       {reply, result, completed} when is_map_key(running, reply) ->
         {reply, result, completed}
 
-      {:DOWN, monitor, :process, _, _} when is_map_key(monitors, monitor) ->
-        {Map.fetch!(monitors, monitor), {:error, :unavailable}, Clock.now()}
+      # A guard exits only with its worker's crash; cleanup_call demonitors the rest.
+      {:DOWN, monitor, :process, _, reason} when is_map_key(monitors, monitor) ->
+        exit(reason)
     after
       Clock.remaining_ms(deadline) ->
         {reply, _} = Enum.min_by(running, fn {_, handle} -> handle.deadline end)
@@ -293,21 +277,20 @@ defmodule Guardian.Counters.Transport do
     worker =
       spawn_link(fn -> send(guard, {:result, invoke(owner, operation, store, deadline)}) end)
 
-    {result, wait_for_exit?} =
+    result =
       receive do
-        {:result, result} -> {result, true}
-        {:DOWN, ^caller_monitor, :process, ^caller, _} -> {{:error, :unavailable}, true}
-        {:EXIT, ^worker, _} -> {{:error, :unavailable}, false}
+        {:result, result} -> result
+        {:DOWN, ^caller_monitor, :process, ^caller, _} -> {:error, :unavailable}
+        # A raise in the worker, which is a bug: passed up through the caller's monitor.
+        {:EXIT, ^worker, reason} -> exit(reason)
       after
-        Clock.remaining_ms(deadline) -> {{:error, :timeout}, true}
+        Clock.remaining_ms(deadline) -> {:error, :timeout}
       end
 
     Process.exit(worker, :kill)
 
-    if wait_for_exit? do
-      receive do
-        {:EXIT, ^worker, _} -> :ok
-      end
+    receive do
+      {:EXIT, ^worker, _} -> :ok
     end
 
     send(reply, {reply, result, Clock.now()})
@@ -333,8 +316,20 @@ defmodule Guardian.Counters.Transport do
         )
     end
   catch
-    :error, {:erpc, :timeout} -> {:error, :timeout}
-    _, _ -> {:error, :unavailable}
+    # An unreachable owner fails open: counters are advisory, like memcached. That covers
+    # one going down mid-call (:signal) and one without this endpoint, booting or on
+    # another build (:undef). Named so any other raise on the owner stays a crash.
+    :error, {:erpc, :timeout} ->
+      {:error, :timeout}
+
+    :error, {:erpc, _reason} ->
+      {:error, :unavailable}
+
+    :error, {:exception, :undef, [{__MODULE__, :remote_operation, _, _} | _]} ->
+      {:error, :unavailable}
+
+    :exit, {:signal, _reason} ->
+      {:error, :unavailable}
   end
 
   @doc false
@@ -362,8 +357,6 @@ defmodule Guardian.Counters.Transport do
       _ ->
         {:error, :invalid_request}
     end
-  catch
-    _, _ -> {:error, :unavailable}
   end
 
   defp flush(reply) do

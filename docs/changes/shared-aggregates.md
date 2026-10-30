@@ -3,7 +3,8 @@
 Status: implemented and validated.
 
 Superseded in part by [aggregates-unify.md](aggregates-unify.md), which removes the
-opt-in list and the query/counter policy differences tabled below.
+opt-in list and the query/counter policy differences tabled below, and by
+[counter-merge-order.md](counter-merge-order.md): min/max ties are undefined.
 
 Product spec impact: none. No statements change in overview.md or spec.md.
 Query and TRACK/LOOKUP behavior, operators, defaults, numerical policies and

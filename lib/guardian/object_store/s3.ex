@@ -11,10 +11,10 @@ defmodule Guardian.ObjectStore.S3 do
 
   Credentials are held only in a zero-arity function (`:credentials`), and requests
   carry `{module, function, [that function, region]}` as their signing option, so a
-  request or this config, inspected or in a crash report, shows no secret. Every call
-  catches everything and returns a `Guardian.ObjectStore` reason naming only a kind (an HTTP
-  status, `timeout`, ...): never a body, header, or exception. A VM crash dump still
-  contains the secret, as it does every secret Guardian holds.
+  request or this config, inspected or in a crash report, shows no secret. Every store
+  failure is a `Guardian.ObjectStore` reason naming only a kind (an HTTP status,
+  `timeout`, ...): never a body or header. A bug raises. A VM crash dump still contains
+  the secret, as it does every secret Guardian holds.
 
   Timeouts: 5 s to connect, 15 s to receive. A put or delete also has an overall
   20 s deadline; past it, or when the connection drops after sending, its outcome is
@@ -118,7 +118,7 @@ defmodule Guardian.ObjectStore.S3 do
 
   @impl true
   def list(config) do
-    safely(fn -> list_pages(config, nil, [], config.max_list_pages) end, :read)
+    list_pages(config, nil, [], config.max_list_pages)
   end
 
   defp list_pages(_config, _token, _acc, pages_left) when pages_left <= 0 do
@@ -132,12 +132,13 @@ defmodule Guardian.ObjectStore.S3 do
 
     case request(config, :get, bucket_path(config), params: params) do
       {:ok, %{status: 200, body: body}} ->
-        {objects, next} = parse_list(body, config.prefix)
-        acc = [objects | acc]
+        with {:ok, objects, next} <- parse_list(body, config.prefix) do
+          acc = [objects | acc]
 
-        if next,
-          do: list_pages(config, next, acc, pages_left - 1),
-          else: {:ok, acc |> Enum.concat() |> Enum.sort_by(& &1.key)}
+          if next,
+            do: list_pages(config, next, acc, pages_left - 1),
+            else: {:ok, acc |> Enum.concat() |> Enum.sort_by(& &1.key)}
+        end
 
       {:ok, %{status: status}} ->
         {:error, status_reason(status, :list)}
@@ -149,23 +150,18 @@ defmodule Guardian.ObjectStore.S3 do
 
   @impl true
   def get(config, key, etag) do
-    safely(
-      fn ->
-        headers = if etag, do: [{"if-match", quote_etag(etag)}], else: []
+    headers = if etag, do: [{"if-match", quote_etag(etag)}], else: []
 
-        case request(config, :get, object_path(config, key), headers: headers) do
-          {:ok, %{status: 200} = response} ->
-            {:ok, response.body, %{etag: response_etag(response), age_ms: age_ms(response)}}
+    case request(config, :get, object_path(config, key), headers: headers) do
+      {:ok, %{status: 200} = response} ->
+        {:ok, response.body, %{etag: response_etag(response), age_ms: age_ms(response)}}
 
-          {:ok, %{status: status}} ->
-            {:error, status_reason(status, :get)}
+      {:ok, %{status: status}} ->
+        {:error, status_reason(status, :get)}
 
-          {:error, reason} ->
-            {:error, reason}
-        end
-      end,
-      :read
-    )
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   @impl true
@@ -285,22 +281,11 @@ defmodule Guardian.ObjectStore.S3 do
     {:failed, "HTTP #{status}"}
   end
 
-  # Catches everything, so no request, response or exception leaves this module.
-  defp safely(fun, operation) do
-    fun.()
-  catch
-    _kind, _reason ->
-      if operation == :read,
-        do: {:error, {:unreachable, "client error"}},
-        else: {:error, {:unknown, "client error"}}
-  end
-
   defp with_deadline(fun) do
-    task = Task.async(fn -> safely(fun, :write) end)
+    task = Task.async(fun)
 
     case Task.yield(task, write_deadline_ms()) || Task.shutdown(task, :brutal_kill) do
       {:ok, result} -> result
-      {:exit, _reason} -> {:error, {:unknown, "client error"}}
       nil -> {:error, {:unknown, "deadline"}}
     end
   end
@@ -372,11 +357,20 @@ defmodule Guardian.ObjectStore.S3 do
         :error
     end
   rescue
+    # Value parsing: a date from the store whose fields aren't numbers.
     ArgumentError -> :error
   end
 
+  # A store's garbage answer is an expected outcome, so it is `{:error, reason}`, never a
+  # crash: Rules.Server polls this on every node.
+  @malformed_listing {:error, {:unreachable, "malformed listing"}}
+
   @doc false
   def parse_list(body, prefix) do
+    if String.valid?(body), do: parse_listing(body, prefix), else: @malformed_listing
+  end
+
+  defp parse_listing(body, prefix) do
     # No entities: the response is the store's, and an entity could expand without
     # bound. Element names still become atoms, so the endpoint is trusted (security.md).
     {document, _rest} =
@@ -389,7 +383,7 @@ defmodule Guardian.ObjectStore.S3 do
         %{
           key: String.replace_prefix(key, prefix, ""),
           etag: String.trim(text(contents, ~c"ETag"), "\""),
-          size: String.to_integer(text(contents, ~c"Size")),
+          size: parse_size(text(contents, ~c"Size")),
         }
       end
 
@@ -398,7 +392,16 @@ defmodule Guardian.ObjectStore.S3 do
         text(document, ~c"/ListBucketResult/NextContinuationToken")
       end
 
-    {objects, next}
+    if Enum.any?(objects, &is_nil(&1.size)), do: @malformed_listing, else: {:ok, objects, next}
+  catch
+    :exit, {:fatal, _reason} -> @malformed_listing
+  end
+
+  defp parse_size(text) do
+    case Integer.parse(text) do
+      {size, ""} -> size
+      _ -> nil
+    end
   end
 
   defp text(node, path) do

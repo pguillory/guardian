@@ -218,17 +218,19 @@ defmodule Guardian.Rules.CounterRulesTest do
 
     run(plan, %{"v" => 1, "name" => "a", "ok" => true}, event(store))
 
-    assert Map.take(run(plan, %{"v" => 5, "name" => "e", "ok" => false}, event(store)), fields) ==
-             %{
-               "any" => 3,
-               "top" => [5, 3],
-               "low_names" => ["a", "c"],
-               "best" => "e",
-               "every" => false,
-               "oks" => 2,
-               "spread" => 8 / 3,
-               "prior_top" => [3, 1],
-             }
+    # arbitrary is any one value, and var_pop's float may vary with merge order.
+    result = run(plan, %{"v" => 5, "name" => "e", "ok" => false}, event(store))
+    assert result["any"] in [3, 1, 5]
+    assert_in_delta result["spread"], 8 / 3, 1.0e-9
+
+    assert Map.take(result, fields -- ~w(any spread)) == %{
+             "top" => [5, 3],
+             "low_names" => ["a", "c"],
+             "best" => "e",
+             "every" => false,
+             "oks" => 2,
+             "prior_top" => [3, 1],
+           }
   end
 
   test "arbitrary keeps a real null rather than treating it as no rows", %{store: store} do
@@ -249,29 +251,14 @@ defmodule Guardian.Rules.CounterRulesTest do
     assert {:ok, nil} = Store.get({definition.identity, {}, current}, now(), server: store)
   end
 
-  test "top-N buckets that disagree on n fail open without affecting a sibling", %{store: store} do
+  test "top-N buckets that disagree on n raise", %{store: store} do
     plan = plan("TRACK top = max_n(v, k) LAST '1h'; TRACK hits = count() LAST '1h'")
-    definition = definition(plan)
     assert run(plan, %{"v" => 1, "k" => 2}, event(store))["top"] == [1]
 
-    # The current bucket holds n = 2, so merging n = 3 into it fails that bucket.
-    assert Map.take(run(plan, %{"v" => 2, "k" => 3}, event(store)), ~w(top hits)) ==
-             %{"top" => nil, "hits" => 2}
-
-    # An older bucket with another n fails the combination across buckets.
-    context = event(store)
-    current = Integer.floor_div(context.arrival.unix_ms, definition.bucket_ms)
-    older = {definition.identity, {}, current - 1}
-    assert :ok = Store.add(older, {[9], 1}, 5_000, now(), server: store)
-
-    # Unlike a failed bucket, a failed combination is reported as a rule warning.
-    log =
-      ExUnit.CaptureLog.capture_log(fn ->
-        assert Map.take(run(plan, %{"v" => 3, "k" => 2}, context), ~w(top hits)) ==
-                 %{"top" => nil, "hits" => 3}
-      end)
-
-    assert log =~ "failed: Guardian.Query.Error"
+    # The current bucket holds n = 2, so merging n = 3 into it raises.
+    assert_raise Guardian.Query.Error, fn ->
+      run(plan, %{"v" => 2, "k" => 3}, event(store))
+    end
   end
 
   test "WHERE false/null preserves fields; errors overwrite spoofed values and still UNSET", %{
@@ -307,24 +294,13 @@ defmodule Guardian.Rules.CounterRulesTest do
     assert row == %{"hits" => 0, "prior" => 0, "enabled" => true, "decision" => true}
   end
 
-  test "counter scalar exceptions fail open while SET exceptions still fail closed", %{
-    store: store,
-  } do
+  test "a counter expression or SET that raises raises", %{store: store} do
     counter = plan("TRACK total = sum(test_raise(v)) LAST '1h'; UNSET secret")
     scalar = plan("SET bad = test_raise(v); UNSET secret")
 
-    log =
-      ExUnit.CaptureLog.capture_log(fn ->
-        assert run(
-                 counter,
-                 %{"v" => "PRIVATE", "secret" => "PRIVATE", "total" => 99},
-                 event(store)
-               ) == %{"v" => "PRIVATE", "total" => nil}
-
-        assert_raise Runtime.Failure, fn -> run(scalar, %{"v" => "PRIVATE"}, event(store)) end
-      end)
-
-    refute log =~ "PRIVATE"
+    for plan <- [counter, scalar] do
+      assert_raise ArithmeticError, fn -> run(plan, %{"v" => "x"}, event(store)) end
+    end
   end
 
   test "definition edits reset counters while moving identical source keeps state", %{
@@ -476,41 +452,9 @@ defmodule Guardian.Rules.CounterRulesTest do
 
     plan = plan("TRACK hits = count() LAST '1h'; SET bad = test_raise(v)")
 
-    ExUnit.CaptureLog.capture_log(fn ->
-      assert_raise Runtime.Failure, fn -> run(plan, %{"v" => "private"}, event(store)) end
-    end)
+    assert_raise ArithmeticError, fn -> run(plan, %{"v" => "x"}, event(store)) end
 
     refute_receive {:unexpected, _}, 10
-  end
-
-  test "one counter expression failure does not prevent its sibling's dispatch", %{store: store} do
-    plan = plan("TRACK bad = sum(test_raise(v)) LAST '1h';
-      TRACK good = count() LAST '1h'; UNSET secret")
-
-    ExUnit.CaptureLog.capture_log(fn ->
-      assert run(plan, %{"v" => "private", "secret" => "private"}, event(store)) ==
-               %{"v" => "private", "bad" => nil, "good" => 1}
-    end)
-  end
-
-  test "unexpected infrastructure exceptions default the level and still run final UNSET", %{
-    store: store,
-  } do
-    plan = plan("TRACK hits = count() LAST '1h'; TRACK total = sum(v) LAST '1h';
-      SET safe = hits = 0; UNSET secret")
-    # A corrupt budget handle, and membership Transport's routing cannot hash (which it
-    # does not rescue).
-    for corrupt <- [[batch: :invalid_budget_handle], [members: []], [members: ["node"]]] do
-      context = event(store)
-      context = %{context | counters: struct!(context.counters, corrupt)}
-
-      ExUnit.CaptureLog.capture_log(fn ->
-        assert run(plan, %{"v" => "private", "secret" => "private"}, context) ==
-                 %{"v" => "private", "hits" => 0, "total" => nil, "safe" => true}
-      end)
-    end
-
-    assert {:messages, []} = Process.info(self(), :messages)
   end
 
   test "many rules across events stop waiting when the failed-call batch allowance runs out" do

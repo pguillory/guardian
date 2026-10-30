@@ -7,9 +7,9 @@ defmodule Guardian.Aggregation.VarSampTest do
 
   test "var_samp" do
     assert var_samp([]) == nil
-    assert var_samp([4, 7, 13, 16]) === 30.0
-    assert var_samp([3, 21, 98, 17, 9]) === 1510.8
+    assert_in_delta var_samp([4, 7, 13, 16]), 30.0, 1.0e-9
+    assert_in_delta var_samp([3, 21, 98, 17, 9]), 1510.8, 1.0e-9
 
-    assert var_samp([4, 7, 13, 16, nil]) === 30.0
+    assert_in_delta var_samp([4, 7, 13, 16, nil]), 30.0, 1.0e-9
   end
 end

@@ -40,14 +40,15 @@ defmodule Guardian.Engine do
 
   alias Guardian.Storage.Flattening
   alias Guardian.Storage.Value
-  require Logger
 
   @doc """
   Ingests each event independently and returns one ordered outcome per input:
   `{:ok, row}` with the stored flat row (after the table's rules), or
-  `{:error, message}`. Invalid tables raise before any event is processed. An
-  individual failure does not stop later events; failures after storage starts may
-  have stored the event.
+  `{:error, message}` for an event that is not an object, a value Storage refuses, or
+  one the table's rules refuse (invalid rules, a rule over its time or heap limit).
+  Those do not stop later events. Invalid tables raise before any event is processed,
+  and anything unexpected raises or exits out of the batch: events already stored stay
+  stored.
   """
   @spec ingest_events(String.t(), list()) :: [{:ok, map()} | {:error, String.t()}]
   def ingest_events(table, events) do
@@ -90,13 +91,13 @@ defmodule Guardian.Engine do
   def try_log_event(table, event) do
     {:ok, log_event(table, event)}
   catch
+    # These events are incidental to their callers: losing one must not fail the work
+    # it describes (spec section 8).
     kind, reason -> {:error, Guardian.Failure.kind(kind, reason, __STACKTRACE__)}
   end
 
   defp ingest_result(table, event) when is_map(event) do
-    with {:ok, row} <- prepare_event(table, event) do
-      store_row(table, row)
-    end
+    store_row(table, validate_event(event))
   end
 
   defp ingest_result(_table, _event) do
@@ -113,44 +114,25 @@ defmodule Guardian.Engine do
 
         prepared =
           if is_map(event),
-            do: prepare_event(table, event),
+            do: {:ok, validate_event(event)},
             else: {:error, "event is not a JSON object"}
 
         {prepared, arrival}
       end)
 
     rows = for {{:ok, row}, arrival} <- prepared, do: {row, arrival}
+    results = Guardian.Rules.run_with_metadata(table, rows)
 
-    case run_rules(table, rows) do
-      {:ok, results} ->
-        {outcomes, []} =
-          Enum.map_reduce(prepared, results, fn
-            {{:ok, _row}, _arrival}, [result | results] ->
-              {finish_with_rules(table, result), results}
+    {outcomes, []} =
+      Enum.map_reduce(prepared, results, fn
+        {{:ok, _row}, _arrival}, [result | results] ->
+          {finish_with_rules(table, result), results}
 
-            {error, _arrival}, results ->
-              {error, results}
-          end)
+        {error, _arrival}, results ->
+          {error, results}
+      end)
 
-        outcomes
-
-      :error ->
-        Enum.map(prepared, fn
-          {{:ok, _row}, _arrival} ->
-            {:error, "internal error before storage; the event was not stored"}
-
-          {error, _arrival} ->
-            error
-        end)
-    end
-  end
-
-  defp run_rules(table, rows) do
-    {:ok, Guardian.Rules.run_with_metadata(table, rows)}
-  catch
-    kind, reason ->
-      log_ingest_failure(table, kind, reason, __STACKTRACE__)
-      :error
+    outcomes
   end
 
   defp finish_with_rules(_table, {:error, _} = error) do
@@ -159,21 +141,7 @@ defmodule Guardian.Engine do
 
   # The values the rules produced are validated like the sender's.
   defp finish_with_rules(table, {:ok, row}) do
-    with {:ok, row} <- before_storage(table, fn -> drop_invalid(row) end) do
-      store_row(table, row)
-    end
-  end
-
-  defp prepare_event(table, event) do
-    before_storage(table, fn -> validate_event(event) end)
-  end
-
-  defp before_storage(table, fun) do
-    {:ok, fun.()}
-  catch
-    kind, reason ->
-      log_ingest_failure(table, kind, reason, __STACKTRACE__)
-      {:error, "internal error before storage; the event was not stored"}
+    store_row(table, drop_invalid(row))
   end
 
   defp store_row(table, row) do
@@ -181,19 +149,6 @@ defmodule Guardian.Engine do
       :ok -> {:ok, row}
       {:error, :invalid_value} -> {:error, "value cannot be stored; the event was not stored"}
     end
-  catch
-    kind, reason ->
-      log_ingest_failure(table, kind, reason, __STACKTRACE__)
-      {:error, "internal error; the event may have been stored"}
-  end
-
-  # The failure's kind and where it happened, never its message or the arguments in
-  # the stack trace: both can carry event values.
-  defp log_ingest_failure(table, kind, reason, stack) do
-    Logger.error(
-      "Event ingestion failed for #{table}: #{Guardian.Failure.kind(kind, reason, stack)}\n" <>
-        Exception.format_stacktrace(Guardian.Failure.stacktrace(stack))
-    )
   end
 
   # Identifiers that SQL cannot use as a plain table reference: tokenizer keywords and

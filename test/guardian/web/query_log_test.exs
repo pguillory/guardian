@@ -103,13 +103,13 @@ defmodule Guardian.Web.QueryLogTest do
       assert [%{"error_kind" => "query", "outcome" => "error"}] = rows_for(sql)
     end
 
-    test "a parse error is reraised unchanged and records kind parse" do
+    test "a parse error is answered and records kind parse" do
       sql = "SELECT FROM #{marker()} WHERE"
-      assert {:raised, %Guardian.AST.ParseError{} = error} = run(sql)
+      assert {:error, message} = run(sql)
 
       assert [row] = rows_for(sql)
       assert row["error_kind"] == "parse"
-      assert row["error"] == Exception.message(error)
+      assert row["error"] == message
     end
 
     test "a LET function given the wrong number of arguments records kind query" do
@@ -218,9 +218,8 @@ defmodule Guardian.Web.QueryLogTest do
 
       log =
         capture_log(fn ->
-          assert_raise Guardian.AST.ParseError, fn ->
-            Guardian.Web.Query.execute(sql, fn -> exit(:caller_gone) end, opts)
-          end
+          assert {:error, "Parse error" <> _} =
+                   Guardian.Web.Query.execute(sql, fn -> exit(:caller_gone) end, opts)
         end)
 
       assert log =~ "Failed to record a query in queries: exit :caller_gone"

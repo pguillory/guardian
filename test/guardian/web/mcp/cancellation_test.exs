@@ -41,7 +41,7 @@ defmodule Guardian.Web.MCP.CancellationTest do
   end
 
   defp count(table) do
-    {:ok, _labels, [[count]]} = Guardian.Query.execute("SELECT count() FROM #{table}", [])
+    {:ok, _labels, [[count]]} = Guardian.Query.execute("SELECT count() FROM #{table}")
     count
   end
 

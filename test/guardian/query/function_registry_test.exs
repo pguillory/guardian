@@ -47,12 +47,13 @@ defmodule Guardian.Query.FunctionRegistryTest do
 
   test "pre-evaluation keeps time aliases dynamic" do
     for source <- ["current_date", "current_timestamp"] do
-      expr = Guardian.AST.parse_expression(source)
+      {:ok, expr} = Guardian.AST.parse_expression(source)
       assert Guardian.Query.Evaluation.pre_eval(expr) == expr
     end
   end
 
   defp eval(source) do
-    Guardian.Query.Evaluation.eval(%{}, Guardian.AST.parse_expression(source))
+    {:ok, expr} = Guardian.AST.parse_expression(source)
+    Guardian.Query.Evaluation.eval(%{}, expr)
   end
 end

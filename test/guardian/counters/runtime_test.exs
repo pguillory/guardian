@@ -192,7 +192,7 @@ defmodule Guardian.Counters.RuntimeTest do
           end
         end
 
-        # Exceptions in a start are also scrubbed and retry rather than escaping.
+        # Exceptions in a start retry rather than escaping.
         :sys.replace_state(owner, &%{&1 | counters: [name: "PRIVATE"]})
         assert fire_timer(owner, :retry_timer, :retry).subtree == nil
         :sys.replace_state(owner, &%{&1 | counters: @counters})

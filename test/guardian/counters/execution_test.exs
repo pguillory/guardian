@@ -19,7 +19,6 @@ defmodule Guardian.Counters.ExecutionTest do
   alias Guardian.Test.Counters.ProbeStore
 
   @sum Aggregation.fetch!("sum")
-  @min Aggregation.fetch!("min")
   @max Aggregation.fetch!("max")
 
   # No test here depends on production's budgets. Events get the scaled budgets (1 s
@@ -167,11 +166,12 @@ defmodule Guardian.Counters.ExecutionTest do
              CounterBudgetHelper.scaled_allowance_us(5)
   end
 
-  test "callback exceptions are isolated" do
-    broken = Machine.new({:get, key("bad")}, nil, fn _, _, _ -> raise "private" end)
+  test "a raising callback raises" do
+    broken = Machine.new({:get, key("bad")}, nil, fn _, _, _ -> raise "boom" end)
 
-    assert run([broken, KeyMachines.read(key("good"))], scripted(fn _ -> {:ok, 8} end)) ==
-             [{:error, :invalid_state}, {:ok, 8}]
+    assert_raise RuntimeError, "boom", fn ->
+      run([broken, KeyMachines.read(key("good"))], scripted(fn _ -> {:ok, 8} end))
+    end
   end
 
   test "strict equality preserves numeric type changes and unchanged states skip CAS" do
@@ -187,9 +187,10 @@ defmodule Guardian.Counters.ExecutionTest do
           :ok
       end)
 
+    # 1 + 0.0 is 1.0: equal to the prior 1 but not the same term, so it is written.
     assert run(
              [
-               KeyMachines.merge(@min, key("k"), 1.0, expiry()),
+               KeyMachines.merge(@sum, key("k"), 0.0, expiry()),
                KeyMachines.merge(@max, key("k"), 0, expiry()),
              ],
              store
@@ -200,23 +201,17 @@ defmodule Guardian.Counters.ExecutionTest do
     refute_receive {:write, _}
   end
 
-  test "bucket errors default quietly; expansion and round failures are reported per op" do
+  test "bucket errors default quietly; an expansion or round that raises raises" do
     sum = definition({"sum", 1})
     ok = scripted(fn {:get, _} -> {:ok, 2} end)
 
-    # Four buckets of 2, while an unknown operator fails only its own op.
-    assert [{:ok, 8}, {:error, expansion}, {:ok, 8}] =
-             run_counters(
-               [
-                 lookup_op(sum),
-                 lookup_op(definition({"no_such_aggregate", 1})),
-                 lookup_op(sum),
-               ],
-               Arrival.now(),
-               context(ok)
-             )
-
-    assert is_binary(expansion)
+    assert_raise MatchError, fn ->
+      run_counters(
+        [lookup_op(sum), lookup_op(definition({"no_such_aggregate", 1}))],
+        Arrival.now(),
+        context(ok)
+      )
+    end
 
     # A malformed routing key defaults only its own op.
     assert run_counters(
@@ -246,19 +241,12 @@ defmodule Guardian.Counters.ExecutionTest do
              timeout_event.context
            ) == [{:ok, missing}, {:ok, missing}]
 
-    # A raised round (membership routing cannot hash) fails the level open; the
-    # expansion failure keeps its own kind.
+    # Membership routing cannot hash is a programming error.
     raising = event(ok, healthy_batch(), Arrival.now(), members: [])
 
-    assert [{:error, round}, {:error, ^expansion}] =
-             run_counters(
-               [lookup_op(sum), lookup_op(definition({"no_such_aggregate", 1}))],
-               raising.arrival,
-               raising.context
-             )
-
-    assert is_binary(round)
-    assert round != expansion
+    assert_raise FunctionClauseError, fn ->
+      run_counters([lookup_op(sum)], raising.arrival, raising.context)
+    end
   end
 
   test "boundary reads include the complete oldest bucket and exclude older buckets", %{
@@ -325,21 +313,18 @@ defmodule Guardian.Counters.ExecutionTest do
     assert {:ok, 10, ^token} = Store.gets(key, now(), server: store)
   end
 
-  test "bucket merging remains chronological and retains the newest numeric tie type", %{
-    store: store,
-  } do
-    for operator <- ["min", "max"] do
+  test "an older bucket's value combines with the current write", %{store: store} do
+    # min shows the older bucket deciding, max the write.
+    for {operator, expected} <- [{"min", 1}, {"max", 2}] do
       definition = tracked({operator, 1}, 3_600_000)
       event = event(store)
       current = Integer.floor_div(event.arrival.unix_ms, definition.bucket_ms)
 
       assert :ok =
-               Store.add({definition.identity, {}, current - 1}, 1.0, 5_000, now(), server: store)
+               Store.add({definition.identity, {}, current - 1}, 1, 5_000, now(), server: store)
 
-      assert track(definition, {}, [1], event) === 1
-
-      assert lookup(definition, {}, event) === 1
-      assert track(definition, {}, [1.0], event(store)) === 1.0
+      assert track(definition, {}, [2], event) === expected
+      assert lookup(definition, {}, event) === expected
     end
   end
 

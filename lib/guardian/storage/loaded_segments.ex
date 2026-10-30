@@ -179,17 +179,30 @@ defmodule Guardian.Storage.LoadedSegments do
     Process.send_after(self(), :scan, @scan_interval)
   end
 
+  # Startup is the one load that logs: a line before it, since loading every file can
+  # take long enough to matter (docs/architecture/system.md, section 4.4), and a summary
+  # after. Rescans log only the files they skip.
   defp load_all_segments_from_disk(state) do
     {:ok, filenames} = BlobStore.list(Guardian.Storage.segment_dir())
     warn_about_unparseable_segment_files(filenames)
 
-    filenames
-    |> Enum.reverse()
-    |> Enum.filter(&match?({:ok, _table, _segment_id}, SegmentFile.parse_filename(&1)))
-    |> Enum.reduce(state, fn filename, state ->
-      {_result, state} = load_segment_file(filename, state)
-      state
-    end)
+    filenames =
+      filenames
+      |> Enum.reverse()
+      |> Enum.filter(&match?({:ok, _table, _segment_id}, SegmentFile.parse_filename(&1)))
+
+    Logger.info("Storage: loading #{length(filenames)} segment files")
+
+    {loaded, state} =
+      Enum.reduce(filenames, {0, state}, fn filename, {loaded, state} ->
+        case load_segment_file(filename, state) do
+          {:ok, state} -> {loaded + 1, state}
+          {_result, state} -> {loaded, state}
+        end
+      end)
+
+    Logger.info("Storage: loaded #{loaded} segments (#{map_size(state.skipped)} skipped)")
+    state
   end
 
   # Loads a file unless its content already failed to load and has not changed since.
@@ -214,13 +227,6 @@ defmodule Guardian.Storage.LoadedSegments do
   # down and the rest of the data stays available.
   defp load_segment_file(filename, state) do
     {:ok, table, segment_id} = SegmentFile.parse_filename(filename)
-    timestamp = Guardian.SegmentID.timestamp(segment_id)
-
-    # A retried skipped file was announced already; its failure is logged once below.
-    unless Map.has_key?(state.skipped, segment_id) do
-      IO.puts("Loading #{filename} from #{timestamp}")
-    end
-
     stat = file_stat(filename)
 
     case Segment.load(filename) do
@@ -297,7 +303,7 @@ defmodule Guardian.Storage.LoadedSegments do
         :ok
 
       ignored ->
-        IO.puts(
+        Logger.warning(
           "Ignoring #{length(ignored)} .seg file(s) in #{Guardian.Storage.segment_dir()} " <>
             "that are not named {table}.{segment_id}.seg " <>
             "(for example, segments from the older per-user filename format)"

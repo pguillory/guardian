@@ -143,11 +143,11 @@ defmodule Guardian.Aggregation.CounterSemanticsTest do
     assert result({"max", 1}, ["z", "a"]) === "z"
   end
 
-  test "min and max numeric ties favor the right state including its type" do
+  test "min and max numeric ties give either tied value" do
     for operator <- [{"min", 1}, {"max", 1}] do
       aggregation = aggregation(operator)
-      assert Aggregation.merge(aggregation, 1, 1.0) === 1.0
-      assert Aggregation.merge(aggregation, 1.0, 1) === 1
+      assert Aggregation.merge(aggregation, 1, 1.0) in [1, 1.0]
+      assert Aggregation.merge(aggregation, 1.0, 1) in [1, 1.0]
     end
   end
 

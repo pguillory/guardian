@@ -29,13 +29,19 @@ defmodule Guardian.Query.Resolver do
   (an alias where one is given, else the expression as written, taken from the
   statement before LET substitution, so the labels keep LET names as written; a `*`,
   written or substituted for a LET name, gives its table's column names). LET and
-  empty statements yield no pair. Raises `Guardian.Query.Error` for a FROM or DESC
+  empty statements yield no pair. Returns `{:error, %Guardian.AST.ParseError{}}` for
+  source that does not parse. Raises `Guardian.Query.Error` for a FROM or DESC
   that is not a table name, `SELECT *` without FROM, and a LET function called with
   the wrong number of arguments.
   """
-  @spec resolve(String.t()) :: [{struct(), [String.t()]}]
+  @spec resolve(String.t()) :: [{struct(), [String.t()]}] | {:error, AST.ParseError.t()}
   def resolve(source) when is_binary(source) do
-    statements = AST.parse_statements(source)
+    with {:ok, statements} <- AST.parse_statements(source) do
+      resolve_statements(statements)
+    end
+  end
+
+  defp resolve_statements(statements) do
     statements = Enum.map(statements, &resolve_show_desc/1)
     statements = Enum.map(statements, &resolve_aliases/1)
 
@@ -260,7 +266,7 @@ defmodule Guardian.Query.Resolver do
   end
 
   def resolve_aliases(source) when is_binary(source) do
-    statements = AST.parse_statements(source)
+    {:ok, statements} = AST.parse_statements(source)
     statements = Enum.map(statements, &resolve_aliases/1)
     Enum.map_join(statements, ";\n", &AST.unparse/1)
   end
@@ -310,7 +316,7 @@ defmodule Guardian.Query.Resolver do
   end
 
   def unresolve_statement_index(query, statement_index) when is_binary(query) do
-    statements = AST.parse_statements(query)
+    {:ok, statements} = AST.parse_statements(query)
     unresolve_statement_index(statements, statement_index)
   end
 

@@ -14,7 +14,8 @@ defmodule Guardian.AST.Node.CaseTest do
           "CASE x WHEN 1 THEN 'one' END",
           "CASE x WHEN 1 THEN 'one' ELSE 'other' END",
         ] do
-      assert Guardian.AST.unparse(Guardian.AST.Parser.parse_expression(source)) == source
+      {:ok, expr} = Guardian.AST.Parser.parse_expression(source)
+      assert Guardian.AST.unparse(expr) == source
     end
   end
 end

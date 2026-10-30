@@ -73,6 +73,7 @@ defmodule Guardian.Web.QueryParseErrors do
 
     :ok
   catch
+    # Recording never changes the query's answer (spec section 8).
     kind, reason ->
       log_failure(nil, Guardian.Failure.kind(kind, reason, __STACKTRACE__))
       :ok
@@ -88,7 +89,9 @@ defmodule Guardian.Web.QueryParseErrors do
   @doc false
   def row(sql, error, caller) do
     {stored_sql, truncated?} = Guardian.Query.Text.truncate(sql, @max_sql_bytes)
-    {message, _} = Guardian.Query.Text.truncate(Exception.message(error), @max_error_bytes)
+
+    {message, _} =
+      Guardian.Query.Text.truncate(Guardian.AST.ParseError.message(error), @max_error_bytes)
 
     caller
     |> bound_caller_fields()

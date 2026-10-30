@@ -53,16 +53,14 @@ defmodule Guardian.Rules.Server do
 
   ## Status and crash reports
 
-  Rule text never appears in a crash report or in this server's part of
+  Rule text never appears in this server's part of
   `:sys.get_status/1` (`format_status/1`): every file, in the state or in a past
   state in the debug log, keeps only its ETag, and a write message's source is
   replaced by `:redacted`. Plans and bare steps are redacted too, including AST
-  constants as well as canonical source. `init/1`, `handle_call/3` and `handle_info/2`
-  re-raise whatever they raise as an error naming only the kind, with a stack of arities,
-  since an exception's message or fields and the top frame's arguments can hold a
-  source (the report's stack is not passed through `format_status/1`). `write/3`
-  turns the call's exit into an error without logging the exit reason, which
-  carries the message. With `:sys.log/2` turned on, `:sys.get_status/1` also returns
+  constants as well as canonical source. A callback that raises crashes as is, and its
+  report's stack can hold a source (it is not passed through `format_status/1`). `write/3`
+  turns a timed-out or missing server into an error without logging the exit reason,
+  which carries the message. With `:sys.log/2` turned on, `:sys.get_status/1` also returns
   OTP's raw debug log beside the formatted status, unredacted; that needs a remote
   shell, which `:sys.get_state/1` already gives everything.
   """
@@ -77,7 +75,6 @@ defmodule Guardian.Rules.Server do
   alias Guardian.Rules.RuleSet
 
   @reload_timeout_ms 10_000
-  @failure_log_table Guardian.Rules.FailureLog
   @lock_key "_write.lock"
   @lock_lease_ms 120_000
   # Well over Guardian.ObjectStore.S3.write_deadline_ms/0 for the one S3 write a
@@ -101,24 +98,20 @@ defmodule Guardian.Rules.Server do
     Application.get_env(:guardian, :rules_save_margin_ms, @save_margin_ms)
   end
 
-  def failure_log_table do
-    @failure_log_table
-  end
-
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  # Callers include MCP tool calls, which run in Anubis's per-request tasks, so an exit
-  # (a timeout, or the server restarting) becomes an error here rather than a crash.
+  # Callers include MCP tool calls, which run in Anubis's per-request tasks.
   def write(table, name, source) do
     GenServer.call(__MODULE__, {:write, table, name, source}, 90_000)
   catch
+    # Answers the writer needs: its outcome is unknown, or nothing happened.
     :exit, {:timeout, _} ->
       {:error,
        {:unknown, "the rule write timed out; it may have been saved; list the rules to check"}}
 
-    :exit, _reason ->
+    :exit, {:noproc, _} ->
       {:error, "the rule server is unavailable; retry"}
   end
 
@@ -132,15 +125,7 @@ defmodule Guardian.Rules.Server do
   end
 
   @impl true
-  def init(opts) do
-    scrubbed(fn -> start(opts) end)
-  end
-
-  defp start(_opts) do
-    if :ets.whereis(@failure_log_table) == :undefined do
-      :ets.new(@failure_log_table, [:named_table, :public, :set])
-    end
-
+  def init(_opts) do
     case Guardian.Rules.Config.store() do
       {:ok, store} ->
         Rules.put_store(store)
@@ -206,31 +191,21 @@ defmodule Guardian.Rules.Server do
     %{state | publisher: Publisher.new(published), stale: true}
   end
 
-  # Every callback runs through scrubbed/1, so a crash report never shows a rule
-  # source from an exception or a stack frame's arguments.
   @impl true
-  def handle_call(request, from, state) do
-    scrubbed(fn -> call(request, from, state) end)
-  end
-
-  @impl true
-  def handle_info(message, state) do
-    scrubbed(fn -> info(message, state) end)
-  end
-
-  defp call(:reload, _from, state) do
+  def handle_call(:reload, _from, state) do
     case reload_state(state) do
       {:ok, state} -> {:reply, :ok, state}
       {:error, message, state} -> {:reply, {:error, message}, state}
     end
   end
 
-  defp call({:write, table, name, source}, _from, state) do
+  def handle_call({:write, table, name, source}, _from, state) do
     {reply, state} = write_rule(state, table, name, source)
     {:reply, reply, state}
   end
 
-  defp info(:poll, state) do
+  @impl true
+  def handle_info(:poll, state) do
     state =
       case reload_state(state) do
         {:ok, state} -> state
@@ -241,7 +216,7 @@ defmodule Guardian.Rules.Server do
     {:noreply, state}
   end
 
-  defp info({:reclaim, module}, state) do
+  def handle_info({:reclaim, module}, state) do
     {:noreply, %{state | publisher: Publisher.reclaim(state.publisher, module)}}
   end
 
@@ -533,19 +508,6 @@ defmodule Guardian.Rules.Server do
 
   defp redact(term) do
     term
-  end
-
-  # Re-raises anything a callback raises, throws or exits with as an error naming only
-  # its kind, with a stack of arities and locations: the exception's message and
-  # fields, and the top frame's arguments, can hold a source.
-  defp scrubbed(fun) do
-    fun.()
-  catch
-    kind, reason ->
-      stack = Guardian.Failure.stacktrace(__STACKTRACE__)
-      label = Guardian.Failure.reason_kind(reason)
-      message = "Guardian.Rules.Server crashed: #{kind} #{label} (details redacted)"
-      :erlang.raise(:error, %RuntimeError{message: message}, stack)
   end
 
   ## Logging

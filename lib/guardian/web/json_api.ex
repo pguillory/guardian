@@ -65,8 +65,8 @@ defmodule Guardian.Web.JsonApi do
   outcomes return 409 with info. Capacity, expiry, unavailability, restarts and
   other nodes can lose protection; see `docs/reference/api.md` for the contract.
 
-  Ingestion is not atomic: an event failure does not stop later events. A failure
-  after storage starts says the event may have been stored. Details are logged.
+  Ingestion is not atomic: an event refused on its own does not stop later events. An
+  unexpected failure fails the whole request with 500, and earlier events may be stored.
   Valid requests return 200 even if every event fails. Invalid tables, missing or
   non-list events, and malformed return_keys or idempotency_key return 400 before
   any event is stored.
@@ -113,57 +113,10 @@ defmodule Guardian.Web.JsonApi do
   """
 
   use Plug.Router
-  require Logger
 
-  # Plug.ErrorHandler reraises after answering, so Bandit logs the original
-  # exception and its arguments. Contain JSON application failures here instead.
-  def call(conn, opts) do
-    super(conn, opts)
-  rescue
-    error in Plug.Conn.WrapperError ->
-      respond_to_error(error.conn, error.kind, error.reason, error.stack, false)
-  catch
-    kind, reason -> respond_to_error(conn, kind, reason, __STACKTRACE__, true)
-  end
-
-  # Let Bandit handle transport/protocol failures (including disconnects and read
-  # timeouts) with its own status, stream cleanup and quiet logging policy.
-  defp respond_to_error(_conn, :error, %module{} = reason, stack, _stale_conn?)
-       when module in [
-              Bandit.TransportError,
-              Bandit.HTTPError,
-              Bandit.HTTP2.Errors.StreamError,
-              Bandit.HTTP2.Errors.ConnectionError,
-            ] do
-    :erlang.raise(:error, reason, stack)
-  end
-
-  defp respond_to_error(conn, kind, reason, stack, stale_conn?) do
-    reason = Exception.normalize(kind, reason, stack)
-
-    # Mirror Plug.ErrorHandler's sent marker handling. Once sent, headers cannot
-    # disable keep-alive on a stale adapter; a safe replacement failure lets Bandit
-    # close the connection without receiving the original reason or stack.
-    receive do
-      {:plug_conn, :sent} ->
-        send(self(), {:plug_conn, :sent})
-        message = log_error(kind, reason, stack)
-        :erlang.raise(:error, %RuntimeError{message: message}, [])
-    after
-      0 ->
-        # Before routing, no WrapperError carries the latest body-reader state.
-        # HTTP/1 must close rather than try to drain bytes already consumed by the
-        # parser. HTTP/2 completes/resets its individual stream without draining.
-        conn =
-          if stale_conn? and get_http_protocol(conn) != :"HTTP/2" do
-            put_resp_header(conn, "connection", "close")
-          else
-            conn
-          end
-
-        handle_errors(conn, %{kind: kind, reason: reason, stack: stack}) |> halt()
-    end
-  end
+  # The framework's own catch: it calls handle_errors/2 for the response, then reraises,
+  # so Bandit logs a 5xx and closes the connection.
+  use Plug.ErrorHandler
 
   # CORS preflight is answered before authentication; the body is read and parsed only
   # after it, so an anonymous client cannot make the server read or decode up to 8 MB.
@@ -237,43 +190,51 @@ defmodule Guardian.Web.JsonApi do
     send_json_resp(conn, 404, %{status: 404})
   end
 
-  # Kept public for direct redaction coverage; no longer a Plug.ErrorHandler callback.
-  @doc false
+  @impl Plug.ErrorHandler
+  # Bandit's own transport and protocol failures (disconnects, read timeouts): it answers
+  # them itself after the reraise, with its own status.
+  def handle_errors(conn, %{kind: :error, reason: %module{}})
+      when module in [
+             Bandit.TransportError,
+             Bandit.HTTPError,
+             Bandit.HTTP2.Errors.StreamError,
+             Bandit.HTTP2.Errors.ConnectionError,
+           ] do
+    conn
+  end
+
   # A query string Plug cannot decode (invalid UTF-8, nesting deeper than 32), raised
   # by Plug.Parsers after a valid key header (without one, the request already got
   # 401). Its status is 400, or 414 over the parser's length limit
   # (Bandit's request-line limit, or HTTP/2's header-block limit, rejects that before
-  # Plug runs). Nothing is printed.
-  def handle_errors(conn, %{kind: :error, reason: %Plug.Conn.InvalidQueryError{} = error}) do
-    status = Plug.Exception.status(error)
-    send_json_resp(conn, status, %{status: status, info: "invalid query string"})
+  # Plug runs).
+  def handle_errors(conn, %{kind: :error, reason: %Plug.Conn.InvalidQueryError{}}) do
+    send_error(conn, %{status: conn.status, info: "invalid query string"})
   end
 
-  # Body failures (after authentication): a fixed message, nothing printed, and no
-  # echo of the body.
+  # Body failures (after authentication): a fixed message, and no echo of the body.
   def handle_errors(conn, %{kind: :error, reason: %Plug.Parsers.ParseError{}}) do
-    send_json_resp(conn, 400, %{status: 400, info: "malformed JSON body"})
+    send_error(conn, %{status: 400, info: "malformed JSON body"})
   end
 
   def handle_errors(conn, %{kind: :error, reason: %Plug.Parsers.RequestTooLargeError{}}) do
-    send_json_resp(conn, 413, %{status: 413, info: "request body over 8 MB"})
+    send_error(conn, %{status: 413, info: "request body over 8 MB"})
   end
 
   def handle_errors(conn, %{kind: :error, reason: %Plug.Parsers.UnsupportedMediaTypeError{}}) do
     info = "unsupported content type; send application/json"
-    send_json_resp(conn, 415, %{status: 415, info: info})
+    send_error(conn, %{status: 415, info: info})
   end
 
-  def handle_errors(conn, %{kind: kind, reason: reason, stack: stack}) do
-    log_error(kind, reason, stack)
-    send_json_resp(conn, 500, %{status: 500})
+  def handle_errors(conn, _failure) do
+    send_error(conn, %{status: conn.status})
   end
 
-  defp log_error(kind, reason, stack) do
-    id = :crypto.strong_rand_bytes(8) |> Base.encode16(case: :lower)
-    failure = Guardian.Failure.kind(kind, reason, stack)
-    message = "JSON API failure kind=#{failure} id=#{id}"
-    Logger.error(message)
-    message
+  # Bandit closes the connection once the reraise reaches it. On HTTP/2 it drops this
+  # header and ends just the stream.
+  defp send_error(conn, %{status: status} = body) do
+    conn
+    |> put_resp_header("connection", "close")
+    |> send_json_resp(status, body)
   end
 end

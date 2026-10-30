@@ -40,6 +40,7 @@ defmodule Guardian.Query.WorkerErrors do
       try do
         fun.()
       catch
+        # A relay: carries the worker's failure, with its message, to the whole query.
         kind, reason ->
           Process.put({__MODULE__, collector}, true)
           report(collector, Guardian.Query.Failure.caught(kind, reason, __STACKTRACE__))

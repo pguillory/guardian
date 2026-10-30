@@ -100,7 +100,7 @@ defmodule Guardian.Query.Evaluation do
   end
 
   def eval(context, source) when is_binary(source) do
-    expr = Parser.parse_expression(source)
+    {:ok, expr} = Parser.parse_expression(source)
     eval(context, expr)
   end
 
@@ -203,8 +203,9 @@ defmodule Guardian.Query.Evaluation do
   end
 
   def pre_eval(source) when is_binary(source) do
-    source
-    |> AST.parse_expression()
+    {:ok, expr} = AST.parse_expression(source)
+
+    expr
     |> pre_eval()
     |> AST.unparse()
   end

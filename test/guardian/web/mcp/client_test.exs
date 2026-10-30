@@ -358,7 +358,7 @@ defmodule Guardian.Web.MCP.ClientTest do
       assert Jason.decode!(conn.resp_body) == result
     end
 
-    test "storage call failures retain uncertain wording and continue later events" do
+    test "a crash during the call fails it with a JSON-RPC error" do
       Guardian.Test.MCPClient.start()
       table = "mcp_uncertain_#{System.unique_integer([:positive])}"
       segment_id = Guardian.SegmentID.generate()
@@ -389,26 +389,14 @@ defmodule Guardian.Web.MCP.ClientTest do
         Guardian.Storage.delete_table(table)
       end)
 
-      log =
-        ExUnit.CaptureLog.capture_log(fn ->
-          assert send_events(%{
-                   "table" => table,
-                   "events" => [%{"value" => 1}, %{"value" => 2}],
-                 })
-                 |> decoded_result() == %{
-                   "status" => 200,
-                   "results" => [
-                     %{
-                       "success" => false,
-                       "error" => "internal error; the event may have been stored",
-                     },
-                     %{"success" => true, "event" => %{"value" => 2}},
-                   ],
-                 }
-        end)
+      assert {:error, %{reason: :internal_error}} =
+               call_tool("send_events", %{
+                 "table" => table,
+                 "events" => [%{"value" => 1}, %{"value" => 2}],
+               })
 
-      assert log =~ "mcp_ingest_test_failure"
-      assert Guardian.Storage.dump_table(table) == [%{"value" => 2}]
+      # The session survives a failed call.
+      assert {:ok, _} = call_tool("query", %{"sql" => "SELECT 1"})
     end
 
     test "preserves absent, null, selected and empty return_keys without filtering stored events; a selected key names one exact column, null when missing" do

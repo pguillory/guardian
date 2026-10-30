@@ -45,8 +45,8 @@ a computed decision or counter result, not a way to echo the event. Rule failure
 [rule execution contract](../../../docs/product/spec.md#513-running) and
 [counter failure contract](../../../docs/product/spec.md#514-counters). Valid
 requests return 200 with ordered `results`, each `{success: true, event: ...}` or
-`{success: false, error: ...}`. Events are independent: a failure does not stop the
-rest, and uncertain storage failures say the event may have been stored.
+`{success: false, error: ...}`. Events are independent: a refused event does not stop
+the rest. An unexpected failure raises and fails the whole request.
 
 Optional `idempotency_key` wraps Engine in `Guardian.Web.IngestIdempotency`.
 The [public contract](../../../docs/product/spec.md#5-ingestion) (item 9) defines
@@ -68,23 +68,23 @@ failed_events}`, `{:conflict, :changed | :pending | :uncertain}`) and treats the
 ingest value as opaque; `Guardian.Web.Ingest` owns the receipt body, the 409 status
 and the conflict messages.
 
-The MCP `query` tool runs SQL through `Guardian.Web.Query.execute/3`, which wraps `Guardian.Query.execute/2` (resolve, require one statement, label columns from the
-pre-LET statement, run). Don't resolve or run queries in Web any other way. On an
+The MCP `query` tool runs SQL through `Guardian.Web.Query.execute/3`, which wraps `Guardian.Query.execute/1` (resolve, require one statement, label columns from the
+pre-LET statement, run). Don't resolve or run queries in Web any other way. On a returned
 `Guardian.AST.ParseError` it has `Guardian.Web.QueryParseErrors.record/5` record a `query_parse_errors`
-row and the same error is reraised, so responses are unchanged.
+row and returns `{:error, message}`.
 Recording is a cast to the `Guardian.Web.QueryParseErrors` GenServer: never make it
 synchronous: a stalled Storage write would hold up the MCP call, every later request
 in its session, and the HTTP request. Bounds (16 KiB SQL, 1 KiB error,
 256-byte caller fields, 60 rows per machine per hour) are in that module.
 
-Keep application failures inside `Guardian.Web.JsonApi.call/2`, logging at most kind
-and a generated ID; never restore Plug.ErrorHandler's raw reraising or print errors.
-Pass Bandit transport/protocol errors through to its own cleanup and quiet logging.
+`Guardian.Web.JsonApi` uses `Plug.ErrorHandler` only to give failures their documented
+bodies; it reraises, and Bandit logs a 5xx and closes the connection. Pass Bandit
+transport/protocol errors through to its own cleanup and quiet logging.
 
 `Guardian.Web.Query.execute/3` also records every query, whatever its outcome, in the `queries`
 table through `Guardian.Web.QueryLog.record/4`, a cast to the `Guardian.Web.QueryLog` GenServer under the
 same never-synchronous rule. It catches raises, exits and throws and reraises them
-with `:erlang.raise/3`, so callers see exactly what `Guardian.Query.execute/2` produced; nothing
+with `:erlang.raise/3`, so callers see exactly what `Guardian.Query.execute/1` produced; nothing
 in recording may raise into the request. Keep recording in `Guardian.Web.Query` (the
 coordinating machine) so a distributed query is one row, and never record request
 headers there (caller fields are `interface`, always `mcp`, `remote_ip` and MCP client

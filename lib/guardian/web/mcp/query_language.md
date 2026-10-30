@@ -86,9 +86,9 @@ All statement kinds share one output namespace.
 TRACK accepts every aggregate listed under Aggregates, with the same arguments,
 and gives what that aggregate gives over the window's events in a query. A missing,
 expired or failed counter gives the aggregate's result over no rows: 0 for count,
-count_if and count_distinct, true for all, null otherwise. Merged ties keep the
-later value/type. A top-N counter whose events disagree on n gives null. Counter
-state keeps input values for arbitrary, min/max and the _by and _n forms. Inputs,
+count_if and count_distinct, true for all, null otherwise. A top-N counter whose
+events disagree on n gives null. Counter state keeps input values for arbitrary,
+min/max and the _by and _n forms. Inputs,
 BY and WHERE accept scalar functions, CASE and operators; aggregates are allowed
 only as TRACK's outer call, never nested or in SET/BY/WHERE.
 
@@ -258,6 +258,13 @@ Aggregates make a query grouped; with no GROUP BY, the whole table is one group.
 not numbers (null, strings, booleans, lists); a group whose values include no numbers
 gives null, as does `sum` over no rows at all. An integer `sum` wraps around like
 `+`; a float `sum`, `avg`, variance or standard deviation that overflows is null.
+
+Which of tied values `min`, `max` and the `_by` forms return is undefined (1 or 1.0,
+for example); in the `_n` forms, so are the order of tied values and which of them a
+limit of n keeps. A float `sum`, `avg`, variance or standard deviation can depend on
+the order partial results merge in: usually only in its last bits, but more when large
+values cancel, an overflow can give null where another order would not, and an integer
+sum can wrap before a float joins it.
 
 ```sql
 SELECT status, count(), avg(response_time_ms) FROM web_responses GROUP BY status HAVING count() > 10 ORDER BY count() DESC LIMIT 10

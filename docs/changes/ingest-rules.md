@@ -5,6 +5,8 @@ rule writes, startup, reload and HTTP/MCP ingestion. C1 provides node-local ETS,
 C2 bounded cluster ownership, C3 mergeable operators, and C4 grammar, validation,
 coherent activation, execution, memory configuration and product documentation.
 The settled design and implementation history are below. Deployment is separate.
+Superseded in part by [counter-merge-order.md](counter-merge-order.md): min/max
+ties, including the winning numeric type, are undefined.
 The phase 1 open questions were settled on the recommendations below.
 Each was first kept switchable through app env (`:rules_on_failure`,
 `:rules_invalid_at_boot`); once confirmed, the switches and the alternatives they

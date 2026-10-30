@@ -28,6 +28,7 @@ defmodule Guardian.Aggregation.AvgTest do
     max = Guardian.Query.Numeric.max_int()
     assert avg([max, max]) == max * 1.0
     assert avg([1.0e308, 1.0e308]) == nil
+    # Overflow first, deliberately; another order may differ.
     assert avg([1.0e308, 1.0e308, -1.0e308, 1]) == nil
   end
 end

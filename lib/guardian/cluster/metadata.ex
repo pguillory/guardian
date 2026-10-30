@@ -8,7 +8,7 @@ defmodule Guardian.Cluster.Metadata do
   `Guardian.Storage.merge_schemas/2`. A column that holds ints on one node and strings on
   another is the same as a mixed column on one node; there is nothing to reconcile.
 
-  If any connected node fails or times out, the lookup raises `Guardian.Cluster.NodeError`
+  If any connected node fails or times out, the lookup raises `Guardian.Query.Error`
   instead of returning partial metadata.
 
   Only connected nodes are asked. A node that is disconnected when the lookup runs is
@@ -53,9 +53,18 @@ defmodule Guardian.Cluster.Metadata do
       |> Enum.reject(&match?({_node, {:ok, _value}}, &1))
 
     if failures != [] do
-      raise Guardian.Cluster.NodeError, operation: function, failures: failures
+      raise Guardian.Query.Error, message: failure_message(function, failures)
     end
 
     Enum.map(results, fn {:ok, value} -> value end)
+  end
+
+  defp failure_message(function, failures) do
+    failures =
+      Enum.map_join(failures, ", ", fn {node, {class, reason}} ->
+        "#{node} (#{class}: #{inspect(reason, limit: 5)})"
+      end)
+
+    "Cluster metadata lookup #{function} failed on #{failures}"
   end
 end

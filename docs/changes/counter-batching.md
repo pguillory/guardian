@@ -2,6 +2,9 @@
 
 Status: implemented and validated.
 
+Superseded in part by [counter-merge-order.md](counter-merge-order.md): bucket
+merge order, and so min/max ties and float results, is no longer a promise.
+
 Product spec impact: [spec Running item 3](../product/spec.md#513-running) now describes
 dependency levels and concurrent independent counters; overview unchanged.
 TRACK/LOOKUP syntax, LOOKUP-before-TRACK ordering, whole-statement defaults, bucket policy and

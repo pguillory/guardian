@@ -42,7 +42,8 @@ Rules to keep:
    config: they live only in a zero-arity closure, requests carry an MFA for
    signing, and every store call returns a reason naming only a kind. Never log or
    return a response body, header, request, or a caught exception's message from a
-   store call.
+   store call. A garbage response is data, a `malformed listing` reason; only a bug
+   raises.
 3. `reason_message/1`'s strings reach API clients through callers; keep them stable.
 4. Every contender for a lock key uses the same lease. The lock cannot fence a holder
    that stalls past its lease or a write applied after the holder gave up: callers

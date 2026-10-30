@@ -5,7 +5,8 @@ defmodule Guardian.Aggregation.Ordering do
 
   @doc """
   Whether `key1` wins over `key2`: strictly less for `:min`, strictly greater for
-  `:max`. A tie is false, so the second argument wins it.
+  `:max`. A tie is false, so the second argument wins it. That is an implementation
+  detail: ties are undefined.
   """
   def wins?(:min, key1, key2) do
     key1 < key2

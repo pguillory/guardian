@@ -438,11 +438,12 @@ and no single request that takes the service down or destroys stored data.
    counter on another table through bounded calls to Guardian peers, never an
    external runtime service.
    Each event's rules run in a worker with the query heap limit and a 1-second
-   limit, outside the request process (for MCP, the request's task and its send_events worker), and a SET/UNSET failure or
-   kill fails only that event. Failures are logged by rule file, line and kind, never
-   a value, and heap kills skip the error_logger report, so an event's values (such
-   as a password an UNSET was meant to remove) stay out of logs. A failing rule
-   fails its event closed (not stored), so a broken `UNSET password` does
+   limit, outside the request process (for MCP, the request's task and its send_events worker). A
+   kill fails only that event and tells the sender; nothing is logged, and heap kills skip
+   the error_logger report. A statement that raises crashes the
+   worker and fails the whole request with a 500, and that failure's log lines can
+   show event values, such as a password an UNSET was meant to remove. Either way
+   rules fail closed (not stored), so a broken `UNSET password` does
    not store the password.
 8. The rule store is read at boot, on writes and once a minute, never per event, so
    the ingest path makes no rule-store/external-service calls (counter peer RPCs
@@ -466,14 +467,13 @@ and no single request that takes the service down or destroys stored data.
    discard every live bucket. Operations never run housekeeping; reads check expiry,
    incr retains insertion expiry, add and cas set it, and expired-key reuse has bounded conditional
    cleanup. Operations have local deadlines and fixed errors; formatted status
-   redacts state/messages/logs/reasons, and housekeeping callback failures replace
-   exception details and stack arguments with fixed text/arities.
+   redacts state/messages/logs/reasons.
    Whole-set preparation validates counter semantics and resolves identities without
    evaluating expressions or accessing counter state. Compiler refuses unresolved
    plans and unbound LOOKUPs. Live counter execution uses the resolved-step
-   dispatcher: failures overwrite the output
+   dispatcher: an unreachable store's failures overwrite the output
    with aggregate defaults and continue, so final UNSETs still remove secrets;
-   SET/UNSET failures remain fail closed. Arrival coordinates are captured before
+   anything that raises fails closed. Arrival coordinates are captured before
    validation, outside caller-writable fields, and are never automatically stored.
    Runner holds the shared failed-wait budget outside replaceable workers.
    Compiled dependency levels batch counters through per-key machines. Store
@@ -498,7 +498,8 @@ and no single request that takes the service down or destroys stored data.
    ETS cooldown that suppresses unavailable owners for a second,
    and timed-out owners only with at least 25 ms allowance; definite failures and
    budget skips never mark owners. No group keys or values are retained there.
-   RPC exceptions become fixed error atoms.
+   An unreachable owner's RPC failures become fixed error atoms; a raise on the owner
+   crashes the rule worker.
    Store and Budget have a disposable supervisor whose linked lifecycle owner
    traps its exits and retries with backoff; counter crash loops cannot exhaust
    Guardian.Application's restart intensity. The owner's down/recovery messages use only fixed
@@ -526,7 +527,7 @@ Counter-specific limits:
   proportional to n, and Store's payload check measures external size, which is
   smaller than heap size, so a state Store accepts can still exceed the rule
   worker's heap limit and fail the event rather than fail open. An n taken from an
-  event field lets one event with a different n null that counter for a window.
+  event field lets one event with a different n fail its whole request with a 500.
   Use a literal n.
 - UNSET is not counter-memory erasure. Avoid secret group keys and inputs to
   value-keeping aggregates (arbitrary, min/max, the `_by` and `_n` forms);
@@ -626,11 +627,13 @@ Counter-specific limits:
    caller dies); `send_events` runs in a `Guardian.Detached` worker and always
    completes. Exits from a running query do not reach the request: `Guardian.Query.run`
    runs each query in its own process and turns every failure inside it, such as a
-   query worker or machine failing, into an exception the handler rescues.
-4. Error messages reach the caller. The MCP `query` tool returns `Exception.message/1`
-   of whatever was raised, which can include internal detail such as peer node names
+   query worker or machine failing, into a `Guardian.Query.Error`, which the tool
+   returns as a tool error.
+4. Error messages reach the caller. The MCP `query` tool returns the message of a parse
+   or query error, which can include internal detail such as peer node names
    (`guardian@<address>`). Acceptable for a single trusted principal. The same text,
-   cut to 1 KiB, is stored in `queries.error`.
+   cut to 1 KiB, is stored in `queries.error`. An unexpected raise reaches the caller
+   only as JSON-RPC -32603; its message stays in `queries.error` and the log.
 5. Corrupt segment files abort the VM. The column NIF uses C asserts while unpacking,
    so a corrupt `.seg` file crashes the whole VM. A truncated, empty, or structurally
    malformed file is skipped instead, and its load failure is logged by kind only,
@@ -864,31 +867,17 @@ Where data goes:
    so neither the key nor any other header value.
 4. `system_stats` records VM metrics and counter process availability; no request data.
 5. stdout (on Fly, Fly's log stream) receives more caller data than the tables do:
-   - `Guardian.Web.JsonApi.call/2` catches JSON application failures, including wrapped
-     route failures, and returns the error response without reraising into Bandit.
-     For unwrapped failures before routing, HTTP/1 responses close the connection:
-     the original connection lacks the parser's updated body-reader state, so it
-     must not drain the body again. HTTP/2 completes or resets its own stream.
-     Generic failures log only their kind (`Guardian.Failure.kind/3`) and a
-     server-generated random error ID through Logger at error level, never their
-     message, stack, SQL or event data. A failure after a response was sent logs the
-     same safe line without sending again, then raises a replacement exception
-     containing only that line and an empty stack so Bandit can close safely (it
-     may repeat the safe diagnostic). The bare 500 response is unchanged and
-     carries no ID. Body failures (malformed JSON 400, too large 413, wrong content type
-     415) and an undecodable query string (400) are answered without printing.
-     Bandit transport/protocol exceptions pass through unchanged to Bandit's own
-     status, cleanup and logging policy, so client disconnects and read timeouts
-     do not become generic application failures.
-   - `Guardian.Engine` logs an ingestion crash by table, failure kind (`Guardian.Failure.kind/3`)
-     and stack trace with each call's arguments replaced by its arity, so neither the
-     exception's message nor the event values passed to the failing function are
-     printed. Engine, Rules.Server and Counters.Store share
-     `Guardian.Failure.stacktrace/1`: only MFA arities and typed file/line metadata
-     survive, and unsupported frames (including fun closures) become a fixed
-     redacted frame. Failure labels retain their existing caught-error, raw
-     callback-reason and Storage-exit vocabularies; logging and reraising remain
-     the caller's responsibility.
+   - `Guardian.Web.JsonApi` uses `Plug.ErrorHandler`: a failure gets its response
+     (a bare 500, or a fixed 400, 413 or 415 for a body or query string Plug refuses)
+     and is reraised, so Bandit prints a 5xx with the full exception and stack, which
+     can hold query text or event values, and closes the connection. It prints no 4xx.
+     The JSON router drops the `x-api-key` header once it is checked, so no plug or
+     handler after that check has it. Bandit also attaches its own
+     connection, built before any plug and so with the header, as Logger metadata on
+     that line. Guardian's formatter prints no metadata (no `metadata:` in `config/`);
+     a formatter set to print `conn` or `crash_reason` would expose the key, so don't
+     configure one. Bandit transport/protocol exceptions pass through unchanged to
+     its own status, cleanup and logging policy.
    - A `web_requests`, `web_responses`, `system_stats`, `query_parse_errors` or
      `queries` write
      that fails is logged with the table and the failure's kind only (an exception
@@ -909,24 +898,22 @@ Where data goes:
      Compiled modules hold their execution levels (typed steps, with canonical
      source and expression constants) as escaped literal data, whose lifetime is
      bounded by the fixed module pool and normal code reclamation. The synchronous
-     Rules.Publisher helper runs inside
-     Server's scrubbed callbacks; its state holds only module names and retirement
+     Rules.Publisher helper runs inside Server's callbacks; its state holds only
+     module names and retirement
      statuses, never sources, plans or diagnostics. Raw module/process inspection
-     remains privileged full-memory access. `init/1`, `handle_call/3` and
-     `handle_info/2` re-raise a failure as an error naming only its kind, with a
-     stack of arities, because OTP adds the raw stack, arguments included, after
-     `format_status/1`. `Guardian.Rules.Server.write/3` turns the call's exit into an error
-     without logging the exit reason, which carries the message. Unknown stack-frame
-     shapes, including fun frames whose closure can hold rule source, become a fixed
-     redacted MFA frame rather than passing through unchanged. Proc_lib and
+     remains privileged full-memory access. A callback that raises crashes as is:
+     OTP adds the raw stack, arguments included, after `format_status/1`, so a crash
+     report can show rule text. `Guardian.Rules.Server.write/3` turns a timed-out or
+     missing server into an error without logging the exit reason, which carries the
+     message. Proc_lib and
      supervisor reports (which include the message queue) are SASL reports, which
      Logger drops in this configuration. One gap, by design: with `:sys.log/2` on,
      `:sys.get_status/1` also returns OTP's raw debug log, unredacted, and the
      formatted log keeps write replies, whose validation messages can quote up to
      40 characters of a rule; turning it on takes a remote shell, which reads any
      state anyway.
-   - Guardian.Counters.Store's formatted status and callback failures redact keys and values
-     (5.1.9). Ordinary operations do not log their arguments or returned values.
+   - Guardian.Counters.Store's formatted status redacts keys and values
+     (5.1.9); a callback failure crashes as is and its report can show them. Ordinary operations do not log their arguments or returned values.
      The counter lifecycle owner logs subtree exits and failed recovery attempts
      at error with fixed reason categories and a retry delay, and recovery at info.
      Clean application shutdown stops the subtree without logging a failure.
@@ -976,11 +963,8 @@ rejected bodies are logged as size, reason, and a known method name only, never
 caller-chosen strings.
 
 The remaining stdout leaks above are accepted: they are bounded by error frequency
-and reach only operators. HTTP/Bandit failures outside the JSON boundary and MCP
-retain their existing logging behavior. Original caught JSON application failures no longer
-reach Bandit's exception log or exception telemetry. Plug's router dispatch telemetry
-still emits raw reasons, stacks and connection data before the JSON boundary catches
-them; privileged in-process telemetry handlers can read those. Guardian attaches no
+and reach only operators. Bandit's and Plug's telemetry emit raw reasons, stacks and
+connection data; privileged in-process telemetry handlers can read those. Guardian attaches no
 telemetry handlers. Installing one has the same trust as running code inside the VM.
 
 Failed authentication is not logged anywhere (4.2.4).

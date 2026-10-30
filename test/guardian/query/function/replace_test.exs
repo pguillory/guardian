@@ -80,8 +80,7 @@ defmodule Guardian.Query.Function.ReplaceTest do
     groups = String.duplicate("(a)", Guardian.Query.Regex.max_groups())
     assert eval("replace('a', '#{groups}', 'x')") === "a"
 
-    error =
-      assert_raise Guardian.AST.ParseError, fn -> eval("replace('a', '#{groups}(a)', 'x')") end
+    {:error, error} = Guardian.AST.parse_expression("replace('a', '#{groups}(a)', 'x')")
 
     assert error.reason =~ "more than 32 capturing groups"
   end
