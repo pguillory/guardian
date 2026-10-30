@@ -123,11 +123,11 @@ GUARDIAN_URL = "https://<app>.fly.dev/api/json/send_events"
 HEADERS = {"x-api-key": os.environ["GUARDIAN_INGEST_API_KEY"]}
 
 
-def send_event(table, fields, returning=None):
-    body = {"table": table, "events": [fields], "return_keys": returning}
-    response = requests.post(GUARDIAN_URL, json=body, headers=HEADERS, timeout=10)
+def send_event(table, event, returning=None):
+    body = {"table": table, "events": [event], "return_keys": returning}
+    response = requests.post(GUARDIAN_URL, json=body, headers=HEADERS)
     response.raise_for_status()
-    result = response.json()["results"][0]
+    [result] = response.json()["results"]
     if not result["success"]:
         raise RuntimeError(result["error"])
     return result["event"]
@@ -159,15 +159,6 @@ configuration. When embedding Guardian as a Mix dependency, configure the
 `config/runtime.exs`, which translates Guardian's environment variables. See the
 [configuration reference](docs/reference/configuration.md) for the release settings
 and [application keys](docs/architecture/system.md#9-configuration).
-
-## Upgrading from a single key
-
-Guardian no longer reads `GUARDIAN_API_KEY`, the one full-access key of early releases.
-Set `GUARDIAN_ADMIN_API_KEY` (full access) and, for applications that only send
-events, `GUARDIAN_INGEST_API_KEY`, each from `openssl rand -hex 32`, and move your
-callers to them. A deployment that sets only the old key refuses to start, with an
-error naming the two. See [drop-legacy-api-key](docs/changes/drop-legacy-api-key.md)
-and, on Fly, [the guide](docs/guides/fly.md) for setting secrets.
 
 ## Documentation
 

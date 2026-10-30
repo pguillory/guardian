@@ -30,6 +30,9 @@ a particular deployment belong with that deployment, not here.
 - Update TODO.md and the change document when work completes.
 - Record conceptually distinct follow-up work instead of expanding the current change.
 
+The README describes how Guardian works now. History and upgrade notes go in
+`docs/changes/`, never in the README.
+
 ## Product
 
 Guardian is a single-tenant, self-hosted, schemaless event store with a SQL-like query
