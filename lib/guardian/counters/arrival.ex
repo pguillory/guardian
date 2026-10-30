@@ -8,6 +8,7 @@ defmodule Guardian.Counters.Arrival do
 
   @type t :: %__MODULE__{unix_ms: integer(), monotonic_ms: integer()}
 
+  @doc "Reads both clocks now: Unix milliseconds and this node's monotonic milliseconds."
   @spec now() :: t()
   def now do
     %__MODULE__{

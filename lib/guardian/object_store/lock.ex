@@ -8,8 +8,9 @@ defmodule Guardian.ObjectStore.Lock do
   - Acquire: create the object with `If-None-Match: *`. If it exists, read it: a
     released lock, or one whose lease has run out by the store's own clock (the
     object's age, from its Last-Modified and the store's Date), is taken over with
-    `If-Match` on the ETag read. A live lock is retried every 500 ms until the
-    timeout.
+    `If-Match` on the ETag read. A live lock is not waited for: acquiring makes one
+    attempt and returns `{:error, :busy}`, and the caller decides whether and when
+    to try again.
   - The holder's own deadline is measured from just before its create, so it never
     outlives the lease as the store sees it.
   - Release: overwrite with a released body, `If-Match` on the holder's own ETag, so a
@@ -23,60 +24,53 @@ defmodule Guardian.ObjectStore.Lock do
   """
 
   @lease_ms 120_000
-  @acquire_timeout_ms 10_000
-  @retry_ms 500
 
   defstruct [:store, :key, :etag, :deadline]
 
   @doc """
-  Acquires the lock on `key` for `holder` (a description). Options: `:lease_ms`
-  (default 120 s) and `:timeout_ms`, how long to retry a live lock (default 10 s).
-  `{:ok, lock}`, `{:error, :busy}`, or `{:error, reason}` from the store.
+  Makes one attempt to acquire the lock on `key` for `holder` (a description).
+  Option: `:lease_ms` (default 120 s). `{:ok, lock}`; `{:error, :busy}` when the lock
+  is live, or another contender won a race to create or take it over; or
+  `{:error, reason}` from the store.
   """
   def acquire(store, key, holder, opts \\ []) do
     lease_ms = Keyword.get(opts, :lease_ms, @lease_ms)
-    give_up_at = now() + Keyword.get(opts, :timeout_ms, @acquire_timeout_ms)
-    attempt(store, key, body(holder, "held"), lease_ms, give_up_at)
-  end
-
-  defp attempt(store, key, body, lease_ms, give_up_at) do
+    body = body(holder, "held")
     started = now()
 
-    result =
-      case Guardian.ObjectStore.put(store, key, body, :absent) do
-        {:ok, etag} ->
-          {:ok, etag}
-
-        {:error, :precondition_failed} ->
-          case Guardian.ObjectStore.get(store, key) do
-            {:ok, current, meta} ->
-              if released?(current) or meta.age_ms >= lease_ms do
-                Guardian.ObjectStore.put(store, key, body, {:etag, meta.etag})
-              else
-                {:error, :busy}
-              end
-
-            {:error, :not_found} ->
-              {:error, :retry}
-
-            {:error, reason} ->
-              {:error, reason}
-          end
-
-        {:error, reason} ->
-          {:error, reason}
-      end
-
-    case result do
+    case create_or_take_over(store, key, body, lease_ms) do
       {:ok, etag} ->
         {:ok, %__MODULE__{store: store, key: key, etag: etag, deadline: started + lease_ms}}
 
-      {:error, retryable} when retryable in [:busy, :retry, :precondition_failed] ->
-        if now() + @retry_ms < give_up_at do
-          Process.sleep(@retry_ms)
-          attempt(store, key, body, lease_ms, give_up_at)
-        else
-          {:error, :busy}
+      {:error, lost} when lost in [:busy, :precondition_failed] ->
+        {:error, :busy}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # A lock that vanished between the create and the read, or a takeover another
+  # contender made first (`:precondition_failed`), means someone else is at it: busy.
+  defp create_or_take_over(store, key, body, lease_ms) do
+    case Guardian.ObjectStore.put(store, key, body, :absent) do
+      {:ok, etag} ->
+        {:ok, etag}
+
+      {:error, :precondition_failed} ->
+        case Guardian.ObjectStore.get(store, key) do
+          {:ok, current, meta} ->
+            if released?(current) or meta.age_ms >= lease_ms do
+              Guardian.ObjectStore.put(store, key, body, {:etag, meta.etag})
+            else
+              {:error, :busy}
+            end
+
+          {:error, :not_found} ->
+            {:error, :busy}
+
+          {:error, reason} ->
+            {:error, reason}
         end
 
       {:error, reason} ->

@@ -22,10 +22,11 @@ Modules:
   `:global` lock held by the writing process, keyed by the folder's device and inode
   (taken in `new/2`) so every spelling of the folder shares it. Contention uses capped
   randomized exponential backoff without fairness or a total wait limit; a hung
-  writer blocks later writes, and a lease acquire's timeout cannot interrupt that
-  wait.
+  writer blocks later writes, including a lease acquire's put, which waits too.
 - `Guardian.ObjectStore.Lock`: a lease lock on one key of any store, judged by the
-  store's clock, with ownership-safe release. A lease, not a fence.
+  store's clock, with ownership-safe release. A lease, not a fence. Acquiring makes one
+  attempt and returns `:busy` for a held lock; it never waits or retries, so any retry
+  policy is the caller's.
 
 Rules to keep:
 

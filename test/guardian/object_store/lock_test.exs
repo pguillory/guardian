@@ -25,17 +25,17 @@ defmodule Guardian.ObjectStore.LockTest do
   test "one holder at a time per key; release lets the next in", %{store: store} do
     assert {:ok, lock} = acquire(store, "jobs/a.lock", "a")
     assert remaining_ms(lock) > 100_000
-    assert acquire(store, "jobs/a.lock", "b", timeout_ms: 600) == {:error, :busy}
+    assert acquire(store, "jobs/a.lock", "b") == {:error, :busy}
 
     # Another key is independent of the first, and is released on its own.
-    assert {:ok, other} = acquire(store, "jobs/b.lock", "b", timeout_ms: 600)
+    assert {:ok, other} = acquire(store, "jobs/b.lock", "b")
     assert release(other) == :ok
     assert lock_state(store, "jobs/b.lock") == "released"
     assert lock_state(store, "jobs/a.lock") == "held"
 
     assert release(lock) == :ok
     assert lock_state(store, "jobs/a.lock") == "released"
-    assert {:ok, _lock} = acquire(store, "jobs/a.lock", "b", timeout_ms: 600)
+    assert {:ok, _lock} = acquire(store, "jobs/a.lock", "b")
   end
 
   test "an expired lease is taken over, and the old holder cannot release its successor",
@@ -43,28 +43,60 @@ defmodule Guardian.ObjectStore.LockTest do
     assert {:ok, old} = acquire(store, "k", "old", lease_ms: 30_000)
     assert remaining_ms(old) <= 30_000 and remaining_ms(old) > 25_000
     Guardian.Test.FakeS3.age(s3, "k", 31)
-    assert {:ok, new} = acquire(store, "k", "new", lease_ms: 30_000, timeout_ms: 600)
+    assert {:ok, new} = acquire(store, "k", "new", lease_ms: 30_000)
     assert release(old) == {:error, :precondition_failed}
     assert lock_state(store, "k") == "held"
-    assert acquire(store, "k", "third", lease_ms: 30_000, timeout_ms: 600) == {:error, :busy}
+    assert acquire(store, "k", "third", lease_ms: 30_000) == {:error, :busy}
     assert release(new) == :ok
   end
 
   test "the lease is judged by the store's clock, not the holder's", %{s3: s3, store: store} do
     assert {:ok, _lock} = acquire(store, "k", "a")
-    # Not aged past the default lease on the store: still live, however long this
-    # node thinks it has waited.
+    # Not aged past the default lease on the store: still live.
     Guardian.Test.FakeS3.age(s3, "k", 60)
-    assert acquire(store, "k", "b", timeout_ms: 600) == {:error, :busy}
+    assert acquire(store, "k", "b") == {:error, :busy}
+  end
+
+  defp lock_requests(s3, key) do
+    s3
+    |> Guardian.Test.FakeS3.requests()
+    |> Enum.filter(&String.ends_with?(&1.path, "/" <> key))
+    |> Enum.map(& &1.method)
+  end
+
+  test "a live lock is busy after one create and one read, without waiting", %{
+    s3: s3,
+    store: store,
+  } do
+    assert {:ok, _lock} = acquire(store, "k", "a")
+    assert acquire(store, "k", "b") == {:error, :busy}
+    assert lock_requests(s3, "k") == ["PUT", "PUT", "GET"]
+  end
+
+  test "a lock gone between the create and the read is busy", %{s3: s3, store: store} do
+    assert {:ok, _lock} = acquire(store, "k", "a")
+    # The create fails on the live lock; the read then finds nothing.
+    Guardian.Test.FakeS3.fault(s3, [nil, {:status, 404}])
+    assert acquire(store, "k", "b") == {:error, :busy}
+    assert lock_requests(s3, "k") == ["PUT", "PUT", "GET"]
+  end
+
+  test "a takeover another contender made first is busy", %{s3: s3, store: store} do
+    assert {:ok, lock} = acquire(store, "k", "a")
+    assert release(lock) == :ok
+    # The create fails on the released lock, the read succeeds, the takeover loses.
+    Guardian.Test.FakeS3.fault(s3, [nil, nil, {:status, 412}])
+    assert acquire(store, "k", "b") == {:error, :busy}
+    assert lock_requests(s3, "k") == ["PUT", "PUT", "PUT", "GET", "PUT"]
   end
 
   test "works on a local folder too" do
     store = local_store!()
     key = "k"
     assert {:ok, lock} = acquire(store, key, "a")
-    assert acquire(store, key, "b", timeout_ms: 600) == {:error, :busy}
+    assert acquire(store, key, "b") == {:error, :busy}
     assert release(lock) == :ok
-    assert {:ok, _lock} = acquire(store, key, "b", timeout_ms: 600)
+    assert {:ok, _lock} = acquire(store, key, "b")
   end
 
   test "concurrent local acquisitions have one holder per key, on create and released takeover" do
@@ -79,7 +111,7 @@ defmodule Guardian.ObjectStore.LockTest do
             receive do
               :go ->
                 holder = "#{key}:#{round}:#{n}"
-                {key, holder, acquire(store, key, holder, timeout_ms: 0)}
+                {key, holder, acquire(store, key, holder)}
             end
           end)
         end

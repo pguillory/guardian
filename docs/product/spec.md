@@ -534,8 +534,11 @@ UNSET password
    dependency. SET/TRACK/LOOKUP share one output namespace. A set that is already
    broken can be fixed one file at a time; a broken table does not block writes to others.
 2. Writes take a lock held in the store itself, so they are serialized across every
-   machine, then every connected machine reloads. Machines also re-read the store
-   every minute, catching changes made directly in the store.
+   machine, then every connected machine reloads. If the lock is held when a write or
+   delete tries to take it, the operation fails without changing anything; the MCP
+   tools try again for a few seconds, then report that something else is editing the
+   rules. A lock left by an interrupted write expires within two minutes. Machines
+   also re-read the store every minute, catching changes made directly in the store.
 3. A local folder belongs to one machine, so with other machines connected, writes are
    refused: a cluster needs a bucket.
 4. A referenced TRACK cannot be deleted or changed to an incompatible grouping

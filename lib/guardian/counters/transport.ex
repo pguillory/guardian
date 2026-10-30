@@ -228,7 +228,10 @@ defmodule Guardian.Counters.Transport do
     {:error, :invalid_response}
   end
 
-  @doc "Rendezvous owner of {identity, group} by member name; member order never matters."
+  @doc """
+  Rendezvous owner of `{identity, group}` by member name; member order never matters.
+  Raises on members that are not a non-empty list of atoms.
+  """
   def owner(routing_key, members) when is_list(members) and members != [] do
     Guardian.Rendezvous.owner(routing_key, members, &Atom.to_string/1)
   end

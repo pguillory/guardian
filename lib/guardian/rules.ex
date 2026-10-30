@@ -89,8 +89,9 @@ defmodule Guardian.Rules do
 
   @doc """
   Creates or replaces a rule file. See `Guardian.Rules.Server` for the outcomes: `{:ok,
-  result}` when saved, `{:error, {:rejected, messages}}`, `{:error, {:unknown,
-  message}}` when it may have been saved, or `{:error, message}`.
+  result}` when saved, `{:error, {:rejected, messages}}`, `{:error, :busy}` when the
+  write lock is held (nothing changed), `{:error, {:unknown, message}}` when it may have
+  been saved, or `{:error, message}`.
   """
   def write_rule(table, name, source) do
     Guardian.Rules.Server.write(table, name, source)

@@ -5,6 +5,10 @@ defmodule Guardian.Counters.Supervisor do
   """
   use Supervisor
 
+  @doc """
+  Starts the supervisor, named `:name` (default `Guardian.Counters.Supervisor`).
+  `:store` and `:budget` are the option lists for those two children.
+  """
   def start_link(opts \\ []) do
     Supervisor.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
   end
