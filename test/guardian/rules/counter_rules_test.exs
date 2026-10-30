@@ -9,6 +9,7 @@ defmodule Guardian.Rules.CounterRulesTest do
   alias Guardian.Aggregation
   alias Guardian.Counters.Arrival
   alias Guardian.Counters.Execution
+  alias Guardian.Counters.LookupOperation
   alias Guardian.Counters.Store
   alias Guardian.Rules.DependencyGraph
   alias Guardian.Rules.Event
@@ -35,7 +36,11 @@ defmodule Guardian.Rules.CounterRulesTest do
   # One LOOKUP straight through counter execution, unwrapped to its value.
   defp lookup(definition, group, event) do
     [{:ok, value}] =
-      Execution.run_counters([{:lookup, definition, group}], event.arrival, event.counters)
+      Execution.run_counters(
+        [%LookupOperation{definition: definition, group: group}],
+        event.arrival,
+        event.counters
+      )
 
     value
   end

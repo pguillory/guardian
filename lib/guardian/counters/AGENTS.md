@@ -173,8 +173,9 @@ count increments and generic gets/merge/CAS use their returned state, never a
 post-update read. Zero-count deltas and unchanged generic states skip mutation.
 TTLs count down to one anchored monotonic expiry derived from bucket_end+W;
 transit can still delay physical expiry at the owner. Execution's inputs are
-counters-layer values: ops carrying `Guardian.Counters.Definition`s, the event's
-`Guardian.Counters.Arrival` and its `Guardian.Counters.Context`. No code in this
+counters-layer values: ops (`Guardian.Counters.TrackOperation` and
+`Guardian.Counters.LookupOperation`, which never leave this node) carrying
+`Guardian.Counters.Definition`s, the event's `Guardian.Counters.Arrival` and its `Guardian.Counters.Context`. No code in this
 directory references a Rules module; Rules builds these inputs
 (`docs/changes/counter-definition-layer.md`).
 

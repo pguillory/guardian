@@ -148,6 +148,9 @@ privately, not in this repository.
       `Client.batch/2`, which routes, groups, runs owners in parallel and restores order;
       the injected dispatch function goes, and Execution's tests run on the real Client,
       async through per-event budgets (`docs/changes/counter-client-fanout.md`)
+- [x] counter-operation-structs: named TrackOperation and LookupOperation structs
+      replace the `{:track, ...}` and `{:lookup, ...}` tuples
+      (`docs/changes/counter-operation-structs.md`)
 - [x] counter-machine-nil-operation: reject nil initial and next operations instead
       of silently treating a malformed callback transition as completion
       (`docs/changes/counter-machine-nil-operation.md`)

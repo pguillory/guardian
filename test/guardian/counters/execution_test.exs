@@ -11,8 +11,10 @@ defmodule Guardian.Counters.ExecutionTest do
   alias Guardian.Counters.Arrival
   alias Guardian.Counters.Definition
   alias Guardian.Counters.KeyMachines
+  alias Guardian.Counters.LookupOperation
   alias Guardian.Counters.Machine
   alias Guardian.Counters.Store
+  alias Guardian.Counters.TrackOperation
   alias Guardian.Test.Counters.Budget, as: CounterBudgetHelper
   alias Guardian.Test.Counters.ProbeStore
 
@@ -60,7 +62,7 @@ defmodule Guardian.Counters.ExecutionTest do
   defp track(definition, group, values, event) do
     [{:ok, value}] =
       run_counters(
-        [{:track, definition, group, values}],
+        [%TrackOperation{definition: definition, group: group, values: values}],
         event.arrival,
         event.context
       )
@@ -70,9 +72,13 @@ defmodule Guardian.Counters.ExecutionTest do
 
   defp lookup(definition, group, event) do
     [{:ok, value}] =
-      run_counters([{:lookup, definition, group}], event.arrival, event.context)
+      run_counters([lookup_op(definition, group)], event.arrival, event.context)
 
     value
+  end
+
+  defp lookup_op(definition, group \\ {}) do
+    %LookupOperation{definition: definition, group: group}
   end
 
   defp key(name, bucket \\ 1) do
@@ -196,9 +202,9 @@ defmodule Guardian.Counters.ExecutionTest do
     assert [{:ok, 8}, {:error, expansion}, {:ok, 8}] =
              run_counters(
                [
-                 {:lookup, sum, {}},
-                 {:lookup, definition({"no_such_aggregate", 1}), {}},
-                 {:lookup, sum, {}},
+                 lookup_op(sum),
+                 lookup_op(definition({"no_such_aggregate", 1})),
+                 lookup_op(sum),
                ],
                Arrival.now(),
                context(ok)
@@ -209,9 +215,9 @@ defmodule Guardian.Counters.ExecutionTest do
     # A malformed routing key defaults only its own op.
     assert run_counters(
              [
-               {:lookup, sum, {}},
-               {:lookup, definition({"sum", 1}, {"events", "hits", :bad}), {}},
-               {:lookup, sum, {}},
+               lookup_op(sum),
+               lookup_op(definition({"sum", 1}, {"events", "hits", :bad})),
+               lookup_op(sum),
              ],
              Arrival.now(),
              context(ok)
@@ -227,8 +233,8 @@ defmodule Guardian.Counters.ExecutionTest do
 
     assert run_counters(
              [
-               {:lookup, sum, {}},
-               {:lookup, definition({"sum", 1}, {"events", "hits", :bad}), {}},
+               lookup_op(sum),
+               lookup_op(definition({"sum", 1}, {"events", "hits", :bad})),
              ],
              timeout_event.arrival,
              timeout_event.context
@@ -240,7 +246,7 @@ defmodule Guardian.Counters.ExecutionTest do
 
     assert [{:error, round}, {:error, ^expansion}] =
              run_counters(
-               [{:lookup, sum, {}}, {:lookup, definition({"no_such_aggregate", 1}), {}}],
+               [lookup_op(sum), lookup_op(definition({"no_such_aggregate", 1}))],
                raising.arrival,
                raising.context
              )

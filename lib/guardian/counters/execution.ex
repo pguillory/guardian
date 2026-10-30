@@ -10,7 +10,8 @@ defmodule Guardian.Counters.Execution do
   store operations to one `Guardian.Counters.Client.batch/2` call, then feeds each
   response back to its machine. The key machines are `Guardian.Counters.KeyMachines`.
 
-  Its inputs are counters-layer values: ops carrying `Guardian.Counters.Definition`s,
+  Its inputs are counters-layer values: ops (`Guardian.Counters.TrackOperation`,
+  `Guardian.Counters.LookupOperation`) carrying `Guardian.Counters.Definition`s,
   the event's `Guardian.Counters.Arrival` and its `Guardian.Counters.Context`.
 
   The production machines (read, incr, merge) finish in at most six rounds: every
@@ -24,14 +25,14 @@ defmodule Guardian.Counters.Execution do
   alias Guardian.Counters.Context
   alias Guardian.Counters.Definition
   alias Guardian.Counters.KeyMachines
+  alias Guardian.Counters.LookupOperation
   alias Guardian.Counters.Machine
+  alias Guardian.Counters.TrackOperation
   alias Guardian.Lists
 
   @counts [{"count", 0}, {"count", 1}]
 
-  @type op ::
-          {:track, Definition.t(), tuple(), [term()]}
-          | {:lookup, Definition.t(), tuple()}
+  @type op :: TrackOperation.t() | LookupOperation.t()
 
   @doc """
   One result per op, in order. A failed bucket (timeout, unavailable, cooldown,
@@ -86,7 +87,7 @@ defmodule Guardian.Counters.Execution do
 
   # An op's aggregation and bucket machines, or the expansion's failure kind.
   defp expand(op, arrival) do
-    aggregation = Definition.aggregation(elem(op, 1))
+    aggregation = Definition.aggregation(op.definition)
     {:ok, aggregation, expand_machines(op, aggregation, arrival)}
   catch
     kind, reason -> {:error, Guardian.Failure.kind(kind, reason, __STACKTRACE__)}
@@ -100,11 +101,19 @@ defmodule Guardian.Counters.Execution do
     []
   end
 
-  defp expand_machines({:lookup, definition, group}, _aggregation, arrival) do
+  defp expand_machines(
+         %LookupOperation{definition: definition, group: group},
+         _aggregation,
+         arrival
+       ) do
     Enum.map(keys(definition, group, arrival), &KeyMachines.read/1)
   end
 
-  defp expand_machines({:track, definition, group, values}, aggregation, arrival) do
+  defp expand_machines(
+         %TrackOperation{definition: definition, group: group, values: values},
+         aggregation,
+         arrival
+       ) do
     operator = definition.operator
     delta = Aggregation.start(aggregation, values)
     keys = keys(definition, group, arrival)

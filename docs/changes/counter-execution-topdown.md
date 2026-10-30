@@ -20,7 +20,8 @@ Nothing reads top-down as one algorithm.
 `Guardian.Rules.CounterRuntime` becomes the one module that reads top-down:
 
 1. `run_counters(ops, event, dispatch \\ &Client.dispatch/2)`: map each op (`{:track, definition, group, values}`
-   or `{:lookup, definition, group}`) to its list of key machines; flatten;
+   or `{:lookup, definition, group}`; since named, see
+   `docs/changes/counter-operation-structs.md`) to its list of key machines; flatten;
    `run_state_machines`; unflatten against the per-op lists; combine each op with
    its finished machines into a counter result. A bucket error (timeout,
    unavailable, cooldown, budget exhausted, expired, invalid request, CAS
