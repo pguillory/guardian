@@ -21,7 +21,10 @@ endif
 console: nifs
 	iex --erl "-kernel shell_history enabled" -S mix
 
+# nifs is phony; the empty recipe keeps make from printing "Nothing to be done" on
+# every up-to-date compile. Its prerequisites still rebuild as usual.
 nifs: priv/column.so priv/mmap.so
+	@:
 
 priv:
 	mkdir -p priv

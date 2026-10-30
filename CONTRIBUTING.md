@@ -93,6 +93,26 @@ hook on the default run, that is what keeps the cluster tests from rotting unsee
 
 A passing run should be simple and fast.
 
+## Logging
+
+1. Text logs cover lifecycle: starting up, loaded, listening, shutting down, stopped.
+   Nothing per event, per segment or per request.
+2. Error-level logs mean one thing: a bug or problem we need to fix. Anything there is
+   work to do. Crashes go to the log through Erlang/Elixir's built-in handlers; leave
+   those on and let them show.
+3. Logs get clean by fixing errors, never by hiding them: no `capture_log`, log filters
+   or global silencing to quiet output, and no `errors` table. A process crashing in
+   normal or test operation is a bug: fix it, or if a test causes it on purpose, the
+   test goes.
+4. Don't scrub logs or crash reports. The one thing kept out is the API key: each
+   router drops the `x-api-key` header once the key passes.
+5. Everything goes through Logger, not `IO.puts`. The one exception is the random admin
+   key a dev Mix run generates (`config/runtime.exs`), printed to stderr because Logger
+   isn't running yet at config time.
+
+Production logs at info, so lifecycle lines show there. Tests run at warning, so a
+passing `mix test` prints only dots and the summary.
+
 ## Test isolation
 
 Tests assume every table starts empty, and each test uses its own table. The test run

@@ -497,6 +497,10 @@ privately, not in this repository.
       line; the VM reads it from an owner-only file written from `RELEASE_COOKIE`
       (`docs/changes/release-cookie-file.md`)
 
+- [ ] logging: text logs cover lifecycle only and errors mean work to do; IO.puts
+      moves to Logger, scrubbing stops, and a passing `mix test` prints only dots and
+      the summary (`docs/changes/logging.md`)
+
 ## Tests
 
 - [ ] test-rules: bring tests in line with CONTRIBUTING's testing philosophy a
