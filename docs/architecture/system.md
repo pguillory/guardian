@@ -124,7 +124,10 @@ Why this order:
 3. The writers of built-in tables (SystemStats, Guardian.Web.QueryParseErrors, Guardian.Web.QueryLog)
    start after Storage because they write to it.
 4. Web starts after everything it calls.
-5. Shutdown runs in reverse: discovery stops, then the HTTP listener (in-flight requests
+5. Shutdown starts with `Guardian.Application.prep_stop/1` setting a flag:
+   `Guardian.Storage.ready?/0` answers false, so peers leave this node out of new queries and
+   `/health` answers 503, and `Guardian.Query.execute/1` refuses new queries. No lock: a query
+   already running, or racing the flag, can fail. The tree then stops in reverse: discovery stops, then the HTTP listener (in-flight requests
    get at most 500 ms), so no new events arrive while Storage persists what it holds.
 
 Inside Storage, `:rest_for_one` reflects dependencies: each manager calls the ones
@@ -214,10 +217,8 @@ which returns a failure as `{:error, kind}`, so a write that fails (Storage rest
 say) is skipped and logged by kind instead of crashing SystemStats, failing the
 request, or crashing the recorder.
 
-`Guardian.Failure` is the leaf helper for value-free diagnostic labels and stack
-redaction, shared by Engine, Rules, Counters.Store and Web. It depends only on the
-standard library; callers keep their own messages and catch/reraise policies.
-Storage and Query name segment exit reasons with it directly too. Query
+`Guardian.Failure` is the leaf helper for value-free diagnostic labels, shared by Engine,
+Storage, Query and Web. It depends only on the standard library. Query
 errors returned to callers are described separately by `Guardian.Query.Failure`.
 
 Client idempotency keys are checked only at `Guardian.Web.Ingest`, shared by HTTP and MCP.
@@ -263,11 +264,11 @@ An MCP call can wait behind an earlier call in the same session before reaching 
    back (spec section 5 item 4): after rules, exactly the stored columns. Nothing in
    Guardian rebuilds nested JSON from a flat row; ingest results, queries and stored
    segments are all flat, and a dropped value shows only as a missing column.
-4. Failures are classified by when they happen, which is what the three error
-   messages (spec section 5 item 6) encode: before storage (not stored), an explicit
-   storage refusal (not stored), or an exception or exit once the append has started
-   (may have been stored, because a timed-out call can still complete). Exception
-   details go to the server log.
+4. Expected failures are data, per event: a value that cannot be stored, or an explicit
+   storage refusal (both not stored). Engine catches nothing else. An exception or exit,
+   in rules or once an append has started (a timed-out call can still complete), fails
+   the whole request (spec section 5 item 6), and its details reach the server log
+   through the web server or the crash report.
 
 Why validation lives in Engine and not Storage: Engine is the boundary where caller
 input becomes a row and the place that tells the caller what was stored. Storage
@@ -357,7 +358,7 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    levels, including canonical source and AST constants, never executable rule text.
    Ingestion uses the prepared levels directly, without reconstruction.
 3. Publication: `Guardian.Rules.Publisher` owns activation, publication and the
-   generated-module pool, synchronously inside Server's scrubbed callbacks. Server
+   generated-module pool, synchronously inside Server's callbacks. Server
    keeps store reads, reload/poll, locked writes and admission; it holds Publisher's
    free/retired names and forwards reclamation messages. Publisher retains no plans,
    sources or diagnostics in its state. One `:persistent_term` map holds table to
@@ -470,9 +471,8 @@ are stored (Engine's rule-output validation, query column construction). Average
 skips states with no values, retaining signed-zero bits. All arithmetic, overflow
 and ordering logic lives in the shared modules. The registry's `finish` boundary
 nulls list results that storage cannot hold, leaving valid lists and all scalar
-results unchanged. A merge that raises (top-N states with different n) fails that
-counter open: Machine turns it into a bucket error, and Runtime's counter guard
-catches it across buckets. These states are plain terms safe to copy through ETS
+results unchanged. A merge that raises (top-N states with different n) is a rule
+failure like any other: it crashes the rule worker and fails the request. These states are plain terms safe to copy through ETS
 and distribution; no resources or ownership transfer are involved. HLL registers
 have fixed size; arbitrary, min/max and the `_by` forms retain one input of
 variable byte size, the `_n` forms up to n of them, and count/avg exact integer
@@ -1133,10 +1133,10 @@ is full-access unless it opts in.
 1. `/send_events`, the only route, calls `Guardian.Web.Ingest.send_events/1`, shared
    with MCP, so both interfaces validate requests and shape results identically. Any
    other path is 404 with a full-access key (the former `/query` included). The JSON
-   router catches application failures before Bandit can print their messages or
-   stacks; they become a bare 500 and log only the failure kind and a generated error
-   ID. Unwrapped failures before routing close HTTP/1 connections rather than
-   draining a body whose reader state is no longer current.
+   router's `Plug.ErrorHandler` gives failures their response bodies and reraises:
+   body and query-string failures keep their 400, 413 or 415, and anything else is a
+   bare 500. Bandit then logs a 5xx with the full exception and closes the connection
+   (on HTTP/2, just the stream); Bandit's own transport errors pass through untouched.
 2. `Guardian.Web.Logger` writes a `web_requests` row before the handler and a `web_responses`
    row before the response is sent, for authenticated requests only. Both carry
    `auth_key`, `ingest` or `admin`, from the key check, never the key.
@@ -1216,18 +1216,17 @@ Guardian observes itself by writing ordinary tables through `Guardian.Engine.log
    apart when their hostnames differ; rows carry no Erlang node name.
 2. `web_requests` and `web_responses`: `Guardian.Web.Logger`, synchronously in the request. A
    failed write is logged by kind and does not fail the request.
-3. `query_parse_errors`: `Guardian.Web.Query.execute/3` catches `Guardian.AST.ParseError`
-   from resolution (through `Guardian.Query.execute/2`'s `:on_parse_error` callback),
+3. `query_parse_errors`: `Guardian.Web.Query.execute/3` takes the `Guardian.AST.ParseError`
+   that `Guardian.Query.execute/1` returns,
    builds a bounded row in the request process, and casts it to the
    `Guardian.Web.QueryParseErrors` GenServer unless that GenServer's mailbox already holds about
    100 rows (a best-effort check by the sender); the GenServer applies the hourly
    per-machine cap (60), by the hour of the request's parse failure (an hour that only
    moves forward, so a late row from an earlier hour counts against the current one),
-   and writes the row; it reraises the original error so the
-   response is unchanged. A failed write or row build is logged by kind and does not
+   and writes the row. A failed write or row build is logged by kind and does not
    affect the response. The bounds (spec section 8) keep a flood of bad queries from
    growing the table or delaying responses.
-4. `queries`: `Guardian.Web.Query.execute/3` times every query and catches every outcome (a
+4. `queries`: `Guardian.Web.Query.execute/3` times every query and sees every outcome (a
    result, an error result, or a raise, exit or throw, which it reraises unchanged
    with `:erlang.raise/3`), builds a bounded row in the request process and casts it
    to the `Guardian.Web.QueryLog` GenServer, which writes it through `Guardian.Engine.try_log_event/2`.
@@ -1303,7 +1302,7 @@ What clustering is used for:
    read Storage, so they also run on a starting node.
 2. Metadata: `Guardian.Cluster.Metadata` calls every connected node with `:erpc.multicall`
    (60-second timeout) for its local schemas and adds them. If any node fails or times
-   out, the lookup raises `Guardian.Cluster.NodeError` rather than return partial metadata.
+   out, the lookup raises `Guardian.Query.Error` rather than return partial metadata.
 
 What clustering is not:
 

@@ -72,7 +72,7 @@ to the file's directory. Run the full suite afterward.
 ## Leaf utilities
 
 Utilities are leaf helpers: atomic file replacement (`Guardian.AtomicFile`), build
-information (`Guardian.Build`), work that outlives its caller (`Guardian.Detached`), safe failure labels and stack redaction
+information (`Guardian.Build`), work that outlives its caller (`Guardian.Detached`), safe failure labels
 (`Guardian.Failure`), order-keeping list helpers (`Guardian.Lists`), rendezvous
 hashing (`Guardian.Rendezvous`), segment IDs (`Guardian.SegmentID`),
 `Guardian.SortedSet`, timestamps (`Guardian.Timestamp`), and `Guardian.Utils`
@@ -105,9 +105,8 @@ single user next to that user instead.
   its reason. MCP `send_events` uses it, because Anubis kills a request's task when the
   client cancels it or deletes its session.
 - `Guardian.SegmentID` creates sortable 32-byte hex identifiers containing a timestamp.
-- `Guardian.Failure` owns value-free diagnostic classification and stack redaction.
-  Callers keep their logging and catch/reraise policies; caller-facing query
-  messages belong to `Guardian.Query.Failure` instead.
+- `Guardian.Failure` names a failure by kind (`kind/3`, `exit_kind/1`), value-free.
+  Caller-facing query messages belong to `Guardian.Query.Failure` instead.
 - `Guardian.Timestamp.now/0` is UTC, formatted `YYYY-MM-DD HH:MM:SS`.
   `read/1` splits the loose 10-byte date, space, 8-byte time shape used by `date(ts)`.
   `read_fields/1` layers canonical separator checks on it for formatting and strict

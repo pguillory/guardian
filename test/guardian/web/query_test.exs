@@ -53,7 +53,7 @@ defmodule Guardian.Web.QueryTest do
              {:ok, ["USERID", "user.firstname"], [[nil, nil]]}
   end
 
-  test "reraises a parse error unchanged" do
-    assert_raise Guardian.AST.ParseError, fn -> run("SELECT FROM") end
+  test "answers a parse error with its message" do
+    assert {:error, "Parse error on line 1" <> _} = run("SELECT FROM")
   end
 end

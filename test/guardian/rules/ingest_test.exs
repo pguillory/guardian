@@ -180,24 +180,16 @@ defmodule Guardian.Rules.IngestTest do
     assert Guardian.Storage.dump_table(table) == [%{"a" => 9_223_372_036_854_775_807, "y" => -2}]
   end
 
-  test "a statement that raises fails its event (fail closed), naming the file and line" do
+  test "a statement that raises fails the whole request; nothing in the batch is stored" do
     table = unique_table("rules_raise")
     # No real function raises; test_raise/1 (test build only) does on any value.
     with_rules(%{"#{table}/r.gsql" => "SET ok = 1;\nSET x = test_raise(a)"})
-    secret = "secret-#{System.unique_integer([:positive])}"
 
-    log =
-      ExUnit.CaptureLog.capture_log(fn ->
-        assert [{:error, message}, {:ok, %{"ok" => 1, "b" => 1}}] =
-                 ingest(table, [%{"a" => secret}, %{"b" => 1}])
+    ExUnit.CaptureLog.capture_log(fn ->
+      assert {_reason, _stack} = catch_exit(ingest(table, [%{"b" => 1}, %{"a" => 1}]))
+    end)
 
-        assert message =~ "rule #{table}/r.gsql line 2 failed"
-        assert message =~ "the event was not stored"
-        refute message =~ secret
-      end)
-
-    refute log =~ secret
-    assert Guardian.Storage.dump_table(table) == [%{"b" => 1, "ok" => 1}]
+    assert Guardian.Storage.dump_table(table) == []
   end
 
   test "a regular expression past its backtracking limit gives null, not a failure" do
@@ -227,10 +219,6 @@ defmodule Guardian.Rules.IngestTest do
       Map.put(row, "list", Enum.to_list(1..n))
     end
 
-    def apply(%{"raise" => secret}) do
-      raise("boom #{secret}")
-    end
-
     def apply(row) do
       Map.put(row, "ran", true)
     end
@@ -241,37 +229,30 @@ defmodule Guardian.Rules.IngestTest do
     publish_module(table, SlowRules)
     Guardian.Test.Env.put(rules_time_limit_ms: 200, query_max_heap_mb: 4)
 
-    log =
-      ExUnit.CaptureLog.capture_log(fn ->
-        assert [ok1, slow, ok2, big, raised, ok3] =
-                 ingest(table, [
-                   %{"n" => 1},
-                   %{"sleep" => 5_000},
-                   %{"n" => 2},
-                   %{"big" => 10_000_000},
-                   %{"raise" => "SECRET-VALUE"},
-                   %{"n" => 3},
-                 ])
+    ExUnit.CaptureLog.capture_log(fn ->
+      assert [ok1, slow, ok2, big, ok3] =
+               ingest(table, [
+                 %{"n" => 1},
+                 %{"sleep" => 5_000},
+                 %{"n" => 2},
+                 %{"big" => 10_000_000},
+                 %{"n" => 3},
+               ])
 
-        assert {:ok, %{"n" => 1, "ran" => true}} = ok1
+      assert {:ok, %{"n" => 1, "ran" => true}} = ok1
 
-        assert {:error,
-                "rules for #{table} exceeded their time or memory limit; the event was not stored"} ==
-                 slow
+      assert {:error,
+              "rules for #{table} exceeded their time or memory limit; the event was not stored"} ==
+               slow
 
-        assert {:ok, %{"n" => 2, "ran" => true}} = ok2
+      assert {:ok, %{"n" => 2, "ran" => true}} = ok2
 
-        assert {:error,
-                "rules for #{table} exceeded their time or memory limit; the event was not stored"} ==
-                 big
+      assert {:error,
+              "rules for #{table} exceeded their time or memory limit; the event was not stored"} ==
+               big
 
-        assert {:error, "rules for #{table} failed (RuntimeError); the event was not stored"} ==
-                 raised
-
-        assert {:ok, %{"n" => 3, "ran" => true}} = ok3
-      end)
-
-    refute log =~ "SECRET-VALUE"
+      assert {:ok, %{"n" => 3, "ran" => true}} = ok3
+    end)
 
     assert table |> Guardian.Storage.dump_table() |> Enum.map(& &1["n"]) |> Enum.sort() == [
              1,

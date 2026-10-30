@@ -147,7 +147,7 @@ defmodule Guardian.Rules.CounterPlanTest do
           {"1h", 3_600_000, 1_200_000},
           {"0s", nil, nil},
         ] do
-      [{statement, line}] =
+      {:ok, [{statement, line}]} =
         Guardian.AST.Parser.parse_rules("TRACK c = sum(x) BY ip LAST '#{interval}'")
 
       # Construction also tolerates an unknown aggregate in a manually built AST;

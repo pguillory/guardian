@@ -211,6 +211,7 @@ defmodule Guardian.Query.Executor do
       try do
         Column.from_list(values)
       rescue
+        # Adds the column's name, which only this level knows.
         error in ArgumentError ->
           reraise ArgumentError,
                   [

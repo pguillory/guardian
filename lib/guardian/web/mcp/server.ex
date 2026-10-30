@@ -102,7 +102,7 @@ defmodule Guardian.Web.MCP.Server do
     )
     |> register_tool("send_events",
       description:
-        "Ingest JSON events into a table, returning {status: 200, results: [...]} with one ordered success/event or failure/error per input. A success's event is the row as stored after rules: flat columns named as queries see them (user.name, users..id), never nested; values that cannot be stored are left out. Failures do not stop later events; an error may say the event may have been stored. Optional idempotency_key suppresses matching retries on this node for 10 seconds after completion, returning {status: 200, duplicate: true, failed_events: N} without results. Protection can be lost on eviction, overload or restart; retries on another node are not protected. Changed requests, pending requests and unknown outcomes are tool errors. MCP calls can queue behind an earlier call. Table names must match [a-z_][a-z0-9_]*, be at most 64 characters, and exclude SQL keywords, null, true, false, current_date, current_timestamp, and schema. Use stable field names: put data in values, not object keys (for example, {customer_id: 123}, not {123: true}).",
+        "Ingest JSON events into a table, returning {status: 200, results: [...]} with one ordered success/event or failure/error per input. A success's event is the row as stored after rules: flat columns named as queries see them (user.name, users..id), never nested; values that cannot be stored are left out. A failed event does not stop later events. Optional idempotency_key suppresses matching retries on this node for 10 seconds after completion, returning {status: 200, duplicate: true, failed_events: N} without results. Protection can be lost on eviction, overload or restart; retries on another node are not protected. Changed requests, pending requests and unknown outcomes are tool errors. MCP calls can queue behind an earlier call. Table names must match [a-z_][a-z0-9_]*, be at most 64 characters, and exclude SQL keywords, null, true, false, current_date, current_timestamp, and schema. Use stable field names: put data in values, not object keys (for example, {customer_id: 123}, not {123: true}).",
       input_schema: %{
         table: {:required, :string, description: "Destination table name"},
         events: {:required, {:list, {:map, :any}}, description: "JSON event objects to ingest"},
@@ -236,31 +236,25 @@ defmodule Guardian.Web.MCP.Server do
     reply(frame, rule_write_result(result))
   end
 
+  # Every query is recorded in queries; parse failures also in query_parse_errors. A
+  # failure of the query is a tool error; anything raised fails the call.
   def handle_tool_call("query", %{sql: sql}, frame) do
-    try do
-      # Every query is recorded in queries; parse failures also in query_parse_errors,
-      # and reraised unchanged.
-      case Guardian.Web.Query.execute(sql, fn ->
-             Guardian.Web.QueryParseErrors.mcp_caller(frame)
-           end) do
-        {:ok, columns, rows} ->
-          result =
-            Enum.map(rows, fn row ->
-              columns
-              |> Enum.zip(row)
-              |> Map.new()
-            end)
+    case Guardian.Web.Query.execute(sql, fn ->
+           Guardian.Web.QueryParseErrors.mcp_caller(frame)
+         end) do
+      {:ok, columns, rows} ->
+        result =
+          Enum.map(rows, fn row ->
+            columns
+            |> Enum.zip(row)
+            |> Map.new()
+          end)
 
-          response = Response.tool() |> Response.json(result)
-          {:reply, response, frame}
+        response = Response.tool() |> Response.json(result)
+        {:reply, response, frame}
 
-        {:error, message} ->
-          response = Response.tool() |> Response.error(message)
-          {:reply, response, frame}
-      end
-    rescue
-      e ->
-        response = Response.tool() |> Response.error(Exception.message(e))
+      {:error, message} ->
+        response = Response.tool() |> Response.error(message)
         {:reply, response, frame}
     end
   end

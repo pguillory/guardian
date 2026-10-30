@@ -8,7 +8,7 @@ defmodule Guardian.Query do
   ## Query Execution Flow
 
   1. Resolve SQL text to SELECT statements (`Guardian.Query.Resolver.resolve/1`, called by
-     `execute/2`)
+     `execute/1`)
   2. Generate query plan (`Planner.query_plan/1`, called by `Guardian.Query.Executor`)
   3. Execute plan steps using `Guardian.Query.DistributedStream` (`Guardian.Query.Executor`, in a query
      process `run/1` starts)
@@ -20,8 +20,8 @@ defmodule Guardian.Query do
       iex> Guardian.Query.execute("SELECT ip, count() FROM requests WHERE status = 404 GROUP BY ip")
       {:ok, ["ip", "count()"], [["1.2.3.4", 5], ["5.6.7.8", 3]]}
 
-  `execute/2` is the entry point for SQL text: it is what the JSON and MCP query
-  interfaces run; operators can call it from IEx too. `run/1` runs one already-resolved SELECT.
+  `execute/1` is the entry point for SQL text: it is what the MCP query
+  interface runs; operators can call it from IEx too. `run/1` runs one already-resolved SELECT.
 
   ## Supported Operations
 
@@ -62,48 +62,43 @@ defmodule Guardian.Query do
   not a table name, `SELECT *` without a table, a LET function given the wrong number
   of arguments), or one from `run/1` (a resource limit, a regular expression over its
   backtracking limit).
-  Anything else raised while resolving (a `Guardian.AST.ParseError`, a failed schema
-  lookup) propagates.
-
-  Options:
-  - `:on_parse_error`, a one-argument function called with the `Guardian.AST.ParseError` before
-    it is reraised unchanged with its stacktrace. It must not raise: its exception
-    would replace the parse error.
+  Returns `{:error, %Guardian.AST.ParseError{}}` for SQL that does not parse, and
+  `{:error, message}` once the machine has begun to stop. Anything else raises.
   """
-  @spec execute(String.t(), keyword()) ::
-          {:ok, [String.t()], [list()]} | {:error, String.t()}
-  def execute(sql, opts \\ []) when is_binary(sql) do
-    case resolve(sql, Keyword.get(opts, :on_parse_error, fn _error -> :ok end)) do
-      {:error, message} ->
-        {:error, message}
-
-      [{statement, labels}] ->
-        try do
-          run(statement)
-        rescue
-          error in Guardian.Query.Error -> {:error, Exception.message(error)}
-        else
-          rows -> {:ok, labels, rows}
-        end
-
-      [] ->
-        {:error, "Query resolved to no executable statements"}
-
-      [_ | _] ->
-        {:error, "Only single-statement queries are supported"}
+  @spec execute(String.t()) ::
+          {:ok, [String.t()], [list()]} | {:error, String.t() | Guardian.AST.ParseError.t()}
+  def execute(sql) when is_binary(sql) do
+    if Guardian.Application.stopping?() do
+      {:error, "this machine is shutting down; retry"}
+    else
+      execute_resolved(resolve(sql))
     end
   end
 
-  defp resolve(sql, on_parse_error) when is_function(on_parse_error, 1) do
+  defp execute_resolved({:error, _} = error) do
+    error
+  end
+
+  defp execute_resolved([{statement, labels}]) do
+    {:ok, labels, run(statement)}
+  rescue
+    # A resource limit or lost machine, raised from deep in the workers: a query failure.
+    error in Guardian.Query.Error -> {:error, Exception.message(error)}
+  end
+
+  defp execute_resolved([]) do
+    {:error, "Query resolved to no executable statements"}
+  end
+
+  defp execute_resolved([_ | _]) do
+    {:error, "Only single-statement queries are supported"}
+  end
+
+  defp resolve(sql) do
     Guardian.Query.Resolver.resolve(sql)
   rescue
-    error in Guardian.Query.Error ->
-      {:error, Exception.message(error)}
-
-    error in Guardian.AST.ParseError ->
-      stacktrace = __STACKTRACE__
-      on_parse_error.(error)
-      reraise error, stacktrace
+    # Raised from deep in the resolver: a query that is valid SQL but can't be run.
+    error in Guardian.Query.Error -> {:error, Exception.message(error)}
   end
 
   @doc """
@@ -174,6 +169,8 @@ defmodule Guardian.Query do
     watch_caller(caller, self())
     errors = WorkerErrors.start()
 
+    # The one place a query's failures end: they cross to the caller as a message, so
+    # a query fails whole.
     result =
       try do
         rows = Executor.run(statement, errors)

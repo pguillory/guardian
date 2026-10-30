@@ -35,8 +35,8 @@ defmodule Guardian.Counters.MachineTest do
     assert machine.result == {:ok, 7}
   end
 
-  test "a raising callback finishes with a fixed error" do
-    broken = new({:get, :k}, nil, fn _, _, _ -> raise "private" end)
-    assert %Machine{op: nil, result: {:error, :invalid_state}} = advance(broken, :ok)
+  test "a raising callback raises" do
+    broken = new({:get, :k}, nil, fn _, _, _ -> raise "boom" end)
+    assert_raise RuntimeError, "boom", fn -> advance(broken, :ok) end
   end
 end

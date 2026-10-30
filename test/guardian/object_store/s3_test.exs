@@ -96,7 +96,18 @@ defmodule Guardian.ObjectStore.S3Test do
     body =
       ~s(<?xml version="1.0"?><!DOCTYPE a [<!ENTITY e "x">]><ListBucketResult>&e;</ListBucketResult>)
 
-    assert catch_exit(parse_list(body, ""))
+    assert parse_list(body, "") == {:error, {:unreachable, "malformed listing"}}
+  end
+
+  test "a garbage S3 listing is a reason, never a crash" do
+    malformed = {:error, {:unreachable, "malformed listing"}}
+    assert parse_list("not xml", "") == malformed
+    assert parse_list(<<0xFF, 0xFE>>, "") == malformed
+
+    bad_size =
+      "<ListBucketResult><Contents><Key>k</Key><Size>big</Size></Contents></ListBucketResult>"
+
+    assert parse_list(bad_size, "") == malformed
   end
 
   test "a listing stops after max_list_pages pages", %{s3: s3} do

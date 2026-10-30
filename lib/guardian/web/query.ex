@@ -3,19 +3,21 @@ defmodule Guardian.Web.Query do
   Runs SQL for the MCP `query` tool, Guardian's one query interface. Don't resolve or
   run queries in Web any other way.
 
-  It calls `Guardian.Query.execute/2` and records every query, whatever its outcome, with
-  `Guardian.Web.QueryLog.record/4` (the `queries` table). It also hands any `Guardian.AST.ParseError` to
-  `Guardian.Web.QueryParseErrors.record/5`, which records a `query_parse_errors` row. Results
-  are returned and raised errors reraised unchanged with their stacktrace, so the
-  caller's response is exactly what it would have been.
+  It calls `Guardian.Query.execute/1` and records every query, whatever its outcome, with
+  `Guardian.Web.QueryLog.record/4` (the `queries` table). A parse error also goes to
+  `Guardian.Web.QueryParseErrors.record/5`, which records a `query_parse_errors` row, and
+  comes back as `{:error, message}`. Raised errors are reraised unchanged.
   """
+
+  alias Guardian.AST.ParseError
+  alias Guardian.Web.QueryParseErrors
 
   # Internal compile-time test seam, not an operator setting. Releases call
   # `Guardian.Query` directly.
   @query_backend Application.compile_env(:guardian, [__MODULE__, :query_backend], Guardian.Query)
 
   @doc """
-  Runs `sql` with `Guardian.Query.execute/2` and returns its result. `caller_fun` returns the
+  Runs `sql` with `Guardian.Query.execute/1` and returns its result. `caller_fun` returns the
   caller fields of a recorded row
   (`Guardian.Web.QueryParseErrors.mcp_caller/1`). Options: `:server` names the parse-error recorder and `:query_log`
   the query recorder.
@@ -27,19 +29,10 @@ defmodule Guardian.Web.Query do
     start = System.monotonic_time()
     log = &record(sql, &1, timestamp, start, caller_fun, opts)
 
-    # Reads only `:server`.
-    on_parse_error =
-      &Guardian.Web.QueryParseErrors.record(
-        sql,
-        &1,
-        caller_fun,
-        System.system_time(:second),
-        opts
-      )
-
     try do
-      @query_backend.execute(sql, on_parse_error: on_parse_error)
+      @query_backend.execute(sql)
     catch
+      # Every query is recorded, whatever its outcome (spec section 8).
       kind, reason ->
         stacktrace = __STACKTRACE__
         log.(failure(kind, reason, stacktrace))
@@ -48,6 +41,12 @@ defmodule Guardian.Web.Query do
       {:ok, _labels, rows} = result ->
         log.({:ok, length(rows)})
         result
+
+      {:error, %ParseError{} = error} ->
+        message = ParseError.message(error)
+        QueryParseErrors.record(sql, error, caller_fun, System.system_time(:second), opts)
+        log.({:error, "parse", message})
+        {:error, message}
 
       {:error, message} = result ->
         log.({:error, "query", message})
@@ -68,32 +67,13 @@ defmodule Guardian.Web.Query do
   end
 
   # The outcome of a query that raised, exited or threw. An exception's message may
-  # carry query text or data; that is what the table records, as the MCP caller sees
-  # it. An exit or throw is named by kind only. Never raises: it runs while the
-  # original error is being reraised.
+  # carry query text or data; that is what the table records. An exit or throw is named
+  # by kind only.
+  defp failure(:error, reason, stacktrace) do
+    {:error, "internal", Exception.message(Exception.normalize(:error, reason, stacktrace))}
+  end
+
   defp failure(kind, reason, stacktrace) do
-    describe_failure(kind, reason, stacktrace)
-  catch
-    _kind, _reason -> {:error, "internal", nil}
-  end
-
-  defp describe_failure(:error, %Guardian.AST.ParseError{} = error, _stacktrace) do
-    {:error, "parse", safe_message(error)}
-  end
-
-  defp describe_failure(:error, reason, stacktrace) do
-    {:error, "internal", safe_message(Exception.normalize(:error, reason, stacktrace))}
-  end
-
-  defp describe_failure(kind, reason, stacktrace) do
     {:error, "internal", Guardian.Failure.kind(kind, reason, stacktrace)}
-  end
-
-  # `Exception.message/1` can itself raise (a broken `message/1`); the outcome is still
-  # recorded, with the exception's module.
-  defp safe_message(exception) do
-    Exception.message(exception)
-  rescue
-    _ -> inspect(exception.__struct__)
   end
 end

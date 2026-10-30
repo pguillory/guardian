@@ -44,7 +44,11 @@ Events are inserted independently:
 
 - A failed event returns `{"success": false, "error": "..."}`, and later events
   continue.
-- If a storage call fails unexpectedly, its error says the event may have been stored.
+- An unexpected failure fails the whole request with 500 and `{"status":500}`, with no
+  per-event results. If it happens while storing, earlier events stay stored and the
+  failing one may have been. With rules, the batch's rules run before anything is
+  stored, so a rule crash stores nothing, though earlier counter updates stay. On
+  HTTP/1 the connection closes.
 - Valid requests return 200 even if every event fails.
 - Invalid tables, missing or non-list `events`, and malformed `return_keys` or
   `idempotency_key` return 400 with `info`, before any event is stored.
@@ -67,9 +71,9 @@ Events are inserted independently:
   why, and `return_keys: []` reports nothing.
 - If the table has [rules](../product/spec.md#51-rules), each event runs them first and
   the response shows the row as stored, so `return_keys` is how a sender reads a
-  computed field. An event whose rules fail isn't stored and gets an error naming the
-  rule file and line (or the table, if its rules ran over their time or memory limit
-  or are invalid).
+  computed field. An event whose rules ran over their time or memory limit, or on a
+  table whose rules are invalid, isn't stored and gets an error naming the table. A rule
+  that crashes fails the whole request.
 
 Table names must match `[a-z_][a-z0-9_]*`, be at most 64 characters, and exclude SQL
 keywords, `null`, `true`, `false`, `current_date`, `current_timestamp` and `schema`.
@@ -93,7 +97,7 @@ SET busy = hits >= 50
 With these rules on `logins`, request `return_keys: ["hits", "previous_hits", "busy"]`.
 The 50th login in a group returns 50, 49 and true. Successful TRACK includes the
 current event; LOOKUP excludes it. Queries read the stored historical outputs.
-Counter failures still return successful ingest with missing results (0 for counts,
+Counter store failures still return successful ingest with missing results (0 for counts,
 null for sum/min/max/avg); final UNSETs continue. WHERE false/null preserves an
 incoming output, so only applied statements produce trusted computed values.
 Counters are approximate and ephemeral, with boundary overcount and state loss;

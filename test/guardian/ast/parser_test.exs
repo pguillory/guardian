@@ -1,5 +1,4 @@
 defmodule Guardian.AST.ParserTest do
-  import Guardian.AST.Parser
   alias Guardian.AST.ParseError
   use ExUnit.Case, async: true
 
@@ -23,10 +22,25 @@ defmodule Guardian.AST.ParserTest do
 
   defmacro assert_parse_error(source, expected_error_indicator, expected_reason) do
     quote do
-      assert %ParseError{reason: unquote(expected_reason)} = catch_error(parse(unquote(source)))
-      error = catch_error(parse(unquote(source)))
+      assert %ParseError{reason: unquote(expected_reason)} = parse_failure(unquote(source))
+      error = parse_failure(unquote(source))
       assert error_indicator(error.col) == unquote(expected_error_indicator)
     end
+  end
+
+  defp parse(source) do
+    {:ok, parsed} = Guardian.AST.Parser.parse(source)
+    parsed
+  end
+
+  defp parse_failure(source) do
+    {:error, error} = Guardian.AST.Parser.parse(source)
+    error
+  end
+
+  defp statements_failure(source) do
+    {:error, error} = Guardian.AST.parse_statements(source)
+    error
   end
 
   def error_indicator(col) do
@@ -382,14 +396,14 @@ defmodule Guardian.AST.ParserTest do
     long_string = "'" <> String.duplicate("x", 60) <> "'"
 
     assert %ParseError{reason: reason} =
-             catch_error(Guardian.AST.parse_statements("select a limit #{long_string}"))
+             statements_failure("select a limit #{long_string}")
 
     assert reason == "Expected integer literal, got '" <> String.duplicate("x", 39) <> "..."
   end
 
   test "reject removed rule syntax" do
     assert %ParseError{reason: "Expected statements, got update"} =
-             catch_error(Guardian.AST.parse_statements("update events set approved = true"))
+             statements_failure("update events set approved = true")
   end
 
   test "parse let statement" do
@@ -411,14 +425,14 @@ defmodule Guardian.AST.ParserTest do
           "insert into a select b, c from d",
           "INSERT INTO a SELECT * FROM d",
         ] do
-      assert %ParseError{} = catch_error(parse(source))
-      assert %ParseError{} = catch_error(Guardian.AST.parse_statements(source))
+      assert %ParseError{} = parse_failure(source)
+      assert %ParseError{} = statements_failure(source)
     end
   end
 
   test "DELETE is not a statement" do
-    assert %ParseError{} = catch_error(parse("delete from a"))
-    assert %ParseError{} = catch_error(Guardian.AST.parse_statements("DELETE FROM a"))
+    assert %ParseError{} = parse_failure("delete from a")
+    assert %ParseError{} = statements_failure("DELETE FROM a")
   end
 
   test "parse show tables statement" do
@@ -676,7 +690,7 @@ defmodule Guardian.AST.ParserTest do
           {"a DESC b", "Expected end of input, got b", 7},
           {"select a order by a desc b", "Expected end of statement, got b", 25},
         ] do
-      assert %ParseError{reason: ^reason, col: ^col} = catch_error(parse(source))
+      assert %ParseError{reason: ^reason, col: ^col} = parse_failure(source)
     end
   end
 
@@ -695,15 +709,15 @@ defmodule Guardian.AST.ParserTest do
           "a IN ()",
           "a IN ( 'x' ) OR b",
         ] do
-      assert %ParseError{reason: ^reason, col: 5} = catch_error(parse(source))
+      assert %ParseError{reason: ^reason, col: 5} = parse_failure(source)
     end
 
     for source <- ["a NOT IN ('x')", "a NOT IN ('a', 'b')", "a NOT IN ()"] do
-      assert %ParseError{reason: ^reason, col: 9} = catch_error(parse(source))
+      assert %ParseError{reason: ^reason, col: 9} = parse_failure(source)
     end
 
     assert %ParseError{reason: ^reason, row: 1, col: 11} =
-             catch_error(parse("select a\nwhere a IN ('x')"))
+             parse_failure("select a\nwhere a IN ('x')")
 
     for source <- [
           "a IN [1]",

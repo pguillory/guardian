@@ -28,7 +28,7 @@ defmodule Guardian.Web.MCP.QueryLanguageTest do
     assert length(examples) > 3
 
     for [example] <- examples do
-      assert [_ | _] = Guardian.AST.parse_statements(example)
+      assert {:ok, [_ | _]} = Guardian.AST.parse_statements(example)
     end
   end
 

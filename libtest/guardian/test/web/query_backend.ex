@@ -7,9 +7,9 @@ defmodule Guardian.Test.Web.QueryBackend do
 
   @failure {__MODULE__, :failure}
 
-  def execute(sql, opts) do
+  def execute(sql) do
     case Process.delete(@failure) do
-      nil -> Guardian.Query.execute(sql, opts)
+      nil -> Guardian.Query.execute(sql)
       {kind, reason, stacktrace} -> :erlang.raise(kind, reason, stacktrace)
     end
   end

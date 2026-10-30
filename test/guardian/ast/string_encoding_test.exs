@@ -31,8 +31,8 @@ defmodule Guardian.AST.StringEncodingTest do
     # A bad escape is reported first, at its own offset.
     assert decode_string(<<?', 0xFF, ?\\, ?q, ?'>>) == {:error, "Bad escaped character", 2}
 
-    assert %Guardian.AST.ParseError{reason: "Invalid UTF-8 in string literal", col: 7} =
-             catch_error(Guardian.Query.Resolver.resolve("SELECT " <> source))
+    assert {:error, %Guardian.AST.ParseError{reason: "Invalid UTF-8 in string literal", col: 7}} =
+             Guardian.Query.Resolver.resolve("SELECT " <> source)
   end
 
   test "decode_string rejects bad escapes at the escape's backslash" do
@@ -83,7 +83,7 @@ defmodule Guardian.AST.StringEncodingTest do
     for string <- strings do
       encoded = encode_string(string)
       assert decode_string(encoded) == {:ok, string}
-      assert Guardian.AST.Tokenizer.tokenize(encoded) == [string: string]
+      assert Guardian.AST.Tokenizer.tokenize(encoded) == {:ok, [string: string]}
     end
   end
 

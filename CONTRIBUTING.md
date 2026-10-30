@@ -38,7 +38,7 @@ unaffected.
 
 Define one module per file under `lib/` and `libtest/`, at the path matching its
 name, including exceptions and structs that belong to another module
-(`Guardian.Rules.Runtime.Failure` lives in `lib/guardian/rules/runtime/failure.ex`).
+(`Guardian.AST.ParseError` lives in `lib/guardian/ast/parse_error.ex`).
 A `defimpl` stays in the file of the protocol or struct it implements; the vendored
 DistributedStream `Enumerable` implementation keeps its own file. The same scan test
 checks that each file defines at most one module, counting nested `defmodule` and
@@ -59,6 +59,40 @@ ambiguous: a function that collides with `Kernel` or with a test helper, or a te
 covers several modules. A struct or module name used as a value (`%Event{}`, a
 supervisor child) still needs its alias, alongside the import. Nothing checks this;
 follow it in new tests and when you edit old ones.
+
+## Exception handling
+
+A `try`, `rescue` or `catch` is rare, and each one has a comment naming its reason.
+
+Expected outcomes are data, not exceptions. That means validation failures, and parse
+errors: the handwritten parser returns `{:error, %Guardian.AST.ParseError{}}` and never
+raises for bad input. Anything else raises, and these are what callers then see:
+
+1. Request handlers: a 500, from the framework. The JSON API's `Plug.ErrorHandler` only
+   gives the response its body.
+2. Queries: the query fails whole. MCP calls: the call fails.
+3. Segments: an unexpected insert failure crashes the segment. Acknowledged rows lost
+   that way are accepted, and listed in the known limitations.
+4. Rules: a crash gives a 500. Counter updates already made stay.
+5. Shutdown: new queries are refused, best effort and with no lock, so an unlucky running
+   query fails.
+
+Reasons that justify a catch:
+
+1. Value semantics: an arithmetic exception such as float overflow becomes null, caught
+   by name (`:error, :badarith`).
+2. Advisory and fail-open by spec: a counter store that is merely unreachable. Name what
+   unreachable means, so a bug still crashes.
+3. Answers that outlive a failure: recording a query's outcome and reraising, or a write
+   to a built-in table that must not fail its caller.
+4. Bad input from a library that raises on it, or an external system's garbage response.
+5. Crossing a process boundary: relaying a failure to the caller that is waiting on it.
+6. Isolation: one failure that would otherwise take down far more than itself, such as a
+   stored rule file tripping a bug on every node at once.
+
+Keeping values out of logs is not a reason. Logs may hold what a failing process held;
+only the admin key and `RELEASE_COOKIE` must never reach a log line. A test that exists
+only to check a removed catch goes with it.
 
 ## Testing philosophy
 

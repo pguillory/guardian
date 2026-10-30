@@ -62,7 +62,7 @@ defmodule Guardian.AST.Tokenizer do
   end
 
   def truncate_after_semicolon(source, row, col) do
-    tokens = tokenize_raw(source)
+    tokens = scanned_tokens(source)
     {tokens_before_reversed, tokens_after} = split_tokens_at_row_col(tokens, row, col)
     tokens_after = Enum.take_while(tokens_after, &(not match?({:punctuation, ";"}, &1)))
     tokens = Enum.reverse(tokens_before_reversed, tokens_after)
@@ -104,7 +104,7 @@ defmodule Guardian.AST.Tokenizer do
   end
 
   def position(source, remaining_tokens) do
-    tokenize_raw(source)
+    scanned_tokens(source)
     |> Enum.reverse()
     |> consumed_raw_tokens_reverse(Enum.reverse(remaining_tokens))
     |> Enum.map(fn {_type, raw_token} -> raw_token end)
@@ -119,7 +119,7 @@ defmodule Guardian.AST.Tokenizer do
   """
   def token_rows(source) do
     {rows, _row} =
-      tokenize_raw(source)
+      scanned_tokens(source)
       |> Enum.reduce({[], 0}, fn {type, raw_token}, {rows, row} ->
         rows = if type in [:whitespace, :comment], do: rows, else: [row | rows]
         {rows, row + count_newlines(raw_token)}
@@ -139,7 +139,7 @@ defmodule Guardian.AST.Tokenizer do
 
   def next_raw_token(source, remaining_tokens) do
     {_type, raw_token} =
-      tokenize_raw(source)
+      scanned_tokens(source)
       |> Enum.reject(fn {type, _raw_token} -> type in [:whitespace, :comment] end)
       |> Enum.at(-length(remaining_tokens))
 
@@ -178,32 +178,41 @@ defmodule Guardian.AST.Tokenizer do
   end
 
   @doc """
-  The tokens of `source`: `{type, value}` pairs with whitespace and comments dropped,
-  keywords upcased, identifiers as written, and literals evaluated. Raises
-  `Guardian.AST.ParseError` at the first error, scanning errors before evaluation errors.
+  The tokens of `source` as `{:ok, tokens}`: `{type, value}` pairs with whitespace and
+  comments dropped, keywords upcased, identifiers as written, and literals evaluated.
+  `{:error, %Guardian.AST.ParseError{}}` at the first error, scanning errors before
+  evaluation errors.
   """
   def tokenize(source) do
-    case evaluate(tokenize_raw(source), 0, []) do
-      {:ok, tokens} -> tokens
-      {:error, reason, offset} -> raise_at(source, reason, offset)
+    with {:ok, raw_tokens} <- tokenize_raw(source) do
+      case evaluate(raw_tokens, 0, []) do
+        {:ok, tokens} -> {:ok, tokens}
+        {:error, reason, offset} -> {:error, error_at(source, reason, offset)}
+      end
     end
   end
 
   @doc """
-  The raw tokens of `source`: `{type, text}` pairs whose texts concatenate back to
-  `source`, whitespace and comments included. Raises `Guardian.AST.ParseError` where `source`
-  cannot be scanned.
+  The raw tokens of `source` as `{:ok, tokens}`: `{type, text}` pairs whose texts
+  concatenate back to `source`, whitespace and comments included.
+  `{:error, %Guardian.AST.ParseError{}}` where `source` cannot be scanned.
   """
   def tokenize_raw(source) do
     case scan(source, source, []) do
-      {:ok, raw_tokens} -> raw_tokens
-      {:error, reason, offset} -> raise_at(source, reason, offset)
+      {:ok, raw_tokens} -> {:ok, raw_tokens}
+      {:error, reason, offset} -> {:error, error_at(source, reason, offset)}
     end
   end
 
-  defp raise_at(source, reason, offset) do
+  # For the helpers above, which run on source the parser has already tokenized.
+  defp scanned_tokens(source) do
+    {:ok, raw_tokens} = tokenize_raw(source)
+    raw_tokens
+  end
+
+  defp error_at(source, reason, offset) do
     {row, col} = source |> binary_part(0, offset) |> end_position()
-    raise ParseError, reason: reason, row: row, col: col
+    %ParseError{reason: reason, row: row, col: col}
   end
 
   # `offset` is the byte offset in the source of the token at the head of the list.
@@ -317,6 +326,7 @@ defmodule Guardian.AST.Tokenizer do
 
     {:ok, String.to_float(mantissa <> exponent)}
   rescue
+    # Out of float range: the only test the VM offers. Becomes a parse error.
     ArgumentError -> :error
   end
 

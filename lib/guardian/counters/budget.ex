@@ -120,6 +120,7 @@ defmodule Guardian.Counters.Budget do
       [] -> true
     end
   catch
+    # Budget is restarting, so no cooldown table: treat the owner as cooling down.
     :error, :badarg -> false
   end
 
@@ -127,6 +128,7 @@ defmodule Guardian.Counters.Budget do
     if owner in [node() | Node.list()],
       do: :ets.insert(table, {owner, Clock.now() + @cooldown_us})
   catch
+    # Budget is restarting; its cooldowns are gone anyway.
     :error, :badarg -> :ok
   end
 

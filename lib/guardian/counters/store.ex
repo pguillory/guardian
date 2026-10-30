@@ -43,8 +43,8 @@ defmodule Guardian.Counters.Store do
   :invalid_request}` for a bad `now`, options, operation or token;
   `{:error, :timeout}` when the deadline passes; `{:error, :too_large}` when the
   payload would exceed the memory budget; and `{:error, :unavailable}` when the
-  store is missing or not ready, or an operation fails unexpectedly. Counters are
-  advisory, so callers treat these as "no answer" and carry on.
+  store is missing or not ready, or its table goes away during a request. Counters are
+  advisory, so callers treat these as "no answer" and carry on. Anything else raises.
   """
   use GenServer
   @default_budget 64 * 1024 * 1024
@@ -177,9 +177,7 @@ defmodule Guardian.Counters.Store do
     request(:stats, System.monotonic_time(:millisecond), opts)
   end
 
-  # The public boundary for direct callers and the remote endpoint's store call:
-  # malformed options are checked, never rescued, and any other failure is a fixed,
-  # value-free :unavailable, since counters are advisory and fail open.
+  # Malformed options are checked, not rescued.
   defp request(operation, now, opts) do
     with :ok <- valid_now(now),
          {:ok, deadline} <- request_deadline(opts),
@@ -188,8 +186,6 @@ defmodule Guardian.Counters.Store do
          :ok <- before_deadline(deadline) do
       execute_request(operation, state, now, deadline)
     end
-  catch
-    _, _ -> {:error, :unavailable}
   end
 
   defp valid_now(now) do
@@ -235,6 +231,7 @@ defmodule Guardian.Counters.Store do
       _ -> {:error, :unavailable}
     end
   rescue
+    # No such table: the store is down or restarting, and counters fail open.
     ArgumentError -> {:error, :unavailable}
   end
 
@@ -290,26 +287,22 @@ defmodule Guardian.Counters.Store do
 
   @impl true
   def handle_info({:sweep, tag}, %{sweep_tag: tag} = state) do
-    scrubbed(fn ->
-      over_budget = sweep(state)
-      state = %{state | sweep_tag: make_ref()}
+    over_budget = sweep(state)
+    state = %{state | sweep_tag: make_ref()}
 
-      Process.send_after(
-        self(),
-        {:sweep, state.sweep_tag},
-        if(over_budget, do: 0, else: state.sweep_interval_ms)
-      )
+    Process.send_after(
+      self(),
+      {:sweep, state.sweep_tag},
+      if(over_budget, do: 0, else: state.sweep_interval_ms)
+    )
 
-      {:noreply, state}
-    end)
+    {:noreply, state}
   end
 
   # Manual sweeps never create a second periodic timer chain.
   def handle_info(:sweep, state) do
-    scrubbed(fn ->
-      sweep(state)
-      {:noreply, state}
-    end)
+    sweep(state)
+    {:noreply, state}
   end
 
   def handle_info(_, state) do
@@ -327,9 +320,13 @@ defmodule Guardian.Counters.Store do
 
   defp execute_one(operation, state, now, deadline) do
     with :ok <- before_deadline(deadline), do: execute(operation, state, now, deadline)
-  catch
-    # A failing operation (its table gone mid-batch, say) fails alone, as :unavailable.
-    _, _ -> {:error, :unavailable}
+  rescue
+    # The store restarted under this request and took its table along, which reads as
+    # unavailable, like a store that is down. Any other ArgumentError is a bug.
+    error in ArgumentError ->
+      if :ets.info(state.entries, :id) == :undefined,
+        do: {:error, :unavailable},
+        else: reraise(error, __STACKTRACE__)
   end
 
   defp execute({kind, key}, state, now, deadline) when kind in [:get, :gets] do
@@ -443,6 +440,7 @@ defmodule Guardian.Counters.Store do
 
         if expires > now, do: {:ok, value}, else: :expired
       rescue
+        # update_counter's only answer for a row it can't add to: find out why.
         ArgumentError ->
           case :ets.lookup(state.entries, key) do
             [{_, _, expires, _}] when expires <= now -> :expired
@@ -576,18 +574,5 @@ defmodule Guardian.Counters.Store do
     |> Map.put(:message, :redacted)
     |> Map.put(:log, [])
     |> Map.put(:reason, :redacted)
-  end
-
-  defp scrubbed(fun) do
-    fun.()
-  catch
-    _, _ ->
-      stack = Guardian.Failure.stacktrace(__STACKTRACE__)
-
-      :erlang.raise(
-        :error,
-        %RuntimeError{message: "Guardian.Counters.Store failed (details redacted)"},
-        stack
-      )
   end
 end

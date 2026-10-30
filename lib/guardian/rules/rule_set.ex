@@ -221,24 +221,27 @@ defmodule Guardian.Rules.RuleSet do
   end
 
   defp parse_source(key, table, source) do
-    statements =
-      source
-      |> Guardian.AST.Parser.parse_rules()
-      |> Enum.with_index()
-      |> Enum.map(fn {{statement, line}, index} ->
-        Guardian.Rules.Step.new(table, key, line, index, statement)
-      end)
+    case Guardian.AST.Parser.parse_rules(source) do
+      {:ok, parsed} ->
+        statements =
+          parsed
+          |> Enum.with_index()
+          |> Enum.map(fn {{statement, line}, index} ->
+            Guardian.Rules.Step.new(table, key, line, index, statement)
+          end)
 
-    case Enum.flat_map(statements, &Guardian.Rules.Validation.errors/1) do
-      [] -> {:ok, table, statements}
-      errors -> {:error, table, errors}
+        case Enum.flat_map(statements, &Guardian.Rules.Validation.errors/1) do
+          [] -> {:ok, table, statements}
+          errors -> {:error, table, errors}
+        end
+
+      {:error, e} ->
+        {:error, table, [error(key, e.row + 1, :parse, e.reason, e.reason, table)]}
     end
   rescue
-    e in Guardian.AST.ParseError ->
-      {:error, table, [error(key, e.row + 1, :parse, e.reason, e.reason, table)]}
-
-    # A stored file must never crash the server that loads it: report anything else
-    # as a parse error, by kind only.
+    # Every node reads the same store, so a bug tripped by one stored file would crash
+    # Rules.Server on every node, past its restart limit, and refuse boot. Contained
+    # here, it costs that one table its rules.
     e ->
       kind = inspect(e.__struct__)
       {:error, table, [error(key, nil, :parse, kind, "could not be parsed (#{kind})", table)]}

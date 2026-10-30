@@ -223,9 +223,8 @@ defmodule Guardian.Web.MCP.Router do
       {:error, _} -> :error
     end
   rescue
+    # The third-party validator raises on some bad input.
     _ -> :error
-  catch
-    _kind, _reason -> :error
   end
 
   defp known_method(%{"method" => method}) when method in @known_methods do

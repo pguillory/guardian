@@ -138,8 +138,9 @@ wrappers live only in `Guardian.Storage`: `Guardian.Storage.append/2` flattens f
 `Guardian.Storage.append_flattened/2` stores a row that is already flattened (as Engine does
 after validating it), and both raise `ArgumentError` on a segment's refusal, which
 `Guardian.Storage.append_flattened_result/2` returns as `{:error, :invalid_value}`. Exceptions
-and exits still propagate from every path and may occur after a row was stored, so
-Engine must not label those failures as definitely unwritten.
+and exits still propagate from every path and may occur after a row was stored. Engine
+does not catch them: the whole request fails. An unexpected insert failure crashes the
+segment, losing the rows it holds in memory, acknowledged ones included (spec section 12).
 
 Native column resources never leave their Segment process (column.c has no locks, and
 `append` grows and reallocates its buffers). `get_column` replies with a packed binary: for a

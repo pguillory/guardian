@@ -100,13 +100,13 @@ defmodule Guardian.Storage do
   end
 
   @doc """
-  Whether every Storage process is running and finished starting. False while Storage
-  or one of its children restarts, including the segment reload after a LoadedSegments
-  restart. Never blocks: it only looks up registered names, so it cannot wait on a
-  supervisor that is busy restarting children.
+  Whether every Storage process is running and finished starting, and the machine has
+  not begun to stop. False while Storage or one of its children restarts, including the
+  segment reload after a LoadedSegments restart. Never blocks: it only looks up
+  registered names, so it cannot wait on a supervisor that is busy restarting children.
   """
   def ready? do
-    Enum.all?(@children, &(Process.whereis(&1) != nil))
+    not Guardian.Application.stopping?() and Enum.all?(@children, &(Process.whereis(&1) != nil))
   end
 
   @doc """

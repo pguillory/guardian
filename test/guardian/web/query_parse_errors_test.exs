@@ -21,12 +21,8 @@ defmodule Guardian.Web.QueryParseErrorsTest do
   end
 
   defp parse_message(sql) do
-    try do
-      Guardian.Query.Resolver.resolve(sql)
-      flunk("expected a parse error for #{inspect(sql)}")
-    rescue
-      e in Guardian.AST.ParseError -> Exception.message(e)
-    end
+    {:error, error} = Guardian.Query.Resolver.resolve(sql)
+    Guardian.AST.ParseError.message(error)
   end
 
   # A caller as the MCP query tool builds it (QueryParseErrors.mcp_caller/1).
@@ -48,10 +44,10 @@ defmodule Guardian.Web.QueryParseErrorsTest do
   end
 
   describe "recording through Guardian.Web.Query" do
-    test "a parse error is reraised unchanged and records one row" do
+    test "a parse error is answered and records one row" do
       sql = bad_sql()
 
-      assert {:raised, %Guardian.AST.ParseError{}} = run(sql)
+      assert {:error, "Parse error" <> _} = run(sql)
 
       assert [row] = rows_for(sql)
       assert row["interface"] == "mcp"
@@ -86,7 +82,7 @@ defmodule Guardian.Web.QueryParseErrorsTest do
 
       try do
         {micros, result} = :timer.tc(fn -> run(sql) end)
-        assert {:raised, %Guardian.AST.ParseError{}} = result
+        assert {:error, "Parse error" <> _} = result
         assert micros < 1_000_000
       after
         :ok = :sys.resume(pid)
