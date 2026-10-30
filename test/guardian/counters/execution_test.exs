@@ -22,11 +22,11 @@ defmodule Guardian.Counters.ExecutionTest do
   @min Aggregation.fetch!("min")
   @max Aggregation.fetch!("max")
 
-  # No test here depends on the production 50 ms call or 100 ms event budget: the
-  # allowance test depends on the 250 ms batch allowance. Larger budgets keep healthy calls, including a cold first
-  # call, from timing out under host load and setting a cooldown that fails later calls
-  # open. A response of {:error, :timeout} from a call that reserved at least 25 ms, or
-  # any {:error, :unavailable}, does set one.
+  # No test here depends on production's budgets. Events get the scaled budgets (1 s
+  # calls, a 10 s event) on a batch of five calls (`healthy_batch/0`), so healthy calls,
+  # including a cold first call, don't time out under host load and set a cooldown that
+  # fails later calls open. A response of {:error, :timeout} from a call that reserved
+  # at least 25 ms, or any {:error, :unavailable}, does set one.
   setup do
     Guardian.Test.Counters.private_store(:counters_execution_test)
   end
@@ -37,7 +37,7 @@ defmodule Guardian.Counters.ExecutionTest do
 
   defp event(
          store,
-         batch \\ Guardian.Counters.Client.new_batch(),
+         batch \\ healthy_batch(),
          arrival \\ Arrival.now(),
          opts \\ []
        ) do
@@ -47,11 +47,15 @@ defmodule Guardian.Counters.ExecutionTest do
         Guardian.Test.Counters.event_options(
           store,
           :counters_execution_test,
-          Keyword.merge(CounterBudgetHelper.relaxed_options(), opts)
+          Keyword.merge(CounterBudgetHelper.scaled_options(), opts)
         )
       )
 
     %{arrival: arrival, context: context}
+  end
+
+  defp healthy_batch do
+    CounterBudgetHelper.scaled_batch(5)
   end
 
   defp context(store) do
@@ -158,7 +162,9 @@ defmodule Guardian.Counters.ExecutionTest do
            |> Enum.map(& &1.result) == [{:error, :invalid_request}, {:error, :invalid_request}]
 
     refute_receive {:round, _}
-    assert CounterBudgetHelper.remaining_us(context.batch) == 250_000
+
+    assert CounterBudgetHelper.remaining_us(context.batch) ==
+             CounterBudgetHelper.scaled_allowance_us(5)
   end
 
   test "callback exceptions are isolated" do
@@ -229,7 +235,7 @@ defmodule Guardian.Counters.ExecutionTest do
     missing = Aggregation.default(@sum)
 
     timeout_event =
-      event(timeout, Guardian.Counters.Client.new_batch(), Arrival.now(), timeout_ms: 20)
+      event(timeout, healthy_batch(), Arrival.now(), timeout_ms: 20)
 
     assert run_counters(
              [
@@ -242,7 +248,7 @@ defmodule Guardian.Counters.ExecutionTest do
 
     # A raised round (membership routing cannot hash) fails the level open; the
     # expansion failure keeps its own kind.
-    raising = event(ok, Guardian.Counters.Client.new_batch(), Arrival.now(), members: [])
+    raising = event(ok, healthy_batch(), Arrival.now(), members: [])
 
     assert [{:error, round}, {:error, ^expansion}] =
              run_counters(
@@ -271,14 +277,14 @@ defmodule Guardian.Counters.ExecutionTest do
     assert lookup(
              definition,
              {},
-             event(store, Guardian.Counters.Client.new_batch(), arrival)
+             event(store, healthy_batch(), arrival)
            ) == current - first + 1
 
     assert track(
              definition,
              {},
              [],
-             event(store, Guardian.Counters.Client.new_batch(), arrival)
+             event(store, healthy_batch(), arrival)
            ) == current - first + 2
   end
 
@@ -292,7 +298,7 @@ defmodule Guardian.Counters.ExecutionTest do
              definition,
              {},
              [],
-             event(store, Guardian.Counters.Client.new_batch(), arrival)
+             event(store, healthy_batch(), arrival)
            ) == 0
 
     assert {:ok, %{keys: 0}} = Store.stats(server: store)
@@ -494,7 +500,7 @@ defmodule Guardian.Counters.ExecutionTest do
              definition,
              {},
              [],
-             event(store, Guardian.Counters.Client.new_batch(), arrival)
+             event(store, healthy_batch(), arrival)
            ) == 1
 
     assert_receive {:ttl, first}
@@ -505,7 +511,7 @@ defmodule Guardian.Counters.ExecutionTest do
              definition,
              {},
              [],
-             event(store, Guardian.Counters.Client.new_batch(), older)
+             event(store, healthy_batch(), older)
            ) == 1
 
     assert_receive {:ttl, second}
@@ -579,7 +585,7 @@ defmodule Guardian.Counters.ExecutionTest do
              definition,
              {},
              [5],
-             event(store, Guardian.Counters.Client.new_batch(), arrival)
+             event(store, healthy_batch(), arrival)
            ) == nil
 
     assert_receive {:gets, _}
@@ -587,15 +593,15 @@ defmodule Guardian.Counters.ExecutionTest do
   end
 
   test "healthy large batches refund the budget and include every event", %{store: store} do
-    # A healthy call is refunded in full whatever it reserved, so the relaxed budget
+    # A healthy call is refunded in full whatever it reserved, so the larger budget
     # does not change what this checks.
     definition = tracked({"count", 0}, 3_600_000)
-    batch = Guardian.Counters.Client.new_batch()
+    batch = healthy_batch()
 
     for n <- 1..300,
         do: assert(track(definition, {}, [], event(store, batch)) == n)
 
-    assert CounterBudgetHelper.remaining_us(batch) == 250_000
+    assert CounterBudgetHelper.remaining_us(batch) == CounterBudgetHelper.scaled_allowance_us(5)
   end
 
   test "concurrent native increments never omit the event's own mutation", %{store: store} do

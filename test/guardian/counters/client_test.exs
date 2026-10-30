@@ -34,6 +34,13 @@ defmodule Guardian.Counters.ClientTest do
     )
   end
 
+  # For tests of results, not budgets: scaled budgets (1 s calls, a 10 s event) on a
+  # batch of five calls, so a healthy call under host load is not cut off by
+  # production's 250 ms batch allowance or by an event shared across calls.
+  defp healthy_event(store) do
+    event(CounterBudgetHelper.scaled_batch(5), store, CounterBudgetHelper.scaled_options())
+  end
+
   defp route({identity, group, _bucket}) do
     {identity, group}
   end
@@ -95,7 +102,7 @@ defmodule Guardian.Counters.ClientTest do
   test "malformed anchored writes leave healthy siblings and integer expiries intact", %{
     store: store,
   } do
-    context = event(store, CounterBudgetHelper.relaxed_options())
+    context = healthy_event(store)
     expiry = System.monotonic_time(:millisecond) + 60_000
     incr_key = key({}, 2)
     add_key = key({}, 3)
@@ -122,14 +129,17 @@ defmodule Guardian.Counters.ClientTest do
     assert Store.get(key(), now(), server: store) == :not_found
     assert Store.get(incr_key, now(), server: store) == {:ok, 2}
     assert Store.get(add_key, now(), server: store) == {:ok, 3}
-    assert CounterBudgetHelper.remaining_us(context.batch) == 250_000
+
+    assert CounterBudgetHelper.remaining_us(context.batch) ==
+             CounterBudgetHelper.scaled_allowance_us(5)
+
     assert :ets.lookup(:counter_client_test, node()) == []
   end
 
   test "batch keeps each response at its operation's position around expired writes", %{
     store: store,
   } do
-    context = event(store, CounterBudgetHelper.relaxed_options())
+    context = healthy_event(store)
     live = System.monotonic_time(:millisecond) + 60_000
     elapsed = live - 120_000
 
@@ -153,7 +163,9 @@ defmodule Guardian.Counters.ClientTest do
              ]
 
     assert Store.get(key({}, 1), now(), server: store) == :not_found
-    assert CounterBudgetHelper.remaining_us(context.batch) == 250_000
+
+    assert CounterBudgetHelper.remaining_us(context.batch) ==
+             CounterBudgetHelper.scaled_allowance_us(5)
 
     # With every write expired nothing dispatches, and the reservation is refunded.
     expired = [
@@ -164,7 +176,10 @@ defmodule Guardian.Counters.ClientTest do
     assert batch(expired, context) == [{:error, :expired}, {:error, :expired}]
 
     assert Store.get(key({}, 6), now(), server: store) == :not_found
-    assert CounterBudgetHelper.remaining_us(context.batch) == 250_000
+
+    assert CounterBudgetHelper.remaining_us(context.batch) ==
+             CounterBudgetHelper.scaled_allowance_us(5)
+
     assert :ets.lookup(:counter_client_test, node()) == []
   end
 
@@ -183,11 +198,7 @@ defmodule Guardian.Counters.ClientTest do
 
     ops = for n <- 1..40, do: {:get, key({}, n)}
 
-    context =
-      event(
-        {Guardian.Test.Counters.ProbeStore, probe},
-        CounterBudgetHelper.relaxed_options()
-      )
+    context = healthy_event({Guardian.Test.Counters.ProbeStore, probe})
 
     assert batch(ops, context) == for(n <- 1..40, do: {:ok, n})
     assert_receive {:pipeline, ^ops}
@@ -229,12 +240,14 @@ defmodule Guardian.Counters.ClientTest do
         )
 
       context =
-        event({Guardian.Test.Counters.ProbeStore, store}, CounterBudgetHelper.relaxed_options())
+        healthy_event({Guardian.Test.Counters.ProbeStore, store})
 
       assert named(%{a: {:get, key()}}, context) ==
                %{a: {:error, :invalid_response}}
 
-      assert CounterBudgetHelper.remaining_us(context.batch) < 250_000
+      assert CounterBudgetHelper.remaining_us(context.batch) <
+               CounterBudgetHelper.scaled_allowance_us(5)
+
       assert :ets.lookup(:counter_client_test, node()) == []
     end
   end
@@ -287,7 +300,7 @@ defmodule Guardian.Counters.ClientTest do
   end
 
   test "atom group terms route and store", %{store: store} do
-    context = event(store, CounterBudgetHelper.relaxed_options())
+    context = healthy_event(store)
     atom_key = key({:group})
 
     assert batch_one({:incr, atom_key, 1, 5_000}, context) == {:ok, 1}
@@ -297,7 +310,7 @@ defmodule Guardian.Counters.ClientTest do
   test "local native operations preserve nil, tokens, colocation and definite errors", %{
     store: store,
   } do
-    context = event(store, CounterBudgetHelper.relaxed_options())
+    context = healthy_event(store)
     assert batch_one({:add, key(), nil, 5_000}, context) == :ok
     assert {:ok, nil, token} = batch_one({:gets, key()}, context)
     assert batch_one({:cas, key(), token, 7, 5_000}, context) == :ok
@@ -332,7 +345,7 @@ defmodule Guardian.Counters.ClientTest do
 
     assert Store.get(key(), now(), server: store) == :not_found
     Process.sleep(1_010)
-    recovered = event(store, CounterBudgetHelper.relaxed_options())
+    recovered = healthy_event(store)
     assert batch_one({:incr, key(), 1, 5_000}, recovered) == {:ok, 1}
   end
 

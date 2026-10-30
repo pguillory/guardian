@@ -3,14 +3,20 @@ defmodule Guardian.Test.Counters.Budget do
   Gives one test larger counter event and call budgets than production's 100 ms and
   50 ms: `relax/1` so host load is far less likely to turn healthy counter calls into
   timeouts, and `scale/1` so budget tests can keep production's reservation decisions
-  with a larger wall-clock unit.
+  with a larger wall-clock unit. `scaled_options/0` with `scaled_batch/1` also serves
+  tests of results, below.
 
   `batch/1,2` create or reset a batch allowance in current operation-budget units;
   `remaining_us/1` reads it and `charge_us/2` simulates a retained charge, without
   exposing its storage layout to callers.
 
   A test that builds its own Context with local owners passes `relaxed_options/0` or
-  `scaled_options/0` to that event and can stay async. `relax/1` and `scale/1` are for
+  `scaled_options/0` to that event and can stay async. Either way every call is also
+  capped by the batch's remaining allowance, 250 ms from `Client.new_batch/0`, so a
+  test of results rather than budgets uses `scaled_options/0` with `scaled_batch(5)`:
+  1 s calls, a 10 s event shared across its calls, and five calls of allowance. Healthy
+  calls are refunded in full, so its allowance assertions compare with
+  `scaled_allowance_us(5)`. `relax/1` and `scale/1` are for
   tests with no such path: ingestion through Engine, HTTP or MCP, whose Context Runner
   builds, and calls to a peer, whose endpoint enforces its own bound. The seam's own
   test uses `relax/1` too.
@@ -29,7 +35,7 @@ defmodule Guardian.Test.Counters.Budget do
   of dispatching concurrently. The 900 ms event budget stays under the Runner's 1 s
   per-row limit.
 
-  Scaling is for tests of reservation decisions (how many owners dispatch
+  Scaling is also for tests of reservation decisions (how many owners dispatch
   concurrently, who waits for a refund) or of a bound against a full call budget. It
   gives a 1 s operation budget and a 10 s event budget, and the test sets its own batch
   allowance to the multiple of the operation budget it means (`scaled_batch/1` with

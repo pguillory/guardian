@@ -5,7 +5,8 @@ defmodule Guardian.Test.Counters do
   `Guardian.Test.Counters.ProbeStore`.
 
   Tests that want larger budgets pass `Guardian.Test.Counters.Budget.relaxed_options/0`
-  through `event_options/3`. `private_store/1` starts processes with
+  or `scaled_options/0` through `event_options/3`, with a batch sized to match (see that
+  module). `private_store/1` starts processes with
   `start_supervised!/1`, so call it from `setup` or a test.
 
   Call these by their full name or import them: `alias Guardian.Test.Counters` would
