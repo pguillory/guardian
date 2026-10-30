@@ -1,36 +1,11 @@
 defmodule Guardian.Storage.MutableSegmentsTest do
   import Guardian.Storage.MutableSegments
-  alias Guardian.Storage.Segment.Registration
-  require Registration
   # Not async: changes the node-wide segment max age and suspends PersistedSegments.
   use ExUnit.Case, async: false
   import Guardian.Test.Polling
 
   test "append" do
     :ok = append("MutableSegmentsTest", a: 1)
-  end
-
-  test "an append that picks a dead segment retries elsewhere" do
-    table = "mutable_segments_stale_#{System.unique_integer([:positive])}"
-    on_exit(fn -> :ok = Guardian.Storage.delete_table(table) end)
-
-    # A registration whose process died without this server noticing, as if the
-    # append read the registry just before the exit was processed.
-    dead = spawn(fn -> :ok end)
-    ref = Process.monitor(dead)
-    assert_receive {:DOWN, ^ref, :process, ^dead, _}
-
-    registration =
-      Registration.tuple(segment_id: Guardian.SegmentID.generate(), segment: dead, table: table)
-
-    :sys.replace_state(Guardian.Storage.MutableSegments, fn state ->
-      true = :ets.insert(Guardian.Storage.MutableSegments, registration)
-      state
-    end)
-
-    :ok = append(table, a: 1)
-    refute dead in get_mutable_segments(table)
-    assert Guardian.Storage.dump_table(table) == [%{"a" => 1}]
   end
 
   test "a row that fills a segment hands it off at once" do

@@ -281,10 +281,11 @@ MCP (`Guardian.Web.MCP.Router`), plug order:
    request, including one on an existing session.
 2. `:reject_unknown_session` (404), `:reject_get` (405).
 3. `:decode_body` (POST): reads up to 8 MB (413 above) and decodes it as one valid
-   JSON-RPC message; anything else gets 400 with a JSON-RPC error and a log line with
-   only size, reason, and a known method name (any other method is logged as `other`).
-4. `:require_session` (404 for a POST other than initialize that names no session),
-   `:drop_protocol_version`, `:answer_inline` (Accept set to `application/json`).
+   JSON-RPC message; anything else gets 400 with a JSON-RPC error and no log line.
+4. `:require_session` (404 for a POST other than initialize or `server/discover` that
+   names no session; a session-less `server/discover` probe gets 200 with JSON-RPC
+   error -32601 and starts no session), `:drop_protocol_version`, `:answer_inline`
+   (Accept set to `application/json`).
 5. Forward to Anubis's Streamable HTTP plug with the decoded body, so Anubis neither
    reads nor decodes it.
 
@@ -315,9 +316,9 @@ most 10,000 independent copies of bounded keys/table names, SHA-256 request dige
 tokens/monitors, status/count and expiry, never payloads or response events. Its
 state is not redacted, so a crash report can show idempotency keys. Operator
 debug tracing and raw process inspection still have the same full-memory authority
-as a remote shell. No keys/digests/events appear in its fixed fail-open info log or
-conflict messages. Capacity evicts completed entries; if all are pending or the
-coordinator fails or times out, valid ingestion proceeds unprotected. This protects
+as a remote shell. No keys/digests/events appear in its conflict messages, and
+fail-open operation logs nothing. Capacity evicts completed entries; if all are pending
+or the coordinator fails or times out, valid ingestion proceeds unprotected. This protects
 availability at the cost of possible duplicate writes. Restart, expiry and retries
 on another node also lose protection; receipts are not a durability guarantee.
 
@@ -949,8 +950,7 @@ inside a call. Production must stay at `:info` or above.
 MCP bodies Anubis cannot decode: Anubis 0.16's transport plug logged the whole body of
 any MCP message it could not decode; 2.x logs only its size. `Guardian.Web.MCP.Router`
 decodes and validates the body itself anyway (4.3) and hands Anubis the decoded map;
-rejected bodies are logged as size, reason, and a known method name only, never
-caller-chosen strings.
+it answers a rejected body with a JSON-RPC error and logs nothing.
 
 The remaining stdout leaks above are accepted: they are bounded by error frequency
 and reach only operators. Bandit's and Plug's telemetry emit raw reasons, stacks and

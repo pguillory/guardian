@@ -9,22 +9,12 @@ defmodule Guardian.Web.MCP.Router do
   """
 
   use Plug.Router
-  require Logger
 
   @session_header "mcp-session-id"
 
   # Same body limit as the JSON API; Anubis's own transport timeout for reading it.
   @max_body_bytes 8_000_000
   @read_timeout_ms 30_000
-
-  # Methods named in our logs. Any other method string is caller-chosen body content,
-  # logged only as "other".
-  @known_methods ~w(
-    initialize notifications/initialized ping tools/list tools/call resources/list
-    resources/read resources/templates/list prompts/list prompts/get logging/setLevel
-    completion/complete notifications/cancelled notifications/progress
-    notifications/roots/list_changed server/discover
-  )
 
   plug(:auth)
   plug(:reject_unknown_session)
@@ -120,8 +110,8 @@ defmodule Guardian.Web.MCP.Router do
   # Reads and validates a POST body before Anubis sees it, with an 8 MB limit (Anubis
   # reads without one and fails on a larger body) and one JSON object per request.
   # Given an already decoded `body_params`, Anubis skips its own decoding and only
-  # revalidates the map. Rejections log size, reason, and a known method name only,
-  # never the body. Recheck on an Anubis upgrade.
+  # revalidates the map. Rejections are answered, not logged. Recheck on an Anubis
+  # upgrade.
   defp decode_body(%Plug.Conn{method: "POST"} = conn, _opts) do
     case Plug.Conn.read_body(conn, length: @max_body_bytes, read_timeout: @read_timeout_ms) do
       {:ok, body, conn} when byte_size(body) <= @max_body_bytes ->
@@ -129,21 +119,17 @@ defmodule Guardian.Web.MCP.Router do
           {:ok, message} ->
             %{conn | body_params: message}
 
-          {:error, code, reason, method} ->
-            log_rejected(reason, byte_size(body), method)
+          {:error, code} ->
             reject_body(conn, 400, code)
         end
 
-      {:ok, body, conn} ->
-        log_rejected(:too_large, byte_size(body), nil)
+      {:ok, _body, conn} ->
         reject_body(conn, 413, -32600)
 
-      {:more, partial, conn} ->
-        log_rejected(:too_large, byte_size(partial), nil)
+      {:more, _partial, conn} ->
         reject_body(conn, 413, -32600)
 
-      {:error, reason} ->
-        log_rejected({:read_failed, reason}, 0, nil)
+      {:error, _reason} ->
         reject_body(conn, 400, -32700)
     end
   end
@@ -156,11 +142,19 @@ defmodule Guardian.Web.MCP.Router do
   # session ID by starting a throwaway session ("Server not initialized"); 2.x answers
   # 404 with its own body. The router sends the same 404 as for an unknown session, so
   # clients see one shape. Runs after decoding, which it needs to tell initialize apart.
+  #
+  # One exception: `server/discover`, the probe newer clients (Anubis 2.x among them)
+  # send before `initialize`. Validation lets it through only with an id and valid
+  # stateless `_meta` (it does not check that a request carries no `result` or
+  # `error`). Guardian serves only 2025-03-26, so it answers "Method not found" with
+  # HTTP 200: the client then falls back to `initialize`, where a 404 makes Anubis's
+  # client log four error lines first.
   defp require_session(%Plug.Conn{method: "POST", body_params: message} = conn, _opts) do
-    if named_session(conn) == :none and message["method"] != "initialize" do
-      session_not_found(conn)
-    else
-      conn
+    cond do
+      named_session(conn) != :none -> conn
+      message["method"] == "initialize" -> conn
+      message["method"] == "server/discover" -> method_not_found(conn, message["id"])
+      true -> session_not_found(conn)
     end
   end
 
@@ -199,18 +193,16 @@ defmodule Guardian.Web.MCP.Router do
   defp decode_message(body) do
     case Jason.decode(body) do
       {:ok, message} when is_map(message) ->
-        method = known_method(message)
-
         case validate_message(message) do
           :ok -> {:ok, message}
-          :error -> {:error, -32600, :invalid_message, method}
+          :error -> {:error, -32600}
         end
 
       {:ok, _not_an_object} ->
-        {:error, -32600, :not_an_object, nil}
+        {:error, -32600}
 
       {:error, _} ->
-        {:error, -32700, :invalid_json, nil}
+        {:error, -32700}
     end
   end
 
@@ -226,24 +218,6 @@ defmodule Guardian.Web.MCP.Router do
     _ -> :error
   end
 
-  defp known_method(%{"method" => method}) when method in @known_methods do
-    method
-  end
-
-  defp known_method(%{"method" => _}) do
-    "other"
-  end
-
-  defp known_method(_message) do
-    nil
-  end
-
-  defp log_rejected(reason, size, method) do
-    method = if method, do: " method=#{method}", else: ""
-
-    Logger.warning("MCP request body rejected: #{inspect(reason)} (#{size} bytes)#{method}")
-  end
-
   defp reject_body(conn, status, code) do
     message =
       case code do
@@ -254,6 +228,11 @@ defmodule Guardian.Web.MCP.Router do
 
     error = %{jsonrpc: "2.0", id: nil, error: %{code: code, message: message}}
     send_json_error(conn, status, error)
+  end
+
+  defp method_not_found(conn, id) do
+    error = %{jsonrpc: "2.0", id: id, error: %{code: -32601, message: "Method not found"}}
+    send_json_error(conn, 200, error)
   end
 
   defp session_not_found(conn) do

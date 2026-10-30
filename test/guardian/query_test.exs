@@ -113,24 +113,15 @@ defmodule Guardian.QueryTest do
     table = "top_n_errors_#{System.unique_integer([:positive])}"
     for v <- 1..5, do: :ok = Guardian.Storage.append(table, k: rem(v, 2), v: v)
 
-    # Guarded like evaluation: no worker crash report reaches the log.
-    log =
-      ExUnit.CaptureLog.capture_log(fn ->
-        assert_raise Guardian.Query.Error,
-                     "min_n: n must be the same for every row of a group",
-                     fn ->
-                       run("select min_n(v, k + 1) from #{table}")
-                     end
+    assert_raise Guardian.Query.Error,
+                 "min_n: n must be the same for every row of a group",
+                 fn ->
+                   run("select min_n(v, k + 1) from #{table}")
+                 end
 
-        assert_raise Guardian.Query.Error, "max_n: n must be a non-negative integer", fn ->
-          run("select max_n(v, -1) from #{table}")
-        end
-
-        # A crashed worker's report is logged after the query has already failed.
-        Process.sleep(200)
-      end)
-
-    refute log =~ "[error]"
+    assert_raise Guardian.Query.Error, "max_n: n must be a non-negative integer", fn ->
+      run("select max_n(v, -1) from #{table}")
+    end
 
     # n may differ between groups.
     assert run("select k, min_n(v, k + 1) from #{table} group by k order by k") ==

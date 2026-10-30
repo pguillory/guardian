@@ -70,10 +70,13 @@ in a failed call's log line. The router's other plugs, in order:
    `Anubis.MCP.Message.validate_message/1` accepts (it can raise; the router rescues
    that). Anything else gets 400 with a JSON-RPC error (`-32700` undecodable, `-32600`
    otherwise). The decoded map is passed as `body_params`, so Anubis skips its own
-   decoding. Log rejected bodies by size, reason, and a known method name only; never
-   log the body, its exception, or a caller-chosen method string.
-4. Missing session: any POST other than initialize without a session ID gets the same
-   404 -32001 (0.16 answered from a throwaway session, 2.x with its own 404 body).
+   decoding. Rejections are answered, not logged.
+4. Missing session: any POST other than initialize or `server/discover` without a
+   session ID gets the same 404 -32001 (0.16 answered from a throwaway session, 2.x
+   with its own 404 body). A session-less `server/discover` (validation admits one only
+   with an id and valid stateless `_meta`) gets 200 with -32601 "Method not found",
+   so Anubis's client and other newer clients fall back to `initialize` without
+   logging the four error lines a 404 costs them.
 5. The `MCP-Protocol-Version` header is dropped. Guardian serves one version, so the
    header carries nothing; Anubis 2.x would answer 400 to a version it does not serve,
    where 0.16 ignored it. Revisit if Guardian ever serves a second version.

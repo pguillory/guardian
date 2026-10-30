@@ -110,12 +110,79 @@ defmodule Guardian.Web.MCP.SessionTest do
     assert_session_not_found(conn)
   end
 
+  @stateless_meta %{
+    "io.modelcontextprotocol/protocolVersion" => "2026-07-28",
+    "io.modelcontextprotocol/clientCapabilities" => %{},
+  }
+
+  # Newer clients, Anubis 2.x's among them, probe with `server/discover` before
+  # `initialize`. Guardian serves only the session era, so it answers "Method not found"
+  # and the client falls back to `initialize`.
+  test "a session-less server/discover probe gets 200 with Method not found" do
+    for id <- [7, "probe-1"] do
+      message = %{
+        jsonrpc: "2.0",
+        id: id,
+        method: "server/discover",
+        params: %{"_meta" => @stateless_meta},
+      }
+
+      conn = mcp(:post, message, authed([]))
+      assert conn.status == 200
+      assert Plug.Conn.get_resp_header(conn, "mcp-session-id") == []
+
+      assert Jason.decode!(conn.resp_body) == %{
+               "jsonrpc" => "2.0",
+               "id" => id,
+               "error" => %{"code" => -32601, "message" => "Method not found"},
+             }
+    end
+  end
+
+  test "a server/discover naming a session is not answered by the router" do
+    message = %{
+      jsonrpc: "2.0",
+      id: 8,
+      method: "server/discover",
+      params: %{"_meta" => @stateless_meta},
+    }
+
+    assert_session_not_found(mcp(:post, message, authed([{"mcp-session-id", "no-such"}])))
+
+    # On a live session it goes to Anubis, which answers with its own error (the router
+    # drops the MCP-Protocol-Version header the stateless era requires).
+    session_id = initialize()
+    conn = mcp(:post, message, authed([{"mcp-session-id", session_id}]))
+    assert %{"id" => 8, "error" => %{"code" => -32020}} = Jason.decode!(conn.resp_body)
+  end
+
+  # Validation rejects these before the session check, so they never get -32601.
+  test "a server/discover without an id or a stateless _meta is an invalid request" do
+    for message <- [
+          %{jsonrpc: "2.0", method: "server/discover", params: %{"_meta" => @stateless_meta}},
+          %{
+            jsonrpc: "2.0",
+            id: nil,
+            method: "server/discover",
+            params: %{"_meta" => @stateless_meta},
+          },
+          %{jsonrpc: "2.0", id: 1, method: "server/discover", params: %{}},
+          %{jsonrpc: "2.0", id: 1, method: "server/discover"},
+        ] do
+      conn = mcp(:post, message, authed([]))
+      assert conn.status == 400
+      assert %{"error" => %{"code" => -32600}} = Jason.decode!(conn.resp_body)
+    end
+  end
+
   # Anubis 0.16 answered a request without a session ID from a throwaway session
   # ("Server not initialized"), and Anubis 2.x with its own 404 body. Guardian answers
-  # every POST other than initialize that names no session like an unknown session.
+  # every POST other than initialize and server/discover that names no session like an
+  # unknown session.
   test "a POST other than initialize without a session ID gets 404" do
     for message <- [
           %{jsonrpc: "2.0", id: 1, method: "tools/list"},
+          %{jsonrpc: "2.0", id: 1, method: "tools/list", params: %{"_meta" => @stateless_meta}},
           %{jsonrpc: "2.0", id: 1, method: "ping"},
           %{jsonrpc: "2.0", method: "notifications/initialized"},
           %{jsonrpc: "2.0", id: 1, result: %{}},

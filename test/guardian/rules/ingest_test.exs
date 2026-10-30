@@ -229,30 +229,28 @@ defmodule Guardian.Rules.IngestTest do
     publish_module(table, SlowRules)
     Guardian.Test.Env.put(rules_time_limit_ms: 200, query_max_heap_mb: 4)
 
-    ExUnit.CaptureLog.capture_log(fn ->
-      assert [ok1, slow, ok2, big, ok3] =
-               ingest(table, [
-                 %{"n" => 1},
-                 %{"sleep" => 5_000},
-                 %{"n" => 2},
-                 %{"big" => 10_000_000},
-                 %{"n" => 3},
-               ])
+    assert [ok1, slow, ok2, big, ok3] =
+             ingest(table, [
+               %{"n" => 1},
+               %{"sleep" => 5_000},
+               %{"n" => 2},
+               %{"big" => 10_000_000},
+               %{"n" => 3},
+             ])
 
-      assert {:ok, %{"n" => 1, "ran" => true}} = ok1
+    assert {:ok, %{"n" => 1, "ran" => true}} = ok1
 
-      assert {:error,
-              "rules for #{table} exceeded their time or memory limit; the event was not stored"} ==
-               slow
+    assert {:error,
+            "rules for #{table} exceeded their time or memory limit; the event was not stored"} ==
+             slow
 
-      assert {:ok, %{"n" => 2, "ran" => true}} = ok2
+    assert {:ok, %{"n" => 2, "ran" => true}} = ok2
 
-      assert {:error,
-              "rules for #{table} exceeded their time or memory limit; the event was not stored"} ==
-               big
+    assert {:error,
+            "rules for #{table} exceeded their time or memory limit; the event was not stored"} ==
+             big
 
-      assert {:ok, %{"n" => 3, "ran" => true}} = ok3
-    end)
+    assert {:ok, %{"n" => 3, "ran" => true}} = ok3
 
     assert table |> Guardian.Storage.dump_table() |> Enum.map(& &1["n"]) |> Enum.sort() == [
              1,

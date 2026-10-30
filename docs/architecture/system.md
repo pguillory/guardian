@@ -242,8 +242,8 @@ required argument) and every second, and live for ten seconds after completion, 
 the coordinator stamps with its own clock. Pending entries do not expire. At capacity the
 oldest completed entry is evicted first; with only pending entries left, the new
 batch runs unprotected. Coordinator calls time out after 100 ms and catch exits;
-unavailable claims fail open with a fixed info log, and completion failures do not
-hide results. Timed-out claims receive an ordered token cancellation on the exact
+unavailable claims fail open without logging, and completion failures do not hide
+results. Timed-out claims receive an ordered token cancellation on the exact
 coordinator pid, preventing a late claim from stranding a long-lived caller's slot.
 No payload or full response is retained. No state is replicated or persisted:
 retries on another node, cache eviction, expiry, fail-open operation and coordinator
@@ -1157,10 +1157,13 @@ handing the request to Anubis's transport:
    comes back in its POST response.
 4. For `POST`, reading the body (8 MB limit, else 413) and decoding it as one JSON
    object that is a valid JSON-RPC message, else 400 with a JSON-RPC error (`-32700`
-   for undecodable JSON, `-32600` otherwise) and a log line with only the size, a
-   reason, and a known method name. The decoded map goes to Anubis as `body_params`,
-   which makes Anubis skip its own decoding (it reads without a size limit).
-5. The same 404 for any POST other than initialize that names no session.
+   for undecodable JSON, `-32600` otherwise), logged nowhere. The decoded map goes to
+   Anubis as `body_params`, which makes Anubis skip its own decoding (it reads without
+   a size limit).
+5. The same 404 for any POST other than initialize or `server/discover` that names no
+   session. A session-less `server/discover`, the probe newer clients send before
+   `initialize`, gets 200 with JSON-RPC error -32601, so the client falls back to
+   `initialize`.
 6. Dropping the `MCP-Protocol-Version` header, which Anubis would otherwise check
    against the one version Guardian serves.
 7. Replacing an Accept header that allows `application/json` with just that, so Anubis

@@ -247,9 +247,11 @@ Protocol version: Guardian speaks MCP protocol version 2025-03-26 and answers ev
 
 Sessions: a request naming an unknown or expired MCP session gets HTTP 404, so clients
 re-initialize after a Guardian restart or the MCP library's 30-minute idle expiry. A
-POST other than `initialize` that names no session gets the same 404. Sessions are
-independent: requests in one session run one at a time, and a slow request never holds
-up another session.
+POST other than `initialize` or `server/discover` that names no session gets the same
+404; a session-less `server/discover` request declaring a stateless protocol version
+gets HTTP 200 with JSON-RPC error -32601, so newer clients fall back to `initialize`.
+Sessions are independent: requests in one session run one at a time, and a slow request
+never holds up another session.
 
 No server-push stream: `GET /mcp` gets HTTP 405 (after authentication and the session
 check above), which the Streamable HTTP spec allows. Guardian never sends
@@ -381,12 +383,12 @@ goes through the same validation and storage.
    that fails unexpectedly (item 6), or a caller that aborts, leaves an unknown-outcome
    conflict for ten seconds: events may have been stored. In-flight keys do not expire
    while their caller lives.
-   At most 10,000 keys are held per node across all tables; capacity evicts the
-   oldest completed entries first, shortening protection. If all slots are in
-   flight, or the coordinator is unavailable or slow, ingestion proceeds without
-   protection and logs an info message. Restarts forget keys. Another node does
-   not know the key. Expiry, eviction, fail-open operation and restarts can allow
-   duplicates; Guardian provides no exactly-once guarantee or internal event retries.
+   At most 10,000 keys are held per node across all tables; capacity evicts the oldest
+   completed entries first, shortening protection. If all slots are in flight, or the
+   coordinator is unavailable or slow, ingestion proceeds without protection. Restarts
+   forget keys. Another node does not know the key. Expiry, eviction, fail-open
+   operation and restarts can allow duplicates; Guardian provides no exactly-once
+   guarantee or internal event retries.
 10. Rules: events sent through the ingest APIs run their table's rules after
     validation and before storage ([section 5.1](#51-rules)), on any table. Guardian's
     own writes to its built-in tables never run rules.

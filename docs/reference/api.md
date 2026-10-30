@@ -155,8 +155,8 @@ record of the key. Restarts (including a receipt-coordinator restart) forget key
 The cache holds at most 10,000 keys across tables. At capacity it evicts the oldest
 completed entries, which can shorten the ten-second window. If every slot is still
 in flight, or the coordinator is unavailable or slow, valid ingestion proceeds
-without protection and logs a fixed info message. Expiry, eviction, fail-open
-operation and restarts can allow duplicates; this is not an exactly-once guarantee.
+without protection. Expiry, eviction, fail-open operation and restarts can allow
+duplicates; this is not an exactly-once guarantee.
 
 ## Querying
 

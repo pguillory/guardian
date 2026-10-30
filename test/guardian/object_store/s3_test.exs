@@ -29,21 +29,17 @@ defmodule Guardian.ObjectStore.S3Test do
     assert Map.has_key?(Guardian.Test.FakeS3.objects(s3), "guardian/t/f1.gsql")
   end
 
-  test "S3 with the wrong secret is misconfigured, and no secret reaches a log or inspect", %{
+  test "S3 with the wrong secret is misconfigured, and inspect never shows a secret", %{
     s3: s3,
   } do
     wrong = %{s3 | secret_access_key: "WRONG-SECRET-VALUE"}
     store = Guardian.Test.FakeS3.store(wrong)
 
-    log =
-      ExUnit.CaptureLog.capture_log(fn ->
-        assert ObjectStore.list(store) == {:error, {:misconfigured, "HTTP 403"}}
+    assert ObjectStore.list(store) == {:error, {:misconfigured, "HTTP 403"}}
 
-        assert ObjectStore.put(store, "t/a.gsql", "x", :none) ==
-                 {:error, {:misconfigured, "HTTP 403"}}
-      end)
+    assert ObjectStore.put(store, "t/a.gsql", "x", :none) ==
+             {:error, {:misconfigured, "HTTP 403"}}
 
-    refute log =~ "WRONG-SECRET-VALUE"
     refute inspect(store) =~ "WRONG-SECRET-VALUE"
     refute inspect(Guardian.Test.FakeS3.store(s3)) =~ s3.secret_access_key
   end

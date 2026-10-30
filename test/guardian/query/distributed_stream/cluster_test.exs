@@ -4,9 +4,6 @@ defmodule Guardian.Query.DistributedStream.ClusterTest do
   use ExUnit.Case, async: false
   @moduletag :cluster
 
-  # Crashing workers are plain processes, which log their exceptions.
-  @moduletag :capture_log
-
   import Guardian.Query.DistributedStream
   import Guardian.Test.Polling
   alias Guardian.Test.DistributedStreamStages, as: Stages

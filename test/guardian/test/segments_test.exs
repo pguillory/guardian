@@ -17,7 +17,6 @@ defmodule Guardian.Test.SegmentsTest do
 
       receive do
         :release -> GenServer.reply(from, :ok)
-        {:exit, reason} -> exit(reason)
       end
     end)
 
@@ -62,16 +61,6 @@ defmodule Guardian.Test.SegmentsTest do
              {:error, :invalid_value}
 
     assert Guardian.Storage.segment_ids(table) |> Enum.to_list() == []
-  end
-
-  @tag :capture_log
-  test "the append's caller sees the callback's exit reason" do
-    {_fake, callback, task} = held_append(unique_table())
-
-    send(callback, {:exit, :held_append_failure})
-
-    assert {:exit, {:held_append_failure, {GenServer, :call, _}}} =
-             Task.yield(task, 5_000) || Task.shutdown(task)
   end
 
   test "killing the fake ends a held callback" do

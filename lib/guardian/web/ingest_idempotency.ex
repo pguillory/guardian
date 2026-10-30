@@ -7,7 +7,6 @@ defmodule Guardian.Web.IngestIdempotency do
   """
 
   use GenServer
-  require Logger
 
   @retention_ms 10_000
   @max_entries 10_000
@@ -52,7 +51,6 @@ defmodule Guardian.Web.IngestIdempotency do
         # exact pid are ordered, so cancellation follows even a late claim. Never
         # send it to the registered name, which may now name a restarted server.
         if pid, do: GenServer.cast(pid, {:cancel, token, self()})
-        Logger.info("Ingest idempotency protection unavailable; ingesting without a receipt")
         {value, _failed_events} = ingest.()
         {:ran, value}
     end

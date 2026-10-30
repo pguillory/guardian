@@ -60,8 +60,8 @@ describes claims, digests, monitors and expiry. Implementation rules to keep:
   uncertainty before reraising, since callers can be reused HTTP processes. (MCP
   runs `send_events` in a `Guardian.Detached` worker that ends with the call.)
 - Bound coordinator calls to 100 ms. Cancel timed-out claims on the exact pid with
-  their caller-generated token. Unavailable claims fail open with a fixed info log
-  containing no client data; completion failures never hide the original response.
+  their caller-generated token. Unavailable claims fail open without logging;
+  completion failures never hide the original response.
 
 `IngestIdempotency.run/6` returns plain outcomes (`{:ran, value}`, `{:duplicate,
 failed_events}`, `{:conflict, :changed | :pending | :uncertain}`) and treats the

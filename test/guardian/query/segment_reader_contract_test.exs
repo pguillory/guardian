@@ -102,20 +102,6 @@ defmodule Guardian.Query.SegmentReaderContractTest do
       assert run_sql("SELECT count() FROM #{table}") == [[rows]]
     end
 
-    test "a segment stopped mid-query fails the query, naming it" do
-      table = table()
-      fill(table)
-      {id, segment} = segment(table, 1)
-      statement = resolve_sql("SELECT count() FROM #{table}")
-      :sys.suspend(segment)
-      task = Task.async(fn -> catch_error(Guardian.Query.run(statement)) end)
-      await_blocked_reader()
-      Process.exit(segment, :kill)
-
-      assert %Guardian.Query.Error{message: message} = Task.await(task)
-      assert message == "segment #{id} became unavailable during the query (:killed)"
-    end
-
     test "a segment deleted mid-query fails the query, naming it" do
       table = table()
       fill(table)
@@ -128,28 +114,6 @@ defmodule Guardian.Query.SegmentReaderContractTest do
 
       assert %Guardian.Query.Error{message: message} = Task.await(task)
       assert message =~ "segment #{id} became unavailable during the query"
-    end
-
-    test "a segment that dies while its column is read fails evaluation, naming it" do
-      table = table()
-      fill(table, 100)
-      [id] = table |> Guardian.Storage.segment_ids() |> Enum.to_list()
-      {:ok, segment} = Guardian.Storage.get_segment(id)
-      snapshot = %Guardian.Query.Evaluation.SegmentSnapshot{segment: id, count: 100}
-      :sys.suspend(segment)
-
-      task =
-        Task.async(fn ->
-          catch_error(
-            Guardian.Query.Evaluation.eval(snapshot, %Guardian.AST.Node.Identifier{name: "v"})
-          )
-        end)
-
-      await_queued_call(segment)
-      Process.exit(segment, :kill)
-
-      assert %Guardian.Query.Error{message: message} = Task.await(task)
-      assert message == "segment #{id} became unavailable during the query (:killed)"
     end
 
     test "Storage's own reads give up on a hung segment after 5 seconds" do

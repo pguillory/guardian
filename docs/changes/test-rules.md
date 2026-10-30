@@ -106,3 +106,21 @@ Coverage given up:
   mid-request, alone or in a batch, returning `{:error, :unavailable}` without
   affecting the owner or logging its key; and a callback crash restarting the
   supervised store empty with its payloads kept out of the crash report.
+- From logging.md step 3, tests that crashed or killed on purpose:
+  Counters.RuntimeTest's child, subtree and owner kill and crash-loop tests (restart
+  scope, backoff doubling and capping, stale-timer handling, clean shutdown after
+  recovery); DistributedStream FailuresTest's raising stages (a stage's error failing
+  the pipeline, an upstream failure after rows were emitted, a non-trapping consumer
+  dying with the reason, a consumer running the next pipeline after a failure, an inner
+  pipeline's failure), with the cleanup checks they held; SegmentReaderContractTest's
+  killed-segment queries (a query naming a segment killed mid-query or mid-column read);
+  MutableSegments' append retrying past a dead segment; SegmentOwnerExits' handoff of a
+  segment that already died; SegmentTest's segment crashing on a row; the held-append
+  callback's exit reason in the test fake; and an MCP `send_events` whose segment
+  crashes mid-call answering a JSON-RPC error. Within those: the whole counter subtree
+  down (counters unavailable and a counter batch failing open with cooldown), the
+  Restarter recovering after its owner is killed during old-subtree teardown, and
+  FullSegments' handling of a segment's exit.
+- Also from logging.md step 3, the log refutes that went with `capture_log`: that no
+  S3 secret, rejected MCP body or query worker crash report reaches the log. The code
+  is unchanged; a clean `mix test` is now the check.

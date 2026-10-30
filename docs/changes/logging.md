@@ -20,6 +20,15 @@ report can show what the failing process held: query text, event values (before 
 unset them), rule text or counter keys. Each router drops the request's API keys once
 they pass, so no plug or handler after that check receives them."
 
+Step 3 changes two spec lines. Section 4.2's sessions paragraph, before: "A POST other
+than `initialize` that names no session gets the same 404." After: "A POST other than
+`initialize` or `server/discover` that names no session gets the same 404; a
+session-less `server/discover` request declaring a stateless protocol version gets HTTP
+200 with JSON-RPC error -32601, so newer clients fall back to `initialize`." Section 5
+item 9, before: "…or the coordinator is unavailable or slow, ingestion proceeds
+without protection and logs an info message." After: "…or the coordinator is
+unavailable or slow, ingestion proceeds without protection."
+
 ## Problem
 
 A passing `mix test` printed hundreds of lines: a `Loading` line per segment file and
@@ -53,11 +62,23 @@ API key once it passes; everything goes through Logger.
    `Guardian.Web.MCP.LogFilter` goes: Anubis's `session_call_failed` line, logged when
    an MCP call outlives its 30-second timeout or its session exits mid-call, now shows
    the message (as `inspect/1` prints it, so very long values are cut short). The API
-   key never reaches it: both routers drop the header once the key passes. Query heap limits stop writing the VM's kill report
-   (`error_logger: false`, like the rule worker and the regex helper): an over-limit
-   query is the caller's outcome, answered with the heap message. The catches that
-   reraised failures by kind (Rules.Server's and Store's `scrubbed`) went in a
-   separate change (f45a43a).
+   key never reaches it: both routers drop the header once the key passes. Query heap
+   limits stop writing the VM's kill report (`error_logger: false`, like the rule worker
+   and the regex helper): an over-limit query is the caller's outcome, answered with the
+   heap message. The catches that reraised failures by kind (Rules.Server's and Store's
+   `scrubbed`) went in a separate change (f45a43a).
+
+3. Clean test output. The MCP router answers a session-less `server/discover`, the probe
+   Anubis's client (and other newer clients) sends before `initialize`, with HTTP 200
+   and JSON-RPC error -32601, so the client falls back to `initialize` without logging
+   four error lines per connection; before, the probe got the session 404. Validation
+   admits a discover only with an id and valid stateless `_meta`; a discover without
+   them still gets 400. Per-request lines go: the router's "request body rejected"
+   warning (with its known-method list), Rules.Server's "wrote/deleted" info and
+   "outcome unknown" warning (the caller is told), and IngestIdempotency's fail-open
+   info. Tests that crash or kill on purpose go (CONTRIBUTING.md, "Logging", rule 3),
+   and `capture_log` that only silenced output is removed. Coverage given up is listed
+   in test-rules.md.
 
 ## Validation
 

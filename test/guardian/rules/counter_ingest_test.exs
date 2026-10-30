@@ -304,7 +304,7 @@ defmodule Guardian.Rules.CounterIngestTest do
 
   test "HTTP and MCP counter failure stays fail-open" do
     Guardian.Test.MCPClient.start()
-    table = unique_table("live_counter_redaction")
+    table = unique_table("live_counter_fail_open")
     marker = "PRIVATE-#{System.unique_integer([:positive])}"
 
     with_rules(%{
@@ -325,16 +325,14 @@ defmodule Guardian.Rules.CounterIngestTest do
       if Process.alive?(elem(pause, 0)), do: Guardian.Test.Counters.StorePause.resume(pause)
     end)
 
-    ExUnit.CaptureLog.capture_log(fn ->
-      for send_events <- [&http/1, &mcp("send_events", &1)] do
-        # Exercise a real timeout for each interface, not the other's cooldown.
-        :ets.delete(Guardian.Counters.Budget, node())
+    for send_events <- [&http/1, &mcp("send_events", &1)] do
+      # Exercise a real timeout for each interface, not the other's cooldown.
+      :ets.delete(Guardian.Counters.Budget, node())
 
-        assert send_events.(args)["results"] == [
-                 %{"success" => true, "event" => %{"hits" => 0, "secret" => nil}},
-               ]
-      end
-    end)
+      assert send_events.(args)["results"] == [
+               %{"success" => true, "event" => %{"hits" => 0, "secret" => nil}},
+             ]
+    end
 
     :ok = Guardian.Test.Counters.StorePause.resume(pause)
   end

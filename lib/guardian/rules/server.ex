@@ -385,7 +385,6 @@ defmodule Guardian.Rules.Server do
     case result do
       {:ok, etag} ->
         release(lock)
-        Logger.info("Rules: #{if source == :delete, do: "deleted", else: "wrote"} #{key}")
 
         files =
           if source == :delete,
@@ -405,9 +404,8 @@ defmodule Guardian.Rules.Server do
 
       {:error, {:unknown, _kind} = reason} ->
         # The save may have happened: leave the lock to expire, so the next writer
-        # starts well after this request, and validates whatever it finds.
-        Logger.warning("Rules: writing #{key}: #{ObjectStore.reason_message(reason)}")
-
+        # starts well after this request, and validates whatever it finds. The caller
+        # is told.
         {{:error,
           {:unknown,
            "#{ObjectStore.reason_message(reason)}; #{key} may have been saved; list the rules to check"}},

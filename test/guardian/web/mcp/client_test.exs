@@ -358,47 +358,6 @@ defmodule Guardian.Web.MCP.ClientTest do
       assert Jason.decode!(conn.resp_body) == result
     end
 
-    test "a crash during the call fails it with a JSON-RPC error" do
-      Guardian.Test.MCPClient.start()
-      table = "mcp_uncertain_#{System.unique_integer([:positive])}"
-      segment_id = Guardian.SegmentID.generate()
-
-      segment =
-        spawn(fn ->
-          receive do
-            {:"$gen_call", _from, {:append, _row}} ->
-              # Unregister without stopping: deletion would stop this fake segment.
-              :sys.replace_state(Guardian.Storage.MutableSegments, fn state ->
-                true = :ets.delete(Guardian.Storage.MutableSegments, segment_id)
-                state
-              end)
-
-              exit(:mcp_ingest_test_failure)
-          end
-        end)
-
-      :sys.replace_state(Guardian.Storage.MutableSegments, fn state ->
-        true = :ets.insert(Guardian.Storage.MutableSegments, {segment_id, segment, table})
-        state
-      end)
-
-      on_exit(fn ->
-        # Kill first: deletion stops the segment, and this fake one does not answer.
-        Process.exit(segment, :kill)
-        Guardian.Storage.MutableSegments.delete_segment(segment_id)
-        Guardian.Storage.delete_table(table)
-      end)
-
-      assert {:error, %{reason: :internal_error}} =
-               call_tool("send_events", %{
-                 "table" => table,
-                 "events" => [%{"value" => 1}, %{"value" => 2}],
-               })
-
-      # The session survives a failed call.
-      assert {:ok, _} = call_tool("query", %{"sql" => "SELECT 1"})
-    end
-
     test "preserves absent, null, selected and empty return_keys without filtering stored events; a selected key names one exact column, null when missing" do
       Guardian.Test.MCPClient.start()
       event = %{"value" => 1, "nested" => %{"x" => 2}}

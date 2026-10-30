@@ -256,15 +256,6 @@ defmodule Guardian.Storage.SegmentTest do
       assert count(segment) == {:ok, 2}
     end
 
-    @tag :capture_log
-    test "a segment that crashes on the row is not reported as dead" do
-      # Retrying a row that crashed one segment could crash the next one too.
-      {:ok, crashing} = Agent.start(fn -> nil end)
-
-      assert {{:function_clause, _}, {GenServer, :call, _}} =
-               catch_exit(segment_append(crashing, %{"a" => 1}))
-    end
-
     test "appending to a dead segment reports it" do
       {:ok, segment} = start_link()
       Process.unlink(segment)

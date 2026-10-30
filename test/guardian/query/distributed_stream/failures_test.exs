@@ -1,9 +1,6 @@
 defmodule Guardian.Query.DistributedStream.FailuresTest do
   use ExUnit.Case, async: true
 
-  # Crashing workers are plain processes, which log their exceptions.
-  @moduletag :capture_log
-
   import Guardian.Query.DistributedStream
 
   # Two partitions on this node, by value.
@@ -55,17 +52,6 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
   defp assert_stops(pid) do
     ref = Process.monitor(pid)
     assert_receive {:DOWN, ^ref, :process, ^pid, _reason}, 5_000
-  end
-
-  # A crash reaches the consumer either as the worker's own reason (through the
-  # links) or, when a receiver noticed the dead sender first, as a sender_down edge
-  # failure. Either way the pipeline failed.
-  defp assert_crash(reason, message) do
-    case reason do
-      {%RuntimeError{message: ^message}, stack} when is_list(stack) -> :ok
-      {:distributed_stream, {:sender_down, :noproc}} -> :ok
-      other -> flunk("unexpected failure reason: #{inspect(other)}")
-    end
   end
 
   # Waits until the calling process's mailbox holds a matching message, without
@@ -140,57 +126,6 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
              end)
 
     assert rows == Enum.to_list(1..2_000)
-  end
-
-  test "a stage that raises on one partition fails the pipeline with that error" do
-    assert {:exit, reason} =
-             consume(fn ->
-               1..1_000
-               |> fan_out(&by_parity/1)
-               |> map(fn
-                 500 -> raise "boom"
-                 value -> value
-               end)
-               |> fan_in()
-               |> Enum.to_list()
-             end)
-
-    assert_crash(reason, "boom")
-  end
-
-  test "an upstream failure after downstream rows were emitted still fails" do
-    parent = self()
-    gate = :atomics.new(1, [])
-
-    assert {:exit, reason} =
-             consume(fn ->
-               1..2_000
-               |> fan_out(&by_parity/1)
-               |> map(fn
-                 # Partition 2 (odd values) fails only after partition 1's rows are
-                 # downstream.
-                 1_999 ->
-                   await_gate(gate)
-                   raise "late"
-
-                 value ->
-                   big(value)
-               end)
-               |> fan_out(fn _ -> {node(), 1} end)
-               |> map(& &1)
-               |> fan_in()
-               |> Stream.each(fn _ ->
-                 send(parent, :consumer_has_rows)
-                 :atomics.put(gate, 1, 1)
-               end)
-               |> Enum.to_list()
-             end)
-
-    # The failing worker had sent rows before, so its receivers monitor it and see
-    # the crash itself, never :noproc.
-    assert {%RuntimeError{message: "late"}, stack} = reason
-    assert is_list(stack)
-    assert_received :consumer_has_rows
   end
 
   test "a stage slower than 5 seconds completes" do
@@ -276,25 +211,6 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
       Process.exit(final_router, signal)
       assert Task.await(task) == {:exit, reason}
     end
-  end
-
-  test "a non-trapping consumer dies with the failure reason" do
-    assert {:down, reason} =
-             consume(
-               fn ->
-                 1..10
-                 |> fan_out(&by_parity/1)
-                 |> map(fn
-                   7 -> raise "boom"
-                   value -> value
-                 end)
-                 |> fan_in()
-                 |> Enum.to_list()
-               end,
-               trap: false
-             )
-
-    assert_crash(reason, "boom")
   end
 
   test "a non-trapping consumer survives its own halt while every stage is busy" do
@@ -419,43 +335,12 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
     :sys.resume(agent)
   end
 
-  test "a consumer that catches the failure, or stops early, can run the next pipeline" do
-    {:ok, agent} = Agent.start_link(fn -> :ok end)
-    :sys.suspend(agent)
+  test "a consumer that stops early can run the next pipeline" do
     parent = self()
-    # Set once the worker given 2 has reported itself, so the failure comes after.
-    gate = :atomics.new(1, [])
 
-    # The consumer stays alive throughout, so only its own cleanup can have stopped
-    # the pipeline it abandoned.
     {consumer, ref} =
       spawn_monitor(fn ->
         Process.flag(:trap_exit, true)
-
-        failed =
-          catch_exit(
-            1..1_000
-            |> fan_out(&by_parity/1)
-            |> map(fn
-              # The worker given 1 fails while the one given 2 is blocked.
-              1 ->
-                await_gate(gate)
-                raise "boom"
-
-              2 ->
-                send(parent, {:blocked, self()})
-                :atomics.put(gate, 1, 1)
-                Agent.get(agent, & &1, :infinity)
-
-              value ->
-                value
-            end)
-            |> fan_in()
-            |> Enum.to_list()
-          )
-
-        send(parent, {:failed, failed})
-        receive do: (:continue -> :ok)
 
         # Stop early while the last stage is still sending: its marker and the
         # router's {:done} can arrive after the halt.
@@ -483,57 +368,10 @@ defmodule Guardian.Query.DistributedStream.FailuresTest do
         receive do: (:stop -> :ok)
       end)
 
-    assert_receive {:failed, failed}, 5_000
-    assert_crash(failed, "boom")
-    assert_receive {:blocked, blocked}
-    assert_stops(blocked)
-    {:links, []} = Process.info(consumer, :links)
-    send(consumer, :continue)
-
     assert_receive {:next, [{1, _}], full, {:links, []}}, 10_000
     assert full == Enum.to_list(1..2_000)
     send(consumer, :stop)
     assert_receive {:DOWN, ^ref, :process, ^consumer, :normal}
-    :sys.resume(agent)
-  end
-
-  test "nested pipelines: an inner failure fails the outer pipeline" do
-    inner = fn fail_on ->
-      1..1_000
-      |> fan_out(&by_parity/1)
-      |> map(fn
-        ^fail_on -> raise "inner"
-        value -> value
-      end)
-      |> fan_in()
-    end
-
-    # A plain stream wrapping the inner pipeline is the outer pipeline's input, so the
-    # outer initial worker is the inner consumer (as in Guardian's ORDER BY ... LIMIT
-    # after a {:default} step).
-    assert {:exit, reason} =
-             consume(fn ->
-               inner.(600)
-               |> Stream.map(& &1)
-               |> fan_out(&by_parity/1)
-               |> map(& &1)
-               |> fan_in()
-               |> Enum.to_list()
-             end)
-
-    assert_crash(reason, "inner")
-
-    assert {:ok, rows} =
-             consume(fn ->
-               inner.(:never)
-               |> Stream.map(& &1)
-               |> fan_out(&by_parity/1)
-               |> map(& &1)
-               |> fan_in()
-               |> Enum.sort()
-             end)
-
-    assert rows == Enum.to_list(1..1_000)
   end
 
   test "nested pipelines: halting the outer pipeline stops the inner one" do

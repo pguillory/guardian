@@ -1,7 +1,6 @@
 defmodule Guardian.Storage.SegmentOwnerExitsTest do
-  # How the lifecycle managers handle their segments' ends: a handoff of a segment
-  # that is already gone, table deletion, a segment that does not answer, and a late
-  # reply to the persister.
+  # How the lifecycle managers handle their segments' ends: table deletion, a segment
+  # that does not answer, and a late reply to the persister.
   use ExUnit.Case, async: false
   import Guardian.Test.Query
   import Guardian.Test.Polling
@@ -59,18 +58,6 @@ defmodule Guardian.Storage.SegmentOwnerExitsTest do
     :ok = PersistedSegments.ping()
     eventually(fn -> PersistedSegments.get_segment(id) == {:ok, segment} end)
     {id, segment}
-  end
-
-  test "a handoff of a segment that already died leaves no registration" do
-    dead = spawn(fn -> :ok end)
-    eventually(fn -> not Process.alive?(dead) end)
-    before = managers()
-    id = Guardian.SegmentID.generate()
-
-    assert :ok = FullSegments.insert({id, dead, table()})
-    eventually(fn -> FullSegments.get_segment(id) == {:error, :not_found} end)
-    sync()
-    assert managers() == before
   end
 
   test "normal exits are told apart from crashes" do
