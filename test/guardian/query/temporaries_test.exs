@@ -13,6 +13,20 @@ defmodule Guardian.Query.TemporariesTest do
     "temporaries_#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
   end
 
+  # Appends row v, then the next, until it gets :stop, then tells the parent how many
+  # rows it wrote.
+  defp append_until_stopped(table, progress, parent, v) do
+    :counters.add(progress, 1, 1)
+    :ok = Guardian.Storage.append(table, k: rem(v, 7), v: 1)
+    :counters.add(progress, 2, 1)
+
+    receive do
+      :stop -> send(parent, {:written, v})
+    after
+      0 -> append_until_stopped(table, progress, parent, v + 1)
+    end
+  end
+
   describe "results" do
     test "SELECT without FROM" do
       assert run_sql("select 1, 'a'") == [[1, "a"]]
@@ -67,16 +81,9 @@ defmodule Guardian.Query.TemporariesTest do
     progress = :counters.new(2, [])
     parent = self()
 
-    writer =
-      spawn_link(fn ->
-        Enum.each(1..20_000, fn v ->
-          :counters.add(progress, 1, 1)
-          :ok = Guardian.Storage.append(table, k: rem(v, 7), v: 1)
-          :counters.add(progress, 2, 1)
-        end)
-
-        send(parent, :written)
-      end)
+    # The writer keeps appending until a check has seen 20,000 rows, so the checks run
+    # during ingest, across a segment rollover, however fast the writer is.
+    writer = spawn_link(fn -> append_until_stopped(table, progress, parent, 1) end)
 
     query = "select k, sum(v) from #{table} group by k having count(*) > 0"
 
@@ -91,12 +98,12 @@ defmodule Guardian.Query.TemporariesTest do
       total
     end
 
-    totals = Stream.repeatedly(check) |> Enum.take_while(fn _ -> Process.alive?(writer) end)
-    assert_receive :written, 60_000
-    assert length(totals) > 1
+    totals = Stream.repeatedly(check) |> Enum.take_while(&(&1 < 20_000))
+    send(writer, :stop)
+    assert_receive {:written, written}, 60_000
     assert totals == Enum.sort(totals)
-    assert check.() == 20_000
-    expected = 1..20_000 |> Enum.frequencies_by(&rem(&1, 7)) |> Enum.map(fn {k, n} -> [k, n] end)
+    assert check.() == written
+    expected = 1..written |> Enum.frequencies_by(&rem(&1, 7)) |> Enum.map(fn {k, n} -> [k, n] end)
     assert Enum.sort(run_sql(query)) == Enum.sort(expected)
   end
 
