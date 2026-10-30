@@ -17,7 +17,10 @@ Guardian's MCP endpoint exposes these tools:
   schema, tool description and `Guardian.Web.Ingest` validation consistent.
 - `list_rules`, `read_rule`, `write_rule`, `delete_rule`: manage rule files through
   `Guardian.Rules`. A rejected or failed write is a tool error carrying the messages; a saved
-  one returns `saved`, `remaining_errors` and `nodes_not_yet_reloaded`. The
+  one returns `saved`, `remaining_errors` and `nodes_not_yet_reloaded`. Rules tries its
+  write lock once; when it is busy (nothing changed), write_rule and delete_rule call
+  again after 0.5, 1 and 1.5 s, then return a tool error saying something else is
+  editing the rules. This is the only rule-write retry; keep it short. The
   `write_rule` description summarizes the rule language; keep it in step with
   [spec section 5.1](../../../../docs/product/spec.md#51-rules) and the served
   reference's Ingest rules section.
@@ -101,10 +104,11 @@ Cancellation: Anubis stops a request's task when the client sends
 or deletes its session (200, -32603 "Session terminating"). A query stops with it
 (`Guardian.Query` kills the query when its caller dies). `send_events` runs in
 `Guardian.Detached`, so its batch always completes and its keyed receipt is completed
-by the process that claimed it; rule writes run entirely inside
-`Guardian.Rules.Server`, so they complete too. After a cancel or DELETE the session's
-next request can run while that write finishes. An HTTP timeout stops nothing: the
-request keeps running, and later requests in its session wait for it.
+by the process that claimed it; a rule write already in `Guardian.Rules.Server`
+completes too, while one waiting between busy retries just stops, having changed
+nothing. After a cancel or DELETE the session's next request can run while that write
+finishes. An HTTP timeout stops nothing: the request keeps running, and later requests
+in its session wait for it.
 
 `Guardian.Web.MCP.LogFilter`: when a call times out or its session exits mid-call,
 Anubis logs the call's exit reason at error, with the whole message and the request's

@@ -730,14 +730,20 @@ defmodule Guardian.Rules.ServerTest do
              {:error, "the write lock's lease ran short; retry"}
   end
 
-  test "another writer holding the lock makes a write fail as busy" do
-    {_s3, store} = s3_server()
+  test "another writer holding the lock makes a write fail as busy, after one attempt" do
+    {s3, store} = s3_server()
 
     {:ok, _lock} =
       Guardian.ObjectStore.Lock.acquire(store, lock_key(), "someone else")
 
     assert Guardian.Rules.write_rule(unique_table("rules_busy"), "a", "SET x = 1") ==
-             {:error, "another rule write is in progress; retry"}
+             {:error, :busy}
+
+    # The other writer's create, then this write's one create and one read.
+    assert s3
+           |> Guardian.Test.FakeS3.requests()
+           |> Enum.filter(&String.ends_with?(&1.path, "/" <> lock_key()))
+           |> Enum.map(& &1.method) == ["PUT", "PUT", "GET"]
   end
 
   test "a rejected write does not hide rules another writer saved from the next reload" do

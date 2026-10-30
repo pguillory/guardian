@@ -65,9 +65,10 @@ Modules:
   `Guardian.ObjectStore` (`lib/guardian/object_store/AGENTS.md`): S3 or a local folder.
   Both list every object; Server and `Guardian.Rules.list_rules/1` apply the rule
   layout (`Guardian.Rules.RuleSet.parse_key/1`). The write lock is a
-  `Guardian.ObjectStore.Lock`; stores declaring `ObjectStore.shared?/1` false refuse
-  writes with peers connected. Holds Publisher's pool value and forwards reclamation
-  messages.
+  `Guardian.ObjectStore.Lock`, tried once: a held lock returns `{:error, :busy}`, with
+  no retry in Rules (the MCP tools retry briefly); stores declaring
+  `ObjectStore.shared?/1` false refuse writes with peers connected. Holds Publisher's
+  pool value and forwards reclamation messages.
 
 ## Rules to keep
 

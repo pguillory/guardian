@@ -282,8 +282,9 @@ JSON API rule endpoints in phase 1.
    `Date` response header, so the lease is measured on the store's clock and node
    clock skew does not matter. A writer creates it with `If-None-Match: *`. On 412 it
    reads the lock: a released or expired lock is taken over with `If-Match` on the
-   ETag it read; a live one is retried for up to 10 s, then the write fails with
-   "another rule write is in progress". The local folder uses the same scheme with
+   ETag it read; a live one fails the write at once as busy (it was retried for up
+   to 10 s until [rule-lock-once](rule-lock-once.md), which also moved the only
+   retry, a few seconds, to the MCP tools). The local folder uses the same scheme with
    an exclusive create and rename.
 2. Under the lock the writer reads the whole set from the store (not memory),
    applies its change, and validates (above).

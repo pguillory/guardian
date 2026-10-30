@@ -63,6 +63,9 @@ privately, not in this repository.
 - [x] local-store-lock-identity: a local folder store's write lock is keyed by the
       folder's device and inode, taken in `new/2`, so `dir`, `dir/`, a relative path
       or a symlink to one folder share it (follow-up to local-store-lock-id)
+- [x] rule-lock-once: the rule write lock is tried once and a held lock fails at once as
+      busy; the only retry, a few seconds, is in the MCP write_rule and delete_rule tools
+      (`docs/changes/rule-lock-once.md`)
 - [x] local-store-lock-races: pin concurrent ETag puts and local lease creation/takeover;
       document unbounded contention and defer queued locking while Rules.Server is
       the only production writer (`docs/changes/local-store-lock-races.md`)

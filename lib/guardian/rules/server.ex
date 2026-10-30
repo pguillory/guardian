@@ -34,9 +34,13 @@ defmodule Guardian.Rules.Server do
   folder and other nodes connected, writes are refused: each node has its own folder.
   Store sharing is declared by `Guardian.ObjectStore.shared?/1`.
 
+  The lock is tried once: if another writer holds it, or a lock left by an interrupted
+  write has not yet expired (the 120 s lease), the write fails at once as `:busy`,
+  having changed nothing. Whether to try again is the caller's choice.
+
   Outcomes: `{:ok, %{errors: remaining messages, unconfirmed: nodes}}`,
-  `{:error, {:rejected, messages}}`, `{:error, {:unknown, message}}` (the save may have
-  happened; the lock is left to expire), or `{:error, message}`.
+  `{:error, {:rejected, messages}}`, `{:error, :busy}`, `{:error, {:unknown, message}}`
+  (the save may have happened; the lock is left to expire), or `{:error, message}`.
 
   ## Module pool
 
@@ -349,7 +353,7 @@ defmodule Guardian.Rules.Server do
             locked_write(state, lock, key, source)
 
           {:error, :busy} ->
-            {{:error, "another rule write is in progress; retry"}, state}
+            {{:error, :busy}, state}
 
           {:error, reason} ->
             {{:error, ObjectStore.reason_message(reason)}, state}

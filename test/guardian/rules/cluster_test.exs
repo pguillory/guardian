@@ -77,7 +77,18 @@ defmodule Guardian.Rules.ClusterTest do
     assert [{:ok, %{"x" => 2}}] = Guardian.Engine.ingest_events(table, [%{}])
   end
 
-  test "concurrent conflicting writes from two nodes: one wins, the other is rejected",
+  test "a write conflicting with another node's saved write is rejected",
+       %{peer_node: peer_node} do
+    s3_cluster(peer_node)
+    table = unique_table("rules_conflict")
+
+    assert {:ok, _} = Guardian.Rules.write_rule(table, "a", "SET x = 1")
+
+    assert {:error, {:rejected, _}} =
+             :erpc.call(peer_node, Guardian.Rules, :write_rule, [table, "b", "SET x = 2"])
+  end
+
+  test "concurrent conflicting writes from two nodes: one wins, the other is busy or rejected",
        %{peer_node: peer_node} do
     s3_cluster(peer_node)
     table = unique_table("rules_race")
@@ -91,8 +102,14 @@ defmodule Guardian.Rules.ClusterTest do
 
     results = [Task.await(here, 30_000), Task.await(there, 30_000)]
 
+    # The loser either overlapped the winner and found the lock held, or came after it
+    # and found the conflicting rule.
+    loser? = fn result ->
+      result == {:error, :busy} or match?({:error, {:rejected, _}}, result)
+    end
+
     assert Enum.count(results, &match?({:ok, _}, &1)) == 1
-    assert Enum.count(results, &match?({:error, {:rejected, _}}, &1)) == 1
+    assert Enum.count(results, loser?) == 1
   end
 
   test "a node that missed a reload catches up by polling", %{peer_node: peer_node} do

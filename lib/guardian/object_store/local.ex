@@ -38,8 +38,8 @@ defmodule Guardian.ObjectStore.Local do
 
   Contended writes use `:global`'s randomized exponential backoff, with each retry
   delay capped at 8 s, no fairness and no total wait limit. A hung write holds up later
-  writes to its folder. `Guardian.ObjectStore.Lock.acquire/4`'s timeout bounds its
-  retries, but cannot interrupt an underlying put waiting for this local lock.
+  writes to its folder. `Guardian.ObjectStore.Lock.acquire/4` makes one attempt, but
+  its put still waits for this local lock.
   """
 
   @behaviour Guardian.ObjectStore

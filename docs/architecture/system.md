@@ -397,7 +397,8 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
 6. Writes (`Guardian.Rules.Server`): take the lock, an object in the store at
    `_write.lock` (the object-store client's generic key lock, `Guardian.ObjectStore.Lock`:
    `If-None-Match: *` create, 120 s lease judged by the store's own clock, takeover of
-   an expired or released lock with `If-Match`, ownership-safe release), read the set
+   an expired or released lock with `If-Match`, ownership-safe release; one attempt,
+   so a held lock fails the write at once as `{:error, :busy}`), read the set
    from the store, refuse the change if it adds an error, check 80 s of lease remain,
    save the one file conditionally (20 s deadline), release, publish locally, and ask
    every connected node to reload (10 s). An unknown save outcome leaves the lock to
@@ -1174,7 +1175,9 @@ Anubis's formatted text, so recheck it on an Anubis upgrade.
 test fails if a registered function or aggregate is missing from that file.
 It registers them on the session's frame before every request (`init/2` runs only on
 `notifications/initialized`), strips the `$schema` key Anubis adds to tool schemas, and
-dispatches `send_events` itself so mixed batches reach Engine unchanged.
+dispatches `send_events` itself so mixed batches reach Engine unchanged. `write_rule`
+and `delete_rule` are the one place a busy rule write lock is retried: after 0.5, 1
+and 1.5 s, then the tool error says something else is editing the rules.
 
 A slow query holds up only later requests in its own session, for up to the 30-second
 query time limit (5.7) plus, for a `SELECT *`, the schema lookup that resolves the

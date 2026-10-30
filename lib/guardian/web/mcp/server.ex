@@ -34,6 +34,7 @@ defmodule Guardian.Web.MCP.Server do
 
   alias Anubis.Server.Response
 
+  @rule_busy_retry_delays_ms [500, 1_000, 1_500]
   @query_language_uri "guardian://query-language"
   @query_language_path Path.join(__DIR__, "query_language.md")
   @external_resource @query_language_path
@@ -200,7 +201,8 @@ defmodule Guardian.Web.MCP.Server do
   # Anubis kills a request's task when the client cancels it or deletes its session.
   # Ingestion runs detached so a batch is never half-stored and a keyed receipt is
   # completed by the process that claimed it; the client just stops waiting. (Rule
-  # writes need no such care: each runs entirely inside Guardian.Rules.Server.)
+  # writes need no such care: each attempt runs entirely inside Guardian.Rules.Server,
+  # and a call killed between busy retries has changed nothing.)
   @impl true
   def handle_tool_call("send_events", params, frame) do
     response =
@@ -225,11 +227,13 @@ defmodule Guardian.Web.MCP.Server do
   end
 
   def handle_tool_call("write_rule", %{table: table, name: name, source: source}, frame) do
-    reply(frame, rule_write_result(Guardian.Rules.write_rule(table, name, source)))
+    result = retry_while_busy(fn -> Guardian.Rules.write_rule(table, name, source) end)
+    reply(frame, rule_write_result(result))
   end
 
   def handle_tool_call("delete_rule", %{table: table, name: name}, frame) do
-    reply(frame, rule_write_result(Guardian.Rules.delete_rule(table, name)))
+    result = retry_while_busy(fn -> Guardian.Rules.delete_rule(table, name) end)
+    reply(frame, rule_write_result(result))
   end
 
   def handle_tool_call("query", %{sql: sql}, frame) do
@@ -267,6 +271,31 @@ defmodule Guardian.Web.MCP.Server do
 
   defp reply(frame, {:error, message}) do
     {:reply, Response.tool() |> Response.error(message), frame}
+  end
+
+  # Rules makes one attempt at its write lock. A busy write saved nothing, so trying the
+  # whole call again is safe; this edge does it a few times, waiting about 3 s in all,
+  # before telling the agent. Tests shorten the waits through app env.
+  defp retry_while_busy(write) do
+    delays =
+      Application.get_env(:guardian, :mcp_rule_busy_retry_delays_ms, @rule_busy_retry_delays_ms)
+
+    retry_while_busy(write, write.(), delays)
+  end
+
+  defp retry_while_busy(write, {:error, :busy}, [delay | delays]) do
+    Process.sleep(delay)
+    retry_while_busy(write, write.(), delays)
+  end
+
+  defp retry_while_busy(_write, result, _delays) do
+    result
+  end
+
+  defp rule_write_result({:error, :busy}) do
+    {:error,
+     "something else is editing the rules, so nothing was changed; try again in a few " <>
+       "seconds (a lock left by an interrupted write expires within 2 minutes)"}
   end
 
   defp rule_write_result({:ok, %{errors: errors, unconfirmed: unconfirmed}}) do
