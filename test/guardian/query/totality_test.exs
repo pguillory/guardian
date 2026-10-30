@@ -37,7 +37,7 @@ defmodule Guardian.Query.TotalityTest do
     "9223372036854775807s",
     "9223372036854775807w",
     "http://example.com:99999999999999999999/",
-    # A port too long to convert (Guardian.Query.URL); @huge_values has one URI.parse/1 can't.
+    # A port Guardian.Query.URL cuts out (over 20 digits); @huge_values has a far longer one.
     "http://example.com:999999999999999999999/",
     "a",
     <<0xFF, 0xFE>>,
@@ -49,7 +49,8 @@ defmodule Guardian.Query.TotalityTest do
 
   # Values too large for every pair: each runs alone, against every function.
   @huge_values [
-    # A port URI.parse/1 can't convert (over about 1.26 million digits).
+    # A port of over 1.26 million digits, which URI.parse/1 can't convert on Elixir
+    # releases without the CVE-2026-109821 fix.
     "http://example.com:" <> String.duplicate("9", 1_300_000) <> "/p#f",
   ]
 

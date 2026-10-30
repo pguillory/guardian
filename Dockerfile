@@ -11,7 +11,7 @@
 # --build-arg ERL_FLAGS="+JMsingle true" there, and pass -e ERL_FLAGS="+JMsingle true"
 # to docker run. Fly's builders are native amd64.
 
-ARG ELIXIR_VERSION=1.19.6
+ARG ELIXIR_VERSION=1.19.7
 ARG OTP_VERSION=28.5.0.8
 ARG DEBIAN_VERSION=trixie-20261027-slim
 

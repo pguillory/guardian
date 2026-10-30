@@ -14,8 +14,8 @@ defmodule Guardian.Query.URLTest do
   @prefixes ["", "http:", "HTTP:", "//", "http://"]
 
   # Pieces of a URL's authority and what follows it. Digit runs of 21 or more are long
-  # ports when they land in the port, and URI.parse/1 still converts them cheaply, so it
-  # can be the oracle.
+  # ports when they land in the port. URI.parse/1 parses these short values cheaply on
+  # every Elixir version, so it can be the oracle for every field but the port.
   @pieces [
     "h",
     ":",
@@ -64,16 +64,20 @@ defmodule Guardian.Query.URLTest do
     end
   end
 
-  test "a port of up to 20 digits is converted, leading zeros included" do
-    assert URL.parse("http://h:" <> @d20 <> "/").port == String.to_integer(@d20)
+  # URI.parse/1 converts 20 nines on Elixir releases without the CVE-2026-109821 fix
+  # and gives nil on fixed ones (1.19.7, for example). URL.parse/1 gives the same.
+  test "a port of up to 20 digits is URI.parse's, leading zeros included" do
+    value = "http://h:" <> @d20 <> "/"
+    assert URL.parse(value) == URI.parse(value)
     assert URL.parse("http://h:" <> String.duplicate("0", 18) <> "80/").port == 80
     assert URL.parse("http://h:" <> String.duplicate("0", 19) <> "80/").port == nil
     assert URL.parse("http://h:" <> @d21 <> "/").port == nil
   end
 
-  test "a port URI.parse can't convert gives the other fields and no port" do
+  # URI.parse/1 raises SystemLimitError on this port on Elixir releases without the
+  # CVE-2026-109821 fix.
+  test "a port of a million digits gives the other fields and no port" do
     value = "http://u@h:" <> String.duplicate("9", 1_300_000) <> "/p?q#f"
-    assert_raise SystemLimitError, fn -> URI.parse(value) end
 
     assert %URI{
              scheme: "http",
@@ -129,7 +133,8 @@ defmodule Guardian.Query.URLTest do
     expected = URI.parse(value)
 
     if long_port?(expected) do
-      assert is_integer(expected.port) and expected.port >= 10 ** 19, inspect(value)
+      # nil on fixed Elixir releases, the converted digits on others.
+      assert is_nil(expected.port) or expected.port >= 10 ** 19, inspect(value)
 
       assert Map.delete(URL.parse(value), :authority) ==
                Map.delete(%{expected | port: nil}, :authority),

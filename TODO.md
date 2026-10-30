@@ -419,6 +419,10 @@ privately, not in this repository.
       1-byte DATA frames amplify memory) (`docs/changes/bandit-1141.md`)
 - [x] cloudflared-2026-10-6: update cloudflared to 2026.10.6 for the go-jose fix
       VULN-184686 (`docs/changes/cloudflared-2026-10-6.md`)
+- [x] elixir-1-19-7: build the image with Elixir 1.19.7 for CVE-2026-109821
+      (`URI.parse` ports) and CVE-2026-115274 (JSON integers), neither exploitable
+      here; URL tests no longer assume the old port conversion
+      (`docs/changes/elixir-1-19-7.md`)
 - [x] mcp-serialized-tool-calls: upgrade Anubis to 2.2 so MCP sessions run
       independently, keeping the wire callers see
       (`docs/changes/mcp-serialized-tool-calls.md`)
@@ -442,6 +446,9 @@ privately, not in this repository.
       `host`, the machine's hostname (on Fly.io, its machine ID), which tells a
       cluster's machines apart when their hostnames differ; only the Erlang node
       name is absent
+- [ ] url-port-cut: reconsider `Guardian.Query.URL`'s 20-digit port cut once every
+      supported Elixir has the CVE-2026-109821 fix; dropping it loses the copy
+      guarantee and changes long zero-padded ports (`docs/changes/elixir-1-19-7.md`)
 
 ## Tests
 

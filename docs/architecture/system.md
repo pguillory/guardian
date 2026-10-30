@@ -1426,7 +1426,7 @@ need no configuration beyond the cookie.
 
 ### 10.1 Build
 
-The `Dockerfile` is a two-stage build. The builder (hexpm Elixir 1.19.6 on OTP 28.5.0.8,
+The `Dockerfile` is a two-stage build. The builder (hexpm Elixir 1.19.7 on OTP 28.5.0.8,
 Debian trixie) installs a C toolchain, fetches and
 compiles production dependencies (cached separately from source), writes the git
 commit into `priv/commit` for `Guardian.Build.commit/0`, and builds the release. The runner
@@ -1546,7 +1546,7 @@ and Fly's defaults. The operational decisions:
    only a C toolchain; don't add a dependency that needs a system library without
    weighing the install cost.
 
-The image uses Elixir 1.19.6 on OTP 28.5.0.8. See the
+The image uses Elixir 1.19.7 on OTP 28.5.0.8. See the
 [development guide](../guides/development.md) for the local Homebrew toolchain.
 
 ## 11. Testing

@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-- Elixir and Erlang/OTP: the image pins Elixir 1.19.6 and OTP 28.5.0.8 in the
+- Elixir and Erlang/OTP: the image pins Elixir 1.19.7 and OTP 28.5.0.8 in the
   [`Dockerfile`](../../Dockerfile). The local Homebrew setup uses Elixir 1.19.3
   with the same OTP 28.5.0.8.
 - a C toolchain

@@ -2,13 +2,17 @@ defmodule Guardian.Query.URL do
   @moduledoc """
   URL parsing for the `url_*` functions: `URI.parse/1`, made total.
 
-  `URI.parse/1` doesn't validate, but it turns the port's digits into an integer. Over
+  `URI.parse/1` doesn't validate. Elixir releases without the CVE-2026-109821 fix
+  (1.19.6 and 1.20.4, for example) turn all of the port's digits into an integer: over
   about 1.26 million digits that raises `system_limit`, and just under it the
-  conversion takes up to about three quarters of a second per value. `parse/1` never
-  converts a port of more than 20 digits (leading zeros count): it parses the value with
-  those digits cut out and gives `port: nil`, not the scheme's default. Every other
-  field is what `URI.parse/1` gives on the whole value, except `authority`, which
-  lacks the cut digits. In that case every string field, `authority` included, is a
+  conversion takes up to about three quarters of a second per value. Fixed releases
+  (1.18.6, 1.19.7 and 1.20.5) convert at most six significant digits and give a nil
+  port for longer or out-of-range ones. `parse/1` never hands `URI.parse/1` a port of
+  more than 20 digits (leading zeros count), so for such a port the result and the
+  copying below are the same on every version: it parses the value with those digits
+  cut out and gives `port: nil`, not the scheme's default. Every other field is what
+  `URI.parse/1` gives on the whole value, except `authority`, which lacks the cut
+  digits. In that case every string field, `authority` included, is a
   fresh copy, so a short result (a host, say) does not keep the up to 8 MB cut value
   alive.
 
@@ -17,8 +21,8 @@ defmodule Guardian.Query.URL do
   pattern does, and its authority split), so the digits cut are the ones it would
   convert. They are fixed internal patterns, not user patterns, so
   `Guardian.Query.Regex`'s policy (match limits, group cap) doesn't apply. As a
-  backstop, a `system_limit` from `URI.parse/1` gives an empty `%URI{}`; with the cap
-  it can't happen.
+  backstop, a `system_limit` from `URI.parse/1` (on unfixed releases) gives an empty
+  `%URI{}`; with the cap it can't happen.
   """
 
   @max_port_digits 20
