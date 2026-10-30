@@ -1668,10 +1668,14 @@ partition lookup; GROUP BY's executor and routing tests share
 `async: false` test, on this node or on named peers, and restores it when the test or a
 block ends; `Guardian.Test.Query.with_time_limit/2`,
 `Guardian.Test.Counters.Budget.relax/1` and `scale/1` delegate to it, for tests with no
-per-event path; `relaxed_options/0` and `scaled_options/0` give the same budgets to one
-event, with no node-wide setting. Every call is also capped by its batch's allowance
-(250 ms from `Client.new_batch/0`), so a test that checks results rather than budgets
-pairs `scaled_options/0` with `scaled_batch/1`.
+per-event path; `healthy/2` gives one event the same budgets with no node-wide setting.
+Every call is also capped by its batch's allowance (250 ms from `Client.new_batch/0`),
+so a test that checks results rather than budgets takes the options and a matching
+batch together from `healthy/2`; only tests of the 250 ms allowance keep production's
+batch.
+`Guardian.Test.Polling` is the one polling helper (`eventually/3`, `value/3`,
+`assert_eventually/3`), `Guardian.Test.Tables.unique_table/1` the one unique table name,
+and `Guardian.Test.Cluster.bare_peer/1` starts a Storage-less peer with its cleanup.
 `Guardian.Test.WorkBounds` measures caller reductions for synchronous CPU guards, with
 bounds calibrated against representative regressions rather than host-dependent
 elapsed time (see [unit-test work bounds](../changes/unit-test-work-bounds.md)).

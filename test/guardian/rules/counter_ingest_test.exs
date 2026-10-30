@@ -346,13 +346,7 @@ defmodule Guardian.Rules.CounterIngestTest do
         "TRACK hits = count() BY g LAST '1h'; LOOKUP prior = hits BY g; UNSET secret",
     })
 
-    distributed = Guardian.Test.Cluster.ensure_distributed()
-    {peer, peer_node} = Guardian.Test.Cluster.start_peer(nil)
-
-    on_exit(fn ->
-      if Process.alive?(peer), do: :peer.stop(peer)
-      if distributed, do: Node.stop()
-    end)
+    {peer, peer_node} = Guardian.Test.Cluster.bare_peer()
 
     assert {:ok, _} = :erpc.call(peer_node, Guardian.Test.Counters.Client, :start_store, [])
     Guardian.Test.Counters.Client.await_ready(peer_node)

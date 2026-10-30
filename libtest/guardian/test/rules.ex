@@ -78,7 +78,5 @@ defmodule Guardian.Test.Rules do
     end)
   end
 
-  def unique_table(prefix) do
-    "#{prefix}_#{System.unique_integer([:positive])}"
-  end
+  defdelegate unique_table(prefix), to: Guardian.Test.Tables
 end

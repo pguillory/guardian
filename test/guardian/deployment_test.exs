@@ -591,7 +591,11 @@ defmodule Guardian.DeploymentTest do
           )
         end)
 
-      eventually(fn -> File.exists?(pid_file) and File.read!(pid_file) =~ ~r/^\d+\n$/ end)
+      Guardian.Test.Polling.eventually(
+        fn -> File.exists?(pid_file) and File.read!(pid_file) =~ ~r/^\d+\n$/ end,
+        10_000
+      )
+
       pid = pid_file |> File.read!() |> String.trim()
 
       # If a test fails before the script ends, kill the fakes it started: only
@@ -613,15 +617,10 @@ defmodule Guardian.DeploymentTest do
     end
 
     defp wait_for_event(log, prefix) do
-      eventually(fn -> Enum.any?(events(log), &String.starts_with?(&1, prefix)) end)
-    end
-
-    defp eventually(check, tries \\ 200) do
-      cond do
-        check.() -> :ok
-        tries == 0 -> flunk("condition not reached")
-        true -> Process.sleep(50) && eventually(check, tries - 1)
-      end
+      Guardian.Test.Polling.eventually(
+        fn -> Enum.any?(events(log), &String.starts_with?(&1, prefix)) end,
+        10_000
+      )
     end
 
     defp signal(pid, name) do
@@ -740,7 +739,11 @@ defmodule Guardian.DeploymentTest do
           {"FAKE_CLOUDFLARED", "crash-once"},
         ])
 
-      eventually(fn -> Enum.count(events(log), &(&1 == @connector_start)) == 2 end)
+      Guardian.Test.Polling.eventually(
+        fn -> Enum.count(events(log), &(&1 == @connector_start)) == 2 end,
+        10_000
+      )
+
       signal(pid, "TERM")
 
       assert {"", 3} = Task.await(task, 20_000)

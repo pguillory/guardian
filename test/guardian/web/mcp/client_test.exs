@@ -8,22 +8,11 @@ defmodule Guardian.Web.MCP.ClientTest do
   @ingest_api_key Application.compile_env!(:guardian, :ingest_api_key)
 
   setup_all do
-    wait_for_server()
+    Guardian.Test.Polling.eventually(fn ->
+      is_pid(Process.whereis(Anubis.Server.Registry.supervisor_name(Guardian.Web.MCP.Server)))
+    end)
+
     :ok
-  end
-
-  defp wait_for_server(retries \\ 10) do
-    case Process.whereis(Anubis.Server.Registry.supervisor_name(Guardian.Web.MCP.Server)) do
-      pid when is_pid(pid) ->
-        :ok
-
-      nil when retries > 0 ->
-        Process.sleep(50)
-        wait_for_server(retries - 1)
-
-      nil ->
-        raise "MCP server not available after waiting"
-    end
   end
 
   describe "initialization" do

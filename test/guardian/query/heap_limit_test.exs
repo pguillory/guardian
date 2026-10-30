@@ -123,14 +123,7 @@ defmodule Guardian.Query.HeapLimitTest do
     @describetag :cluster
 
     setup do
-      started_distribution = Guardian.Test.Cluster.ensure_distributed()
-      {peer, peer_node} = Guardian.Test.Cluster.start_peer(nil)
-
-      on_exit(fn ->
-        :peer.stop(peer)
-        if started_distribution, do: Node.stop()
-      end)
-
+      {_peer, peer_node} = Guardian.Test.Cluster.bare_peer()
       %{peer_node: peer_node}
     end
 

@@ -23,20 +23,23 @@ defmodule Guardian.Rules.CounterRulesTest do
     Guardian.Test.Counters.private_store(:rules_counter_rules_test)
   end
 
-  # No test here depends on the production 50 ms call or 100 ms event budget: the
-  # allowance test depends on the 250 ms batch allowance. Larger budgets keep healthy
-  # calls, including a cold first call, from timing out under host load and setting a
-  # cooldown that fails later calls open.
-  defp event(store, batch \\ Guardian.Counters.Client.new_batch()) do
+  # No test here depends on the production 50 ms call or 100 ms event budget. Larger
+  # budgets keep healthy calls, including a cold first call, from timing out under host
+  # load and setting a cooldown that fails later calls open. A test of results gets a
+  # batch allowance to match (`healthy/1` returns both), since production's 250 ms would
+  # cap those calls anyway; only the allowance tests pass `Client.new_batch/0`.
+  defp event(store, {options, batch} \\ CounterBudgetHelper.healthy(:relaxed)) do
     Event.start(
       Arrival.now(),
       batch,
-      Guardian.Test.Counters.event_options(
-        store,
-        :rules_counter_rules_test,
-        CounterBudgetHelper.relaxed_options()
-      )
+      Guardian.Test.Counters.event_options(store, :rules_counter_rules_test, options)
     )
+  end
+
+  # Relaxed budgets over production's 250 ms batch allowance, for allowance tests.
+  defp allowance_event(store, batch) do
+    {options, _} = CounterBudgetHelper.healthy(:relaxed)
+    event(store, {options, batch})
   end
 
   # One LOOKUP straight through counter execution, unwrapped to its value.
@@ -89,17 +92,18 @@ defmodule Guardian.Rules.CounterRulesTest do
         "#{table}/copy.gsql" => "TRACK hits = count() BY group_key LAST '1h'",
       })[table]
 
-    batch = Guardian.Counters.Client.new_batch()
+    {_, batch} = healthy = CounterBudgetHelper.healthy(:relaxed, 5)
+    allowance = CounterBudgetHelper.remaining_us(batch)
 
     for n <- 1..50 do
-      row = run(plan, %{"ip" => "A", "secret" => "private"}, event(store, batch))
+      row = run(plan, %{"ip" => "A", "secret" => "private"}, event(store, healthy))
       assert row["hits"] == n
       assert row["before"] == n - 1
       assert row["blocked"] == n >= 50
       refute Map.has_key?(row, "secret")
     end
 
-    assert CounterBudgetHelper.remaining_us(batch) == 250_000
+    assert CounterBudgetHelper.remaining_us(batch) == allowance
   end
 
   test "cross-table lookups preserve exact ordered typed groups, including null", %{store: store} do
@@ -481,7 +485,7 @@ defmodule Guardian.Rules.CounterRulesTest do
     started = System.monotonic_time(:millisecond)
 
     for _ <- 1..25 do
-      row = run(plan, %{"secret" => "PRIVATE"}, event(store, batch))
+      row = run(plan, %{"secret" => "PRIVATE"}, allowance_event(store, batch))
       assert map_size(row) == 40
       assert Enum.all?(row, fn {_field, value} -> value == 0 end)
     end

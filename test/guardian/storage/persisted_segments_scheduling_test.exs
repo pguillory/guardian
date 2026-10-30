@@ -36,7 +36,12 @@ defmodule Guardian.Storage.PersistedSegmentsSchedulingTest do
   test "periodic persistence processes new work across successive ticks without casts" do
     for _ <- 1..2 do
       {id, segment, filename} = pending_segment()
-      await_persisted(id, System.monotonic_time(:millisecond) + 3000)
+
+      Guardian.Test.Polling.eventually(
+        fn -> match?({:ok, _}, PersistedSegments.get_segment(id)) end,
+        3_000
+      )
+
       # The destination becomes visible before Full is unregistered. Wait for
       # the periodic callback to finish before checking the completed handoff.
       :sys.get_state(PersistedSegments)
@@ -84,19 +89,5 @@ defmodule Guardian.Storage.PersistedSegmentsSchedulingTest do
     assert Segment.count(loaded) == {:ok, 1}
     assert Guardian.Test.Segments.segment_row(loaded, 0) == {:ok, %{"a" => 1}}
     :ok = Segment.retire(loaded)
-  end
-
-  defp await_persisted(id, deadline) do
-    case PersistedSegments.get_segment(id) do
-      {:ok, _segment} ->
-        :ok
-
-      {:error, :not_found} ->
-        assert System.monotonic_time(:millisecond) < deadline,
-               "periodic persistence did not process the pending segment"
-
-        Process.sleep(10)
-        await_persisted(id, deadline)
-    end
   end
 end

@@ -632,6 +632,10 @@ privately, not in this repository.
 - [x] test-env-helper: one generic test helper, `Guardian.Test.Env`, puts and restores
       `:guardian` application env on this node or on peers; four helpers that copied that
       code now delegate to it, and a fifth copy in the S3 tests was replaced by it
+- [x] test-helper-follow-ups: counter result tests get budgets with a matching batch
+      allowance (`Budget.healthy/2` replaces the event-level options), one polling
+      helper, one unique-table helper and one peer setup replace the local copies
+      (`docs/changes/test-helper-follow-ups.md`)
 - [x] vm-wide-leak-tests: tests no longer count resources across the whole VM; the
       cleanup promises they guarded are tested on the specific process or file, and
       `system_stats` records open descriptors, mappings, native columns and resident

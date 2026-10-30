@@ -3,9 +3,9 @@ defmodule Guardian.Test.Cluster do
   Starts extra Guardian nodes for multi-node tests.
 
   Each peer is a separate BEAM node on this host, connected to the test node with
-  normal distribution. A peer runs only Storage, in its own data directory, so it has
+  normal distribution. `single_peer/0`'s peer runs only Storage, in its own data directory, so it has
   its own tables and segments, and it appears in `Guardian.Cluster.connected_nodes/0` once its
-  Storage has started.
+  Storage has started. `bare_peer/1`'s peer runs nothing.
   Web, SystemStats, and Cluster are not started on peers.
 
   Tests that start peers must be `async: false`: while a peer is connected, every
@@ -29,7 +29,30 @@ defmodule Guardian.Test.Cluster do
     end)
 
     {peer, peer_node} = start_peer(data_root)
+    stop_on_exit(peer)
 
+    await_query_node(peer_node)
+    %{peer: peer, peer_node: peer_node}
+  end
+
+  @doc """
+  Starts a peer with Guardian's code but no Storage and returns `{peer, node}`, for
+  tests that bring their own services to it. Makes the test VM distributed if needed
+  and, on exit, stops the peer (also safe if the test stopped it) and distribution
+  again only if this call started it. `extra_args` are passed to `erl`. Call from
+  `setup`, `setup_all` or a test, as many times as it needs peers.
+  """
+  def bare_peer(extra_args \\ []) do
+    started_distribution = ensure_distributed()
+    # Registered first, so it runs last: after the peer has stopped.
+    if started_distribution, do: ExUnit.Callbacks.on_exit(&Node.stop/0)
+
+    {peer, peer_node} = start_peer(nil, extra_args)
+    stop_on_exit(peer)
+    {peer, peer_node}
+  end
+
+  defp stop_on_exit(peer) do
     ExUnit.Callbacks.on_exit(fn ->
       try do
         :peer.stop(peer)
@@ -37,9 +60,6 @@ defmodule Guardian.Test.Cluster do
         :exit, _ -> :ok
       end
     end)
-
-    await_query_node(peer_node)
-    %{peer: peer, peer_node: peer_node}
   end
 
   @doc """

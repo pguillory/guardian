@@ -38,7 +38,8 @@ defmodule Guardian.Counters.ClientTest do
   # batch of five calls, so a healthy call under host load is not cut off by
   # production's 250 ms batch allowance or by an event shared across calls.
   defp healthy_event(store) do
-    event(CounterBudgetHelper.scaled_batch(5), store, CounterBudgetHelper.scaled_options())
+    {options, batch} = CounterBudgetHelper.healthy()
+    event(batch, store, options)
   end
 
   defp route({identity, group, _bucket}) do
@@ -131,7 +132,7 @@ defmodule Guardian.Counters.ClientTest do
     assert Store.get(add_key, now(), server: store) == {:ok, 3}
 
     assert CounterBudgetHelper.remaining_us(context.batch) ==
-             CounterBudgetHelper.scaled_allowance_us(5)
+             CounterBudgetHelper.healthy_allowance_us(:scaled, 5)
 
     assert :ets.lookup(:counter_client_test, node()) == []
   end
@@ -165,7 +166,7 @@ defmodule Guardian.Counters.ClientTest do
     assert Store.get(key({}, 1), now(), server: store) == :not_found
 
     assert CounterBudgetHelper.remaining_us(context.batch) ==
-             CounterBudgetHelper.scaled_allowance_us(5)
+             CounterBudgetHelper.healthy_allowance_us(:scaled, 5)
 
     # With every write expired nothing dispatches, and the reservation is refunded.
     expired = [
@@ -178,7 +179,7 @@ defmodule Guardian.Counters.ClientTest do
     assert Store.get(key({}, 6), now(), server: store) == :not_found
 
     assert CounterBudgetHelper.remaining_us(context.batch) ==
-             CounterBudgetHelper.scaled_allowance_us(5)
+             CounterBudgetHelper.healthy_allowance_us(:scaled, 5)
 
     assert :ets.lookup(:counter_client_test, node()) == []
   end
@@ -246,7 +247,7 @@ defmodule Guardian.Counters.ClientTest do
                %{a: {:error, :invalid_response}}
 
       assert CounterBudgetHelper.remaining_us(context.batch) <
-               CounterBudgetHelper.scaled_allowance_us(5)
+               CounterBudgetHelper.healthy_allowance_us(:scaled, 5)
 
       assert :ets.lookup(:counter_client_test, node()) == []
     end

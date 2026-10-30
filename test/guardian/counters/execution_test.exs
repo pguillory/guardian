@@ -46,7 +46,7 @@ defmodule Guardian.Counters.ExecutionTest do
         Guardian.Test.Counters.event_options(
           store,
           :counters_execution_test,
-          Keyword.merge(CounterBudgetHelper.scaled_options(), opts)
+          Keyword.merge(elem(CounterBudgetHelper.healthy(), 0), opts)
         )
       )
 
@@ -54,7 +54,7 @@ defmodule Guardian.Counters.ExecutionTest do
   end
 
   defp healthy_batch do
-    CounterBudgetHelper.scaled_batch(5)
+    elem(CounterBudgetHelper.healthy(), 1)
   end
 
   defp context(store) do
@@ -163,7 +163,7 @@ defmodule Guardian.Counters.ExecutionTest do
     refute_receive {:round, _}
 
     assert CounterBudgetHelper.remaining_us(context.batch) ==
-             CounterBudgetHelper.scaled_allowance_us(5)
+             CounterBudgetHelper.healthy_allowance_us(:scaled, 5)
   end
 
   test "a raising callback raises" do
@@ -586,7 +586,8 @@ defmodule Guardian.Counters.ExecutionTest do
     for n <- 1..300,
         do: assert(track(definition, {}, [], event(store, batch)) == n)
 
-    assert CounterBudgetHelper.remaining_us(batch) == CounterBudgetHelper.scaled_allowance_us(5)
+    assert CounterBudgetHelper.remaining_us(batch) ==
+             CounterBudgetHelper.healthy_allowance_us(:scaled, 5)
   end
 
   test "concurrent native increments never omit the event's own mutation", %{store: store} do

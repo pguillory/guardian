@@ -2,6 +2,7 @@ defmodule Guardian.Cluster.MetadataTest do
   # Starts peer nodes. While a peer is connected every query in this VM fans out to
   # it, so this module must not run concurrently with other tests.
   use ExUnit.Case, async: false
+  import Guardian.Test.Tables, only: [unique_table: 1]
   @moduletag :cluster
   import Guardian.Test.Query, only: [run_sql: 1, with_time_limit: 2]
 
@@ -10,10 +11,6 @@ defmodule Guardian.Cluster.MetadataTest do
 
   setup_all do
     Guardian.Test.Cluster.single_peer()
-  end
-
-  defp unique_table do
-    "cluster_metadata_#{System.unique_integer([:positive])}"
   end
 
   defp ingest_on(node, table, events) do
@@ -25,7 +22,7 @@ defmodule Guardian.Cluster.MetadataTest do
   end
 
   test "schema metadata merges every node's per-type counts", %{peer_node: peer_node} do
-    table = unique_table()
+    table = unique_table("cluster_metadata")
     Guardian.Engine.ingest_events(table, [%{"a" => 1, "b" => "x"}])
     ingest_on(peer_node, table, [%{"a" => "one", "c" => true}, %{"a" => 2}])
 
@@ -54,7 +51,7 @@ defmodule Guardian.Cluster.MetadataTest do
   end
 
   test "a table that exists only on the peer is visible", %{peer_node: peer_node} do
-    table = unique_table()
+    table = unique_table("cluster_metadata")
     ingest_on(peer_node, table, [%{"only_remote" => 1}])
 
     assert Guardian.Storage.table_names() |> Enum.member?(table) == false
@@ -64,7 +61,7 @@ defmodule Guardian.Cluster.MetadataTest do
   end
 
   test "an evaluation error on the peer fails the query", %{peer_node: peer_node} do
-    table = unique_table()
+    table = unique_table("cluster_metadata")
     ingest_on(peer_node, table, [%{"v" => 1}, %{"v" => 2}])
     Guardian.Engine.ingest_events(table, [%{"v" => 3}])
 
@@ -77,7 +74,7 @@ defmodule Guardian.Cluster.MetadataTest do
 
   test "a hung in-memory segment fails SELECT * at its lookup, other SELECTs at the time limit",
        %{peer_node: peer_node} do
-    table = unique_table()
+    table = unique_table("cluster_metadata")
     ingest_on(peer_node, table, [%{"v" => 1}])
 
     [segment] =
@@ -118,7 +115,7 @@ defmodule Guardian.Cluster.MetadataTest do
       refute starting_node in Guardian.Cluster.connected_nodes()
       assert peer_node in Guardian.Cluster.connected_nodes()
 
-      table = unique_table()
+      table = unique_table("cluster_metadata")
       Guardian.Engine.ingest_events(table, [%{"v" => 1}])
       assert [table] in run_sql("SHOW TABLES")
       assert run_sql("DESC #{table}") == [["v"]]

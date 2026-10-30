@@ -5,8 +5,9 @@ defmodule Guardian.Counters.StoreTest do
   alias Guardian.Counters.Store
 
   # Operations take `now` as data, anchored on the live monotonic clock so the real
-  # housekeeping sweep agrees with the test about what has expired. Stores never sweep
-  # on their own unless a test asks for an interval.
+  # housekeeping sweep agrees with the test about what has expired. The shared setup's
+  # store sweeps only hourly, so nothing expires behind a test's back unless that test
+  # starts its own store with a shorter `sweep_interval_ms`.
   setup do
     server = start_store([])
     now = System.monotonic_time(:millisecond)
@@ -207,7 +208,10 @@ defmodule Guardian.Counters.StoreTest do
     assert {:ok, %{keys: 0}} = stats(opts)
     periodic = start_store(sweep_interval_ms: 10)
     incr(:quiet, 1, 10, past, server: periodic, timeout: 5000)
-    assert_eventually(fn -> assert {:ok, %{keys: 0}} = stats(server: periodic) end)
+
+    Guardian.Test.Polling.assert_eventually(fn ->
+      assert {:ok, %{keys: 0}} = stats(server: periodic)
+    end)
   end
 
   test "expiry precedes capacity reclamation and writes do not run eviction", %{now: now} do
@@ -310,7 +314,7 @@ defmodule Guardian.Counters.StoreTest do
     # The restarted store registers its name before init publishes it as ready, and a
     # call in between correctly answers :unavailable, so wait for the replacement's
     # answer, not its name.
-    assert_eventually(fn ->
+    Guardian.Test.Polling.assert_eventually(fn ->
       assert get(:key, now, server: :counter_generation_test) == :not_found
     end)
 
@@ -434,19 +438,5 @@ defmodule Guardian.Counters.StoreTest do
       assert incr(:key, 1, 100, now, server: server, timeout: 5_000) == {:error, :too_large}
       assert get(:key, now, server: server, timeout: 5_000) == :not_found
     end
-  end
-
-  defp assert_eventually(assertion, left \\ 100)
-
-  defp assert_eventually(assertion, 0) do
-    assertion.()
-  end
-
-  defp assert_eventually(assertion, left) do
-    assertion.()
-  rescue
-    ExUnit.AssertionError ->
-      Process.sleep(10)
-      assert_eventually(assertion, left - 1)
   end
 end

@@ -1,12 +1,9 @@
 defmodule Guardian.Test.SegmentsTest do
   use ExUnit.Case, async: true
+  import Guardian.Test.Tables, only: [unique_table: 1]
   import Guardian.Test.Segments, only: [intercept_append: 2]
   alias Guardian.Storage.MutableSegments
   alias Guardian.Storage.Segment
-
-  defp unique_table do
-    "test_segments_#{System.unique_integer([:positive])}"
-  end
 
   # Starts an append to `table` in a task; its callback reports and waits to be released.
   defp held_append(table) do
@@ -40,7 +37,7 @@ defmodule Guardian.Test.SegmentsTest do
   end
 
   test "the fake answers a schema read before the append and during a held callback" do
-    table = unique_table()
+    table = unique_table("test_segments")
     {fake, callback, task} = held_append(table)
 
     # Unregistered by now, but a read that listed it earlier still reaches it.
@@ -54,7 +51,7 @@ defmodule Guardian.Test.SegmentsTest do
   end
 
   test "a scripted refusal reaches the caller, and the row isn't retried" do
-    table = unique_table()
+    table = unique_table("test_segments")
     intercept_append(table, fn from, _row -> GenServer.reply(from, {:error, :invalid_value}) end)
 
     assert Guardian.Storage.append_flattened_result(table, %{"a" => 1}) ==
@@ -64,7 +61,7 @@ defmodule Guardian.Test.SegmentsTest do
   end
 
   test "killing the fake ends a held callback" do
-    {fake, callback, task} = held_append(unique_table())
+    {fake, callback, task} = held_append(unique_table("test_segments"))
     ref = Process.monitor(callback)
 
     Process.exit(fake, :kill)

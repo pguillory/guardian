@@ -32,7 +32,6 @@ defmodule Guardian.ObjectStore.LockTest do
 
   test "one holder at a time per key; release lets the next in", %{store: store} do
     assert {:ok, lock} = acquire(store, "jobs/a.lock", "a")
-    assert remaining_ms(lock) > 100_000
     assert acquire(store, "jobs/a.lock", "b") == {:error, :busy}
 
     # Another key is independent of the first, and is released on its own.

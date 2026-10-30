@@ -1,5 +1,6 @@
 defmodule Guardian.EngineTest do
   use ExUnit.Case, async: true
+  import Guardian.Test.Tables, only: [unique_table: 1]
   import Guardian.Engine
   import Guardian.Test.Segments, only: [intercept_append: 2]
 
@@ -144,7 +145,7 @@ defmodule Guardian.EngineTest do
   end
 
   test "batch outcomes preserve input order and continue after non-object events" do
-    table = unique_table()
+    table = unique_table("engine_outcomes")
     first = %{"value" => 1}
     last = %{"value" => 2}
 
@@ -166,7 +167,7 @@ defmodule Guardian.EngineTest do
   end
 
   test "an unexpected raise fails the whole batch; events before it stay stored" do
-    table = unique_table()
+    table = unique_table("engine_outcomes")
 
     assert_raise FunctionClauseError, fn ->
       ingest_events(table, [%{"value" => 1}, %{{:bad} => 2}, %{"value" => 3}])
@@ -176,7 +177,7 @@ defmodule Guardian.EngineTest do
   end
 
   test "an explicit segment refusal is reported as not stored and the batch continues" do
-    table = unique_table()
+    table = unique_table("engine_outcomes")
     intercept_append(table, fn from, _row -> GenServer.reply(from, {:error, :invalid_value}) end)
 
     assert ingest_events(table, [%{"value" => 1}, %{"value" => 2}]) == [
@@ -186,7 +187,7 @@ defmodule Guardian.EngineTest do
 
     assert Guardian.Storage.dump_table(table) == [%{"value" => 2}]
 
-    raising_table = unique_table()
+    raising_table = unique_table("engine_outcomes")
 
     intercept_append(raising_table, fn from, _row ->
       GenServer.reply(from, {:error, :invalid_value})
@@ -198,14 +199,10 @@ defmodule Guardian.EngineTest do
   end
 
   test "a segment that crashes on an append fails the batch" do
-    table = unique_table()
+    table = unique_table("engine_outcomes")
     intercept_append(table, fn _from, _row -> exit(:ingest_test_failure) end)
 
     assert {:ingest_test_failure, _} = catch_exit(ingest_events(table, [%{"value" => 1}]))
-  end
-
-  defp unique_table do
-    "engine_outcomes_#{System.unique_integer([:positive])}"
   end
 
   @valid_table_names [

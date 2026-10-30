@@ -190,19 +190,11 @@ defmodule Guardian.Web.IngestIdempotencyTest do
     Process.exit(owner, :kill)
     assert_receive {:DOWN, ^owner_ref, :process, ^owner, :killed}
     # This test's DOWN does not order the coordinator's DOWN; wait for its transition.
-    wait_until_uncertain(server)
+    Guardian.Test.Polling.eventually(fn -> map_size(:sys.get_state(server).monitors) == 0 end)
     after_death = now()
     assert run(server, "killed") == {:conflict, :uncertain}
     ingest = fn -> {:ingested, 0} end
     assert {:ran, :ingested} = run(server, "killed", ingest, after_death + 10_000)
-  end
-
-  defp wait_until_uncertain(server, attempts \\ 100) do
-    if map_size(:sys.get_state(server).monitors) > 0 do
-      assert attempts > 0
-      Process.sleep(1)
-      wait_until_uncertain(server, attempts - 1)
-    end
   end
 
   test "caught errors, exits and throws mark uncertainty even when caller survives", %{

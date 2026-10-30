@@ -30,22 +30,6 @@ defmodule Guardian.Query.PipelineFailuresTest do
     processes_running_all([Guardian.Query.Executor, Guardian.Storage.Segment])
   end
 
-  # Polls until `fun` returns a nonempty list, and returns it.
-  defp await_nonempty(fun, deadline \\ System.monotonic_time(:millisecond) + 5_000) do
-    case fun.() do
-      [] ->
-        if System.monotonic_time(:millisecond) > deadline do
-          flunk("condition not met")
-        else
-          Process.sleep(10)
-          await_nonempty(fun, deadline)
-        end
-
-      result ->
-        result
-    end
-  end
-
   test "a killed worker fails the query instead of dropping its rows" do
     table = table()
     fill(table)
@@ -53,7 +37,7 @@ defmodule Guardian.Query.PipelineFailuresTest do
     :sys.suspend(segment)
 
     task = Task.async(fn -> catch_error(run_sql("SELECT count() FROM #{table}")) end)
-    [worker | _] = await_nonempty(&blocked_readers/0)
+    [worker | _] = Guardian.Test.Polling.value(&blocked_readers/0)
     Process.exit(worker, :kill)
     :sys.resume(segment)
 

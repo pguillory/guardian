@@ -174,7 +174,11 @@ node, node-wide counter budgets, the shared rule store, log capture that must se
 only its own events, or the system tables. Say which in a one-line comment above `use ExUnit.Case`.
 
 Put new shared test infrastructure under `Guardian.Test.*` in
-`libtest/guardian/test/`, split by concern; see the
+`libtest/guardian/test/`, split by concern. Reuse what is there instead of writing a
+local copy: `Guardian.Test.Polling` for any wait (no sleep loops),
+`Guardian.Test.Tables.unique_table/1` for table names, `Guardian.Test.Cluster` for
+peers, and `Guardian.Test.Counters.Budget.healthy/2` for counter tests of results
+(options and a batch that match, since a default batch caps every call at 250 ms); see the
 [test support namespace](docs/changes/test-support-namespace.md) for existing helpers
 and their concurrency requirements.
 

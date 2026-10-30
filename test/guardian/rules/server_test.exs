@@ -519,7 +519,7 @@ defmodule Guardian.Rules.ServerTest do
     table = unique_table("rules_poll")
     Guardian.Test.FakeS3.put_object(s3, "#{table}/a.gsql", "SET x = 1")
 
-    wait_until(fn ->
+    Guardian.Test.Polling.eventually(fn ->
       is_atom(Guardian.Rules.lookup(table)) and Guardian.Rules.lookup(table) != nil
     end)
   end
@@ -535,19 +535,5 @@ defmodule Guardian.Rules.ServerTest do
              Guardian.Test.FakeS3.requests(s3),
              &(&1.method == "GET" and &1.path =~ table)
            )
-  end
-
-  defp wait_until(fun, tries \\ 100) do
-    cond do
-      fun.() ->
-        :ok
-
-      tries == 0 ->
-        flunk("condition never held")
-
-      true ->
-        Process.sleep(50)
-        wait_until(fun, tries - 1)
-    end
   end
 end
