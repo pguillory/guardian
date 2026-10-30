@@ -31,12 +31,22 @@ defmodule Guardian.Rules.Config do
     GUARDIAN_RULES_S3_SECRET_ACCESS_KEY
   ]
 
+  @optional_s3_vars ~w[GUARDIAN_RULES_S3_REGION GUARDIAN_RULES_S3_PREFIX]
+
+  @env_vars ["GUARDIAN_RULES_DIR" | @optional_s3_vars] ++ @s3_vars
+
   @doc "The configured store: `{:ok, store}` or `{:error, message}`."
-  def store(env \\ System.get_env()) do
+  def store do
     case Application.get_env(:guardian, :rules_store) do
-      nil -> from_env(env)
+      nil -> from_env(rules_env())
       store -> {:ok, store}
     end
+  end
+
+  # Only the named rule settings, never the whole process environment: no other
+  # variable (API keys, the cookie) may become an argument that a crash report shows.
+  defp rules_env do
+    Map.new(@env_vars, &{&1, System.get_env(&1)})
   end
 
   @doc false
@@ -45,7 +55,7 @@ defmodule Guardian.Rules.Config do
     dir = blank_to_nil(env["GUARDIAN_RULES_DIR"])
 
     optional =
-      Enum.filter(~w[GUARDIAN_RULES_S3_REGION GUARDIAN_RULES_S3_PREFIX], &blank_to_nil(env[&1]))
+      Enum.filter(@optional_s3_vars, &blank_to_nil(env[&1]))
 
     cond do
       Enum.all?(Map.values(s3), &is_nil/1) and optional != [] ->
