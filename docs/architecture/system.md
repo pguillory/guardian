@@ -534,10 +534,11 @@ writes; a completed write can subsequently be evicted without changing its reply
 The budget excludes temporary copies, mailboxes and the rest of the VM. See
 [counter-store.md](../changes/counter-store.md) for design and validation.
 
-`Guardian.Counters.Client` is the facade used by the counter round loop
-(`Guardian.Counters.Execution`), which routes each operation (`route/2`) and groups
-a round by owner, sorting owners (the one place that orders them). It delegates
-to internal `Guardian.Counters.Transport`, which owns routing, owner pipelines and bounded guard/worker dispatch (`dispatch/2`). Internal
+`Guardian.Counters.Client` is what the counter round loop
+(`Guardian.Counters.Execution`) calls with a round's operations (`batch/2`). It routes
+each operation and groups the round by owner, sorting owners (the one place that orders
+them), and puts the responses back in order. It relies on
+internal `Guardian.Counters.Transport`, which owns routing, owner pipelines and bounded guard/worker dispatch (`dispatch/2`). Internal
 `Guardian.Counters.Budget`, independently supervised after Store inside the counter
 subtree, enforces event deadlines and owns failed-wait reservations and cooldown ETS
 lifecycle; its admission and settlement use atomics/ETS directly, never its mailbox. Client takes
@@ -556,12 +557,11 @@ where member_name is the node's string name and breaks hash ties
 any term and distinguishes integers from floats. Signed zeros share an owner but
 remain distinct stored counters through Store's ETF keys. All buckets share one owner.
 Each dependency level expands its counter statements into bucket key machines;
-`Guardian.Counters.Execution.run_counters/4` flattens them, runs them together in
-batched rounds (`run_state_machines/3`) and restores the per-counter lists
-(`Guardian.Lists`). Each round routes pending operations to owners
-(`Counters.Client.route/2`), groups them by owner and sends the round's owner
-batches through one `Counters.Client.dispatch/2` call, then feeds responses back in
-order. `Guardian.Counters.KeyMachines` supplies read, native incr,
+`Guardian.Counters.Execution.run_counters/3` flattens them, runs them together in
+batched rounds (`run_state_machines/2`) and restores the per-counter lists
+(`Guardian.Lists`). Each round sends its pending operations through
+one `Counters.Client.batch/2` call, which runs them on their owners, then feeds
+responses back in order. `Guardian.Counters.KeyMachines` supplies read, native incr,
 and gets/merge/CAS callbacks. Buckets combine oldest to newest, resolving once;
 any failed bucket defaults its whole statement. LOOKUP ancestors and LOOKUP levels
 drain before any TRACK level. Scalar work finishes before a level dispatches, and

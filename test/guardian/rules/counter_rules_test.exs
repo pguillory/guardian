@@ -2,14 +2,14 @@ defmodule Guardian.Rules.CounterRulesTest do
   @moduledoc """
   TRACK and LOOKUP through Rules: rule plans run by `Guardian.Rules.Runtime` and
   compiled modules, Runner and Engine. Counter execution's own behavior (buckets,
-  expiries, CAS, budgets) is tested in `Guardian.Counters.ExecutionTest` and
-  `Guardian.Counters.ExecutionStoreTest`.
+  expiries, CAS, budgets) is tested in `Guardian.Counters.ExecutionTest`.
   """
   use ExUnit.Case, async: false
   import Guardian.Test.Rules
   alias Guardian.Aggregation
   alias Guardian.Counters.Arrival
   alias Guardian.Counters.Execution
+  alias Guardian.Counters.LookupOperation
   alias Guardian.Counters.Store
   alias Guardian.Rules.DependencyGraph
   alias Guardian.Rules.Event
@@ -36,7 +36,11 @@ defmodule Guardian.Rules.CounterRulesTest do
   # One LOOKUP straight through counter execution, unwrapped to its value.
   defp lookup(definition, group, event) do
     [{:ok, value}] =
-      Execution.run_counters([{:lookup, definition, group}], event.arrival, event.counters)
+      Execution.run_counters(
+        [%LookupOperation{definition: definition, group: group}],
+        event.arrival,
+        event.counters
+      )
 
     value
   end

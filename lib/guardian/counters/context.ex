@@ -5,8 +5,10 @@ defmodule Guardian.Counters.Context do
   defstruct [:batch, :deadline, :timeout_us, :cooldown_table, :members, :store]
 
   # Internal test seam, not an operator setting: `config :guardian, __MODULE__,
-  # event_ms: _, operation_ms: _` replaces both the default and the cap. Only tests
-  # set it, through Guardian.Test.Counters.Budget; production uses these defaults.
+  # event_ms: _, operation_ms: _` replaces the default and the remote endpoint's bound.
+  # Only tests set it, through Guardian.Test.Counters.Budget; production uses these
+  # defaults. `new/2`'s budget options replace the default for one event; only tests
+  # pass them.
   @event_ms 100
   @operation_ms 50
 
@@ -31,11 +33,8 @@ defmodule Guardian.Counters.Context do
   @spec new(batch(), [option()]) :: t()
   def new(batch, opts \\ []) do
     # Start the event deadline before snapshotting membership.
-    event_ms = event_ms()
-
-    deadline = Clock.deadline(min(event_ms, Keyword.get(opts, :event_timeout_ms, event_ms)))
-    operation_ms = operation_ms()
-    timeout_us = Clock.from_ms(min(operation_ms, Keyword.get(opts, :timeout_ms, operation_ms)))
+    deadline = Clock.deadline(Keyword.get_lazy(opts, :event_timeout_ms, &event_ms/0))
+    timeout_us = Clock.from_ms(Keyword.get_lazy(opts, :timeout_ms, &operation_ms/0))
     cooldown_table = Keyword.get(opts, :cooldown_table, Guardian.Counters.Budget)
     members = Keyword.get_lazy(opts, :members, fn -> [node() | Node.list()] end)
 

@@ -20,7 +20,8 @@ Nothing reads top-down as one algorithm.
 `Guardian.Rules.CounterRuntime` becomes the one module that reads top-down:
 
 1. `run_counters(ops, event, dispatch \\ &Client.dispatch/2)`: map each op (`{:track, definition, group, values}`
-   or `{:lookup, definition, group}`) to its list of key machines; flatten;
+   or `{:lookup, definition, group}`; since named, see
+   `docs/changes/counter-operation-structs.md`) to its list of key machines; flatten;
    `run_state_machines`; unflatten against the per-op lists; combine each op with
    its finished machines into a counter result. A bucket error (timeout,
    unavailable, cooldown, budget exhausted, expired, invalid request, CAS
@@ -105,7 +106,9 @@ fairness are unchanged.
 The round loop takes an optional dispatch function (default `Client.dispatch/2`)
 so tests can script per-owner responses; routing and grouping still run in tests.
 Client tests reach dispatch through a small test helper that routes, groups and
-scatters with the same `Lists` functions.
+scatters with the same `Lists` functions. (Superseded: routing, grouping and the
+dispatch parameter left the round loop for a new `Client.batch/2`; see
+`docs/changes/counter-client-fanout.md`.)
 
 ## Termination
 
