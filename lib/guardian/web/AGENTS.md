@@ -19,8 +19,9 @@ its query string. `check_conn/2` returns
 `{:ok, key}` (`key` `:ingest` or `:admin`), `{:error, :missing}`,
 `{:error, :unauthorized}`, or `{:error, :forbidden}` (the ingest key where `:full` is
 needed); each router keeps its own error bodies, 403 `this key can only send events`
-for `:forbidden` (`test/guardian/web/auth_routes_test.exs` pins both). No identity is
-attached to a request.
+for `:forbidden` (`test/guardian/web/auth_routes_test.exs` pins both). Once the key
+passes, each router drops every `x-api-key` header with
+`Guardian.Web.Auth.drop_api_key/1`. No identity is attached to a request.
 
 The JSON API asks for `:ingest` only for `POST /send_events`, in `required_access/1`;
 every other path and method needs `:full`, so the ingest key gets 403 there before

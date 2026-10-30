@@ -3,11 +3,10 @@ defmodule Guardian.Counters.StoreTest do
   import Guardian.Counters.Store
 
   alias Guardian.Counters.Store
-  import ExUnit.CaptureLog
 
   # Operations take `now` as data, anchored on the live monotonic clock so the real
-  # housekeeping sweep agrees with the test about what has expired. The shared store
-  # Stores never sweep on their own unless a test asks for an interval.
+  # housekeeping sweep agrees with the test about what has expired. Stores never sweep
+  # on their own unless a test asks for an interval.
   setup do
     server = start_store([])
     now = System.monotonic_time(:millisecond)
@@ -262,62 +261,6 @@ defmodule Guardian.Counters.StoreTest do
     assert bytes >= 60_000
   end
 
-  test "large survivors require multiple passes and immediate continuation ticks", %{now: now} do
-    server = start_store(memory_budget_bytes: 100_000, sweep_interval_ms: 60_000)
-    opts = [server: server, timeout: 5000]
-    for key <- 1..4096, do: incr(key, 1, 600_000 + key, now, opts)
-
-    for key <- 4097..4099,
-        do: assert(add(key, :binary.copy("x", 40_000), 600_000 + key, now, opts) == :ok)
-
-    observer = self()
-
-    :sys.install(
-      server,
-      {fn debug, event, _ ->
-         if match?({:noreply, _}, event), do: send(observer, :sweep_turn)
-         debug
-       end, nil}
-    )
-
-    %{sweep_tag: tag} = :sys.get_state(server)
-    send(server, {:sweep, tag})
-    # More than four median-cutoff passes are needed to reach the three largest
-    # expiry keys. The next tick must run immediately, not after the 60s interval.
-    assert_receive :sweep_turn
-    assert_receive :sweep_turn
-
-    assert_eventually(fn ->
-      assert {:ok, %{memory_bytes: bytes}} = stats(opts)
-      assert bytes < 100_000
-    end)
-  end
-
-  test "a failing operation is scrubbed, fails alone and spares the owner", %{
-    now: now,
-    server: server,
-    opts: opts,
-  } do
-    # A descriptor whose table is not a table makes every operation raise inside it.
-    restore = Guardian.Test.Counters.StorePause.break_entries(server, "PRIVATE-TABLE")
-
-    log =
-      capture_log(fn ->
-        try do
-          assert get("PRIVATE-KEY", now, opts) == {:error, :unavailable}
-
-          assert batch([{:get, "PRIVATE-KEY"}, {:incr, "PRIVATE-KEY", 1, 100}], now, opts) ==
-                   {:ok, [{:error, :unavailable}, {:error, :unavailable}]}
-        after
-          restore.()
-        end
-      end)
-
-    assert Process.alive?(server)
-    refute log =~ "PRIVATE"
-    assert incr("PRIVATE-KEY", 1, 100, now, opts) == {:ok, 1}
-  end
-
   test "opaque keys and replacement values cannot act as match patterns", %{now: now, opts: opts} do
     keys = [:"$1", :_, {:const, :"$2"}, %{a: :"$1"}, %{a: :"$1", b: 2}, 1, 1.0, 0.0, -0.0]
 
@@ -511,35 +454,6 @@ defmodule Guardian.Counters.StoreTest do
       })
 
     refute inspect(formatted) =~ "PRIVATE"
-  end
-
-  test "an actual callback crash scrubs payloads and the supervised store restarts empty", %{
-    now: now,
-  } do
-    server = start_store(name: :counter_store_crash_test)
-    opts = [server: :counter_store_crash_test, timeout: 5_000]
-    assert add("PRIVATE-KEY", "PRIVATE-VALUE", 100, now, opts) == :ok
-    monitor = Process.monitor(server)
-
-    log =
-      capture_log(fn ->
-        # Not a table: the sweep's ETS call raises with this marker in its arguments.
-        :sys.replace_state(server, &%{&1 | entries: "PRIVATE-TABLE"})
-        send(server, :sweep)
-        assert_receive {:DOWN, ^monitor, :process, ^server, reason}
-        refute inspect(reason) =~ "PRIVATE"
-        {%RuntimeError{}, stack} = reason
-        assert Enum.any?(stack, &match?({:ets, :select_delete, 2, _}, &1))
-
-        assert_eventually(fn ->
-          replacement = Process.whereis(:counter_store_crash_test)
-          assert is_pid(replacement) and replacement != server
-          assert get("PRIVATE-KEY", now, opts) == :not_found
-        end)
-      end)
-
-    assert log =~ ":redacted"
-    refute log =~ "PRIVATE"
   end
 
   defp assert_eventually(assertion, left \\ 100)

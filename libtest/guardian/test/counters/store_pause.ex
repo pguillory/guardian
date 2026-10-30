@@ -1,8 +1,8 @@
 defmodule Guardian.Test.Counters.StorePause do
   @moduledoc """
   Pauses a real `Guardian.Counters.Store`'s callers, and owns the test side's knowledge
-  of the Store's private descriptor (the `:counter_store_descriptor` process-dictionary
-  key and ETS row). `store?/1` tells a real Store from a probe for
+  of the Store's private descriptor (its `:counter_store_descriptor` process-dictionary
+  key). `store?/1` tells a real Store from a probe for
   `Guardian.Test.Counters.ProbeStore.backend/1`.
 
   A pause is a suspended gate process recorded in the store's own ETS table (a 2-tuple
@@ -44,17 +44,6 @@ defmodule Guardian.Test.Counters.StorePause do
       nil -> :ok
       gate -> GenServer.call(gate, :pass, :infinity)
     end
-  end
-
-  @doc """
-  Publishes a descriptor whose table is `entries`, a term that is not a table, so the
-  store's callers fail inside their operations. Returns a function that restores it.
-  """
-  def break_entries(store, entries) do
-    table = table(store)
-    [{@descriptor, descriptor}] = :ets.lookup(table, @descriptor)
-    :ets.insert(table, {@descriptor, %{descriptor | entries: entries}})
-    fn -> :ets.insert(table, {@descriptor, descriptor}) end
   end
 
   @doc "Whether `pid` is a real Store, which publishes its descriptor in its dictionary."

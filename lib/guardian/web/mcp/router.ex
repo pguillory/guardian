@@ -44,7 +44,7 @@ defmodule Guardian.Web.MCP.Router do
   defp auth(conn, _opts) do
     case Guardian.Web.Auth.check_conn(conn, :full) do
       {:ok, _key} ->
-        drop_api_key(conn)
+        Guardian.Web.Auth.drop_api_key(conn)
 
       {:error, :unauthorized} ->
         send_json_error(conn, 401, %{error: "unauthorized"})
@@ -55,11 +55,6 @@ defmodule Guardian.Web.MCP.Router do
       {:error, :forbidden} ->
         send_json_error(conn, 403, %{error: "this key can only send events"})
     end
-  end
-
-  # Every copy: Auth reads the first header, and delete_req_header removes only that.
-  defp drop_api_key(conn) do
-    %{conn | req_headers: Enum.reject(conn.req_headers, fn {name, _} -> name == "x-api-key" end)}
   end
 
   # The Streamable HTTP spec requires 404 for an unknown session, so the client starts
