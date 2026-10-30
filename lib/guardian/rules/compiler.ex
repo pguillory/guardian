@@ -1,20 +1,18 @@
 defmodule Guardian.Rules.Compiler do
   @moduledoc """
-  Compiles one table's resolved `Guardian.Rules.Plan` into a generated module with `apply/2`,
-  which runs the table's dependency levels on a flattened row and returns the new
-  row. `plan/0` recovers the exact immutable plan for activation selection,
-  including after a Server restart. Metadata lives and is reclaimed with its
-  bounded pool module.
-  Unresolved candidates return `:unresolved_plan`; a LOOKUP without a bound target
-  returns `:unbound_lookup`. `apply/1` creates a fresh event and batch context.
+  Compiles one table's resolved `Guardian.Rules.Plan` into a generated module with
+  `apply/2`, which runs the table's dependency levels on a flattened row and returns
+  the new row, plus `table/0` and `hash/0` (Publisher reuses a module whose hash is
+  unchanged). Unresolved candidates return `:unresolved_plan`; a LOOKUP without a
+  bound target returns `:unbound_lookup`. `apply/1` creates a fresh event and batch
+  context.
 
   The module body comes only from the fixed template below: the plan's dependency
-  levels, derived from its flat steps once at compile time, are escaped once as literal
-  data for `Guardian.Rules.Runtime.run/3`. Flat metadata order is recovered from
-  compile-time positions only when `plan/0` is called, never during ingestion. No rule
-  text becomes code. Expressions are evaluated by the query engine's scalar evaluator;
-  generating native code per expression is a later optimization. AST literals hold
-  regular expressions as pattern strings, never compiled `:re` references.
+  levels, derived from its flat steps once at compile time, are escaped once as
+  literal data for `Guardian.Rules.Runtime.run/3`. No rule text becomes code.
+  Expressions are evaluated by the query engine's scalar evaluator; generating native
+  code per expression is a later optimization. AST literals hold regular expressions
+  as pattern strings, never compiled `:re` references.
 
   Module names come from a fixed pool (`name/1`), so atoms stay bounded however often
   rules change; `Guardian.Rules.Publisher` owns the pool and never loads a name twice while
@@ -51,13 +49,7 @@ defmodule Guardian.Rules.Compiler do
   end
 
   defp compile_resolved(module, plan) do
-    # The levels hold these exact steps, but their flattened order can differ from the
-    # flat metadata order. Equal step terms can share a position without changing the
-    # recovered plan.
     levels = Guardian.Rules.DependencyGraph.levels(plan.steps)
-    positions = levels |> List.flatten() |> Enum.with_index() |> Map.new()
-    step_order = Enum.map(plan.steps, &Map.fetch!(positions, &1))
-    metadata = %{plan | steps: []}
 
     body =
       quote do
@@ -68,15 +60,6 @@ defmodule Guardian.Rules.Compiler do
 
         def hash do
           unquote(plan.hash)
-        end
-
-        def plan do
-          steps = levels() |> List.flatten() |> List.to_tuple()
-
-          %{
-            unquote(Macro.escape(metadata))
-            | steps: Enum.map(unquote(step_order), &elem(steps, &1)),
-          }
         end
 
         # Qualify the local call: unqualified apply/2 resolves to Kernel.apply/2.

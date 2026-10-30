@@ -456,13 +456,10 @@ UNSET password
    unaffected.
 6. A table whose stored rules are invalid (edited in the store by hand, or using a
    function a newer build lacks) fails its events with `rules for <table> are invalid`
-   until fixed; other tables run normally. A running machine instead keeps that
-   table's last good rules together with all tables connected through old or new
-   LOOKUP dependencies. Deletions in that component wait too; new tables joining
-   it fail their events until the component validates. Unrelated components still
-   activate. At clean boot invalidity propagates only toward dependents. A restart
-   of the rules process retains the published plans and their identities even while
-   the rule store is unreachable. A whole node restart has no previous plans.
+   until fixed, at startup and after any reload alike; there are no last good rules.
+   A table whose LOOKUP reads a counter of an invalid table is invalid too. Other
+   tables, queries and the rule tools work normally. A restart of the rules process
+   keeps the published rules even while the rule store is unreachable.
 
 #### 5.1.4 Counters
 
@@ -549,10 +546,12 @@ UNSET password
 
 #### 5.1.6 Startup
 
-Guardian loads every rule before it loads stored events. A store it cannot
-reach, or one that rate-limits it (HTTP 429), is retried for a minute, then startup is
-refused; misconfigured store settings refuse startup at once. A rule write the store
-rate-limits fails and saves nothing.
+Guardian loads every rule before it loads stored events. A store it cannot get an
+answer from (a mistyped host or a certificate failure included), or one that
+rate-limits it (HTTP 429) or fails with a server error (5xx), is retried until it
+answers, at most 10 seconds apart; Guardian is not up in the meantime. Invalid store
+settings, or a store that answers that they are wrong (HTTP 400, 401, 403 or 404),
+refuse startup at once. A rule write the store rate-limits fails and saves nothing.
 
 ## 6. Data model
 
@@ -901,7 +900,7 @@ Product-level behavior:
    An owner that is slow or unavailable supplies defaults, preserving ingestion.
    Rules-process restarts retain published identities; Store/node restarts lose
    counts. Run one build across the cluster: older nodes that cannot load counter
-   rules can retain earlier rules or reject affected tables at boot.
+   rules fail those tables' events, or, on older builds, keep running earlier rules.
 
 ## 11. Non-features
 

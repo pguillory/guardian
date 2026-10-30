@@ -116,10 +116,10 @@ edits or renames start fresh; moves/comments/whitespace do not. Queries read sto
 historical outputs, never live state. Changing BY arity or deleting/renaming a
 referenced TRACK is refused: add a new named TRACK, retarget LOOKUPs, then delete
 the old one. Whole-set writes reject newly introduced errors, permitting repair
-of already broken sets. Invalid reloads retain the entire connected old/new LOOKUP
-component, including deletions; new joins wait. Unrelated components activate.
-At clean boot invalidity propagates toward dependents. Published bindings survive
-a rules-process restart, including a rule-store outage.
+of already broken sets. A table whose stored rules are invalid fails its events
+until fixed, at startup and on reload alike, and so does a table whose LOOKUP reads
+its counters; other tables run. Published bindings survive a rules-process restart,
+including a rule-store outage.
 
 Counters are advisory and ephemeral, with one owner per definition/group. Restarts,
 eviction, partitions and cluster membership changes can lose/split counts. Every

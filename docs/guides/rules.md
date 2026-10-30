@@ -4,9 +4,11 @@ Rules are files named `<table>/<name>.gsql` (the language is in the
 [product spec](../product/spec.md#51-rules)). Guardian reads them from one store: a
 local folder, or an S3-compatible bucket such as Cloudflare R2. It loads every rule at
 startup, after each write through the MCP rule tools, and once a minute, and never
-reads the store while ingesting. If the store is misconfigured, or unreachable or
-rate-limiting at startup (after about a minute of retries), Guardian refuses to start
-rather than run without its rules.
+reads the store while ingesting. If the store settings are invalid, or the store
+answers that they are wrong, Guardian refuses to start; if it cannot get an answer at
+startup (a mistyped host or a certificate failure included), is rate-limited or gets a
+server error, it keeps retrying and does not come up until the store answers, rather
+than run without its rules.
 
 ## Counters with TRACK and LOOKUP
 
@@ -75,8 +77,8 @@ secrets in those expressions.
 Before editing a live counter, check the
 [counter identity contract](../product/spec.md#514-counters) (item 4) and
 [reload contract](../product/spec.md#513-running) (item 6): they define which edits
-reset counts or preserve them, and how invalid dependency components retain their
-previous good plans.
+reset counts or preserve them, and how a table with invalid stored rules, and any
+table whose LOOKUP reads it, fails its events until fixed.
 
 Writes validate the entire rule set. To change grouping arity or rename/delete a
 referenced TRACK, add a new named TRACK, retarget its LOOKUPs (with matching BY),
@@ -95,9 +97,8 @@ item 5).
 
 With no rule settings, rules live in `<GUARDIAN_DATA_DIR>/rules`; `GUARDIAN_RULES_DIR`
 moves them. Files edited there by hand are picked up within a minute and checked like
-any write. If a table's rules fail the check, a running node keeps that table's last
-good rules and logs the errors; a node starting up rejects that table's events until
-the rules are fixed. Any `.gsql` file in a table's folder counts, so a stray or
+any write. If a table's rules fail the check, every node rejects that table's events
+until the rules are fixed. Any `.gsql` file in a table's folder counts, so a stray or
 misnamed one (`logins/README.gsql`) fails that table. A `.gsql` file anywhere else is
 reported as an error too: `logins/old/rate.gsql` fails `logins`, while `rate.gsql` at
 the top names no table, so it fails none. Other files are ignored, as are names

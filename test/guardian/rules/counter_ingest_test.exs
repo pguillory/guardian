@@ -42,8 +42,18 @@ defmodule Guardian.Rules.CounterIngestTest do
     Guardian.Engine.ingest_events(table, events)
   end
 
+  # The table's stored TRACK, as whole-set preparation builds it.
   defp track(table) do
-    Enum.find(Guardian.Rules.lookup(table).plan().steps, &(&1.kind == :track))
+    {:ok, files} = Guardian.Rules.list_rules(table)
+
+    sources =
+      Map.new(files, fn %{name: name} ->
+        {:ok, source} = Guardian.Rules.read_rule(table, name)
+        {Guardian.Rules.RuleSet.key(table, name), source}
+      end)
+
+    {:ok, plan} = Guardian.Rules.RuleSet.prepare(sources).candidates[table]
+    Enum.find(plan.steps, &(&1.kind == :track))
   end
 
   defp await_cooldown(owner) do

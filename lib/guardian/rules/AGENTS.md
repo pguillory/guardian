@@ -13,8 +13,9 @@ Modules:
   message}` for a table whose stored rules fail validation.
 - `Guardian.Rules.RuleSet`: parses (`Guardian.AST.Parser.parse_rules/1`) and validates a whole set,
   every table together, into one `Guardian.Rules.Plan` per table. Pure: no reads, no state.
-  `prepare/1` checks counter semantics and returns unbound candidates plus resolved
-  plans; public validation and Server writes/loads use the same preparation.
+  `prepare/1` checks counter semantics and returns unbound candidates (locally valid,
+  before LOOKUP resolution) plus resolved plans; public validation and Server
+  writes/loads use the same preparation.
   Only resolved plans have `resolved?: true`.
 - `Guardian.Rules.Step`: typed per-kind inputs and read derivation.
 - `Guardian.Rules.Validation`: scalar, counter aggregate, interval and FROM checks.
@@ -31,17 +32,14 @@ Modules:
   `Guardian.Rules.Resolution.hash_term/1` owns the target's struct-shaped hash
   input, under the frozen `Guardian.Rules.CounterDefinition` format tag; renaming
   that tag resets every dependent plan hash.
-- `Guardian.Rules.Activation`: pure coherent reload selection, used by Publisher.
 - `Guardian.Rules.Publisher`: synchronous activation/publication and generated-module
-  pool ownership, called inside Server's scrubbed callbacks. Recovers prior plans
-  only from published modules; its state contains only free names and retired
+  pool ownership, called inside Server's scrubbed callbacks. Publishes each
+  table's current preparation result; its state contains only free names and retired
   statuses, never plans, sources or diagnostics. Reclamation timers target Server.
 - `Guardian.Rules.Compiler`: a plan into a generated module from a fixed template, with the
   execution levels, derived from the flat steps at compile time, as one shared escaped
-  literal. Generated `plan/0` reconstructs the exact resolved plan's flat order from
-  compile-time positions for activation, including after restart; reconstruction
-  never runs during ingestion. Metadata is bounded and reclaimed with the module pool.
-  No rule text becomes code. Unresolved plans and unbound LOOKUPs cannot compile.
+  literal, plus `table/0` and `hash/0`. No rule text becomes code. Unresolved plans
+  and unbound LOOKUPs cannot compile.
 - `Guardian.Rules.Runtime`: the dispatcher called by generated modules (reads, SET, UNSET,
   failures), threading the flat row map through dependency levels. Internal
   TRACK/LOOKUP dispatch uses bound identities and aggregate defaults on failure.
@@ -83,10 +81,11 @@ Modules:
    object store's rule 2). Never log or return a response body, header, request, or
    a caught exception's message from a store call.
 5. Rule failures are logged by file, line and kind only, never a value (event values
-   can be the very secret an UNSET removes). Validation errors are logged the same
-   way, never by message: a message can quote rule text. The rule worker reports
-   heap kills without the error_logger report and catches every raise. Rule text
-   stays out of Guardian.Rules.Server's status and crash reports: keep every callback
+   can be the very secret an UNSET removes). Validation errors are not logged: a
+   message can quote rule text, and an invalid table already shows in its events'
+   error and the rule tools' replies, so don't add a log line for it. The rule
+   worker reports heap kills without the error_logger report and catches every
+   raise. Rule text stays out of Guardian.Rules.Server's status and crash reports: keep every callback
    (`init/1` and each `handle_*`) behind `scrubbed/1`, and keep sources out of new
    state fields or messages unless `format_status/1` redacts them. Plans and bare
    typed steps are redacted before the generic struct case, including their AST
@@ -97,16 +96,17 @@ Modules:
 6. Validation is whole-set and a write is refused only for errors it adds
    (`Guardian.Rules.RuleSet.new_errors/2`, ignoring lines), so broken sets stay repairable.
 7. Rules fail closed: a statement that raises, or an event over its time or heap
-   limit, fails the event; a table whose stored rules are invalid at boot is published
-   as invalid (its events fail, other tables run) rather than refusing startup. There are
+   limit, fails the event; a table whose stored rules are invalid is published as
+   invalid (its events fail, other tables run) rather than refusing startup. There are
    no switches for either (`docs/changes/ingest-rules.md`, open questions 1 and 2).
 8. Statement words are contextual (see `lib/guardian/ast/AGENTS.md`).
 9. Whole-set preparation validates counter plans, orders expression dependencies
    with the LOOKUP barrier and binds definition identities.
 10. Compiler refuses unresolved plans and unbound LOOKUPs.
-11. The activation selector retains prior dependency components on invalid reloads;
-    Publisher derives prior plans from published modules, including after restart,
-    without a separate metadata registry.
+11. Activation keeps no history: boot, reload, poll and writes all publish each
+    table's current preparation result, so an invalid table (or one whose LOOKUP
+    reads an invalid table's counter) fails its events and never keeps its last
+    good rules (`docs/changes/invalid-rules-fail-events.md`).
 12. Counter responsibilities stay split as settled in the change document:
     Guardian.Counters.Store provides node-local ETS storage,
     Guardian.Counters.Client provides bounded cluster ownership,

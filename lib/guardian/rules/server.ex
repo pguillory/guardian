@@ -5,11 +5,11 @@ defmodule Guardian.Rules.Server do
   ## Startup
 
   `init/1` loads and validates every rule file before anything else in Guardian
-  starts (it is `Guardian.Application`'s first child). An unreachable or rate-limiting (HTTP 429)
-  store is retried with backoff for up to `@boot_retry_ms` (60 s), then startup is
-  refused; a misconfigured store refuses startup at once. A table whose stored rules
-  fail validation is published as `{:invalid, message}`, so its events fail and
-  other tables run normally.
+  starts (it is `Guardian.Application`'s first child). An unreachable or rate-limiting
+  (HTTP 429) store is retried with backoff (up to 10 s apart) for as long as it takes,
+  so Guardian is not up until the store answers; a misconfigured store refuses
+  startup at once. A table whose stored rules fail validation is published as
+  `{:invalid, message}`, so its events fail and other tables run normally.
 
   If this process restarts while Guardian runs, the published set (in
   `:persistent_term`) keeps serving and the store is re-read in the background, so a
@@ -18,10 +18,11 @@ defmodule Guardian.Rules.Server do
   ## Reload and poll
 
   `reload/0` and a poll every 60 s re-read the store, fetching only objects whose ETag
-  changed. Activation selects prior good plans for invalid dependency components
-  (a new table that is invalid is published as invalid). Nothing changes unless every
-  changed table compiles; then one map is published, switching every addition, change
-  and deletion at once.
+  changed. Activation is the same as at startup: a table whose stored rules fail
+  validation (or whose LOOKUP reads a counter of such a table) is published as
+  invalid, with no last good rules kept. Nothing changes unless every changed table
+  compiles; then one map is published, switching every addition, change and deletion
+  at once.
 
   ## Writes
 
@@ -46,9 +47,9 @@ defmodule Guardian.Rules.Server do
 
   `Guardian.Rules.Publisher` owns activation, publication and the module pool,
   synchronously inside this server's callbacks. Server holds its pool value and
-  forwards reclamation messages. Publisher recovers prior plans only from the
-  published modules, including after a Server restart; see its module documentation
-  for the compilation and reclamation lifecycle.
+  forwards reclamation messages. After a Server restart, Publisher reserves the
+  published modules' names; see its module documentation for the compilation and
+  reclamation lifecycle.
 
   ## Status and crash reports
 
@@ -75,7 +76,6 @@ defmodule Guardian.Rules.Server do
   alias Guardian.Rules.Publisher
   alias Guardian.Rules.RuleSet
 
-  @boot_retry_ms 60_000
   @reload_timeout_ms 10_000
   @failure_log_table Guardian.Rules.FailureLog
   @lock_key "_write.lock"
@@ -160,10 +160,7 @@ defmodule Guardian.Rules.Server do
   end
 
   defp boot(state) do
-    retry_ms = Application.get_env(:guardian, :rules_boot_retry_ms, @boot_retry_ms)
-    deadline = System.monotonic_time(:millisecond) + retry_ms
-
-    case read_with_retry(state, deadline, 1_000) do
+    case read_with_retry(state, 1_000) do
       {:ok, files} ->
         preparation = prepare(sources(files))
         state = %{state | publisher: Publisher.new(%{})}
@@ -190,16 +187,14 @@ defmodule Guardian.Rules.Server do
     end
   end
 
-  defp read_with_retry(state, deadline, backoff) do
+  # Retries an unreachable store indefinitely: Guardian waits for its rules rather
+  # than starting without them.
+  defp read_with_retry(state, backoff) do
     case read_set(state) do
-      {:error, {:unreachable, kind}} = error ->
-        if System.monotonic_time(:millisecond) + backoff < deadline do
-          Logger.warning("Rules: store unreachable (#{kind}); retrying in #{backoff} ms")
-          Process.sleep(backoff)
-          read_with_retry(state, deadline, min(backoff * 2, 10_000))
-        else
-          error
-        end
+      {:error, {:unreachable, kind}} ->
+        Logger.warning("Rules: store unreachable (#{kind}); retrying in #{backoff} ms")
+        Process.sleep(backoff)
+        read_with_retry(state, min(backoff * 2, 10_000))
 
       other ->
         other
@@ -376,8 +371,8 @@ defmodule Guardian.Rules.Server do
           end
 
         validation = prepare(after_sources)
-        # Admission compares stored-set errors, never activation's retention or
-        # deferral diagnostics: broken sets must remain repairable file by file.
+        # Admission compares only the errors this write adds to the stored set:
+        # broken sets must remain repairable file by file.
         new_errors = RuleSet.new_errors(before.errors, validation.errors)
 
         cond do

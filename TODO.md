@@ -181,6 +181,10 @@ privately, not in this repository.
       (`docs/changes/rules-compiler-metadata.md`)
 - [x] rules-publisher: extract synchronous activation/publication and module-pool
       ownership from Server without changing behavior (`docs/changes/rules-publisher.md`)
+- [x] invalid-rules-fail-events: invalid stored rules fail their events at boot and
+      on reload alike, with no last good rules, connected components or invalid-rules
+      log line; an unreachable store at boot is retried until it answers
+      (`docs/changes/invalid-rules-fail-events.md`)
 - [x] rules-reclaim-deleted-once: a Server restart retires a pool name that has only
       old code as already deleted, so reclamation soft-purges it without deleting it
       again (which made the code server report that it must be purged first)

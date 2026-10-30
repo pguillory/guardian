@@ -102,8 +102,10 @@ Guardian.Application (one_for_one)
 Why this order:
 
 1. Guardian.Rules.Server starts first: its `init` loads and validates the whole rule set from
-   the store (section 3.4), and a store that is unreachable or rate-limiting (after a
-   minute of retries), or misconfigured, refuses startup. Starting before Storage
+   the store (section 3.4). A store that gives no answer (including a mistyped host or
+   a certificate failure), rate-limits or answers 5xx is retried until it answers
+   (backoff up to 10 s), so Guardian is not up meanwhile; invalid settings, or a
+   store answering 400, 401, 403 or 404, refuse startup. Starting before Storage
    makes a bad store fail in seconds instead of after every segment has loaded. It
    holds nothing the ingest path needs between calls: the compiled rules are in
    `:persistent_term`, so if it restarts, ingestion keeps the published rules and the
@@ -337,13 +339,11 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    It is pure. Typed per-kind steps (`Guardian.Rules.Step`), scalar/counter checks
    (`Guardian.Rules.Validation`) and dependency ordering
    (`Guardian.Rules.DependencyGraph`) are separate from rule-set orchestration.
-   `Guardian.Rules.Activation.select/2` selects plans for Publisher activation:
-   invalid components of old/new LOOKUP dependencies retain prior plans together,
-   including deleted targets/dependents. Tables without a previous valid plan in
-   such components are invalid.
-   Valid unrelated components still activate. Server uses the same `prepare/1` on
-   boot, reload and both sides of write admission. Local candidates have `resolved?: false`; only successful
-   whole-set resolution marks them ready for compilation.
+   Server uses the same `prepare/1` on boot, reload and both sides of write
+   admission, and Publisher publishes its per-table results as they are: there is
+   no retention of prior plans, so boot and reload give the same result. Local
+   candidates have `resolved?: false`; only successful whole-set resolution marks
+   them ready for compilation.
 2. Compilation: `Guardian.Rules.Compiler` turns a plan into a module from a fixed template,
    calling `Guardian.Rules.Runtime.run/3` with dependency levels of typed steps as escaped literals
    (expressions run through the scalar evaluator, `Guardian.Query.Eval` on an event map). Names
@@ -351,11 +351,8 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    Compiler independently refuses unresolved candidates and LOOKUPs without bound
    targets.
    A plan holds only its flat steps; Compiler derives the dependency levels from them
-   once at compile time. Each generated module shares one escaped execution-level
-   literal between ingestion and `plan/0`. For activation, `plan/0` reconstructs the
-   exact resolved plan's flat metadata order using compile-time positions into those
-   levels, including canonical source and AST constants, never executable rule text.
-   Ingestion uses the prepared levels directly, without reconstruction.
+   once at compile time and escapes them as one literal. A generated module also
+   has `table/0` and `hash/0`; Publisher reuses a module whose hash is unchanged.
 3. Publication: `Guardian.Rules.Publisher` owns activation, publication and the
    generated-module pool, synchronously inside Server's scrubbed callbacks. Server
    keeps store reads, reload/poll, locked writes and admission; it holds Publisher's
@@ -365,13 +362,11 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    names first and publishes one new map only if all compiled, so a change is all or nothing on each
    node. A module the map stops using is retired, then after 30 s (rows run under a
    1 s limit) deleted and soft-purged; its name is reused only after the purge
-   succeeds. On a restart the pool is rebuilt from what is loaded. Activation reads
-   previous plans directly from the published modules, including after a Server
-   restart while the stored copy is invalid or unreachable. Successful deletions
-   still remove rules. Metadata is bounded by rule limits and the fixed module
-   pool, reclaimed with the code; no separate per-reload history/cache is kept.
-   Preparation errors and selected-table errors are combined for diagnostics,
-   while write admission compares only the stored sets' preparation errors.
+   succeeds. On a restart the pool is rebuilt from what is loaded: published names
+   stay reserved, other loaded names are retired (a name with only old code as
+   already deleted, so it is only soft-purged). No prior plans or per-reload
+   history are kept. Write admission compares only the stored sets' preparation
+   errors.
 4. Running: `Guardian.Rules.Runner` runs a batch in a worker with the query heap limit (without
    the error_logger report), sending each row's result back; a row over 1 s, or a
    worker that dies, fails that row and a new worker continues. The worker reads the
@@ -391,9 +386,8 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    `Guardian.ObjectStore.Local`); objects not ending in `.gsql` are ignored, a `.gsql`
    object at any other path than `<table>/<name>.gsql` is a path error, and
    objects whose ETag changed are fetched with `If-Match` on the listed ETag (a change
-   in between restarts the read). A table invalid at boot is published as invalid; a
-   running node keeps a table's previous good module if its stored copy turns
-   invalid.
+   in between restarts the read). A table whose stored copy is invalid is published
+   as invalid, at boot and on every reload alike.
 6. Writes (`Guardian.Rules.Server`): take the lock, an object in the store at
    `_write.lock` (the object-store client's generic key lock, `Guardian.ObjectStore.Lock`:
    `If-None-Match: *` create, 120 s lease judged by the store's own clock, takeover of
@@ -1422,7 +1416,7 @@ these except through the variables above:
 | `counter_memory_budget_bytes` | 64 MiB, overridden by `GUARDIAN_COUNTER_MEMORY_MB` | `Guardian.Counters.Store`: asynchronous resident counter memory target (3.5); a non-positive or non-integer value refuses startup |
 | `query_parse_errors_per_hour` | 60 | `Guardian.Web.QueryParseErrors` (tests raise it) |
 | `rules_store` | from the variables above | `Guardian.Rules.Config` (tests set a store directly) |
-| `rules_poll_ms`, `rules_time_limit_ms`, `rules_boot_retry_ms`, `rules_reclaim_after_ms`, `rules_lock_lease_ms`, `rules_save_margin_ms` | 60,000; 1,000; 60,000; 30,000; 120,000; 80,000 | `lib/guardian/rules` (tests shorten them) |
+| `rules_poll_ms`, `rules_time_limit_ms`, `rules_reclaim_after_ms`, `rules_lock_lease_ms`, `rules_save_margin_ms` | 60,000; 1,000; 30,000; 120,000; 80,000 | `lib/guardian/rules` (tests shorten them) |
 | `object_store_s3_receive_timeout_ms`, `object_store_s3_write_deadline_ms` | 15,000; 20,000 | `Guardian.ObjectStore.S3` (tests shorten them) |
 | `persisted_segment_cache_ms` | 600,000 | `Guardian.Storage.PersistedSegments`: how long a written segment's in-memory copy serves before it is stopped (tests shorten it); a value that is not a positive integer stops Storage from starting |
 

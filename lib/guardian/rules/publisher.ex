@@ -11,11 +11,9 @@ defmodule Guardian.Rules.Publisher do
   and 30 s later (rows run under a 1 s limit, so no caller can still hold it)
   deleted and soft-purged; its name returns to the pool only once the purge
   succeeds. On a restart, names in the published map are in use and any other
-  loaded name is retired. Prior plans live only in published modules and are
-  recovered through plan/0, without a separate history/cache of plans.
+  loaded name is retired. No prior plans are kept: each activation publishes what
+  the store holds now.
   """
-
-  require Logger
 
   alias Guardian.Rules
 
@@ -60,15 +58,14 @@ defmodule Guardian.Rules.Publisher do
 
   ## Activation
 
+  # Publishes each table's result from whole-set preparation, at boot and on every
+  # reload alike: a valid table runs its plan, an invalid one fails its events.
   def activate(state, preparation) do
     published = Rules.published() || %{}
-    previous = published_plans(published)
-    selected = Guardian.Rules.Activation.select(preparation, previous)
-    errors = activation_errors(preparation, selected)
-    log_errors(errors)
+    errors = Enum.sort_by(preparation.errors, &{&1.file, &1.line || 0, &1.kind})
 
     {targets, to_compile} =
-      Enum.reduce(selected.tables, {%{}, []}, fn {table, result}, {targets, to_compile} ->
+      Enum.reduce(preparation.tables, {%{}, []}, fn {table, result}, {targets, to_compile} ->
         current = Map.get(published, table)
 
         case result do
@@ -79,8 +76,8 @@ defmodule Guardian.Rules.Publisher do
               {targets, [plan | to_compile]}
             end
 
-          {:error, errors} ->
-            {Map.put(targets, table, {:invalid, invalid_message(errors)}), to_compile}
+          {:error, table_errors} ->
+            {Map.put(targets, table, {:invalid, invalid_message(table_errors)}), to_compile}
         end
       end)
 
@@ -109,24 +106,6 @@ defmodule Guardian.Rules.Publisher do
       {:error, message} ->
         {:error, message, errors}
     end
-  end
-
-  # Published modules are the sole source of truth, also after a Server restart.
-  # The fixed pool bounds metadata lifetime; no per-reload registry accumulates.
-  defp published_plans(published) do
-    for {table, module} <- published, is_atom(module), into: %{}, do: {table, module.plan()}
-  end
-
-  defp activation_errors(preparation, selected) do
-    selected_errors =
-      Enum.flat_map(selected.tables, fn
-        {_table, {:error, errors}} -> errors
-        _ -> []
-      end)
-
-    (preparation.errors ++ selected_errors)
-    |> Enum.uniq()
-    |> Enum.sort_by(&{&1.file, &1.line || 0, &1.kind})
   end
 
   defp compile_all(state, [], compiled) do
@@ -192,26 +171,5 @@ defmodule Guardian.Rules.Publisher do
           %{state | retired: Map.put(state.retired, module, :deleted)}
         end
     end
-  end
-
-  defp log_errors([]) do
-    :ok
-  end
-
-  # By file, line and kind only: a message can quote rule text (the token a parse
-  # error got, say), and rules can hold secrets. The rule tools return the messages.
-  defp log_errors(errors) do
-    Logger.warning(
-      "Rules: #{length(errors)} invalid: " <>
-        Enum.map_join(Enum.take(errors, 5), "; ", &error_location/1)
-    )
-  end
-
-  defp error_location(%{file: file, line: nil, kind: kind}) do
-    "#{file} (#{kind})"
-  end
-
-  defp error_location(%{file: file, line: line, kind: kind}) do
-    "#{file} line #{line} (#{kind})"
   end
 end

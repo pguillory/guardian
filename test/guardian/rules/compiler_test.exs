@@ -16,18 +16,12 @@ defmodule Guardian.Rules.CompilerTest do
     plan
   end
 
-  defp assert_recovered(module, plan) do
-    recovered = module.plan()
-    assert recovered === plan
-
-    assert :erlang.term_to_binary(recovered, [:deterministic]) ==
-             :erlang.term_to_binary(plan, [:deterministic])
-
+  defp assert_identifies(module, plan) do
     assert module.table() == plan.table
     assert module.hash() == plan.hash
   end
 
-  test "plan recovery preserves flat counter metadata order independently of execution levels" do
+  test "execution levels can order counter steps differently from the flat plan" do
     module = __MODULE__.CounterOrderProbe
 
     plan =
@@ -49,8 +43,7 @@ defmodule Guardian.Rules.CompilerTest do
              [["normalized"], ["group_key"], ["prior"], ["y", "z"], ["a", "b"], ["secret"]]
 
     refute List.flatten(levels) == plan.steps
-    assert_recovered(module, plan)
-    refute Map.has_key?(module.plan(), :levels)
+    assert_identifies(module, plan)
   end
 
   test "both generated entry points execute prepared levels with scalar literals and final UNSETs" do
@@ -66,7 +59,7 @@ defmodule Guardian.Rules.CompilerTest do
 
     levels = DependencyGraph.levels(plan.steps)
     refute List.flatten(levels) == plan.steps
-    assert_recovered(module, plan)
+    assert_identifies(module, plan)
     row = %{"message" => "secret", "raw_z" => "hello", "password" => "hide"}
     event = Event.new()
 
@@ -83,12 +76,12 @@ defmodule Guardian.Rules.CompilerTest do
     assert apply(module, :apply, [row]) == expected
   end
 
-  test "empty resolved plans recover exactly and leave rows unchanged" do
+  test "empty resolved plans compile and leave rows unchanged" do
     module = __MODULE__.EmptyProbe
     plan = compile(module, %{"t/a.gsql" => "-- no statements"})
     assert plan.steps == []
     assert DependencyGraph.levels(plan.steps) == []
-    assert_recovered(module, plan)
+    assert_identifies(module, plan)
     row = %{"untouched" => 1}
     assert apply(module, :apply, [row]) == row
     assert apply(module, :apply, [row, Event.new()]) == row

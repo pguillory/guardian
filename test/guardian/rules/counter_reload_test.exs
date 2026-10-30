@@ -29,12 +29,17 @@ defmodule Guardian.Rules.CounterReloadTest do
     row
   end
 
-  defp target(module) do
-    Enum.find(module.plan().steps, &(&1.kind == :lookup)).target
+  defp plan(files, table) do
+    {:ok, plan} = Guardian.Rules.RuleSet.prepare(files).tables[table]
+    plan
   end
 
-  defp identity(module) do
-    Enum.find(module.plan().steps, &(&1.kind == :track)).definition.identity
+  defp target(files, table) do
+    Enum.find(plan(files, table).steps, &(&1.kind == :lookup)).target
+  end
+
+  defp identity(files, table) do
+    Enum.find(plan(files, table).steps, &(&1.kind == :track)).definition.identity
   end
 
   test "valid edits switch target and dependent identities; in-flight old modules keep old state",
@@ -48,6 +53,7 @@ defmodule Guardian.Rules.CounterReloadTest do
     }
 
     load(s3, files)
+    old_files = files
     old_a = Guardian.Rules.lookup(a)
     old_b = Guardian.Rules.lookup(b)
     assert ingest(a)["hits"] == 1
@@ -59,8 +65,9 @@ defmodule Guardian.Rules.CounterReloadTest do
     new_b = Guardian.Rules.lookup(b)
     refute new_a == old_a
     refute new_b == old_b
-    assert target(new_b).identity == identity(new_a)
-    refute target(new_b).identity == target(old_b).identity
+    assert new_b.hash() == plan(files, b).hash
+    assert target(files, b).identity == identity(files, a)
+    refute target(files, b).identity == target(old_files, b).identity
     assert ingest(b)["prior"] == nil
     assert ingest(a, %{"amount" => 7})["hits"] == 7
     assert ingest(b)["prior"] == 7
@@ -75,72 +82,59 @@ defmodule Guardian.Rules.CounterReloadTest do
       |> Map.put("#{a}/moved.gsql", "-- moved\nTRACK hits = sum(amount) LAST '1h'")
 
     load(s3, moved)
-    assert identity(Guardian.Rules.lookup(a)) == identity(new_a)
+    assert identity(moved, a) == identity(files, a)
     assert ingest(a, %{"amount" => 3})["hits"] == 10
     assert ingest(b)["prior"] == 10
   end
 
-  test "an invalid target retains changed or deleted dependents, defers joins and allows unrelated activation",
+  test "a reload that finds an invalid target fails it and its dependents; others activate",
        %{s3: s3} do
-    for delete_dependent? <- [false, true] do
-      a = unique_table("invalid_target")
-      b = unique_table("retained_reader")
-      join = unique_table("new_reader")
-      other = unique_table("counter_unrelated")
-      deleted = unique_table("counter_deleted")
+    a = unique_table("invalid_target")
+    b = unique_table("invalid_target_reader")
+    join = unique_table("new_reader")
+    other = unique_table("counter_unrelated")
+    deleted = unique_table("counter_deleted")
 
-      files = %{
-        "#{a}/r.gsql" => "TRACK hits = count() LAST '1h'",
-        "#{b}/r.gsql" => "LOOKUP prior = hits FROM #{a}",
-        "#{other}/r.gsql" => "SET value = 1",
-        "#{deleted}/r.gsql" => "SET value = 1",
-      }
+    files = %{
+      "#{a}/r.gsql" => "TRACK hits = count() LAST '1h'",
+      "#{b}/r.gsql" => "LOOKUP prior = hits FROM #{a}",
+      "#{other}/r.gsql" => "SET value = 1",
+      "#{deleted}/r.gsql" => "SET value = 1",
+    }
 
-      load(s3, files)
-      old = Map.take(Guardian.Rules.published(), [a, b])
-      assert ingest(a)["hits"] == 1
+    load(s3, files)
+    assert ingest(a)["hits"] == 1
 
-      changed =
-        files
-        |> Map.put("#{a}/r.gsql", "TRACK hits = count() LAST '0s'")
-        |> Map.put("#{other}/r.gsql", "SET value = 2")
-        |> Map.delete("#{deleted}/r.gsql")
-        |> Map.put("#{join}/r.gsql", "LOOKUP prior = hits FROM #{a}")
+    changed =
+      files
+      |> Map.put("#{a}/r.gsql", "TRACK hits = count() LAST '0s'")
+      |> Map.put("#{other}/r.gsql", "SET value = 2")
+      |> Map.delete("#{deleted}/r.gsql")
+      |> Map.put("#{join}/r.gsql", "LOOKUP prior = hits FROM #{a}")
 
-      changed =
-        if delete_dependent?,
-          do: Map.delete(changed, "#{b}/r.gsql"),
-          else: Map.put(changed, "#{b}/r.gsql", "LOOKUP renamed = hits FROM #{a}")
+    load(s3, changed)
+    for table <- [a, b, join], do: assert({:invalid, _} = Guardian.Rules.lookup(table))
+    assert [{:error, "rules for " <> _}] = Guardian.Engine.ingest_events(b, [%{}])
+    assert ingest(other)["value"] == 2
+    assert Guardian.Rules.lookup(deleted) == nil
 
-      load(s3, changed)
-      assert Map.take(Guardian.Rules.published(), [a, b]) == old
-      assert ingest(a)["hits"] == 2
-      assert ingest(b)["prior"] == 2
-      assert {:invalid, _} = Guardian.Rules.lookup(join)
-      assert ingest(other)["value"] == 2
-      assert Guardian.Rules.lookup(deleted) == nil
-
-      load(s3, Map.put(changed, "#{a}/r.gsql", "TRACK hits = sum(amount) LAST '1h'"))
-      assert ingest(a, %{"amount" => 9})["hits"] == 9
-      assert ingest(join)["prior"] == 9
-
-      if delete_dependent?,
-        do: assert(Guardian.Rules.lookup(b) == nil),
-        else: assert(ingest(b)["renamed"] == 9)
-    end
+    # Repairing the target restores the same counter definition, so the count goes on.
+    load(s3, Map.put(changed, "#{a}/r.gsql", files["#{a}/r.gsql"]))
+    assert ingest(a)["hits"] == 2
+    assert ingest(b)["prior"] == 2
+    assert ingest(join)["prior"] == 2
   end
 
-  test "an invalid dependent retains edited, renamed, regrouped or deleted targets and new joins",
-       %{s3: s3} do
+  test "an invalid dependent fails alone while its target changes, regroups or goes", %{s3: s3} do
     for source <- [
           "TRACK hits = sum(amount) LAST '1h'",
           "TRACK hits = count() BY ip LAST '1h'",
           "TRACK renamed = count() LAST '1h'",
           nil,
         ] do
-      a = unique_table("retained_target")
+      a = unique_table("changed_target")
       b = unique_table("invalid_reader")
-      join = unique_table("deferred_reader")
+      join = unique_table("joining_reader")
 
       files = %{
         "#{a}/r.gsql" => "TRACK hits = count() LAST '1h'",
@@ -148,8 +142,6 @@ defmodule Guardian.Rules.CounterReloadTest do
       }
 
       load(s3, files)
-      old = Map.take(Guardian.Rules.published(), [a, b])
-      assert ingest(a)["hits"] == 1
       changed = Map.put(files, "#{b}/r.gsql", "LOOKUP prior = hits FROM #{a}; SET")
 
       changed =
@@ -157,75 +149,47 @@ defmodule Guardian.Rules.CounterReloadTest do
           do: Map.put(changed, "#{a}/r.gsql", source),
           else: Map.delete(changed, "#{a}/r.gsql")
 
-      # A locally valid join still cannot activate into a retained component.
       counter = if source && source =~ "renamed", do: "renamed", else: "hits"
       group = if source && source =~ "BY ip", do: " BY ip", else: ""
       changed = Map.put(changed, "#{join}/r.gsql", "LOOKUP prior = #{counter} FROM #{a}#{group}")
       load(s3, changed)
-      assert Map.take(Guardian.Rules.published(), [a, b]) == old
-      assert ingest(a)["hits"] == 2
-      assert ingest(b)["prior"] == 2
-      assert {:invalid, _} = Guardian.Rules.lookup(join)
+      assert {:invalid, _} = Guardian.Rules.lookup(b)
+
+      if source do
+        assert Guardian.Rules.lookup(a).hash() == plan(changed, a).hash
+        assert Guardian.Rules.lookup(join).hash() == plan(changed, join).hash
+      else
+        assert Guardian.Rules.lookup(a) == nil
+        assert {:invalid, _} = Guardian.Rules.lookup(join)
+      end
     end
   end
 
-  test "retention follows transitive and retargeted edges from both old and new plans", %{s3: s3} do
-    a = unique_table("component_a")
-    b = unique_table("component_b")
-    c = unique_table("component_c")
-    d = unique_table("component_d")
+  test "boot and reload publish the same result for the same invalid files", %{s3: s3} do
+    a = unique_table("same_target")
+    b = unique_table("same_invalid_reader")
+    c = unique_table("same_transitive_reader")
 
     files = %{
       "#{a}/r.gsql" => "TRACK ca = count() LAST '1h'",
-      "#{b}/r.gsql" => "TRACK cb = count() LAST '1h'; LOOKUP pa = ca FROM #{a}",
-      "#{c}/r.gsql" => "LOOKUP pb = cb FROM #{b}",
-      "#{d}/r.gsql" => "TRACK cd = count() LAST '1h'",
+      "#{b}/r.gsql" => "TRACK cb = count() LAST '1h'; LOOKUP bad = ca FROM #{a} BY ip",
+      "#{c}/r.gsql" => "LOOKUP bad = cb FROM #{b}",
     }
 
+    load(s3, Map.put(files, "#{b}/r.gsql", "TRACK cb = count() LAST '1h'"))
     load(s3, files)
-    old = Guardian.Rules.published()
-
-    changed =
-      files
-      |> Map.put("#{a}/r.gsql", "SET")
-      |> Map.put("#{c}/r.gsql", "LOOKUP pd = cd FROM #{d}")
-      |> Map.put("#{d}/r.gsql", "TRACK cd = sum(amount) LAST '1h'")
-
-    load(s3, changed)
-    assert Guardian.Rules.published() == old
-    assert ingest(a)["ca"] == 1
-    assert ingest(b)["pa"] == 1
-    assert ingest(c)["pb"] == 1
-    assert ingest(d)["cd"] == 1
-
-    load(s3, Map.put(changed, "#{a}/r.gsql", files["#{a}/r.gsql"]))
-    assert ingest(d, %{"amount" => 8})["cd"] == 8
-    assert ingest(c)["pd"] == 8
-    assert ingest(b)["pa"] == 1
-  end
-
-  test "clean boot propagates invalidity toward dependents without retaining a whole component",
-       %{s3: s3} do
-    a = unique_table("boot_target")
-    b = unique_table("boot_invalid_reader")
-    c = unique_table("boot_transitive_reader")
-    Guardian.Test.FakeS3.put_object(s3, "#{a}/r.gsql", "TRACK ca = count() LAST '1h'")
-
-    Guardian.Test.FakeS3.put_object(
-      s3,
-      "#{b}/r.gsql",
-      "TRACK cb = count() LAST '1h'; LOOKUP bad = ca FROM #{a} BY ip"
-    )
-
-    Guardian.Test.FakeS3.put_object(s3, "#{c}/r.gsql", "LOOKUP bad = cb FROM #{b}")
+    reloaded = Map.take(Guardian.Rules.published(), [a, b, c])
 
     ExUnit.CaptureLog.capture_log(fn ->
       assert {:ok, _} = restart_server(Guardian.Test.FakeS3.store(s3))
     end)
 
+    booted = Map.take(Guardian.Rules.published(), [a, b, c])
+    assert booted[a].hash() == reloaded[a].hash()
+    assert {:invalid, _} = booted[b]
+    assert {:invalid, _} = booted[c]
+    assert Map.take(booted, [b, c]) == Map.take(reloaded, [b, c])
     assert ingest(a)["ca"] == 1
-    assert {:invalid, _} = Guardian.Rules.lookup(b)
-    assert {:invalid, _} = Guardian.Rules.lookup(c)
     assert [{:error, _}] = Guardian.Engine.ingest_events(c, [%{}])
   end
 

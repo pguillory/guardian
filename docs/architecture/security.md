@@ -351,7 +351,7 @@ is not accepted, so a browser page cannot call the authenticated routes (4.2.3).
 ### 4.6 What the ingest key can still do
 
 The ingest key's boundary is "no queries, no rule reads or changes", not "no reads at
-all". Through `send_events` it can:
+all" (an invalid table's event errors quote a little of its rules: 5.2, item 8). Through `send_events` it can:
 
 1. Read what ingestion returns. `return_keys` gives back columns of each stored row
    after the table's rules, so a `TRACK` or `LOOKUP` rule lets the ingest key read the
@@ -647,10 +647,11 @@ Counter-specific limits:
    write lock is a lease in the store, not a fence: a writer stalled more than a
    minute past its lease check, or a request the store applies more than a minute
    after the writer abandoned it, can leave a stored set validation would have
-   refused. Running nodes keep that table's last good rules, but a node that starts
-   then fails its events until it is fixed. Anyone who can write to the rule store
-   directly (the bucket's credentials, or the rule folder) controls ingest-time rules
-   without an API key; those writes still go through validation at load. The S3
+   refused. Every node then fails that table's events until it is fixed, and the
+   error quotes up to 40 characters of the rule to whoever sent them, the ingest
+   key included. Anyone who can write to the rule store directly (the bucket's
+   credentials, or the rule folder) controls ingest-time rules without an API key;
+   those writes still go through validation at load. The S3
    endpoint is trusted too: its list responses are parsed with `:xmerl` (entities
    off, at most 20 pages), which makes atoms of element names, so a hostile endpoint
    could grow the atom table.
@@ -905,9 +906,10 @@ Where data goes:
      and replaces a write's source with `:redacted`. Plan structs retain only
      table/hash/resolution status, and bare typed steps are redacted, so canonical
      source and expression constants cannot escape through those structs either.
-     Compiled modules retain their exact resolved plan as escaped literal data
-     for reload/restart recovery; its lifetime is bounded by the fixed module pool
-     and normal code reclamation. The synchronous Rules.Publisher helper runs inside
+     Compiled modules hold their execution levels (typed steps, with canonical
+     source and expression constants) as escaped literal data, whose lifetime is
+     bounded by the fixed module pool and normal code reclamation. The synchronous
+     Rules.Publisher helper runs inside
      Server's scrubbed callbacks; its state holds only module names and retirement
      statuses, never sources, plans or diagnostics. Raw module/process inspection
      remains privileged full-memory access. `init/1`, `handle_call/3` and
@@ -930,10 +932,10 @@ Where data goes:
      Clean application shutdown stops the subtree without logging a failure.
      Like Guardian.Rules.Server, OTP's raw sys debug options and proc_lib mailbox reports
      are outside this formatting; this configuration drops SASL reports.
-   - Invalid rules found at boot or on a reload are logged by file, line and kind only
-     (`orders/fix.gsql line 3 (parse)`), never by message: a validation message can
-     quote up to 40 characters of a rule. The rule tools still return the full
-     messages to the authenticated caller.
+   - Invalid rules are not logged: a validation message can quote up to 40
+     characters of a rule. A table's first message reaches whoever sends its events,
+     the ingest key included (5.2, item 8), and rule writes return the set's remaining
+     messages.
    - A query process killed by the heap guard produces the VM's kill report, which
      names the process and its heap sizes, not its contents (5.2.2).
 

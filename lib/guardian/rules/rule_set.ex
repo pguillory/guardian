@@ -92,9 +92,9 @@ defmodule Guardian.Rules.RuleSet do
   end
 
   @doc """
-  Prepares whole-set plans for validation and activation. `candidates`
-  are locally valid, unbound table plans; `tables` are resolved against the whole
-  candidate set. Only resolved plans may compile for execution.
+  Prepares whole-set plans for validation and activation. `candidates` are locally
+  valid, unbound table plans (Resolution's input); `tables` are resolved against the
+  whole candidate set. Only resolved plans may compile for execution.
   """
   def prepare(files) when is_map(files) do
     keys = files |> Map.keys() |> Enum.sort()

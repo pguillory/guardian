@@ -27,7 +27,6 @@ defmodule Guardian.Rules.PublisherTest do
     assert {:ok, _} = Rules.write_rule(a, "r", "SET x = 1")
     before = Rules.published()
     old = before[a]
-    metadata = old.plan()
     publisher = take_publisher()
     [first, second | _] = publisher.free
 
@@ -46,13 +45,12 @@ defmodule Guardian.Rules.PublisherTest do
     assert message == "compiling the rules for #{refused} failed (unresolved_plan)"
 
     assert Rules.published() == before
-    assert old.plan() == metadata
     assert old.apply(%{}) == %{"x" => 1}
 
     for module <- [first, second] do
       assert :code.is_loaded(module) == false
       refute :erlang.check_old_code(module)
-      refute function_exported?(module, :plan, 0)
+      refute function_exported?(module, :hash, 0)
     end
 
     assert {:ok, activated, []} = activate(publisher, preparation)
@@ -62,7 +60,7 @@ defmodule Guardian.Rules.PublisherTest do
     assert MapSet.new(Map.values(Rules.published())) == MapSet.new([first, second])
     assert Rules.lookup(a).apply(%{}) == %{"x" => 2}
     assert Rules.lookup(b).apply(%{}) == %{"x" => 2}
-    assert old.plan() == metadata
+    assert old.apply(%{}) == %{"x" => 1}
 
     # Reusing the same hashes consumes no additional names or retirement slots.
     published = Rules.published()

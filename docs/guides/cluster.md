@@ -34,8 +34,9 @@ owners supply defaults and ingestion continues. Keep node clocks synchronized fo
 arrival-time windows, and configure GUARDIAN_COUNTER_MEMORY_MB on each node.
 
 Upgrade every node before adding TRACK/LOOKUP files to a shared rule bucket. Older
-nodes that cannot load the syntax can retain previous plans (or reject affected
-tables at boot), so a mixed-version rollout does not give consistent counter rules.
+nodes that cannot load the syntax fail affected tables' events (or, on older
+builds, keep previous plans), so a mixed-version rollout does not give consistent
+counter rules.
 See [counter edits and retries](rules.md#editing-and-retrying-counters).
 
 The transition from unprefixed modules to `Guardian.*` requires a full release

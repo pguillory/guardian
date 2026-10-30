@@ -11,22 +11,12 @@ defmodule Guardian.Rules.CounterPlanTest do
     plan
   end
 
-  defp previous(files) do
-    preparation = RuleSet.prepare(files)
-    assert preparation.errors == []
-    Map.new(preparation.tables, fn {table, {:ok, plan}} -> {table, plan} end)
-  end
-
   defp errors(source) do
     RuleSet.prepare(%{"t/a.gsql" => source}).errors
   end
 
   defp kinds(source) do
     Enum.map(errors(source), & &1.kind)
-  end
-
-  defp sources(plan) do
-    Enum.map(plan.steps, & &1.source)
   end
 
   defp target(plan) do
@@ -186,10 +176,9 @@ defmodule Guardian.Rules.CounterPlanTest do
     module = __MODULE__.CounterDefinitionProbe
 
     compile_module(module, plan)
-    recovered = apply(module, :plan, [])
-    assert recovered == plan
+    assert apply(module, :hash, []) == plan.hash
 
-    for %Guardian.Rules.Step.Track{} = track <- recovered.steps do
+    for %Guardian.Rules.Step.Track{} = track <- plan.steps do
       definition = track.definition
 
       lookup =
@@ -502,7 +491,6 @@ defmodule Guardian.Rules.CounterPlanTest do
     before = Enum.filter(preparation.errors, &(&1.table in ["b", "t"]))
     after_errors = Enum.filter(changed.errors, &(&1.table in ["b", "t"]))
     assert RuleSet.new_errors(before, after_errors) == []
-    assert Guardian.Rules.Activation.select(preparation).tables == preparation.tables
   end
 
   test "reciprocal cross-table references resolve by definition without execution edges" do
@@ -519,186 +507,17 @@ defmodule Guardian.Rules.CounterPlanTest do
     assert target(b).identity == Enum.find(a.steps, &(&1.kind == :track)).definition.identity
   end
 
-  test "SET/UNSET preparation and runtime selection preserve per-table behavior" do
+  test "SET/UNSET preparation keeps per-table hashes and errors" do
     files = %{"a/r.gsql" => "SET x = 1; UNSET secret", "deleted/r.gsql" => "SET x = 2"}
     prep = RuleSet.prepare(files)
 
     assert elem(prep.tables["a"], 1).hash ==
              "85e505311172b4f3fe1fbaf62f395881dfefca3919a99962b54881b5ea23e6cd"
 
-    old = previous(files)
     changed = RuleSet.prepare(%{"a/r.gsql" => "SET x = count()", "new/r.gsql" => "SET"})
-    selected = Guardian.Rules.Activation.select(changed, old)
-    assert selected.tables["a"] == {:ok, old["a"]}
-    assert {:error, _} = selected.tables["new"]
-    refute Map.has_key?(selected.tables, "deleted")
-    assert selected.retained == MapSet.new(["a"])
-  end
-
-  test "an invalid target retains its whole prior component while unrelated changes activate" do
-    files = %{
-      "a/r.gsql" => "TRACK c = count() LAST '1h'",
-      "b/r.gsql" => "LOOKUP prior = c FROM a",
-      "u/r.gsql" => "SET x = 1",
-    }
-
-    old = previous(files)
-
-    changed =
-      files
-      |> Map.put("a/r.gsql", "TRACK c = count() LAST '0s'")
-      |> Map.put("b/r.gsql", "LOOKUP renamed = c FROM a")
-      |> Map.put("u/r.gsql", "SET x = 2")
-
-    selected = Guardian.Rules.Activation.select(RuleSet.prepare(changed), old)
-    assert selected.tables["a"] == {:ok, old["a"]}
-    assert selected.tables["b"] == {:ok, old["b"]}
-    assert selected.retained == MapSet.new(["a", "b"])
-    assert {:ok, unrelated} = selected.tables["u"]
-    assert sources(unrelated) == ["SET x = 2"]
-  end
-
-  test "invalid dependents prevent changed operators, grouping or deleted targets from stranding identities" do
-    files = %{
-      "a/r.gsql" => "TRACK c = count() LAST '1h'",
-      "b/r.gsql" => "LOOKUP prior = c FROM a",
-    }
-
-    old = previous(files)
-
-    for target_source <- [
-          "TRACK c = sum(amount) LAST '1h'",
-          "TRACK c = count() BY ip LAST '1h'",
-          "SET unrelated = 1",
-          :delete,
-        ] do
-      changed =
-        if target_source == :delete,
-          do: Map.delete(files, "a/r.gsql"),
-          else: Map.put(files, "a/r.gsql", target_source)
-
-      # Both a syntactically invalid dependent and a valid old LOOKUP with an
-      # invalid new target/grouping must roll back the same component.
-      for dependent <- ["LOOKUP prior = c FROM a; SET", files["b/r.gsql"]] do
-        prep = RuleSet.prepare(Map.put(changed, "b/r.gsql", dependent))
-
-        if dependent == files["b/r.gsql"] and target_source == "TRACK c = sum(amount) LAST '1h'" do
-          assert prep.errors == []
-          selected = Guardian.Rules.Activation.select(prep, old)
-          assert {:ok, updated} = selected.tables["b"]
-          assert target(updated).operator == {"sum", 1}
-          refute updated.hash == old["b"].hash
-        else
-          refute prep.errors == []
-          selected = Guardian.Rules.Activation.select(prep, old)
-          assert selected.tables["a"] == {:ok, old["a"]}
-          assert selected.tables["b"] == {:ok, old["b"]}
-        end
-      end
-    end
-  end
-
-  test "retention defers deleted dependents too, while a fully valid deletion removes them" do
-    files = %{
-      "a/r.gsql" => "TRACK c = count() LAST '1h'",
-      "b/r.gsql" => "LOOKUP prior = c FROM a",
-    }
-
-    old = previous(files)
-    invalid = files |> Map.delete("b/r.gsql") |> Map.put("a/r.gsql", "SET")
-    selected = Guardian.Rules.Activation.select(RuleSet.prepare(invalid), old)
-    assert selected.tables["b"] == {:ok, old["b"]}
-    assert selected.tables["a"] == {:ok, old["a"]}
-    valid = Map.delete(files, "b/r.gsql")
-    refute Map.has_key?(Guardian.Rules.Activation.select(RuleSet.prepare(valid), old).tables, "b")
-    assert Guardian.Rules.Activation.select(RuleSet.prepare(%{}), old).tables == %{}
-  end
-
-  test "boot invalidity is directed; runtime refuses new valid targets in a retained component" do
-    files = %{
-      "a/r.gsql" => "TRACK c = count() LAST '1h'",
-      "b/r.gsql" => "LOOKUP prior = c FROM a BY ip",
-      "u/r.gsql" => "SET x = 1",
-    }
-
-    preparation = RuleSet.prepare(files)
-    assert {:ok, _} = Guardian.Rules.Activation.select(preparation).tables["a"]
-    assert {:error, _} = preparation.tables["b"]
-    old = previous(%{"u/r.gsql" => "SET x = 1"})
-    selected = Guardian.Rules.Activation.select(preparation, old)
-    assert {:error, [%{kind: :reload_dependency}]} = selected.tables["a"]
-    assert {:error, [%{kind: :counter_arity}]} = selected.tables["b"]
-  end
-
-  test "new dependents joining a retained component are invalid until a coherent reload" do
-    files = %{
-      "a/r.gsql" => "TRACK c = count() LAST '1h'",
-      "b/r.gsql" => "LOOKUP prior = c FROM a",
-    }
-
-    old = previous(files)
-
-    changed =
-      files
-      |> Map.put("b/r.gsql", "SET")
-      |> Map.put("a/r.gsql", "TRACK c = sum(amount) LAST '1h'")
-      |> Map.put("new/r.gsql", "LOOKUP prior = c FROM a")
-
-    selected = Guardian.Rules.Activation.select(RuleSet.prepare(changed), old)
-    assert {:error, [%{kind: :reload_dependency, message: message}]} = selected.tables["new"]
-    assert message =~ "component (b)"
-    assert selected.tables["a"] == {:ok, old["a"]}
-    repaired = Map.put(changed, "b/r.gsql", "LOOKUP prior = c FROM a")
-    selected = Guardian.Rules.Activation.select(RuleSet.prepare(repaired), old)
-    assert selected.retained == MapSet.new()
-    assert {:ok, new} = selected.tables["new"]
-    assert target(new).operator == {"sum", 1}
-  end
-
-  test "old and candidate edges jointly retain cascaded components, independent of table names" do
-    for [a, b, c] <- [["a", "b", "c"], ["z", "m", "a"]] do
-      files = %{
-        "#{a}/r.gsql" => "TRACK ca = count() LAST '1h'",
-        "#{b}/r.gsql" => "TRACK cb = count() LAST '1h'; LOOKUP pa = ca FROM #{a}",
-        "#{c}/r.gsql" => "LOOKUP pb = cb FROM #{b}",
-      }
-
-      old = previous(files)
-
-      changed =
-        files
-        |> Map.delete("#{a}/r.gsql")
-        |> Map.put("#{c}/r.gsql", "LOOKUP renamed = cb FROM #{b}")
-
-      prep = RuleSet.prepare(changed)
-      assert {:error, _} = prep.tables[b]
-      assert {:error, _} = prep.tables[c]
-      selected = Guardian.Rules.Activation.select(prep, old)
-      assert selected.retained == MapSet.new([a, b, c])
-      for table <- [a, b, c], do: assert(selected.tables[table] == {:ok, old[table]})
-    end
-  end
-
-  test "retargeting a LOOKUP connects old and new target components during retention" do
-    files = %{
-      "a/r.gsql" => "TRACK ca = count() LAST '1h'",
-      "b/r.gsql" => "LOOKUP prior = ca FROM a",
-      "c/r.gsql" => "TRACK cc = count() LAST '1h'",
-    }
-
-    old = previous(files)
-
-    changed =
-      files
-      |> Map.put("a/r.gsql", "SET")
-      |> Map.put("b/r.gsql", "LOOKUP prior = cc FROM c")
-      |> Map.put("c/r.gsql", "TRACK cc = sum(amount) LAST '1h'")
-
-    preparation = RuleSet.prepare(changed)
-    assert {:ok, _} = preparation.tables["b"]
-    selected = Guardian.Rules.Activation.select(preparation, old)
-    assert selected.retained == MapSet.new(["a", "b", "c"])
-    for table <- ["a", "b", "c"], do: assert(selected.tables[table] == {:ok, old[table]})
+    assert {:error, _} = changed.tables["a"]
+    assert {:error, _} = changed.tables["new"]
+    refute Map.has_key?(changed.tables, "deleted")
   end
 
   test "target invalidity crosses three locally valid dependency levels" do
@@ -715,44 +534,5 @@ defmodule Guardian.Rules.CounterPlanTest do
       assert {:ok, _} = preparation.candidates[table]
       assert {:error, [%{kind: :counter_target}]} = preparation.tables[table]
     end
-  end
-
-  test "disjoint retained components report only their own failure causes" do
-    files = %{
-      "a/r.gsql" => "TRACK ca = count() LAST '1h'",
-      "x/r.gsql" => "LOOKUP prior = ca FROM a",
-      "b/r.gsql" => "TRACK cb = count() LAST '1h'",
-      "y/r.gsql" => "LOOKUP prior = cb FROM b",
-    }
-
-    old = previous(files)
-
-    changed =
-      files
-      |> Map.put("x/r.gsql", "SET")
-      |> Map.put("y/r.gsql", "SET")
-      |> Map.put("new_a/r.gsql", "LOOKUP prior = ca FROM a")
-      |> Map.put("new_b/r.gsql", "LOOKUP prior = cb FROM b")
-
-    selected = Guardian.Rules.Activation.select(RuleSet.prepare(changed), old)
-    assert {:error, [%{message: a_cause}]} = selected.tables["new_a"]
-    assert {:error, [%{message: b_cause}]} = selected.tables["new_b"]
-    assert a_cause =~ "component (x)"
-    assert b_cause =~ "component (y)"
-    assert selected.retained == MapSet.new(["a", "b", "x", "y"])
-  end
-
-  test "a present valid table connected only by a prior edge retains its prior plan" do
-    files = %{
-      "a/r.gsql" => "TRACK c = count() LAST '1h'",
-      "b/r.gsql" => "LOOKUP prior = c FROM a",
-    }
-
-    old = previous(files)
-    changed = files |> Map.put("a/r.gsql", "SET") |> Map.put("b/r.gsql", "SET x = 2")
-    preparation = RuleSet.prepare(changed)
-    assert {:ok, _} = preparation.tables["b"]
-    selected = Guardian.Rules.Activation.select(preparation, old)
-    assert selected.tables["b"] == {:ok, old["b"]}
   end
 end

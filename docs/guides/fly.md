@@ -172,6 +172,9 @@ them, which is more than one from four machines on). Fly caps the check's grace 
 at 1 minute, so `wait_timeout` is what covers a slow boot: `fly deploy`, rollbacks
 included, waits that long for each machine to pass its check. Raise it if boots get
 slower. A new release that fails its check stops the deploy without rolling back.
+A machine whose rule store is unreachable waits for it at boot, so it fails its check
+until the store answers and a rolling deploy stops there, leaving the other machines
+running.
 
 Then create a volume for the new machine, the same way as for the first, and add the
 machine:
