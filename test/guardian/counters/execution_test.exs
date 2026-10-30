@@ -328,9 +328,7 @@ defmodule Guardian.Counters.ExecutionTest do
       current = Integer.floor_div(event.arrival.unix_ms, definition.bucket_ms)
 
       assert :ok =
-               Store.cas({definition.identity, {}, current - 1}, :missing, 1.0, 5_000, now(),
-                 server: store
-               )
+               Store.add({definition.identity, {}, current - 1}, 1.0, 5_000, now(), server: store)
 
       assert track(definition, {}, [1], event) === 1
 
@@ -339,18 +337,18 @@ defmodule Guardian.Counters.ExecutionTest do
     end
   end
 
-  test "CAS conflicts have three total attempts and uncertain writes are never retried" do
+  test "lost races have three total attempts and uncertain writes are never retried" do
     parent = self()
 
     # The timeout comes last because it sets a cooldown. A retry would then answer
     # {:error, :cooldown} without reaching the probe, which the result below would catch.
-    for failure <- [:conflict, :timeout] do
+    for failure <- [:not_stored, :timeout] do
       store =
         scripted(fn
           {:gets, _} ->
             :not_found
 
-          {:cas, _, :missing, 5, _ttl} ->
+          {:add, _, 5, _ttl} ->
             send(parent, :attempt)
             {:error, failure}
         end)
@@ -358,7 +356,7 @@ defmodule Guardian.Counters.ExecutionTest do
       assert run([KeyMachines.merge(@sum, key("k"), 5, expiry())], store) == [{:error, failure}]
       assert_receive :attempt
 
-      if failure == :conflict do
+      if failure == :not_stored do
         assert_receive :attempt
         assert_receive :attempt
       end
@@ -367,7 +365,60 @@ defmodule Guardian.Counters.ExecutionTest do
     end
   end
 
-  test "a conflict retry refetches and merges the new current state" do
+  test "add, cas and cas of a vanished row share the three attempts" do
+    answers =
+      start_supervised!({Agent, fn -> [:not_found, {:ok, 3, :token}, {:ok, 3, :token}] end})
+
+    store =
+      scripted(fn
+        {:gets, _} -> Agent.get_and_update(answers, fn [next | rest] -> {next, rest} end)
+        {:add, _, _, _} -> {:error, :not_stored}
+        {:cas, _, :token, _, _} -> :not_found
+      end)
+
+    assert run([KeyMachines.merge(@sum, key("k"), 5, expiry())], store) ==
+             [{:error, :not_found}]
+
+    assert [
+             [{:gets, _}],
+             [{:add, _, _, _}],
+             [{:gets, _}],
+             [{:cas, _, _, _, _}],
+             [{:gets, _}],
+             [{:cas, _, _, _, _}],
+           ] = for(_ <- 1..6, do: round_ops())
+
+    refute_received {:round, _}
+  end
+
+  test "a cas that keeps finding another token finishes with that error" do
+    store =
+      scripted(fn
+        {:gets, _} -> {:ok, 3, :token}
+        {:cas, _, :token, _, _} -> {:error, :exists}
+      end)
+
+    assert run([KeyMachines.merge(@sum, key("k"), 5, expiry())], store) == [{:error, :exists}]
+  end
+
+  test "a cas that keeps finding no row defaults the statement, not just its bucket" do
+    definition = tracked({"sum", 1}, 3_600_000)
+
+    store =
+      start_supervised!(
+        {ProbeStore,
+         fn
+           {:get, _} -> {:ok, 40}
+           {:gets, _} -> {:ok, 1, 7}
+           {:cas, _, _, _, _} -> :not_found
+         end}
+      )
+
+    assert track(definition, {}, [5], event(store)) ==
+             Aggregation.default(Aggregation.fetch!("sum"))
+  end
+
+  test "a lost cas refetches and merges the new current state" do
     definition = tracked({"sum", 1}, 3_600_000)
     attempt = start_supervised!({Agent, fn -> 0 end})
     parent = self()
@@ -380,13 +431,13 @@ defmodule Guardian.Counters.ExecutionTest do
              :not_found
 
            {:gets, _} ->
-             {:ok, if(Agent.get(attempt, & &1) == 0, do: 3, else: 5), make_ref()}
+             {:ok, if(Agent.get(attempt, & &1) == 0, do: 3, else: 5), 1}
 
            {:cas, _, _, merged, _} ->
              send(parent, {:merged, merged})
 
              if Agent.get_and_update(attempt, &{&1, &1 + 1}) == 0,
-               do: {:error, :conflict},
+               do: {:error, :exists},
                else: :ok
          end}
       )
@@ -493,7 +544,7 @@ defmodule Guardian.Counters.ExecutionTest do
     refute_receive {:get, _}, 10
   end
 
-  test "a slow gets cannot dispatch a CAS after fixed expiry" do
+  test "a slow gets cannot dispatch an add after fixed expiry" do
     definition = tracked({"sum", 1}, 1_000)
     parent = self()
 
@@ -511,7 +562,7 @@ defmodule Guardian.Counters.ExecutionTest do
                Process.sleep(25)
                :not_found
 
-             {:cas, _, _, _, _} ->
+             {:add, _, _, _} ->
                :ok
            end
          end}
@@ -532,7 +583,7 @@ defmodule Guardian.Counters.ExecutionTest do
            ) == nil
 
     assert_receive {:gets, _}
-    refute_receive {:cas, _, _, _, _}, 10
+    refute_receive {:add, _, _, _}, 10
   end
 
   test "healthy large batches refund the budget and include every event", %{store: store} do

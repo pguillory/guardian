@@ -26,7 +26,7 @@ defmodule Guardian.Counters.Transport do
   @spec route(tuple(), Context.t()) :: {:ok, node()} | {:error, :invalid_request}
   def route(operation, %Context{members: members}) do
     with true <- is_tuple(operation) and tuple_size(operation) in [2, 4, 5],
-         kind when kind in [:get, :gets, :incr, :cas] <- elem(operation, 0),
+         kind when kind in [:get, :gets, :add, :incr, :cas] <- elem(operation, 0),
          true <- anchored_expiry_valid?(operation),
          {:ok, routing} <- routing_key(elem(operation, 1)) do
       {:ok, owner(routing, members)}
@@ -147,6 +147,10 @@ defmodule Guardian.Counters.Transport do
 
   # Validate before admission; subtraction at dispatch must receive an integer.
   # Other operands remain Store's responsibility, including ordinary TTLs.
+  defp anchored_expiry_valid?({:add, _, _, {:expires, expiry}}) do
+    is_integer(expiry)
+  end
+
   defp anchored_expiry_valid?({:incr, _, _, {:expires, expiry}}) do
     is_integer(expiry)
   end
@@ -157,6 +161,10 @@ defmodule Guardian.Counters.Transport do
 
   defp anchored_expiry_valid?(_) do
     true
+  end
+
+  defp prepare_operation({:add, key, value, {:expires, expiry}}) do
+    mutation(expiry, fn ttl -> {:add, key, value, ttl} end)
   end
 
   defp prepare_operation({:incr, key, delta, {:expires, expiry}}) do

@@ -384,7 +384,7 @@ defmodule Guardian.Counters.ClientPeerTest do
         value <- [{:error, :unavailable}, [{:error, :timeout}, {:error, :unavailable}]] do
       context = event(server, members: members)
       stored_key = key({System.unique_integer([:positive])})
-      assert batch_one({:cas, stored_key, :missing, value, 5_000}, context) == :ok
+      assert batch_one({:add, stored_key, value, 5_000}, context) == :ok
       assert batch_one({:get, stored_key}, context) == {:ok, value}
       assert {:ok, ^value, _token} = batch_one({:gets, stored_key}, context)
       assert CounterBudgetHelper.remaining_us(context.batch) == 250_000
@@ -392,15 +392,14 @@ defmodule Guardian.Counters.ClientPeerTest do
     end
   end
 
-  test "peer get/gets/CAS/incr carry native terms and reference tokens", %{peer_node: peer} do
+  test "peer get/gets/add/CAS/incr carry native terms and integer tokens", %{peer_node: peer} do
     CounterBudgetHelper.relax([peer])
     context = event(Store, members: [peer])
     key = key({System.unique_integer([:positive])})
     value = %{nested: [nil, 1, 1.0, {"native", true}]}
-    assert batch_one({:cas, key, :missing, value, 5_000}, context) == :ok
+    assert batch_one({:add, key, value, 5_000}, context) == :ok
     assert {:ok, ^value, token} = batch_one({:gets, key}, context)
-    assert {table, version} = token
-    assert is_reference(table) and is_integer(version)
+    assert is_integer(token)
     assert batch_one({:cas, key, token, 3, 5_000}, context) == :ok
     assert batch_one({:incr, key, 2, 5_000}, context) == {:ok, 5}
 
@@ -445,8 +444,7 @@ defmodule Guardian.Counters.ClientPeerTest do
         key = key({System.unique_integer([:positive])})
         opts = [server: server, timeout: 5_000]
 
-        assert :erpc.call(owner, Store, :cas, [key, :missing, state, 5_000, now(owner), opts]) ==
-                 :ok
+        assert :erpc.call(owner, Store, :add, [key, state, 5_000, now(owner), opts]) == :ok
 
         assert {:ok, restored, token} = :erpc.call(owner, Store, :gets, [key, now(owner), opts])
         assert :erlang.term_to_binary(restored) == encoded
@@ -612,7 +610,7 @@ defmodule Guardian.Counters.ClientPeerTest do
           context =
             event(batch, Store, members: [peer], timeout_ms: 15)
 
-          batch_one({:cas, key, :missing, payload, 5_000}, context)
+          batch_one({:add, key, payload, 5_000}, context)
         end
 
       assert Enum.all?(outcomes, &(&1 in [{:error, :timeout}, {:error, :budget_exhausted}]))

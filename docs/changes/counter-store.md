@@ -16,6 +16,8 @@ stores use named ETS lookup and a reserved descriptor row in that same table;
 there is no process on the production read/write path. Unnamed stores also accept
 PIDs, resolving the table through a process dictionary field, or direct table IDs.
 Captured table IDs and generation-bound tokens cannot target a replacement store.
+(Tokens are no longer generation-bound, creation is add, and cas sets expiry and has new
+answers: see `docs/changes/cas-integer-token.md`.)
 ETS uses read concurrency, automatic write concurrency and decentralized counters.
 
 Keys are deterministic ETF binaries so CAS select_replace and expired-key deletion

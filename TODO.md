@@ -74,6 +74,8 @@ privately, not in this repository.
 - [x] rule-lock-once: the rule write lock is tried once and a held lock fails at once as
       busy; the only retry, a few seconds, is in the MCP write_rule and delete_rule tools
       (`docs/changes/rule-lock-once.md`)
+- [x] cas-integer-token: Counters.Store CAS tokens are one random integer and Store
+      follows memcached's add/cas names and answers (`docs/changes/cas-integer-token.md`)
 - [x] local-store-lock-races: pin concurrent ETag puts and local lease creation/takeover;
       document unbounded contention and defer queued locking while Rules.Server is
       the only production writer (`docs/changes/local-store-lock-races.md`)

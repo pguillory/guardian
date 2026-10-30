@@ -436,7 +436,8 @@ whole result on any failed operation, and leaves SET/UNSET failures fail closed.
 Buckets retain the complete oldest intersecting interval (overcount bias).
 TTL durations decrease toward bucket_end+window, anchored to private monotonic
 arrival coordinates; network/queue transit can delay physical expiry. Only
-definite CAS conflicts retry, with three total attempts within Budget limits.
+definite lost races retry (add found a row, cas found another token or no row),
+with three total attempts within Budget limits.
 It adds no external service. SET/UNSET-only events capture private arrival/routing
 metadata but make no counter-store calls. Counter identities include table, output
 name and the SHA-256 of canonical TRACK source; LOOKUP plans bind target identities.
@@ -480,7 +481,7 @@ absolute byte constant and has no cap of its own; Store's payload checks and mem
 target still apply.
 
 One GenServer owns one public ETS set, with {encoded_key, value, expires_at,
-version} rows. Ordinary get/gets, create-if-missing, CAS and native increment run
+version} rows. Ordinary get/gets, add, CAS and native increment run
 directly in callers and remote handlers. Deterministic ETF binary keys make CAS
 select_replace and conditional expired deletion keyed operations, including for
 maps and match-spec atoms. This encoding is ephemeral and local to Store, separate
@@ -490,11 +491,17 @@ name/descriptor lookup; unnamed PID stores retrieve the table reference from the
 owner's process dictionary. A captured table reference cannot address a replacement
 generation after restart. Suspending the named housekeeper does not stall callers.
 
-Incr uses one update_counter list to change the integer value and assign a fresh
-positive unique version through a threshold/reset operation. CAS tokens contain the
-table reference and version, preventing reuse across updates, eviction/recreation
-and restart. CAS keeps the existing expiry; creation sets it once from the owner's
-positive millisecond TTL. Reads treat expiry<=now as missing. When a physically
+The API follows memcached. Incr uses one update_counter list to change the integer
+value and assign a fresh random version through a threshold/reset operation; unlike
+memcached's, it creates a missing key. Add creates only if absent. CAS applies only to
+an existing row, and answers exists for another token and not_found for no live row.
+A CAS token is that version alone, one 59-bit random integer from crypto, so it stays
+a small integer. Each write replaces it, which guards against reuse across updates,
+eviction/recreation and restart by chance rather than by construction: a stale token,
+or one from another store or an earlier table, matches a live row only with
+probability 2^-59 per attempt, and would then overwrite the updates since its read
+in an advisory counter. Add and CAS set expiry from the owner's positive millisecond TTL; incr
+keeps the existing expiry. Reads treat expiry<=now as missing. When a physically
 present expired row is reused, conditional deletion plus one retry permits creation
 without deleting a concurrent fresh row. Ordinary bucket identities advance and
 do not revisit expired keys. A second expired increment returns a definite :expired
@@ -559,7 +566,7 @@ batched rounds (`run_state_machines/2`) and restores the per-counter lists
 (`Guardian.Lists`). Each round sends its pending operations through
 one `Counters.Client.batch/2` call, which runs them on their owners, then feeds
 responses back in order. `Guardian.Counters.KeyMachines` supplies read, native incr,
-and gets/merge/CAS callbacks. Buckets combine oldest to newest, resolving once;
+and gets/merge/add-or-cas callbacks. Buckets combine oldest to newest, resolving once;
 any failed bucket defaults its whole statement. LOOKUP ancestors and LOOKUP levels
 drain before any TRACK level. Scalar work finishes before a level dispatches, and
 UNSETs remain last.
@@ -569,8 +576,8 @@ input order;
 owners run concurrently within the reservation budget. Pending owners wait for
 any completed pipeline's refund instead of defaulting while allowances are merely
 reserved. With a small remaining allowance, a slow owner can delay pending owners
-until it completes or times out. A pipeline with any failed operation except CAS
-conflict charges one
+until it completes or times out. A pipeline with any failed operation except a lost
+add or CAS race charges one
 owner wait, using its completion timestamp; healthy pipelines refund fully.
 Anchored bucket expiries become decreasing TTLs when each pipeline dispatches.
 Remote operations call Store directly
@@ -586,7 +593,7 @@ Runner calls `new_batch/0` outside workers and `new_event/2` on worker event ent
 One event has a 100 ms wall-clock counter phase; operations use at most 50 ms and
 skip without dispatch below 10 ms remaining. A shared atomics handle reserves from
 250 ms of failed-call wait per batch, survives rule-worker replacement, and refunds
-healthy calls fully (including misses/CAS conflicts). Failed calls refund unused
+healthy calls fully (including misses and lost add/CAS races). Failed calls refund unused
 allowance; a killed caller conservatively spends its outstanding reservation.
 This event wall-clock deadline is deliberately stricter than summing call time.
 Healthy calls can still accumulate latency across events; the batch allowance

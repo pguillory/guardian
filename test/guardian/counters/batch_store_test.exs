@@ -2,16 +2,16 @@ defmodule Guardian.Counters.BatchStoreTest do
   use ExUnit.Case, async: true
   alias Guardian.Counters.Store
 
-  test "a pipeline preserves operation order, missing versus nil, conflicts and malformed replies" do
+  test "a pipeline preserves operation order, missing versus nil, lost adds and malformed replies" do
     store = start_supervised!({Store, name: nil})
 
     assert Store.batch(
              [
                {:get, :k},
-               {:cas, :k, :missing, nil, 5_000},
+               {:add, :k, nil, 5_000},
                {:get, :k},
                {:incr, :k, 1, 5_000},
-               {:cas, :k, :missing, 3, 5_000},
+               {:add, :k, 3, 5_000},
                :bad,
              ],
              System.monotonic_time(:millisecond),
@@ -23,7 +23,7 @@ defmodule Guardian.Counters.BatchStoreTest do
                 :ok,
                 {:ok, nil},
                 {:error, :not_integer},
-                {:error, :conflict},
+                {:error, :not_stored},
                 {:error, :invalid_request},
               ]}
 

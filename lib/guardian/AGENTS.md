@@ -19,7 +19,7 @@ prefix. Keep the Mix application and its configuration under `:guardian`.
 - `Guardian.Rules`: ingest-time SET/UNSET/TRACK/LOOKUP rules stored as files (`lib/guardian/rules/AGENTS.md`).
 - `Guardian.ObjectStore`: the generic object-store client (S3/R2 and a local folder) and
   its lease lock on a key (`lib/guardian/object_store/AGENTS.md`); Rules is its caller.
-- `Guardian.Counters.Store`: node-local, ephemeral ETS get/gets/cas/incr store with TTLs and
+- `Guardian.Counters.Store`: node-local, ephemeral ETS get/gets/add/cas/incr store with TTLs and
   a memory budget (`lib/guardian/counters/AGENTS.md`); Rules runs TRACK/LOOKUP through
   `Guardian.Counters.Execution` using bounded owner routing and fail-open defaults.
 - `Guardian.Counters.Client`: facade for batched counter calls; internal Transport owns routing

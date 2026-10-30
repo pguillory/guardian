@@ -262,7 +262,7 @@ defmodule Guardian.Rules.CounterRulesTest do
     context = event(store)
     current = Integer.floor_div(context.arrival.unix_ms, definition.bucket_ms)
     older = {definition.identity, {}, current - 1}
-    assert :ok = Store.cas(older, :missing, {[9], 1}, 5_000, now(), server: store)
+    assert :ok = Store.add(older, {[9], 1}, 5_000, now(), server: store)
 
     # Unlike a failed bucket, a failed combination is reported as a rule warning.
     log =
@@ -354,7 +354,7 @@ defmodule Guardian.Rules.CounterRulesTest do
              {:get, _} -> :not_found
              {:gets, _} -> :not_found
              {:incr, _, _, _} -> {:ok, 1}
-             {:cas, _, _, _, _} -> :ok
+             {:add, _, _, _} -> :ok
            end)}
         end}}
     )
@@ -449,7 +449,7 @@ defmodule Guardian.Rules.CounterRulesTest do
     assert Enum.all?(hd(rounds), &match?({:get, _}, &1))
     assert Enum.count(Enum.at(rounds, 1), &match?({:incr, _, _, _}, &1)) == 1
     assert Enum.count(Enum.at(rounds, 1), &match?({:gets, _}, &1)) == 1
-    assert [{:cas, _, _, _, _}] = Enum.at(rounds, 2)
+    assert [{:add, _, _, _}] = Enum.at(rounds, 2)
     refute_receive {:pipeline_ops, _}, 10
 
     # Against a real store, the LOOKUP and TRACK group on the SET's output.

@@ -459,7 +459,7 @@ and no single request that takes the service down or destroys stored data.
    individual oversized payloads are refused. About every second, bulk expiry
    reclamation precedes sampled earliest-expiry cutoff eviction. Tied expiries may
    discard every live bucket. Operations never run housekeeping; reads check expiry,
-   mutations retain insertion expiry, and expired-key reuse has bounded conditional
+   incr retains insertion expiry, add and cas set it, and expired-key reuse has bounded conditional
    cleanup. Operations have local deadlines and fixed errors; formatted status
    redacts state/messages/logs/reasons, and housekeeping callback failures replace
    exception details and stack arguments with fixed text/arities.

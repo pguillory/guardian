@@ -45,7 +45,8 @@ defmodule Guardian.Counters.ClientTest do
       for expiry <- [nil, :bad, "bad", [], %{}, {}, 0.0, 1.0e30],
           operation <- [
             {:incr, key(), 1, {:expires, expiry}},
-            {:cas, key(), :missing, 1, {:expires, expiry}},
+            {:add, key(), 1, {:expires, expiry}},
+            {:cas, key(), 1, 1, {:expires, expiry}},
           ],
           do: operation
 
@@ -70,10 +71,16 @@ defmodule Guardian.Counters.ClientTest do
 
     operations = %{
       incr: {:incr, key(), 1, {:expires, nil}},
-      cas: {:cas, key(), :missing, 1, {:expires, "bad"}},
+      add: {:add, key(), 1, {:expires, "bad"}},
+      cas: {:cas, key(), 1, 1, {:expires, "bad"}},
     }
 
-    errors = %{incr: {:error, :invalid_request}, cas: {:error, :invalid_request}}
+    errors = %{
+      incr: {:error, :invalid_request},
+      add: {:error, :invalid_request},
+      cas: {:error, :invalid_request},
+    }
+
     assert named(operations, context) == errors
     assert CounterBudgetHelper.remaining_us(context.batch) == 0
 
@@ -91,30 +98,30 @@ defmodule Guardian.Counters.ClientTest do
     context = event(store, CounterBudgetHelper.relaxed_options())
     expiry = System.monotonic_time(:millisecond) + 60_000
     incr_key = key({}, 2)
-    cas_key = key({}, 3)
+    add_key = key({}, 3)
 
     assert named(
              %{
                bad_incr: {:incr, key(), 1, {:expires, nil}},
-               bad_cas: {:cas, key(), :missing, 1, {:expires, "bad"}},
+               bad_add: {:add, key(), 1, {:expires, "bad"}},
                read: {:get, key()},
                incr: {:incr, incr_key, 2, {:expires, expiry}},
-               cas: {:cas, cas_key, :missing, 3, {:expires, expiry}},
+               add: {:add, add_key, 3, {:expires, expiry}},
                expired: {:incr, key({}, 4), 1, {:expires, expiry - 120_000}},
              },
              context
            ) == %{
              bad_incr: {:error, :invalid_request},
-             bad_cas: {:error, :invalid_request},
+             bad_add: {:error, :invalid_request},
              read: :not_found,
              incr: {:ok, 2},
-             cas: :ok,
+             add: :ok,
              expired: {:error, :expired},
            }
 
     assert Store.get(key(), now(), server: store) == :not_found
     assert Store.get(incr_key, now(), server: store) == {:ok, 2}
-    assert Store.get(cas_key, now(), server: store) == {:ok, 3}
+    assert Store.get(add_key, now(), server: store) == {:ok, 3}
     assert CounterBudgetHelper.remaining_us(context.batch) == 250_000
     assert :ets.lookup(:counter_client_test, node()) == []
   end
@@ -129,8 +136,9 @@ defmodule Guardian.Counters.ClientTest do
     ops = [
       {:incr, key({}, 1), 1, {:expires, elapsed}},
       {:incr, key({}, 2), 2, {:expires, live}},
-      {:cas, key({}, 3), :missing, 3, {:expires, elapsed}},
+      {:add, key({}, 3), 3, {:expires, elapsed}},
       {:get, key({}, 2)},
+      {:cas, key({}, 2), 1, 4, {:expires, elapsed}},
       {:incr, key({}, 5), 4, {:expires, elapsed}},
     ]
 
@@ -140,6 +148,7 @@ defmodule Guardian.Counters.ClientTest do
                {:ok, 2},
                {:error, :expired},
                {:ok, 2},
+               {:error, :expired},
                {:error, :expired},
              ]
 
@@ -289,10 +298,10 @@ defmodule Guardian.Counters.ClientTest do
     store: store,
   } do
     context = event(store, CounterBudgetHelper.relaxed_options())
-    assert batch_one({:cas, key(), :missing, nil, 5_000}, context) == :ok
+    assert batch_one({:add, key(), nil, 5_000}, context) == :ok
     assert {:ok, nil, token} = batch_one({:gets, key()}, context)
     assert batch_one({:cas, key(), token, 7, 5_000}, context) == :ok
-    assert batch_one({:cas, key(), token, 8, 5_000}, context) == {:error, :conflict}
+    assert batch_one({:cas, key(), token, 8, 5_000}, context) == {:error, :exists}
     assert batch_one({:incr, key(), 2, 5_000}, context) == {:ok, 9}
 
     assert named(
@@ -300,7 +309,7 @@ defmodule Guardian.Counters.ClientTest do
              context
            ) == %{missing: :not_found, present: {:ok, 9}}
 
-    assert batch_one({:cas, key({}, 3), :missing, "text", 5_000}, context) == :ok
+    assert batch_one({:add, key({}, 3), "text", 5_000}, context) == :ok
     assert batch_one({:incr, key({}, 3), 1, 5_000}, context) == {:error, :not_integer}
     assert :ets.lookup(:counter_client_test, node()) == []
   end

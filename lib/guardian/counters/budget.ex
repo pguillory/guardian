@@ -86,7 +86,11 @@ defmodule Guardian.Counters.Budget do
     end
   end
 
-  defp failed?({:error, :conflict}) do
+  defp failed?({:error, :exists}) do
+    false
+  end
+
+  defp failed?({:error, :not_stored}) do
     false
   end
 

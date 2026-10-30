@@ -2,8 +2,10 @@ defmodule Guardian.Counters.Store do
   @moduledoc """
   Ephemeral counters in one public ETS set. Callers operate on atomic rows; the
   owner only sweeps expiry and reclaims memory. Stored nil differs from missing.
-  Mutations retain the expiry established at insertion. A CAS token stands for one
-  exact stored row, and any mutation, including incr, invalidates it atomically.
+  The API follows memcached: get, gets, add, cas and incr, with its answers. Incr
+  retains the expiry established at insertion; cas sets a new one, as memcached's
+  does. A CAS token is one random integer stamped on the row by each write, so any
+  mutation, including incr, replaces it atomically.
 
   The default 64 MiB budget charges ETS bytes plus encoded keys, values and retained
   binary backing. Housekeeping enforces it asynchronously; concurrent writes can
@@ -22,21 +24,23 @@ defmodule Guardian.Counters.Store do
     * **CAS** (compare-and-swap) is a write that succeeds only if the key is still
       as it was when read. Read with `gets/3`, compute the new value, then write it
       with `cas/6`. If another writer got in between, `cas/6` answers
-      `{:error, :conflict}` and nothing is stored.
-    * A **token** is what `gets/3` returns beside the value: an opaque stamp of the
-      stored row at that moment. `cas/6` accepts it as `expected`. Every write to the
-      key invalidates earlier tokens, so an old token never matches. `:missing`
-      stands in for a token when the key is expected to be absent.
+      `{:error, :exists}` and nothing is stored. To create a key, use `add/5`.
+    * A **token** is what `gets/3` returns beside the value: a stamp of the stored
+      row at that moment, which `cas/6` hands back. It is one random 59-bit integer,
+      and callers treat it as opaque. Every write gives the key a new one, so an old
+      token, or one from another store or from before a restart, matches only by a
+      1 in 2^59 chance per attempt. Such a match would overwrite whatever updates
+      came since the read, in an advisory counter.
     * An **anchor** is not a Store concept: Store takes only a relative `ttl`.
       Absolute (anchored) expiries are converted before they reach it; see
       `Guardian.Counters.Transport` and `Guardian.Counters.Arrival`.
     * A **ttl** is a positive number of milliseconds, counted from `now`, that a
-      newly created row lives. Expired rows read as missing and are deleted by the
+      row lives after `add/5`, `cas/6` or an `incr/5` that creates it. Expired rows read as missing and are deleted by the
       housekeeping sweep.
 
   Besides the per-operation results documented on each function, failures are fixed
   atoms that never carry keys or values: `{:error,
-  :invalid_request}` for a bad `now`, options, operation or expected token;
+  :invalid_request}` for a bad `now`, options, operation or token;
   `{:error, :timeout}` when the deadline passes; `{:error, :too_large}` when the
   payload would exceed the memory budget; and `{:error, :unavailable}` when the
   store is missing or not ready, or an operation fails unexpectedly. Counters are
@@ -85,10 +89,10 @@ defmodule Guardian.Counters.Store do
   Reads the value under `key` together with a CAS token, for a later `cas/6`.
 
   Returns `{:ok, value, token}`, or `:not_found` when the key is missing or has
-  expired (a caller that wants to create it then passes `:missing` to `cas/6`).
-  The token is an opaque value standing for the exact stored row that was read;
-  hand it back to `cas/6` unchanged and do nothing else with it. Any write to the
-  key, including an `incr/5` with delta 0, invalidates earlier tokens.
+  expired (a caller that wants to create it then uses `add/5`). The token stands
+  for the stored row that was read; hand it back to `cas/6` unchanged and do nothing
+  else with it. Any write to the key, including an `incr/5` with delta 0, replaces
+  it (see Terms for the chance of a match).
   """
   def gets(key, now, opts) do
     request({:gets, key}, now, opts)
@@ -98,39 +102,49 @@ defmodule Guardian.Counters.Store do
   Runs a list of operations in order and returns `{:ok, responses}`, one response
   per operation, each as the matching single call would give.
 
-  Operations are `{:get, key}`, `{:gets, key}`, `{:incr, key, delta, ttl}` and
-  `{:cas, key, expected, value, ttl}`, with the arguments of `get/3`, `gets/3`,
-  `incr/5` and `cas/6`. All of them are judged against the one `now`. There is no
+  Operations are `{:get, key}`, `{:gets, key}`, `{:add, key, value, ttl}`,
+  `{:incr, key, delta, ttl}` and `{:cas, key, token, value, ttl}`, with the
+  arguments of `get/3`, `gets/3`, `add/5`, `incr/5` and `cas/6`. All of them are judged against the one `now`. There is no
   snapshot or rollback: other callers can write between operations, and an
   operation that fails neither undoes nor blocks the others, except that the
   one deadline is checked before each operation: once it passes, that operation and
   every later one answers `{:error, :timeout}`. A nested `:stats` is also accepted.
-  More than 4,000
-  operations, or something that is not a list, is `{:error, :invalid_request}` for
-  the whole call.
+  More than 4,000 operations, or something that is not a list, is
+  `{:error, :invalid_request}` for the whole call.
   """
   def batch(operations, now, opts) do
     request({:batch, operations}, now, opts)
   end
 
   @doc """
-  Compare-and-swap: stores `value` under `key` only if the key is unchanged since
-  it was read.
+  Creates `key` holding `value`, only if it is absent, like memcached's add.
 
-  `expected` is either the token from `gets/3`, which must still match the stored
-  row, or `:missing`, which requires that no live row exists. Returns `:ok`
-  after storing, or `{:error, :conflict}` when someone wrote since the read, the
-  key expired or vanished, the token came from another store or is stale, or a
-  live row exists when `:missing` was given. A conflict is a normal answer, not a failure:
-  re-read with `gets/3` and try again. A malformed `expected` is
-  `{:error, :invalid_request}`, as is a `ttl` that is not a positive integer.
-
-  A new row expires `ttl` milliseconds after `now`. Replacing an existing row keeps
-  its original expiry and ignores `ttl`. An expired row found while creating with
-  `:missing` is replaced, as a new row with the new expiry.
+  Returns `:ok` after storing, or `{:error, :not_stored}` when a live row exists. A
+  lost race is a normal answer, not a failure: re-read with `gets/3` and try again.
+  An expired row is replaced. The new row expires `ttl` milliseconds after `now`; a
+  `ttl` that is not a positive integer is `{:error, :invalid_request}`.
   """
-  def cas(key, expected, value, ttl, now, opts) do
-    request({:cas, key, expected, value, ttl}, now, opts)
+  def add(key, value, ttl, now, opts) do
+    request({:add, key, value, ttl}, now, opts)
+  end
+
+  @doc """
+  Compare-and-swap, like memcached's cas: replaces the value of an existing row only
+  if `token` from `gets/3` still matches it. It never creates a key.
+
+  Returns `:ok` after storing, `{:error, :exists}` when a live row holds a different
+  token, or `:not_found` when there is no live row, even if an expired row still
+  carries that token. Nothing is stored in the last two cases, and both are normal
+  answers: re-read with `gets/3` and try again. Which of the two comes back is read
+  just after the failed swap, so a concurrent write or expiry can tip it either way.
+  A non-integer `token` is `{:error, :invalid_request}`, as is a `ttl` that is not a
+  positive integer.
+
+  The row then expires `ttl` milliseconds after `now`, replacing its old expiry, so
+  repeated calls with fresh ttls keep it alive.
+  """
+  def cas(key, token, value, ttl, now, opts) do
+    request({:cas, key, token, value, ttl}, now, opts)
   end
 
   @doc """
@@ -139,9 +153,9 @@ defmodule Guardian.Counters.Store do
 
   A new row expires `ttl` milliseconds after `now` (`ttl` must be a positive
   integer); an existing row keeps its original expiry. Every successful call,
-  including one with delta 0, changes the row for CAS purposes and so invalidates
-  earlier `gets/3` tokens for it. Other results: `{:error, :not_integer}` when the key holds a
-  non-integer value, and `{:error, :expired}` when the key has expired. A row found
+  including one with delta 0, gives the row a new token, so earlier `gets/3` tokens
+  stop matching (see Terms for the chance of a match). Other results:
+  `{:error, :not_integer}` when the key holds a non-integer value, and `{:error, :expired}` when the key has expired. A row found
   expired (or lost in a race with a concurrent change) is deleted and recreated
   once; `:expired` is returned when the retry fails the same way, so callers
   can treat it as a definite failure. Unlike `cas/6`, there is no read first:
@@ -324,7 +338,7 @@ defmodule Guardian.Counters.Store do
     with :ok <- before_deadline(deadline) do
       case :ets.lookup(state.entries, key) do
         [{_, value, expiry, version}] when expiry > now ->
-          if kind == :get, do: {:ok, value}, else: {:ok, value, {state.entries, version}}
+          if kind == :get, do: {:ok, value}, else: {:ok, value, version}
 
         _ ->
           :not_found
@@ -341,19 +355,21 @@ defmodule Guardian.Counters.Store do
     end
   end
 
-  defp execute({:cas, key, expected, value, ttl}, state, now, deadline)
+  defp execute({:add, key, value, ttl}, state, now, deadline)
        when is_integer(ttl) and ttl > 0 do
-    # Legacy reference tokens remain well-formed foreign tokens: they conflict.
-    if expected == :missing or is_reference(expected) or
-         (is_tuple(expected) and tuple_size(expected) == 2 and
-            is_reference(elem(expected, 0)) and is_integer(elem(expected, 1))) do
-      key = encode(key)
+    key = encode(key)
 
-      with :ok <- fits(state, key, value), :ok <- before_deadline(deadline) do
-        compare_swap(state, key, expected, value, now + ttl, now, deadline)
-      end
-    else
-      {:error, :invalid_request}
+    with :ok <- fits(state, key, value), :ok <- before_deadline(deadline) do
+      add_row(state.entries, key, value, now + ttl, now, deadline)
+    end
+  end
+
+  defp execute({:cas, key, token, value, ttl}, state, now, deadline)
+       when is_integer(token) and is_integer(ttl) and ttl > 0 do
+    key = encode(key)
+
+    with :ok <- fits(state, key, value), :ok <- before_deadline(deadline) do
+      swap_row(state.entries, key, token, value, now + ttl, now)
     end
   end
 
@@ -372,40 +388,44 @@ defmodule Guardian.Counters.Store do
     :erlang.term_to_binary(key, [:deterministic])
   end
 
+  # 59 bits stay small integers, and crypto rather than :rand because Transport's
+  # workers are fresh processes: a first :rand draw has far fewer effective bits.
   defp version do
-    System.unique_integer([:positive, :monotonic])
+    <<random::59, _::5>> = :crypto.strong_rand_bytes(8)
+    random
   end
 
-  defp compare_swap(state, key, :missing, value, expiry, now, deadline) do
-    if :ets.insert_new(state.entries, {key, value, expiry, version()}) do
+  defp add_row(table, key, value, expiry, now, deadline) do
+    if :ets.insert_new(table, {key, value, expiry, version()}) do
       :ok
     else
       with :ok <- before_deadline(deadline) do
-        if delete_expired(state.entries, key, now) == 1 do
+        if delete_expired(table, key, now) == 1 do
           with :ok <- before_deadline(deadline) do
-            if :ets.insert_new(state.entries, {key, value, expiry, version()}),
+            if :ets.insert_new(table, {key, value, expiry, version()}),
               do: :ok,
-              else: {:error, :conflict}
+              else: {:error, :not_stored}
           end
         else
-          {:error, :conflict}
+          {:error, :not_stored}
         end
       end
     end
   end
 
-  defp compare_swap(%{entries: table}, key, {table, expected}, value, _expiry, now, _deadline) do
+  defp swap_row(table, key, token, value, expiry, now) do
     count =
       :ets.select_replace(table, [
-        {{key, :"$1", :"$2", expected}, [{:>, :"$2", now}],
-         [{{key, {:const, value}, :"$2", version()}}]},
+        {{key, :_, :"$1", token}, [{:>, :"$1", now}],
+         [{{key, {:const, value}, expiry, version()}}]},
       ])
 
-    if count == 1, do: :ok, else: {:error, :conflict}
-  end
-
-  defp compare_swap(_, _, _, _, _, _, _) do
-    {:error, :conflict}
+    cond do
+      count == 1 -> :ok
+      # Reads only the expiry, so a large value is not copied to tell these apart.
+      :ets.lookup_element(table, key, 3, now) > now -> {:error, :exists}
+      true -> :not_found
+    end
   end
 
   defp increment(state, key, delta, expiry, now, deadline, retry?) do

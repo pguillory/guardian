@@ -16,8 +16,8 @@ defmodule Guardian.Counters.Execution do
 
   The production machines (read, incr, merge) finish in at most six rounds: every
   operation gets a response, failures included, read and incr finish on
-  their first response, and merge retries only definite CAS conflicts, with three
-  total attempts.
+  their first response, and merge retries only definite lost races (add found a row,
+  cas found another token or no row), with three total attempts.
   """
   alias Guardian.Aggregation
   alias Guardian.Counters.Arrival

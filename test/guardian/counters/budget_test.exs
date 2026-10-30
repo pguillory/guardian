@@ -22,7 +22,8 @@ defmodule Guardian.Counters.BudgetTest do
     responses = [
       :ok,
       :not_found,
-      {:error, :conflict},
+      {:error, :exists},
+      {:error, :not_stored},
       {:ok, [{:error, :unavailable}, {:error, :timeout}]},
       {:ok, [{:error, :timeout}], :opaque_token},
     ]

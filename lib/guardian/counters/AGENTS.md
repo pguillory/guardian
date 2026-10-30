@@ -18,13 +18,22 @@ Start it after Guardian.Rules.Server and before Storage, under the existing
 Supervisor/Restarter boundary. Invalid options refuse startup. Restart isolation,
 backoff and process-presence stats remain as specified in system.md section 2.1.
 
-1. Preserve missing versus stored nil. get/gets use lookup; CAS uses keyed
-   select_replace with a fully bound binary key and constant replacement values.
-   Missing CAS uses insert_new. Native incr uses one update_counter list for the
-   value, a fresh positive unique version (threshold/reset), and expiry readout.
-   Tokens carry table generation and version; every mutation, including delta zero,
-   invalidates prior tokens. Never expose the token's representation as a product API.
-2. Expiry is `now` plus the initial positive TTL, retained by updates. Every
+1. Preserve missing versus stored nil. The API follows memcached's names and answers:
+   get/gets use lookup; add uses insert_new (`{:error, :not_stored}` over a live row);
+   cas uses keyed select_replace with a fully bound binary key and constant replacement
+   values, and answers `{:error, :exists}` for another token or `:not_found` for no live
+   row, told apart by an expiry read after the failed swap. Unlike memcached, incr
+   creates a missing key, which keeps one count one atomic operation. Native incr uses
+   one update_counter list for the value, a fresh random version (threshold/reset, so
+   versions are never negative), and expiry readout. The token is that version alone:
+   59 random bits from crypto (`:rand`'s first draw in a fresh process, which every
+   Transport worker is, has far fewer effective bits). Every mutation, including delta
+   zero, replaces it, so a stale token or one from another store or an earlier table
+   matches only by a 1 in 2^59 chance per attempt, and would then overwrite the
+   updates since its read.
+   Never expose the token's representation as a product API.
+2. Expiry is `now` plus the TTL given when the row is created, or `now` plus the TTL of
+   a successful cas, as memcached's cas replaces it; incr retains it. Every
    time-dependent Store operation takes `now` as a required argument (owner-local
    monotonic ms, read by Transport on the owner at dispatch; one `now` per request,
    so a batch judges and sets expiry as of its start). Housekeeping reads the real
@@ -33,7 +42,7 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    Reads treat expiry<=now as missing. A physically present expired key can be
    conditionally deleted and reused with one retry; ordinary bucket traffic does
    not revisit expired bucket identities. Check deadlines after key encoding
-   and before retries. Stale CAS never recreates a key. A second expired increment
+   and before retries. Cas never creates a key. A second expired increment
    returns :expired, a definite failure alongside :not_integer and :too_large.
 3. One tagged timer chain runs bulk expiry deletion about every second. Memory
    reclamation samples up to 256 expiries and deletes through their median cutoff;
@@ -78,7 +87,7 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    Store validates request options explicitly (`:invalid_request`) and catches any
    other request failure as `:unavailable`; that catch is its deliberate boundary for
    direct callers and the remote endpoint. Transport's `route/2` checks
-   anchored increment/CAS expiries are integers before grouping or admission, so
+   anchored add/increment/CAS expiries are integers before grouping or admission, so
    malformed expiries return `:invalid_request` without reserving allowance.
    `dispatch/2` takes only operations `route/2` accepted, which `Client.batch/2`
    ensures. It rescues nothing: bad membership is a programming error that Execution
@@ -124,7 +133,7 @@ monotonic arrival milliseconds (`Guardian.Counters.Arrival`).
    of failed-call allowance. `new_event(batch)` snapshots members and starts a
    100 ms wall-clock counter phase. Every operation uses at most 50 ms, skips below
    10 ms remaining, and reserves atomically before dispatch. Healthy responses
-   (including missing and CAS conflict) refund the full allowance. Failures refund
+   (including missing and lost add/CAS races) refund the full allowance. Failures refund
    unused wait; caller death conservatively retains its outstanding reservation.
 2. Local deadlines stay anchored to dispatch; remote endpoints translate a
    remaining duration onto their own clock. Transit and dispatched mutations can
@@ -150,7 +159,7 @@ operations must be non-nil, and a callback returning `{:next, nil, state}` raise
 as a programming error (`docs/changes/counter-machine-nil-operation.md`).
 `Guardian.Counters.Execution` runs every pending machine of a level together per
 round (below). `Guardian.Counters.KeyMachines` implements
-read, incr and gets/merge/CAS response callbacks; these three always finish, in at
+read, incr and gets/merge/add-or-cas response callbacks; these three always finish, in at
 most six rounds, while an arbitrary callback passed to `Machine.new/3` carries no
 such guarantee. Machine errors remain errors:
 missing keys alone default at the bucket layer; a failed bucket defaults the whole
@@ -177,7 +186,7 @@ Any failed bucket defaults its whole statement quietly; missing buckets use empt
 states. Exceptions (expansion, the round, combination) come back as
 `{:error, kind}` for Runtime to log. Whole intersecting buckets bias reads toward
 overcount: floor((arrival-W)/B) through floor(arrival/B), B=ceil(W/3). Native
-count increments and generic gets/merge/CAS use their returned state, never a
+count increments and generic gets/merge/add-or-cas use their returned state, never a
 post-update read. Zero-count deltas and unchanged generic states skip mutation.
 TTLs count down to one anchored monotonic expiry derived from bucket_end+W;
 transit can still delay physical expiry at the owner. Execution's inputs are
@@ -215,6 +224,7 @@ for ETS/erpc. HLL registers are fixed size; arbitrary, min/max and `_by` states
 retain an input-sized value, `_n` states up to n of them, and exact count/avg
 integer sizes grow logarithmically rather than having an
 absolute byte cap. Preserve Store's payload refusal and asynchronous memory target.
-Counter execution, with at most three total CAS attempts for definite conflicts
-only, is `Guardian.Counters.Execution`. See `docs/changes/shared-aggregates.md`,
+Counter execution, with at most three total write attempts for definite lost races
+only (add found a row, cas found another token or no row), is
+`Guardian.Counters.Execution`. See `docs/changes/shared-aggregates.md`,
 `docs/changes/counter-retirement.md` and `docs/changes/aggregates-unify.md`.
