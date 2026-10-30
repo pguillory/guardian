@@ -559,6 +559,13 @@ defmodule Guardian.QueryTest do
                Guardian.Query.execute("select max_n(1, -1)")
     end
 
+    test "returns a Guardian.Query.Error from resolving the query" do
+      message = "SELECT * needs FROM and a table name"
+      assert Guardian.Query.execute("select *") == {:error, message}
+      assert Guardian.Query.execute("select * from 1") == {:error, message}
+      assert Guardian.Query.execute("let x = *; select x") == {:error, message}
+    end
+
     test "raises other resolution errors without calling on_parse_error" do
       on_parse_error = fn error -> flunk("unexpected #{inspect(error)}") end
 

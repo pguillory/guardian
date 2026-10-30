@@ -304,6 +304,8 @@ privately, not in this repository.
 - [x] select-schema-on-demand: only `SELECT *` looks up table schemas while
       resolving; other SELECTs make no cluster schema call before they run
       (`docs/changes/select-schema-on-demand.md`)
+- [x] select-star-without-table: `SELECT *` with no FROM, or a FROM that is not a
+      table name, crashed resolution (an internal error); it is now a query error
 - [ ] statement-node-set: compute a statement's node set once, so a hung peer's 5 s
       readiness check is paid once per query and a `SELECT *`'s resolve and FROM see
       the same nodes

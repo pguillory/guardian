@@ -58,9 +58,10 @@ defmodule Guardian.Query do
   Returns `{:ok, labels, rows}`, with the column labels taken from the statement
   before LET substitution. Returns
   `{:error, message}` for a failure of the query itself: zero or several statements,
-  or a `Guardian.Query.Error` from `run/1` (a resource limit, a regular expression over its
-  backtracking limit). Only running is covered by that rescue; anything raised while resolving (a
-  `Guardian.AST.ParseError`, a failed schema lookup) propagates.
+  a `Guardian.Query.Error` from resolving (`SELECT *` without a table), or one from
+  `run/1` (a resource limit, a regular expression over its backtracking limit).
+  Anything else raised while resolving (a `Guardian.AST.ParseError`, a failed schema
+  lookup) propagates.
 
   Options:
   - `:on_parse_error`, a one-argument function called with the `Guardian.AST.ParseError` before
@@ -71,6 +72,9 @@ defmodule Guardian.Query do
           {:ok, [String.t()], [list()]} | {:error, String.t()}
   def execute(sql, opts \\ []) when is_binary(sql) do
     case resolve(sql, Keyword.get(opts, :on_parse_error, fn _error -> :ok end)) do
+      {:error, message} ->
+        {:error, message}
+
       [{statement, labels}] ->
         try do
           run(statement)
@@ -91,6 +95,9 @@ defmodule Guardian.Query do
   defp resolve(sql, on_parse_error) when is_function(on_parse_error, 1) do
     Guardian.Query.Resolver.resolve(sql)
   rescue
+    error in Guardian.Query.Error ->
+      {:error, Exception.message(error)}
+
     error in Guardian.AST.ParseError ->
       stacktrace = __STACKTRACE__
       on_parse_error.(error)

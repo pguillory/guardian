@@ -97,6 +97,12 @@ defmodule Guardian.Web.QueryLogTest do
       assert [%{"error_kind" => "query", "outcome" => "error"}] = rows_for(sql)
     end
 
+    test "a SELECT * without a table records kind query" do
+      sql = "LET #{marker()} = 1; SELECT *"
+      assert {:error, "SELECT * needs FROM and a table name"} = run(sql)
+      assert [%{"error_kind" => "query", "outcome" => "error"}] = rows_for(sql)
+    end
+
     test "a parse error is reraised unchanged and records kind parse" do
       sql = "SELECT FROM #{marker()} WHERE"
       assert {:raised, %Guardian.AST.ParseError{} = error} = run(sql)

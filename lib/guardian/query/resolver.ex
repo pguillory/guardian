@@ -211,9 +211,13 @@ defmodule Guardian.Query.Resolver do
     update_in(statement.select_exprs, fn select_exprs ->
       Enum.flat_map(select_exprs, fn
         %Splat{} ->
-          %Identifier{name: table} = statement.from_expr
-          keys = Map.fetch!(columns, table)
-          Enum.map(keys, &%Identifier{name: &1})
+          case statement.from_expr do
+            %Identifier{name: table} ->
+              columns |> Map.fetch!(table) |> Enum.map(&%Identifier{name: &1})
+
+            _ ->
+              raise Guardian.Query.Error, message: "SELECT * needs FROM and a table name"
+          end
 
         expr ->
           [expr]
