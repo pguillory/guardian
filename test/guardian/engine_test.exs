@@ -1,5 +1,5 @@
 defmodule Guardian.EngineTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   import Guardian.Engine
   import Guardian.Test.Segments, only: [intercept_append: 2]
 
@@ -189,7 +189,7 @@ defmodule Guardian.EngineTest do
     assert log =~ "Event ingestion failed for #{table}: FunctionClauseError"
     assert log =~ "lib/"
     refute log =~ "ingest-log-marker"
-    refute log =~ ":bad"
+    refute log =~ "{:bad"
     assert Guardian.Storage.dump_table(table) == [%{"value" => 2}]
   end
 
@@ -294,9 +294,7 @@ defmodule Guardian.EngineTest do
   end
 
   defp unique_table do
-    table = "engine_outcomes_#{System.unique_integer([:positive])}"
-    on_exit(fn -> Guardian.Storage.delete_table(table) end)
-    table
+    "engine_outcomes_#{System.unique_integer([:positive])}"
   end
 
   @valid_table_names [

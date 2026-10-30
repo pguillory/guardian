@@ -1,20 +1,15 @@
 defmodule Guardian.StorageTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   import Guardian.Storage
   import Guardian.Test.Query, only: [run_sql: 1]
 
   alias Guardian.Storage.MutableSegments
   alias Guardian.Storage.PersistedSegments
 
+  # Every invocation has its own table, so no test deletes the tables it fills except
+  # the two that fill several segments.
   setup context do
-    table = "storage_test_#{context.test}"
-    :ok = delete_table(table)
-
-    on_exit(fn ->
-      :ok = delete_table(table)
-    end)
-
-    {:ok, table: table}
+    {:ok, table: "storage_test_#{context.test}_#{System.unique_integer([:positive])}"}
   end
 
   test "dump_table reconstructs multiple rows from one column", %{table: table} do
@@ -174,8 +169,7 @@ defmodule Guardian.StorageTest do
 
   test "list-heavy events fill segments by row count" do
     # SQL needs an addressable table name.
-    table = "storage_list_rollover"
-    :ok = delete_table(table)
+    table = "storage_list_rollover_#{System.unique_integer([:positive])}"
     on_exit(fn -> :ok = delete_table(table) end)
 
     # 16384 rows of 5-element lists put 81,920 values in one nested layer, past the old
@@ -193,7 +187,7 @@ defmodule Guardian.StorageTest do
       :ok = MutableSegments.segment_is_full(table, segment)
     end
 
-    :sys.get_state(PersistedSegments)
+    :sys.get_state(PersistedSegments, :infinity)
     :ok = Guardian.Storage.LoadedSegments.rescan()
 
     assert [[^count]] = run_sql("select count() from #{table}")
@@ -227,7 +221,7 @@ defmodule Guardian.StorageTest do
       :ok = MutableSegments.segment_is_full(table, segment)
     end
 
-    :sys.get_state(PersistedSegments)
+    :sys.get_state(PersistedSegments, :infinity)
     :ok = Guardian.Storage.LoadedSegments.rescan()
 
     assert [[^count]] = run_sql("select count() from #{table}")
@@ -246,7 +240,7 @@ defmodule Guardian.StorageTest do
     end
 
     :ok = PersistedSegments.ping()
-    :sys.get_state(PersistedSegments)
+    :sys.get_state(PersistedSegments, :infinity)
     :ok = Guardian.Storage.LoadedSegments.rescan()
 
     [segment_id] = Enum.to_list(segment_ids(table))

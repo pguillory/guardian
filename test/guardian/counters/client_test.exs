@@ -1,4 +1,5 @@
 defmodule Guardian.Counters.ClientTest do
+  # Not async: starts a connected peer node, which changes every test on this node.
   use ExUnit.Case, async: false
   import Guardian.Counters.Client
   alias Guardian.Counters.Budget

@@ -1,5 +1,5 @@
 defmodule Guardian.FormatterTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   @root Path.expand("../..", __DIR__)
 

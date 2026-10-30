@@ -1,4 +1,5 @@
 defmodule Guardian.Rules.IngestTest do
+  # Not async: with_rules writes the shared rule store and tests set the application env.
   use ExUnit.Case, async: false
   import Guardian.Test.Rules
 

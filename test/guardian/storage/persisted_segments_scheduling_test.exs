@@ -1,4 +1,5 @@
 defmodule Guardian.Storage.PersistedSegmentsSchedulingTest do
+  # Not async: suspends the node-wide PersistedSegments server.
   use ExUnit.Case, async: false
 
   alias Guardian.Storage.FullSegments

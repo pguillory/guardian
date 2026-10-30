@@ -1,4 +1,5 @@
 defmodule Guardian.Test.EnvTest do
+  # Not async: it exercises the node-wide application env.
   use ExUnit.Case, async: false
   import Guardian.Test.Env
 

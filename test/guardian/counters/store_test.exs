@@ -1,5 +1,5 @@
 defmodule Guardian.Counters.StoreTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   import Guardian.Counters.Store
 
   alias Guardian.Counters.Store

@@ -1,4 +1,5 @@
 defmodule Guardian.Counters.RuntimeTest do
+  # Not async: a test refutes "[error]" in captured log output, which sees every process.
   use ExUnit.Case, async: false
   import ExUnit.CaptureLog
   import Guardian.Test.Polling, only: [eventually: 1]

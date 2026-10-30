@@ -1,4 +1,5 @@
 defmodule Guardian.Web.IngestRetryTest do
+  # Not async: one test restarts a supervised child of the application.
   use ExUnit.Case, async: false
 
   @api_key Application.compile_env!(:guardian, :admin_api_key)

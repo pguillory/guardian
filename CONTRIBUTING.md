@@ -58,6 +58,27 @@ covers several modules. A struct or module name used as a value (`%Event{}`, a
 supervisor child) still needs its alias, alongside the import. Nothing checks this;
 follow it in new tests and when you edit old ones.
 
+## Test isolation
+
+Tests assume every table starts empty, and each test uses its own table. The test run
+gets a fresh data directory, so no test needs to delete or truncate a table before it
+starts, and a table that stays behind after a test cannot affect another one. Name each
+test's tables uniquely per invocation (`"orders_#{System.unique_integer([:positive])}"`),
+because repeated passes (`--repeat-until-failure`) share one VM and data directory.
+That is also what lets tests run concurrently: mark the module `async: true`.
+
+The principle is that things that don't need to interfere shouldn't. This is about
+robustness and the ability to scale the suite, not multi-tenancy: Guardian has no
+tenants. Rely on the system's own isolation (storage, rules and queries are per table)
+instead of mocks and explicit cleanup. Delete a table only when it holds so much
+that leaving it would slow later tests.
+
+A module stays `async: false` only when it touches something shared by the whole VM:
+the application env or OS environment, a restart or suspension of an
+application-supervised process, a connected peer node, VM-wide counts of processes or
+mappings, node-wide counter budgets, the shared rule store, log capture that must see
+only its own events, or the system tables. Say which in a one-line comment above `use ExUnit.Case`.
+
 Put new shared test infrastructure under `Guardian.Test.*` in
 `libtest/guardian/test/`, split by concern; see the
 [test support namespace](docs/changes/test-support-namespace.md) for existing helpers

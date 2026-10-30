@@ -1,5 +1,5 @@
 defmodule Guardian.Query.Function.GenerateUUIDTest do
-  use Guardian.Query.EvaluationTestCase, async: false
+  use Guardian.Query.EvaluationTestCase, async: true
   alias Guardian.Storage.Column
 
   test "generate_uuid function" do

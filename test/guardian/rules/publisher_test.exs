@@ -1,4 +1,5 @@
 defmodule Guardian.Rules.PublisherTest do
+  # Not async: stops and restarts the node-wide Rules.Server.
   use ExUnit.Case, async: false
   import Guardian.Rules.Publisher
   import Guardian.Test.Rules

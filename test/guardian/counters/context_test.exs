@@ -1,4 +1,5 @@
 defmodule Guardian.Counters.ContextTest do
+  # Not async: relaxes the node-wide counter budgets.
   use ExUnit.Case, async: false
   alias Guardian.Counters.Budget
   alias Guardian.Counters.Client

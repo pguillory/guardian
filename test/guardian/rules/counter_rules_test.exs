@@ -4,6 +4,8 @@ defmodule Guardian.Rules.CounterRulesTest do
   compiled modules, Runner and Engine. Counter execution's own behavior (buckets,
   expiries, CAS, budgets) is tested in `Guardian.Counters.ExecutionTest`.
   """
+  # Not async: with_rules writes the shared rule store; sets the application env and
+  # captures log output.
   use ExUnit.Case, async: false
   import Guardian.Test.Rules
   alias Guardian.Aggregation

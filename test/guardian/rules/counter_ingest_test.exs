@@ -1,4 +1,6 @@
 defmodule Guardian.Rules.CounterIngestTest do
+  # Not async: with_rules writes the shared rule store; relaxes the node-wide counter
+  # budgets and restarts the counter store.
   use ExUnit.Case, async: false
   import Guardian.Test.Rules
   alias Guardian.Counters.Store

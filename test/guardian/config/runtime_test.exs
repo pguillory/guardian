@@ -1,4 +1,5 @@
 defmodule Guardian.Config.RuntimeTest do
+  # Not async: tests set OS environment variables, which are node-wide.
   use ExUnit.Case, async: false
 
   import ExUnit.CaptureIO

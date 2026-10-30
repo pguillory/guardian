@@ -1,4 +1,5 @@
 defmodule Guardian.Rules.CounterReloadTest do
+  # Not async: relaxes the node-wide counter budgets and restarts the node-wide Rules.Server.
   use ExUnit.Case, async: false
   import Guardian.Test.Rules
 
