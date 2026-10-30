@@ -195,7 +195,8 @@ claude mcp add --transport http guardian https://<your-host>/mcp \
 
 Guardian writes some tables of its own:
 
-- `system_stats`: Erlang VM metrics, once a second.
+- `system_stats`: Erlang VM metrics and operating-system and native resource counts,
+  once a second.
 - `web_requests` and `web_responses`: one pair per authenticated JSON API request.
   `auth_key` says which key it was (`ingest` or `admin`; rows from older releases may
   say `legacy`); the key itself isn't

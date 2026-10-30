@@ -1,10 +1,10 @@
 defmodule Guardian.Counters.ClientPeerTest do
   @moduledoc """
-  Client across connected peers, and the local tests that scan for Transport's helper
-  processes. `Guardian.Counters.ClientTest` has the rest.
+  Client across connected peers, and the local tests that find Transport's helper
+  processes by scanning. `Guardian.Counters.ClientTest` has the rest.
   """
   # Not async: starts a connected peer node, which changes every test on this node, and
-  # counts helper processes across the whole VM.
+  # finds helper processes by scanning the whole VM.
   use ExUnit.Case, async: false
   @moduletag :cluster
   import Guardian.Counters.Client
@@ -179,7 +179,6 @@ defmodule Guardian.Counters.ClientPeerTest do
     send(stalled, :release)
     assert CounterBudgetHelper.remaining_us(limited) < 10_000
     refute_receive {:pipeline, _, _, _}, 10
-    Guardian.Test.Polling.eventually(fn -> counter_helpers() == [] end)
     assert {:messages, []} = Process.info(self(), :messages)
   end
 
@@ -266,7 +265,6 @@ defmodule Guardian.Counters.ClientPeerTest do
     assert_receive {:pipeline, ^sixth, _, [_]}
     Enum.each(probes, fn {member, pid} -> if member != later, do: send(pid, :release) end)
     assert Task.await(task) == Map.new(members, &{&1, {:ok, 1}})
-    Guardian.Test.Polling.eventually(fn -> counter_helpers() == [] end)
     assert {:messages, []} = Process.info(self(), :messages)
     :erpc.call(peer, GenServer, :stop, [:counter_pipeline_store])
   end
@@ -315,7 +313,6 @@ defmodule Guardian.Counters.ClientPeerTest do
 
     assert :erpc.call(peer, Store, :get, [remote_key, now(peer), [server: remote]]) == :not_found
     :erpc.call(peer, GenServer, :stop, [remote])
-    Guardian.Test.Polling.eventually(fn -> counter_helpers() == [] end)
     assert {:messages, []} = Process.info(self(), :messages)
   end
 
@@ -570,7 +567,7 @@ defmodule Guardian.Counters.ClientPeerTest do
     end
   end
 
-  test "deadline races leave neither helper processes nor reply messages" do
+  test "deadline races leave no reply messages" do
     store = start_supervised!({Task, fn -> delayed_store() end})
 
     for _ <- 1..80 do
@@ -580,7 +577,6 @@ defmodule Guardian.Counters.ClientPeerTest do
       assert batch_one({:get, key()}, context) in [:not_found, {:error, :timeout}]
     end
 
-    Guardian.Test.Polling.eventually(fn -> counter_helpers() == [] end)
     assert {:messages, []} = Process.info(self(), :messages)
   end
 
@@ -620,7 +616,6 @@ defmodule Guardian.Counters.ClientPeerTest do
       # deadline: the stopped peer never drains, so such a call would hang. The
       # timeout count, not this bound, proves the shared cap.
       assert System.monotonic_time(:millisecond) - started < 1_500
-      Guardian.Test.Polling.eventually(fn -> counter_helpers() == [] end)
       assert {:messages, []} = Process.info(self(), :messages)
     after
       {_, 0} = System.cmd("/bin/kill", ["-CONT", os_pid])

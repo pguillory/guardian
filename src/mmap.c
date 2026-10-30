@@ -26,7 +26,7 @@ struct mapping {
 
 static ErlNifResourceType * mapping_type;
 
-// Mappings whose destructor has not yet run. Tests use it to check release.
+// Mappings whose destructor has not yet run, reported in system_stats.
 static atomic_llong live_mappings = 0;
 
 static ERL_NIF_TERM ok_atom;

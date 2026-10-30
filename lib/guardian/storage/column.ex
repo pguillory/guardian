@@ -29,6 +29,12 @@ defmodule Guardian.Storage.Column do
   defdelegate allocated_size(column), to: NIF
 
   @doc """
+  Native column resources not yet released, across the VM. Their buffers are
+  `malloc`ed, so `:erlang.memory/0` does not count them.
+  """
+  defdelegate live_columns, to: NIF
+
+  @doc """
   The packed size of a column of `count` nils: its header and top-level bitmaps.
 
   Padding a column with nils adds exactly the growth of this size, so

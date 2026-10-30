@@ -26,9 +26,11 @@ Shared helpers live under `Guardian.Test.*`, at matching paths in
 `Guardian.TestHelpers` is split by concern:
 
 1. `Guardian.Test.Query`: `resolve_sql/1`, `run_sql/1`, `with_time_limit/2`.
-2. `Guardian.Test.Polling`: `eventually/1,2`, `eventually_after_gc/1`.
-3. `Guardian.Test.Processes`: queued-call waits, stack-based process discovery and
-   waits for worker cleanup, on this node or peers.
+2. `Guardian.Test.Polling`: `eventually/1,2` (`eventually_after_gc/1` was removed by
+   [vm-wide-leak-tests](vm-wide-leak-tests.md)).
+3. `Guardian.Test.Processes`: queued-call waits and stack-based process discovery, on
+   this node or peers (the waits for worker cleanup were removed by
+   vm-wide-leak-tests).
 4. `Guardian.Test.Segments`: loaded-segment selection, nested-row appends, flat row
    reads (Storage tests only), segment file fixtures and one-call append fault
    injection.
@@ -59,8 +61,7 @@ Pure aggregate arguments and caller reduction measurement are async-safe when
 the workload is. Query and process helpers require the caller to isolate the
 workload and observed state. Segment helpers require isolated files, tables and
 segments; manipulating shared Storage processes requires serial tests.
-`eventually_after_gc/1` requests GC throughout the VM, so tests asserting global
-resource counts run serially. All existing test async flags are preserved.
+All existing test async flags are preserved.
 
 ## Validation
 

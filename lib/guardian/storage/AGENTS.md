@@ -26,7 +26,6 @@ The exceptions:
   `test/guardian/storage` only.
 - `test/guardian/query/segment_reader_contract_test.exs` tests Segment's reader
   contract under queries.
-- `test/guardian/query/temporaries_test.exs` finds Segment processes no manager owns.
 
 Query results are still checked through queries.
 

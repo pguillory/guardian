@@ -1210,8 +1210,13 @@ Guardian observes itself by writing ordinary tables through `Guardian.Engine.log
 8 lists their fields):
 
 1. `system_stats`: `Guardian.SystemStats` ticks once a second on a monotonic schedule and
-   writes Erlang VM counters. A failed write is skipped (warned once, until a write
-   succeeds) rather than crashing it every second. Each row's `host` is the
+   writes Erlang VM counters, plus `open_fd_count` (entries of `/proc/self/fd` or
+   `/dev/fd`), `rss_bytes` (`VmRSS` in `/proc/self/status`, Linux only) and
+   Storage's `native_counts/0` (atomic reads of the mmap and column NIFs' live
+   counters). Each operating-system read is non-raising and gives nil when unavailable.
+   These are how resource leaks are watched: the suite has no VM-wide resource-count
+   assertions. A failed write is skipped (warned once, until a write succeeds) rather
+   than crashing it every second. Each row's `host` is the
    machine's hostname (on Fly.io, its machine ID), which tells a cluster's machines
    apart when their hostnames differ; rows carry no Erlang node name.
 2. `web_requests` and `web_responses`: `Guardian.Web.Logger`, synchronously in the request. A
@@ -1628,10 +1633,9 @@ tests. Shared infrastructure lives under `Guardian.Test.*` in `libtest/guardian/
 `Guardian.Test.Query` resolves and runs SQL (`resolve_sql/1`, `run_sql/1`), scopes
 query time limits (`with_time_limit/2`, serial tests only) and names a query's
 process modules (`query_modules/0`). `Guardian.Test.Polling`
-holds `eventually/2` and `eventually_after_gc/1`; the latter requests GC throughout
-the VM, so global resource-count assertions require serial tests.
-`Guardian.Test.Processes` observes queued calls and pipeline worker stacks on this
-node or peers. `Guardian.Test.Segments` picks a full segment's loaded copy
+holds `eventually/2`.
+`Guardian.Test.Processes` observes queued calls and finds pipeline workers by their
+stacks on this node or peers. `Guardian.Test.Segments` picks a full segment's loaded copy
 (`loaded_segment/2`), appends nested rows (`segment_append/2`), writes segment files
 (`write_segment_file/2`), injects one-call append replies (`intercept_append/2`) and
 clears a built-in table's mutable segments so the injection is certain to be chosen

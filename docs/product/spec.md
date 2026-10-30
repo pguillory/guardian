@@ -722,8 +722,16 @@ they follow the same retention and query rules as producer tables.
 
 1. `system_stats`: one row per machine per second with Erlang VM metrics: memory by
    category, reductions, run queues, garbage collection, IO bytes, process, port, atom,
-   and ETS counts and limits, plus `timestamp` and `host`. Rows carry the machine's
-   hostname but no Erlang node name. `counters_available` is a boolean reporting
+   and ETS counts and limits, plus `timestamp` and `host`. It also has operating-system
+   and native resource metrics: `open_fd_count` (the Guardian process's open file
+   descriptors, sockets included), `mmap_count` (segment files mapped into memory),
+   `native_column_count` (live native column resources, whose buffers sit outside the
+   VM's allocators) and `rss_bytes` (the process's resident memory). `rss_bytes` is
+   read only on Linux and is null elsewhere; `open_fd_count` and `rss_bytes` are null
+   when they cannot be read. `rss_bytes` includes pages of mapped segment files, so it
+   moves with reads and page reclaim: read it as a trend. A number that keeps rising
+   over time is how a leak shows. Rows carry the machine's hostname but no Erlang node
+   name. `counters_available` is a boolean reporting
    whether the internal counter processes are present, sampled without waiting for
    them. Counter crashes recover automatically with backoff and do not make
    `/health` fail; this field does not measure counter responsiveness.

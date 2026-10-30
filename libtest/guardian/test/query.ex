@@ -8,8 +8,7 @@ defmodule Guardian.Test.Query do
 
   @doc """
   The modules a query's processes run code from: the query process and its pipeline
-  workers. Pass it to `Guardian.Test.Processes.processes_running/2` or
-  `await_no_processes_running/2` to find or await them.
+  workers. Pass it to `Guardian.Test.Processes.processes_running/2` to find them.
   """
   def query_modules do
     [Guardian.Query.DistributedStream, Guardian.Query, Guardian.Query.Executor]

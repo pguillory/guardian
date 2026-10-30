@@ -26,6 +26,7 @@ defmodule Guardian.Storage do
   - `schema/1`, `table_names/0`, `merge_schemas/2` - Inferred schemas
   - `delete_table/1`, `delete_segment/1` - Delete segments
   - `table_row_count/1`, `dump_table/1` - Expensive whole-table reads (tests)
+  - `native_counts/0` - Live file mappings and native columns, for `system_stats`
   - `ready?/0`, `data_dir/0`, `segment_dir/0`
 
   ## Storage Locations
@@ -44,6 +45,7 @@ defmodule Guardian.Storage do
   alias Guardian.Storage.Flattening
   alias Guardian.Storage.FullSegments
   alias Guardian.Storage.LoadedSegments
+  alias Guardian.Storage.Mmap
   alias Guardian.Storage.MutableSegments
   alias Guardian.Storage.PersistedSegments
   alias Guardian.Storage.Schema
@@ -337,6 +339,19 @@ defmodule Guardian.Storage do
     {:ok, persisted_tables} = Schema.get_tables()
     mutable_tables = MutableSegments.table_names()
     Enum.uniq(persisted_tables ++ mutable_tables) |> Enum.sort()
+  end
+
+  @doc """
+  Storage's native resources that `:erlang.memory/0` does not count, across the VM:
+  `mmap_count`, the segment-file mappings not yet unmapped, and
+  `native_column_count`, the column resources not yet released. Each is an atomic
+  read.
+  """
+  def native_counts do
+    [
+      mmap_count: Mmap.live_mappings(),
+      native_column_count: Column.live_columns(),
+    ]
   end
 
   def data_dir do

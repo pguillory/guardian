@@ -820,8 +820,7 @@ int append_term(ErlNifEnv * env, struct stack * stack, int layer_index, ERL_NIF_
   }
 }
 
-// Column resources whose destructor has not yet run. Tests use it to check that dropped
-// columns release their native buffers.
+// Column resources whose destructor has not yet run, reported in system_stats.
 static atomic_llong live_columns = 0;
 
 void free_column_resource(ErlNifEnv * env, void * obj) {

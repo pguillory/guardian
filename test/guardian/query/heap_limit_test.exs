@@ -1,9 +1,7 @@
 defmodule Guardian.Query.HeapLimitTest do
-  # Changes the global heap limit and counts live query processes, and starts a peer
-  # node, so it must not run beside other tests.
+  # Not async: changes the global heap limit and starts a peer node.
   use ExUnit.Case, async: false
   import Guardian.Test.Query
-  import Guardian.Test.Processes
 
   # The VM logs a report for each process its heap limit kills.
   @moduletag :capture_log
@@ -28,12 +26,6 @@ defmodule Guardian.Query.HeapLimitTest do
       end)
 
     Task.await(task, 30_000)
-  end
-
-  defp assert_no_query_processes_left do
-    await_no_processes_running(query_modules(),
-      except: [self()]
-    )
   end
 
   test "limit_heap/0 sets the limit: 256 MiB, or a test's own" do
@@ -73,7 +65,6 @@ defmodule Guardian.Query.HeapLimitTest do
 
     set_limit(1)
     assert run.() == {:exit, :killed}
-    assert_no_query_processes_left()
 
     set_limit(64)
     assert run.() == {:ok, [200_000, 200_000]}
@@ -91,7 +82,6 @@ defmodule Guardian.Query.HeapLimitTest do
       end)
 
     assert result == {:exit, :killed}
-    assert_no_query_processes_left()
   end
 
   test "a query over the limit (here sorting in its query process) fails with the heap message" do
@@ -118,7 +108,6 @@ defmodule Guardian.Query.HeapLimitTest do
     # The VM's report names the process and sizes, never the rows on its heap.
     assert log =~ "maximum heap size reached"
     refute log =~ marker
-    assert_no_query_processes_left()
 
     set_limit(256)
     assert length(run_sql("SELECT v, w FROM #{table} ORDER BY v DESC")) == 40_000

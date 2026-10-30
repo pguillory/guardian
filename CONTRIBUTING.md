@@ -73,9 +73,19 @@ MCP tool and API call, one success and one error. Storage is tested at its modul
 boundary. Any module with clean functions gets plenty of plain unit tests.
 
 Tests don't peek inside or touch processes; they don't kill, freeze or break internals;
-no timeout tests; no sleeps. Peer VM tests are tagged `:cluster` and excluded by
-default. Restart and durability aren't in the suite: an agent checks by hand (insert,
-stop, start, query) only when a change touches segment lifetimes or persistence.
+no timeout tests; no sleeps.
+
+Tests don't count resources across the whole VM: processes, ports, mappings, memory,
+open files, ETS tables, binaries. Where a specific operation promises cleanup, test
+that promise directly at the boundary: get the segment's file name, assert the file
+exists, delete the segment, assert the file is gone. Global leaks are watched in
+production through `system_stats`, which records memory, process, port and ETS counts,
+open file descriptors, segment-file mappings, native columns and resident memory: a
+number rising over time reveals a leak.
+
+Peer VM tests are tagged `:cluster` and excluded by default. Restart and durability
+aren't in the suite: an agent checks by hand (insert, stop, start, query) only when a
+change touches segment lifetimes or persistence.
 
 Run `mix test --include cluster` before every deploy. With no CI and the pre-commit
 hook on the default run, that is what keeps the cluster tests from rotting unseen.
@@ -104,8 +114,8 @@ answer, so a fake segment in an async test must answer `:schema` promptly, as
 
 A module stays `async: false` only when it touches something shared by the whole VM:
 the application env or OS environment, a restart or suspension of an
-application-supervised process, a connected peer node, VM-wide counts of processes or
-mappings, node-wide counter budgets, the shared rule store, log capture that must see
+application-supervised process, a connected peer node, a scan of every process on the
+node, node-wide counter budgets, the shared rule store, log capture that must see
 only its own events, or the system tables. Say which in a one-line comment above `use ExUnit.Case`.
 
 Put new shared test infrastructure under `Guardian.Test.*` in

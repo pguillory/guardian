@@ -29,13 +29,6 @@ defmodule Guardian.Query.SegmentReaderContractTest do
     loaded_segment(table, index)
   end
 
-  defp assert_no_query_processes_left do
-    await_no_processes_running(
-      query_modules(),
-      except: [self()]
-    )
-  end
-
   # Waits until some query worker is blocked reading a segment.
   defp await_blocked_reader do
     eventually(fn ->
@@ -121,7 +114,6 @@ defmodule Guardian.Query.SegmentReaderContractTest do
 
       assert %Guardian.Query.Error{message: message} = Task.await(task)
       assert message == "segment #{id} became unavailable during the query (:killed)"
-      assert_no_query_processes_left()
     end
 
     test "a segment deleted mid-query fails the query, naming it" do
@@ -136,7 +128,6 @@ defmodule Guardian.Query.SegmentReaderContractTest do
 
       assert %Guardian.Query.Error{message: message} = Task.await(task)
       assert message =~ "segment #{id} became unavailable during the query"
-      assert_no_query_processes_left()
     end
 
     test "a segment that dies while its column is read fails evaluation, naming it" do
@@ -217,7 +208,6 @@ defmodule Guardian.Query.SegmentReaderContractTest do
         end
       end)
 
-      assert_no_query_processes_left()
       assert Process.info(self(), :messages) == {:messages, []}
       assert Process.info(self(), :monitors) == {:monitors, []}
       :sys.resume(segment)
@@ -248,7 +238,6 @@ defmodule Guardian.Query.SegmentReaderContractTest do
       assert :timeout in outcomes
 
       assert Process.info(self(), :messages) == {:messages, []}
-      assert_no_query_processes_left()
     end
 
     test "the message names the configured limit" do

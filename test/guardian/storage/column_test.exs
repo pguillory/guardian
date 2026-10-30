@@ -27,6 +27,25 @@ defmodule Guardian.Storage.ColumnTest do
     assert column |> pack() |> to_list() === [123]
   end
 
+  test "a column survives its creator while another process holds it" do
+    parent = self()
+
+    {pid, ref} =
+      spawn_monitor(fn ->
+        column = new(0)
+        :ok = append(column, "kept")
+        send(parent, {:column, column})
+      end)
+
+    # Explicit timeouts: under load the spawned process can take longer than the
+    # 100 ms default to allocate the column and exit.
+    assert_receive {:column, column}, 5_000
+    assert_receive {:DOWN, ^ref, :process, ^pid, :normal}, 5_000
+    :erlang.garbage_collect()
+
+    assert to_list(column) == ["kept"]
+  end
+
   describe "resize" do
     test "pads, cuts, or keeps a packed column" do
       packed = from_list([1, "a", [2.5]])

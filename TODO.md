@@ -594,3 +594,7 @@ privately, not in this repository.
 - [x] test-env-helper: one generic test helper, `Guardian.Test.Env`, puts and restores
       `:guardian` application env on this node or on peers; four helpers that copied that
       code now delegate to it, and a fifth copy in the S3 tests was replaced by it
+- [x] vm-wide-leak-tests: tests no longer count resources across the whole VM; the
+      cleanup promises they guarded are tested on the specific process or file, and
+      `system_stats` records open descriptors, mappings, native columns and resident
+      memory to watch leaks in production (`docs/changes/vm-wide-leak-tests.md`)
