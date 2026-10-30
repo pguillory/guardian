@@ -5,8 +5,9 @@ defmodule Guardian.Lists do
   Reshaping and back: each inverse walks its shape once, taking heads, with no
   positional ids or index lookups, and raises when its inputs do not fit the shape.
 
-  - `flatten/1` and `unflatten/2`: concatenate a list of lists, then rebuild that
-    nesting from a flat list of the same total length.
+  - `flatten/1` and `unflatten/2`: flatten nested lists at any depth, then rebuild that
+    nesting from a flat list of the same total length. Any list in the shape is nesting,
+    so an item that is itself a list does not survive the round trip.
   - `filter/2` and `unfilter/3`: keep the matching items, then put replacements back
     in place of the items that matched.
   - `group/1` and `ungroup/2`: gather `{key, value}` pairs into `[{key, values}]`
@@ -16,24 +17,33 @@ defmodule Guardian.Lists do
   Merging: `merge_take/4` merges two lists already in order and keeps the first `n`.
   """
 
-  @doc "Concatenates a list of lists."
+  @doc "Flattens nested lists at any depth, like `List.flatten/1`."
   def flatten(lists) do
-    Enum.concat(lists)
+    List.flatten(lists)
   end
 
-  @doc "Splits `flat` into lists of the same lengths as the lists in `shape`."
+  @doc """
+  The inverse of `flatten/1`: rebuilds the nesting of `shape`, at any depth, with the
+  items of `flat` in order. Raises when `flat` has too few or too many items.
+  """
   def unflatten(flat, shape) do
-    {lists, []} = Enum.map_reduce(shape, flat, &take_like/2)
-    lists
+    {result, []} = take_like(shape, flat)
+    result
   end
 
   defp take_like([], rest) do
     {[], rest}
   end
 
-  defp take_like([_ | shape], [item | rest]) do
-    {items, rest} = take_like(shape, rest)
-    {[item | items], rest}
+  defp take_like([head | tail], rest) when is_list(head) do
+    {head, rest} = take_like(head, rest)
+    {tail, rest} = take_like(tail, rest)
+    {[head | tail], rest}
+  end
+
+  defp take_like([_ | tail], [item | rest]) do
+    {tail, rest} = take_like(tail, rest)
+    {[item | tail], rest}
   end
 
   @doc "The items for which `fun` returns true, in order."

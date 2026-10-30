@@ -12,6 +12,17 @@ defmodule Guardian.ListsTest do
     assert_raise MatchError, fn -> unflatten([1, 2, 3, 4], nested) end
   end
 
+  test "unflatten is the inverse of flatten at any depth" do
+    nested = [:a, [], [:b, [:c, [[]], :d]], [[[:e]]], :f]
+    assert flatten(nested) == [:a, :b, :c, :d, :e, :f]
+    assert unflatten(flatten(nested), nested) == nested
+    assert unflatten([1, 2, 3, 4, 5, 6], nested) == [1, [], [2, [3, [[]], 4]], [[[5]]], 6]
+    assert unflatten([], [[[]], []]) == [[[]], []]
+    assert unflatten([1, 2], [{:not, :nesting}, [%{not: :nesting}]]) == [1, [2]]
+    assert_raise FunctionClauseError, fn -> unflatten([1, 2], nested) end
+    assert_raise MatchError, fn -> unflatten([1, 2, 3, 4, 5, 6, 7], nested) end
+  end
+
   test "unfilter puts replacements back in place of matching items" do
     list = [1, :x, 2, :y, 3]
     assert filter(list, &is_atom/1) == [:x, :y]

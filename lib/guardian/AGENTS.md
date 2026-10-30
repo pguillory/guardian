@@ -90,8 +90,8 @@ single user next to that user instead.
   (`Guardian.ObjectStore.Local`). The directory entry is not fsynced. `temp_file?/1`
   recognizes its temp names, which the folder store's listing skips.
 - `Guardian.Lists` holds order-keeping list helpers. It reshapes lists and back:
-  flatten/unflatten, filter/unfilter and group/ungroup (sorted keys, per-key input
-  order). Each inverse takes heads in one pass, with no positional ids or index
+  flatten/unflatten (any depth), filter/unfilter and group/ungroup (sorted keys,
+  per-key input order). Each inverse takes heads in one pass, with no positional ids or index
   lookups (ungroup keys a map by the semantic key), and raises when its inputs do not
   fit the shape. `merge_take/4` merges two ordered lists, keeping the first `n`.
   Counter rounds (`Guardian.Counters.Execution`, `Guardian.Counters.Client`,
