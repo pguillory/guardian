@@ -2,8 +2,6 @@ defmodule Guardian.Counters.ClientTest do
   use ExUnit.Case, async: false
   import Guardian.Counters.Client
   alias Guardian.Counters.Budget
-  alias Guardian.Counters.Execution
-  alias Guardian.Counters.Machine
   alias Guardian.Counters.Transport
   alias Guardian.Counters.Store
   alias Guardian.Test.Counters.Budget, as: CounterBudgetHelper
@@ -46,21 +44,11 @@ defmodule Guardian.Counters.ClientTest do
     )
   end
 
-  # One round through route/2 and dispatch/2 in Counters.Execution's round loop,
-  # each operation a machine that finishes with its response; keyed like the
-  # operations map, which sets the input order. Using the real round loop (the
-  # module above Client) avoids re-implementing its routing, grouping and scatter.
-  # Machine.new/3 rejects a nil operation, so tests route nil directly.
-  defp batch(operations, context) do
+  # Client.batch/2 over named operations, answering by name. A map's order sets the
+  # input order; pass a list to choose it.
+  defp named(operations, context) do
     {ids, ops} = Enum.unzip(operations)
-
-    responses =
-      ops
-      |> Enum.map(&Machine.new(&1, nil, fn _op, response, _state -> {:done, response} end))
-      |> Execution.run_state_machines(context)
-      |> Enum.map(& &1.result)
-
-    ids |> Enum.zip(responses) |> Map.new()
+    ids |> Enum.zip(batch(ops, context)) |> Map.new()
   end
 
   defp route({identity, group, _bucket}) do
@@ -90,11 +78,19 @@ defmodule Guardian.Counters.ClientTest do
 
     members = [node(), peer]
 
-    ops =
-      for owner <- members, bucket <- 1..4, into: %{} do
+    # Buckets differ by owner and the probe echoes them, so an answer that lands on
+    # another owner's operation fails.
+    [local_ops, remote_ops] =
+      for {owner, base} <- [{node(), 10}, {peer, 20}] do
         {identity, group, _} = owned_key(owner, members)
-        {{owner, bucket}, {:get, {identity, group, bucket}}}
+        for n <- 1..4, do: {:get, {identity, group, base + n}}
       end
+
+    # Owners interleave, and a malformed operation sits among them.
+    {before, rest} =
+      remote_ops |> Enum.zip(local_ops) |> Enum.flat_map(&Tuple.to_list/1) |> Enum.split(3)
+
+    ops = before ++ [{:get, :bad_key}] ++ rest
 
     # Scaled budget (Guardian.Test.Counters.Budget): both held owners must dispatch concurrently
     # and wait for the test's release, which under host load can outlast a 50 ms call
@@ -118,15 +114,14 @@ defmodule Guardian.Counters.ClientTest do
 
     assert_receive {:pipeline, one, first, first_ops}
     assert_receive {:pipeline, two, second, second_ops}
-    assert one != two
-    assert length(first_ops) == 4
-    assert length(second_ops) == 4
+    assert %{one => first_ops, two => second_ops} == %{node() => local_ops, peer => remote_ops}
     send(first, :release)
     send(second, :release)
 
     assert Task.await(task) ==
-             Map.new(ops, fn {id, {:get, {_, _, bucket}}} ->
-               {id, {:ok, bucket}}
+             Enum.map(ops, fn
+               {:get, {_, _, bucket}} -> {:ok, bucket}
+               {:get, :bad_key} -> {:error, :invalid_request}
              end)
 
     assert CounterBudgetHelper.remaining_us(batch) == five
@@ -151,7 +146,7 @@ defmodule Guardian.Counters.ClientTest do
             members: members
           )
 
-        batch(
+        named(
           %{
             first: {:get, owned_key(earlier, members)},
             expired: {:incr, owned_key(later, members), 1, {:expires, expiry}},
@@ -180,7 +175,7 @@ defmodule Guardian.Counters.ClientTest do
             members: members
           )
 
-        batch(
+        named(
           %{
             first: {:get, owned_key(earlier, members)},
             pending: {:get, owned_key(later, members)},
@@ -231,7 +226,7 @@ defmodule Guardian.Counters.ClientTest do
       context =
         event(batch, :counter_pipeline_store, members: members)
 
-      assert batch(ops, context) == Map.new(members, &{&1, :not_found})
+      assert named(ops, context) == Map.new(members, &{&1, :not_found})
       assert CounterBudgetHelper.remaining_us(batch) == allowance
     end
 
@@ -250,7 +245,8 @@ defmodule Guardian.Counters.ClientTest do
       :erpc.call(peer, GenServer, :stop, [probes[peer]])
     end)
 
-    ops = Map.new(members, &{&1, {:get, owned_key(&1, members)}})
+    # Input order is reversed, so only Client's sort starts the five earliest owners.
+    ops = members |> Enum.sort(:desc) |> Enum.map(&{&1, {:get, owned_key(&1, members)}})
     batch = CounterBudgetHelper.batch(5)
 
     task =
@@ -260,7 +256,7 @@ defmodule Guardian.Counters.ClientTest do
             members: members
           )
 
-        batch(ops, context)
+        named(ops, context)
       end)
 
     started =
@@ -304,7 +300,7 @@ defmodule Guardian.Counters.ClientTest do
       context = event(:counter_partial_store, members: members)
 
       results =
-        batch(
+        named(
           %{local: {:incr, local_key, 1, 5_000}, remote: {:incr, remote_key, 1, 5_000}},
           context
         )
@@ -315,7 +311,7 @@ defmodule Guardian.Counters.ClientTest do
       assert [{^peer, _}] = :ets.lookup(:counter_client_test, peer)
       assert :ets.lookup(:counter_client_test, node()) == []
 
-      assert batch(
+      assert named(
                %{remote: {:get, remote_key}},
                event(:counter_partial_store, members: members)
              ) == %{remote: {:error, :cooldown}}
@@ -349,7 +345,7 @@ defmodule Guardian.Counters.ClientTest do
         context =
           event(batch, store, members: [node()])
 
-        batch(%{a: {:incr, key(), 1, 5_000}}, context)
+        named(%{a: {:incr, key(), 1, 5_000}}, context)
       end)
 
     try do
@@ -379,12 +375,12 @@ defmodule Guardian.Counters.ClientTest do
           ],
           do: operation
 
-    assert route(nil, context) == {:error, :invalid_request}
+    assert batch([nil], context) == [{:error, :invalid_request}]
 
     for operation <-
           [{:unsupported, key()}, {:get, :bad_key}, {:get, {nil, {}, 1}}] ++
             malformed_expiries do
-      assert batch(%{one: operation}, context) ==
+      assert named(%{one: operation}, context) ==
                %{one: {:error, :invalid_request}}
     end
 
@@ -404,13 +400,13 @@ defmodule Guardian.Counters.ClientTest do
     }
 
     errors = %{incr: {:error, :invalid_request}, cas: {:error, :invalid_request}}
-    assert batch(operations, context) == errors
+    assert named(operations, context) == errors
     assert CounterBudgetHelper.remaining_us(context.batch) == 0
 
     CounterBudgetHelper.batch(context.batch, 5)
     cooldown = {node(), System.monotonic_time(:microsecond) + 10_000_000}
     :ets.insert(:counter_client_test, cooldown)
-    assert batch(operations, context) == errors
+    assert named(operations, context) == errors
     assert CounterBudgetHelper.remaining_us(context.batch) == 250_000
     assert :ets.lookup(:counter_client_test, node()) == [cooldown]
   end
@@ -424,7 +420,7 @@ defmodule Guardian.Counters.ClientTest do
     incr_key = key({}, 2)
     cas_key = key({}, 3)
 
-    assert batch(
+    assert named(
              %{
                bad_incr: {:incr, key(), 1, {:expires, nil}},
                bad_cas: {:cas, key(), :missing, 1, {:expires, "bad"}},
@@ -450,7 +446,7 @@ defmodule Guardian.Counters.ClientTest do
     assert :ets.lookup(:counter_client_test, node()) == []
   end
 
-  test "dispatch keeps each response at its operation's position around expired writes", %{
+  test "batch keeps each response at its operation's position around expired writes", %{
     store: store,
   } do
     CounterBudgetHelper.relax()
@@ -466,16 +462,13 @@ defmodule Guardian.Counters.ClientTest do
       {:incr, key({}, 5), 4, {:expires, elapsed}},
     ]
 
-    assert dispatch([{node(), ops}], context) ==
+    assert batch(ops, context) ==
              [
-               {node(),
-                [
-                  {:error, :expired},
-                  {:ok, 2},
-                  {:error, :expired},
-                  {:ok, 2},
-                  {:error, :expired},
-                ]},
+               {:error, :expired},
+               {:ok, 2},
+               {:error, :expired},
+               {:ok, 2},
+               {:error, :expired},
              ]
 
     assert Store.get(key({}, 1), server: store) == :not_found
@@ -487,12 +480,36 @@ defmodule Guardian.Counters.ClientTest do
       {:incr, key({}, 7), 1, {:expires, elapsed}},
     ]
 
-    assert dispatch([{node(), expired}], context) ==
-             [{node(), [{:error, :expired}, {:error, :expired}]}]
+    assert batch(expired, context) == [{:error, :expired}, {:error, :expired}]
 
     assert Store.get(key({}, 6), server: store) == :not_found
     assert CounterBudgetHelper.remaining_us(context.batch) == 250_000
     assert :ets.lookup(:counter_client_test, node()) == []
+  end
+
+  test "an owner's pipeline keeps input order above 32 operations" do
+    parent = self()
+
+    probe =
+      start_supervised!(
+        {Guardian.Test.Counters.ProbeStore,
+         {:pipeline,
+          fn ops ->
+            send(parent, {:pipeline, ops})
+            {:ok, Enum.map(ops, fn {:get, {_, _, bucket}} -> {:ok, bucket} end)}
+          end}}
+      )
+
+    ops = for n <- 1..40, do: {:get, key({}, n)}
+
+    context =
+      event(
+        {Guardian.Test.Counters.ProbeStore, probe},
+        CounterBudgetHelper.relaxed_options()
+      )
+
+    assert batch(ops, context) == for(n <- 1..40, do: {:ok, n})
+    assert_receive {:pipeline, ^ops}
   end
 
   test "the remote endpoint refuses scalar operations", %{store: store} do
@@ -557,7 +574,7 @@ defmodule Guardian.Counters.ClientTest do
 
       context = event({Guardian.Test.Counters.ProbeStore, store})
 
-      assert batch(%{a: {:get, key()}}, context) ==
+      assert named(%{a: {:get, key()}}, context) ==
                %{a: {:error, :invalid_response}}
 
       assert CounterBudgetHelper.remaining_us(context.batch) < 250_000
@@ -632,7 +649,7 @@ defmodule Guardian.Counters.ClientTest do
     assert batch_one({:cas, key(), token, 8, 5_000}, context) == {:error, :conflict}
     assert batch_one({:incr, key(), 2, 5_000}, context) == {:ok, 9}
 
-    assert batch(
+    assert named(
              %{missing: {:get, key({}, 2)}, present: {:get, key()}},
              context
            ) == %{missing: :not_found, present: {:ok, 9}}
@@ -672,7 +689,7 @@ defmodule Guardian.Counters.ClientTest do
     assert batch_one({:cas, key, token, 3, 5_000}, context) == :ok
     assert batch_one({:incr, key, 2, 5_000}, context) == {:ok, 5}
 
-    assert batch(%{one: {:get, key}, two: {:get, key}}, context) ==
+    assert named(%{one: {:get, key}, two: {:get, key}}, context) ==
              %{one: {:ok, 5}, two: {:ok, 5}}
 
     assert :erpc.call(peer, Store, :get, [key]) == {:ok, 5}
@@ -1001,7 +1018,7 @@ defmodule Guardian.Counters.ClientTest do
   end
 
   defp batch_one(operation, event) do
-    batch(%{one: operation}, event).one
+    named(%{one: operation}, event).one
   end
 
   defp counter_helpers do

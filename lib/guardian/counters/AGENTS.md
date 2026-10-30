@@ -53,12 +53,14 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    store option for transport probes.
    Production calls Store directly, with no backend tuple handling or mailbox fallback.
    Context's `event_ms`/`operation_ms` application env is the other internal test
-   seam: it replaces the 100/50 ms defaults and caps, including the remote endpoint
-   bound. Never set it outside tests; only `Guardian.Test.Counters.Budget` does, for
+   seam: it replaces the 100/50 ms defaults and the remote endpoint bound.
+   Never set it outside tests; only `Guardian.Test.Counters.Budget` does, for
    tests not about budgets, the seam's own test, and budget tests that scale the
    operation budget (`scale/1`) and size their batch allowance in units of it
    (`batch/1`, with `allowance_us/1` for expected values), with no durations or allowances derived from 50 ms
    (`docs/changes/counter-test-budgets.md`).
+   Context's `:timeout_ms`/`:event_timeout_ms` options replace those budgets for one
+   event, locally only (a peer still enforces its own bound); production passes neither.
 6. Return fixed errors; no key/value/exception logging. Housekeeping callback
    failures scrub stacks through `Guardian.Failure.stacktrace/1` and reset the
    store. Status redacts state/messages/logs.
@@ -70,14 +72,15 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    direct callers and the remote endpoint. Transport's `route/2` checks
    anchored increment/CAS expiries are integers before grouping or admission, so
    malformed expiries return `:invalid_request` without reserving allowance.
-   `dispatch/2` takes only operations `route/2` accepted.
-   It rescues nothing: bad membership is a programming error that Execution
+   `dispatch/2` takes only operations `route/2` accepted, which `Client.batch/2`
+   ensures. It rescues nothing: bad membership is a programming error that Execution
    reports and Rules fails open. Translate valid anchored expiries only at
    actual dispatch.
 
-`Guardian.Counters.Client` is the facade Execution's round loop uses: `route/2` names an
-operation's owner and `dispatch/2` runs one round's owner batches. It
-returns a typed `Guardian.Counters.Context`, which Rules carries per event.
+`Guardian.Counters.Client` is what Execution's round loop calls: `batch/2` takes one
+list of operations and returns one response per operation, in order. Only Client and
+below know that operations are spread across owners. `new_event` returns a typed
+`Guardian.Counters.Context`, which Rules carries per event.
 Context captures the event deadline before snapshotting connected members; private
 Unix/monotonic arrival coordinates are a separate `Guardian.Counters.Arrival`,
 outside the row. Internal
@@ -93,10 +96,10 @@ Storage readiness calls. Remote endpoints call only the owner's local store.
 
 `Guardian.Counters.Budget` is supervised after Store and owns cooldown ETS lifecycle,
 reservations, deadline enforcement and settlement. Its hot path uses atomics/ETS directly;
-Transport has no process. Client delegates batch dispatch to Transport, which calls
-Budget before dispatch and after normalized pipeline completion. A round's whole
-`[{owner, operations}]` goes to one `dispatch/2` call, which starts owners in the
-order given (Execution sorts them with `Guardian.Lists.group/1`, the one place
+Transport has no process. Client routes and groups, then hands dispatch to Transport,
+which calls Budget before dispatch and after normalized pipeline completion. A round's
+whole `[{owner, operations}]` goes to one `dispatch/2` call, which starts owners in the
+order given (Client sorts them with `Guardian.Lists.group/1`, the one place
 that orders a round's owners) and answers
 `[{owner, responses}]` in that order, one response per operation and in operation
 order. Transport keeps one response list per owner, never positional ids, and puts
@@ -143,25 +146,25 @@ read, incr and gets/merge/CAS response callbacks; these three always finish, in 
 most six rounds, while an arbitrary callback passed to `Machine.new/3` carries no
 such guarantee. Machine errors remain errors:
 missing keys alone default at the bucket layer; a failed bucket defaults the whole
-statement. Execution groups each round by owner; Transport dispatches the owner
+statement. Client groups each round by owner; Transport dispatches the owner
 batches as concurrent pipelines. Pending
 owners wait for any completed call's reservation refund; cooldown, truly exhausted
 budgets or deadlines skip them. Charge failed waits once per pipeline using its
 completion timestamp. Recompute anchored mutation TTLs at actual pipeline dispatch,
-including after waiting for a reservation. Client exposes only routing and
-batched owner dispatch; the Transport remote endpoint accepts only owner pipelines. Its renamed RPC module
+including after waiting for a reservation. Client exposes only
+`batch/2` for operations; the Transport remote endpoint accepts only owner pipelines. Its renamed RPC module
 requires all nodes to restart on the same build; mixed-version rolling deploys across
 this split are unsupported (`docs/changes/counter-client.md`). Store retains its
 local atomic primitives.
 
 `Guardian.Counters.Execution` is a level's counter execution, read top-down,
 below `Guardian.Rules.Runtime` (which prepares statements into ops and writes
-results into fields): `run_counters/4` expands each op into bucket key machines,
-flattens them, runs them in rounds (`run_state_machines/3`), unflattens, and
-combines each op's states chronologically. Each round routes pending operations
-(`Client.route/2`), groups them by owner and sends the round through one
-`Client.dispatch/2` call, then feeds responses back in order
-(`docs/changes/counter-execution-topdown.md`, `docs/changes/counter-execution-layer.md`).
+results into fields): `run_counters/3` expands each op into bucket key machines,
+flattens them, runs them in rounds (`run_state_machines/2`), unflattens, and
+combines each op's states chronologically. Each round sends its pending operations
+through one `Client.batch/2` call, then feeds responses back in order
+(`docs/changes/counter-execution-topdown.md`, `docs/changes/counter-execution-layer.md`,
+`docs/changes/counter-client-fanout.md`).
 Any failed bucket defaults its whole statement quietly; missing buckets use empty
 states. Exceptions (expansion, the round, combination) come back as
 `{:error, kind}` for Runtime to log. Whole intersecting buckets bias reads toward

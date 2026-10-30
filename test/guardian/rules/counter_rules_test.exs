@@ -2,8 +2,7 @@ defmodule Guardian.Rules.CounterRulesTest do
   @moduledoc """
   TRACK and LOOKUP through Rules: rule plans run by `Guardian.Rules.Runtime` and
   compiled modules, Runner and Engine. Counter execution's own behavior (buckets,
-  expiries, CAS, budgets) is tested in `Guardian.Counters.ExecutionTest` and
-  `Guardian.Counters.ExecutionStoreTest`.
+  expiries, CAS, budgets) is tested in `Guardian.Counters.ExecutionTest`.
   """
   use ExUnit.Case, async: false
   import Guardian.Test.Rules

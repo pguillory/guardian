@@ -105,7 +105,9 @@ fairness are unchanged.
 The round loop takes an optional dispatch function (default `Client.dispatch/2`)
 so tests can script per-owner responses; routing and grouping still run in tests.
 Client tests reach dispatch through a small test helper that routes, groups and
-scatters with the same `Lists` functions.
+scatters with the same `Lists` functions. (Superseded: routing, grouping and the
+dispatch parameter left the round loop for a new `Client.batch/2`; see
+`docs/changes/counter-client-fanout.md`.)
 
 ## Termination
 

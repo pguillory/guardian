@@ -28,14 +28,14 @@ defmodule Guardian.Counters.ContextTest do
     assert CounterBudgetHelper.remaining_us(batch) == 250_000
   end
 
-  test "test overrides preserve shortened deadlines and upper caps" do
+  test "test overrides replace the event and call budgets" do
     batch = Client.new_batch()
     table = make_ref()
     members = [:counter_context@localhost]
 
     for {event_ms, operation_ms, expected_event_us, expected_operation_us} <- [
           {7, 3, 7_000, 3_000},
-          {200, 90, 100_000, 50_000},
+          {200, 90, 200_000, 90_000},
           {-1, 0, -1_000, 0},
         ] do
       before = System.monotonic_time(:microsecond)
@@ -60,22 +60,20 @@ defmodule Guardian.Counters.ContextTest do
   end
 
   # Only this test changes the runtime budgets: it tests the configuration seam itself.
-  test "the internal budget seam replaces defaults, caps and the remote endpoint bound" do
+  test "the internal budget seam replaces defaults and the remote endpoint bound" do
     batch = Client.new_batch()
     store = start_supervised!({Store, name: nil})
     probe = {:batch, [{:get, {{"events", "hits", "seam"}, {}, 1}}]}
 
-    assert Client.new_event(batch, timeout_ms: 90).timeout_us == 50_000
     assert Transport.remote_operation(probe, store, 50) == {:ok, [:not_found]}
     assert Transport.remote_operation(probe, store, 51) == {:error, :invalid_request}
 
     CounterBudgetHelper.relax()
     before = System.monotonic_time(:microsecond)
-    relaxed = Client.new_event(batch, event_timeout_ms: 5_000)
+    relaxed = Client.new_event(batch)
     assert relaxed.timeout_us == 1_000_000
     assert relaxed.deadline >= before + 900_000
     assert relaxed.deadline <= System.monotonic_time(:microsecond) + 900_000
-    assert Client.new_event(batch, timeout_ms: 1_500).timeout_us == 1_000_000
     assert Client.new_event(batch, timeout_ms: 7).timeout_us == 7_000
     assert Transport.remote_operation(probe, store, 1_000) == {:ok, [:not_found]}
     assert Transport.remote_operation(probe, store, 1_001) == {:error, :invalid_request}
