@@ -128,7 +128,9 @@ Authentication reads only `GUARDIAN_INGEST_API_KEY` and `GUARDIAN_ADMIN_API_KEY`
 Node naming (`rel/env.sh.eex`) has three modes: Fly.io (`FLY_PRIVATE_IP`), a cluster
 member elsewhere (`GUARDIAN_NODE_HOST`), and a single node (`guardian@localhost`, with
 distribution on loopback only). Clustered modes need `RELEASE_COOKIE`; peers are found
-through `DNS_CLUSTER_QUERY` (on Fly, `<app>.internal` by default). Keep Fly's output of
+through `DNS_CLUSTER_QUERY` (on Fly, `<app>.internal` by default). The cookie reaches the
+VM through a private file, never argv: `-setcookie` must not appear in any release
+command (`docs/changes/release-cookie-file.md`). Keep Fly's output of
 `rel/env.sh.eex` unchanged unless the change is meant for Fly: `test/guardian/deployment_test.exs`
 pins it.
 
@@ -169,4 +171,4 @@ Key subsystem documentation:
 - `lib/guardian/counters/AGENTS.md`
 - `lib/guardian/object_store/AGENTS.md`
 
-Last updated: 2026-10-29
+Last updated: 2026-10-30
