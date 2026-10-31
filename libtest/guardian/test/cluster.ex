@@ -145,6 +145,14 @@ defmodule Guardian.Test.Cluster do
   end
 
   @doc """
+  The data directory of a peer started with `data_root`, for a test that lays out its
+  files before the peer starts.
+  """
+  def peer_data_dir(data_root) do
+    Path.join([data_root, "data", "test"])
+  end
+
+  @doc """
   Stops Storage on a peer started with a data root, the way it stops when its server
   shuts down: its supervisor stops its children in order, so mutable segments are handed
   off and persisted first. The peer itself keeps running; stop it with `:peer.stop/1`
@@ -162,7 +170,7 @@ defmodule Guardian.Test.Cluster do
     File.mkdir_p!(data_root)
     File.cd!(data_root)
     # The peer does not load Mix config, so give Storage its data directory directly.
-    Application.put_env(:guardian, :data_dir, Path.join([data_root, "data", "test"]))
+    Application.put_env(:guardian, :data_dir, peer_data_dir(data_root))
     caller = self()
 
     # Storage links to its starter, so start it from a process that outlives this

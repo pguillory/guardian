@@ -637,9 +637,8 @@ Counter-specific limits:
    so a corrupt `.seg` file crashes the whole VM. A truncated, empty, or structurally
    malformed file is skipped instead, and its load failure is logged by kind only,
    without the file's bytes. Only an operator (or a disk fault) can put a file in the
-   data directory, and the directory is rescanned about every 60 seconds, so a bad
-   file restored from elsewhere takes effect without a restart. Not reachable from the
-   API.
+   data directory, and the directory is read at startup, so a bad file restored from
+   elsewhere takes effect at the next restart. Not reachable from the API.
 6. Ingestion shapes can be expensive: a list of objects with many distinct keys is
    slow to flatten. Bounded by the 8 MB body limit per request.
 7. A segment that never stores (5.1.6) still holds its memory, and it is lost at
@@ -830,7 +829,8 @@ working directory; on Fly, the machine's disposable root filesystem).
    disposable root filesystem (`config/runtime.exs`). Elsewhere, encryption at rest is
    whatever the operator's disk provides.
 2. Retention deletes persisted segments about 15 days after creation, globally. There
-   is no other deletion path through the product.
+   is no other deletion path through the product. A loaded segment whose file was
+   removed by hand keeps serving past that until the next restart.
 3. Backups: on Fly, the Fly guide creates each volume with daily snapshots kept 14
    days (`fly volumes create --snapshot-retention 14`). Snapshots hold everything the
    volume held, so deleted data, including `queries` and `query_parse_errors` query

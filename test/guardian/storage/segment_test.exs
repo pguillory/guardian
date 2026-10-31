@@ -2,7 +2,8 @@ defmodule Guardian.Storage.SegmentTest do
   alias Guardian.Storage.Segment
   # Segment.append/2 takes flat rows; these tests append nested ones.
   import Segment, except: [append: 2]
-  import Guardian.Test.Segments, only: [segment_append: 2, segment_row: 2]
+  import Guardian.Test.Polling, only: [eventually: 1]
+  import Guardian.Test.Segments, only: [segment_append: 2, segment_row: 2, write_segment_file: 2]
   use ExUnit.Case, async: true
 
   @dir "/tmp/SegmentTest"
@@ -29,6 +30,23 @@ defmodule Guardian.Storage.SegmentTest do
 
     {:ok, segment2} = start_link(load: @filename)
     assert keys(segment2) == {:ok, ["a"]}
+  end
+
+  test "a loaded segment is linked to its loader, and dies if the loader is gone" do
+    filename = write_segment_file(@filename, [%{"a" => 1}])
+
+    assert {:ok, segment} = load(filename)
+    assert segment in elem(Process.info(self(), :links), 1)
+    GenServer.stop(segment)
+
+    dead = spawn(fn -> :ok end)
+    ref = Process.monitor(dead)
+    assert_receive {:DOWN, ^ref, :process, ^dead, _}
+
+    case GenServer.start(Segment, load: filename, owner: dead) do
+      {:ok, orphan} -> eventually(fn -> not Process.alive?(orphan) end)
+      {:error, _reason} -> :ok
+    end
   end
 
   test "a nested object is stored as dotted columns" do

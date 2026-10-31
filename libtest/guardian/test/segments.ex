@@ -61,14 +61,13 @@ defmodule Guardian.Test.Segments do
 
   @doc """
   Waits until every full segment of `table` has been written to disk and at least one
-  is loaded from its file, asking for the write and a rescan as it polls. For Storage
-  and query tests that need rows on disk.
+  is loaded from its file, asking for the write as it polls. For Storage and query tests
+  that need rows on disk.
   """
   def await_persisted(table) do
     Guardian.Test.Polling.eventually(
       fn ->
         :ok = Guardian.Storage.PersistedSegments.ping()
-        :ok = Guardian.Storage.LoadedSegments.rescan()
 
         Guardian.Storage.FullSegments.segment_ids(table) == [] and
           Guardian.Storage.LoadedSegments.segment_ids(table) != []

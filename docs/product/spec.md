@@ -738,8 +738,10 @@ the shipped surface:
    unseen and the rows are returned. A query that reads a
    segment at the instant its in-memory copy is replaced by its stored file reads the
    stored file instead and returns the same rows; only if no stored copy remains does
-   it fail the same way. A query never returns a
-   partial answer, and slow steps are waited for, up to the time limit.
+   it fail the same way. A failure while a query runs never produces a
+   partial answer, and slow steps are waited for, up to the time limit. Rows a
+   machine isn't serving when the query starts are a different matter: they're
+   silently missing from the answer (section 12).
    A machine that has started to stop refuses new queries with an error saying to
    retry. This is best effort, so a query still running as it stops can fail.
    Querying a table that does not exist is not an error: it behaves like an empty
@@ -877,9 +879,8 @@ Request bodies, API keys, and MCP traffic are not logged in `web_requests` or
    or MCP. An operator in the remote console can delete a table or segment with the
    internal Storage functions; that is an operator escape hatch, not a product
    feature.
-6. Rescans: About once a minute each machine rescans its data directory, loading
-   segment files that appeared and dropping ones that disappeared, so restoring or
-   removing files on the volume takes effect without a restart.
+6. Restores: A machine reads its data directory at startup, so restoring or removing
+   files on the volume takes effect at its next restart.
 7. Backups: There is no replication. On Fly.io, volumes created as in the Fly guide
    are snapshotted daily, with snapshots kept 14 days; elsewhere, backups are the
    operator's to arrange.
@@ -918,10 +919,11 @@ Product-level behavior:
    `SELECT *`) fails the statement with a node error. Once a query is running, any
    failure on any node (an expression error, a crashed query worker, a node that
    disconnects or loses traffic to another node) fails the whole query with an
-   error. It never returns a partial answer, except that a query without `ORDER BY`
-   that already has its `LIMIT` rows (10,000 without one) stops reading and misses
-   a later failure. A segment that stops answering holds a
-   query that scans it until the query's time limit.
+   error. It never returns a partial answer because of such a failure, except that a
+   query without `ORDER BY` that already has its `LIMIT` rows (10,000 without one)
+   stops reading and misses a later failure. Rows a machine isn't serving are silently
+   missing (section 12). A segment that stops answering holds a query that scans it
+   until the query's time limit.
 7. Single-node deploys stop ingestion briefly; producers must retry. Multi-node
    deploys on Fly, set up as the Fly guide's Scaling section describes, roll one
    machine at a time and wait for each to load its segments: ingestion continues on
@@ -989,3 +991,12 @@ Listed here because they change what a user sees:
    memory, including rows already acknowledged.
 10. A machine that misses a rule write's reload, because it wasn't connected yet or
     its reload failed, keeps its rules until the next rule write or until it restarts.
+11. A segment file that won't load is skipped. The machine logs an error and keeps
+    going, the file stays on disk, and its rows are silently missing from queries, with
+    nothing in the answer to show it: a query over that table returns a partial result
+    as if it were complete. That's so at startup, and for a file that won't load right
+    after it's written, whose rows serve from memory for up to 10 minutes and then go
+    missing. Each restart tries the file again until it expires.
+12. After a loaded segment crashes, its rows are silently missing from queries until
+    the machine's next restart. So are the rows of a file written just before an
+    internal storage process crashes, if it wasn't loaded yet.

@@ -43,9 +43,13 @@ privately, not in this repository.
 - [ ] segment-count-columns: segment files still carry six per-type count columns
       (null, false, true, int, float, string) that nothing reads; dropping them changes
       the format, so it needs a format version and a migration plan
+- [x] segments-load-at-startup: files load at startup and right after they're written;
+      the rewrite-from-memory path, the 60-second scan and the skipped-file memory are
+      gone, and expiry goes by the files on disk
+      (`docs/changes/segments-load-at-startup.md`)
 - [ ] serialize-segment-deletion: deleting a segment while it is being persisted, or
       after its file is written but before LoadedSegments registers it, leaves a file
-      the next rescan loads again
+      the next restart loads again
 - [ ] segment-schema-gaps: the schema (SHOW TABLES, DESC, the schema table, SELECT *)
       misses segments that are full or persisted but not yet loaded, and a segment
       that dies between LoadedSegments starting it and Guardian.Storage.Schema registering it

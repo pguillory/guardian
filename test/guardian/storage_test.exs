@@ -1,6 +1,7 @@
 defmodule Guardian.StorageTest do
   use ExUnit.Case, async: true
   import Guardian.Storage
+  import Guardian.Test.Polling, only: [eventually: 1]
   import Guardian.Test.Query, only: [run_sql: 1]
 
   alias Guardian.Storage.MutableSegments
@@ -162,8 +163,7 @@ defmodule Guardian.StorageTest do
              [[1234, String.duplicate("4", 64_000)]]
   end
 
-  # LoadedSegments' minute scan once loaded a segment that PersistedSegments still
-  # cached while the byte-rollover test above counted, and the old count added it twice.
+  # A persisted segment is loaded while PersistedSegments still caches it.
   test "table_row_count counts a segment once while it is cached and loaded", %{table: table} do
     for i <- 1..10, do: :ok = append(table, %{"i" => i})
 
@@ -177,6 +177,18 @@ defmodule Guardian.StorageTest do
     assert segment_id in PersistedSegments.segment_ids(table)
     assert segment_id in Guardian.Storage.LoadedSegments.segment_ids(table)
     assert table_row_count(table) == 10
+  end
+
+  test "a table stays in the schema once all its rows are persisted", %{table: table} do
+    :ok = append(table, %{"a" => 1})
+
+    for segment <- MutableSegments.get_mutable_segments(table) do
+      :ok = MutableSegments.segment_is_full(table, segment)
+    end
+
+    # Much sooner than the in-memory copy's 10 minutes.
+    eventually(fn -> Map.keys(schema(table)) == ["a"] end)
+    assert table in table_names()
   end
 
   defp assert_dump(table, rows) do
