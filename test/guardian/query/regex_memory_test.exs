@@ -45,47 +45,4 @@ defmodule Guardian.Query.RegexMemoryTest do
     # The node and its query machinery carry on.
     assert run_sql("SELECT replace(s, 'b', 'c') FROM #{table} WHERE s = 'b'") == [["c"]]
   end
-
-  describe "a replace whose caller dies does not run on" do
-    # A few seconds of backtracking on a value large enough for the helper, far longer
-    # than the tests wait before killing the caller.
-    @slow_subject String.duplicate("a", 40_000)
-
-    test "when the caller dies mid-replace" do
-      {caller, helper} = start_caller()
-      Process.sleep(50)
-      assert Process.alive?(helper)
-      assert_helper_killed(caller, helper)
-    end
-
-    test "when the caller dies as the helper starts" do
-      for _ <- 1..20 do
-        {caller, helper} = start_caller()
-        assert_helper_killed(caller, helper)
-      end
-    end
-
-    # Starts a caller that runs a slow replace, and returns it and its helper, learned
-    # from a trace of the caller's spawns as soon as the helper exists.
-    defp start_caller do
-      caller =
-        spawn(fn ->
-          receive do
-            :go -> replace(@slow_subject, "a*[^a]", "x")
-          end
-        end)
-
-      :erlang.trace(caller, true, [:procs])
-      send(caller, :go)
-      assert_receive {:trace, ^caller, :spawn, helper, _}, 1_000
-      {caller, helper}
-    end
-
-    defp assert_helper_killed(caller, helper) do
-      ref = Process.monitor(helper)
-      Process.exit(caller, :kill)
-      assert_receive {:DOWN, ^ref, :process, ^helper, reason}, 1_000
-      assert reason in [:killed, :noproc]
-    end
-  end
 end

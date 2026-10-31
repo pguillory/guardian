@@ -535,48 +535,6 @@ defmodule Guardian.Counters.ExecutionTest do
     refute_receive {:get, _}, 10
   end
 
-  test "a slow gets cannot dispatch an add after fixed expiry" do
-    definition = tracked({"sum", 1}, 1_000)
-    parent = self()
-
-    store =
-      start_supervised!(
-        {ProbeStore,
-         fn operation ->
-           send(parent, operation)
-
-           case operation do
-             {:get, _} ->
-               :not_found
-
-             {:gets, _} ->
-               Process.sleep(25)
-               :not_found
-
-             {:add, _, _, _} ->
-               :ok
-           end
-         end}
-      )
-
-    # At Unix 0 the fixed expiry is 1334 ms later; leave 15 ms now.
-    arrival = %{
-      Arrival.now()
-      | unix_ms: 0,
-        monotonic_ms: System.monotonic_time(:millisecond) - 1_319,
-    }
-
-    assert track(
-             definition,
-             {},
-             [5],
-             event(store, healthy_batch(), arrival)
-           ) == nil
-
-    assert_receive {:gets, _}
-    refute_receive {:add, _, _, _}, 10
-  end
-
   test "healthy large batches refund the budget and include every event", %{store: store} do
     # A healthy call is refunded in full whatever it reserved, so the larger budget
     # does not change what this checks.

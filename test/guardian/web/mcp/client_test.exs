@@ -246,31 +246,41 @@ defmodule Guardian.Web.MCP.ClientTest do
       assert length(Guardian.Storage.dump_table(table)) == 2
     end
 
-    test "MCP reports pending HTTP claims as tool errors and acknowledges mixed failures" do
+    test "MCP reports pending claims as tool errors and acknowledges mixed failures" do
       Guardian.Test.MCPClient.start()
       table = "mcp_pending_#{System.unique_integer([:positive])}"
       events = [%{"value" => 1}, nil]
-      token = make_ref()
-      digest = :crypto.hash(:sha256, :erlang.term_to_binary({events, nil}, [:deterministic]))
+      test_pid = self()
 
-      assert GenServer.call(
-               Guardian.Web.IngestIdempotency,
-               {:claim, {table, "pending"}, digest, token, System.monotonic_time(:millisecond)}
-             ) ==
-               :claimed
+      holder =
+        Task.async(fn ->
+          Guardian.Web.IngestIdempotency.run(
+            table,
+            "pending",
+            {events, nil},
+            System.monotonic_time(:millisecond),
+            fn ->
+              send(test_pid, :holding)
+              receive do: (:finish -> {:held, 0})
+            end,
+            Guardian.Web.IngestIdempotency
+          )
+        end)
 
+      assert_receive :holding
       params = %{"table" => table, "events" => events, "idempotency_key" => "pending"}
       response = send_events(params)
       assert response["isError"] == true
       assert [%{"text" => message}] = response["content"]
       assert message =~ "in flight"
       assert Guardian.Storage.dump_table(table) == []
-      GenServer.cast(Guardian.Web.IngestIdempotency, {:cancel, token, self()})
-      # A call from the claimant orders cancellation before the tool retry.
-      _state = :sys.get_state(Guardian.Web.IngestIdempotency)
-      assert %{"results" => [_, _]} = send_events(params) |> decoded_result()
+      send(holder.pid, :finish)
+      assert Task.await(holder) == {:ran, :held}
 
-      assert send_events(params) |> decoded_result() ==
+      mixed = Map.put(params, "idempotency_key", "mixed")
+      assert %{"results" => [_, _]} = send_events(mixed) |> decoded_result()
+
+      assert send_events(mixed) |> decoded_result() ==
                %{"status" => 200, "duplicate" => true, "failed_events" => 1}
 
       assert Guardian.Storage.dump_table(table) == [%{"value" => 1}]

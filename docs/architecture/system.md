@@ -1644,14 +1644,13 @@ directory under the system temp directory (set in `config/config.exs`, removed w
 the run's VM exits, once Guardian has stopped), so no run sees tables an earlier run
 left; `:large` tests (gigabytes of memory) are excluded by default. `Guardian.Query.EvaluationTestCase` is the helper for function
 tests. Shared infrastructure lives under `Guardian.Test.*` in `libtest/guardian/test/`:
-`Guardian.Test.Query` resolves and runs SQL (`resolve_sql/1`, `run_sql/1`), scopes
-query time limits (`with_time_limit/2`, serial tests only) and names a query's
-process modules (`query_modules/0`). `Guardian.Test.Polling`
+`Guardian.Test.Query` resolves and runs SQL (`resolve_sql/1`, `run_sql/1`) and scopes
+query time limits (`with_time_limit/2`, serial tests only). `Guardian.Test.Polling`
 holds `eventually/2`.
-`Guardian.Test.Processes` observes queued calls and finds pipeline workers by their
-stacks on this node or peers (`:cluster` tests). `Guardian.Test.Segments` appends
-nested rows (`segment_append/2`), writes segment files (`write_segment_file/2`) and
-injects one-call append replies (`intercept_append/2`).
+`Guardian.Test.Processes` observes queued calls on this node or peers (`:cluster`
+tests). `Guardian.Test.Segments` appends nested rows (`segment_append/2`), writes
+segment files (`write_segment_file/2`), waits for a table's rows to reach disk
+(`await_persisted/1`) and injects one-call append replies (`intercept_append/2`).
 Callers isolate observed processes, files, segments and tables; tests don't suspend
 or restart shared Storage processes. `Guardian.Test.Aggregation` supplies
 pure representative aggregate arguments. The counter test family lives under
@@ -1659,9 +1658,7 @@ pure representative aggregate arguments. The counter test family lives under
 options for counter execution and rules tests (serial tests only);
 `Guardian.Test.Counters.ProbeStore` is a scripted counter store and the mailbox batch
 adapter for probes; `Guardian.Test.Counters.Backend` is the test build's Transport
-backend; `Guardian.Test.Counters.StorePause` pauses a real Store's callers and is the
-one test module that reads the Store's private descriptor;
-`Guardian.Test.Counters.PipelineProbe` holds pipelines until released.
+backend.
 `Guardian.Test.Web.QueryBackend` is the test build's `Guardian.Query` for
 `Guardian.Web.Query`, passing through unless a test asks for an exit or throw. The fake S3
 server, JSON and MCP clients, DistributedStream peer stages and the engine's

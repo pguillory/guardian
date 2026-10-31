@@ -132,8 +132,8 @@ that a write to them happens. (`system_stats`, the leak watch above, stays teste
 Peer VM tests are tagged `:cluster` and excluded by default. Promises that need a
 server to stop and start, such as a clean shutdown or a restart keeping acknowledged
 rows, are tagged `:lifecycle`: a slow synchronous suite, also excluded by default. Today it
-stops and restarts Storage on a peer, calls the stop callback and restarts the rule
-server in the test VM, for its startup tests (`docs/changes/rules-startup-lifecycle.md`);
+stops and restarts Storage on a peer, calls the stop callback on a peer and restarts the
+rule server in the test VM, for its startup tests (`docs/changes/rules-startup-lifecycle.md`);
 it doesn't boot a whole application. Segment
 handoffs, retirement and persistence scheduling aren't in the suite: an agent checks by
 hand (insert, stop, start, query) only when a change touches segment lifetimes or
@@ -187,7 +187,7 @@ answer, so a fake segment in an async test must answer `:schema` promptly, as
 
 Every module is `async: true` unless it touches something shared by the whole VM that
 can't be avoided: the OS environment, a connected peer node, the `:lifecycle` suite's
-stops (a VM-wide stopping flag, a peer), node-wide counter budgets, the rule server's
+stops, node-wide counter budgets, the rule server's
 store and published map, log capture that must see only its own events, or an
 application env setting the code reads instead of taking it as an argument (being
 retired: pass the setting to the function it applies to). Say which in a

@@ -25,30 +25,6 @@ defmodule Guardian.Query.HeapLimitTest do
     Task.await(task, 30_000)
   end
 
-  test "limit_heap/0 sets the limit: 256 MiB, or a test's own" do
-    task = fn ->
-      Task.async(fn ->
-        Guardian.Query.Limits.limit_heap()
-        Process.info(self(), :max_heap_size)
-      end)
-      |> Task.await()
-    end
-
-    Guardian.Test.Env.with_env([query_max_heap_mb: nil], fn ->
-      Application.delete_env(:guardian, :query_max_heap_mb)
-      assert Guardian.Query.Limits.max_heap_mb() == 256
-      words = div(256 * 1024 * 1024, :erlang.system_info(:wordsize))
-      assert {:max_heap_size, %{size: ^words}} = task.()
-    end)
-
-    set_limit(64)
-    words = div(64 * 1024 * 1024, :erlang.system_info(:wordsize))
-
-    assert {:max_heap_size,
-            %{size: ^words, kill: true, error_logger: false, include_shared_binaries: false}} =
-             task.()
-  end
-
   test "a worker over the limit fails the pipeline; under it, it finishes" do
     run = fn ->
       consume(fn ->

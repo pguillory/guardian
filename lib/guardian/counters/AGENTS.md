@@ -13,7 +13,7 @@ Unnamed stores may use a PID (process dictionary lookup) or table reference.
 User keys are deterministic ETF binaries; the reserved atom descriptor key cannot
 collide. ETF is ephemeral and owner-local; routing hashes terms with `:erlang.phash2/2`.
 Rows are {encoded_key, value, expires_at, version}. The GenServer only runs
-housekeeping; suspending it must not block normal named-store traffic.
+housekeeping; normal named-store traffic never waits on it.
 Start it after Guardian.Rules.Server and before Storage, under the existing
 Supervisor/Restarter boundary. Invalid options refuse startup. Restart isolation,
 backoff and process-presence stats remain as specified in system.md section 2.1.
@@ -79,10 +79,7 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
 6. Return fixed errors; no key/value/exception logging. Formatted status is not
    redacted.
    Store takes no injected functions: tests pass `now` as data, while deadlines and
-   housekeeping use real time. Fault injection pauses Transport callers through a
-   gate that the test build's Backend adapter waits on before calling Store
-   (`Guardian.Test.Counters.StorePause`), not the housekeeper
-   (`docs/changes/clock-as-data.md`).
+   housekeeping use real time (`docs/changes/clock-as-data.md`).
    Store validates request options explicitly (`:invalid_request`). Only a store whose
    table is missing or not ready answers `:unavailable`; anything else raises, on the owner, and reaches
    the rule worker as a crash. Transport's `route/2` checks

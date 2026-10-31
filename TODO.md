@@ -581,6 +581,10 @@ privately, not in this repository.
 - [x] counter-budget-options: counter budget tests that build their own Context use
       per-event options; ClientTest, ContextTest and BudgetTest go async
       (`docs/changes/counter-budget-options.md`)
+- [x] tests-single-layer: tests stay at one layer and out of internals
+      (`docs/changes/tests-single-layer.md`)
+- [ ] intercept-append-removal: remove `Guardian.Test.Segments.intercept_append/2` once
+      `web/json_api_log_test` no longer uses it
 - [ ] counter-budget-seam-removal: remove the application-env budget seam, `relax/1`
       and `scale/1`. End-to-end ingestion tests and peer owners have no per-call path;
       the options need a decision (`docs/changes/counter-budget-options.md`)

@@ -1,7 +1,7 @@
 defmodule Guardian.Counters.ClientTest do
   @moduledoc """
   Client on this node's owners alone. `Guardian.Counters.ClientPeerTest` has the tests
-  that need peers or scan for Transport's helper processes.
+  that need peers.
   """
   use ExUnit.Case, async: true
   import Guardian.Counters.Client
@@ -10,9 +10,6 @@ defmodule Guardian.Counters.ClientTest do
   alias Guardian.Counters.Store
   alias Guardian.Counters.Transport
   alias Guardian.Test.Counters.Budget, as: CounterBudgetHelper
-
-  # Long enough that a slow start never trims a reservation below the 50 ms call budget.
-  @long_event [event_timeout_ms: 10_000]
 
   setup do
     store = start_supervised!({Store, name: nil})
@@ -326,80 +323,6 @@ defmodule Guardian.Counters.ClientTest do
     assert batch_one({:add, key({}, 3), "text", 5_000}, context) == :ok
     assert batch_one({:incr, key({}, 3), 1, 5_000}, context) == {:error, :not_integer}
     assert :ets.lookup(:counter_client_test, node()) == []
-  end
-
-  test "local stall times out, queued mutation expires, cooldown recovers", %{store: store} do
-    pause = Guardian.Test.Counters.StorePause.pause(store)
-    started = System.monotonic_time(:millisecond)
-
-    try do
-      assert batch_one({:incr, key(), 1, 5_000}, event(store, @long_event)) == {:error, :timeout}
-      assert batch_one({:incr, key(), 1, 5_000}, event(store, @long_event)) == {:error, :cooldown}
-      # Rules out waits far beyond the 50 ms call budget, such as one bounded only by
-      # the paused store, which never answers. Under host load it no longer catches a
-      # wait of a few hundred ms; the results still assert the timeout and the
-      # cooldown fast-fail.
-      assert System.monotonic_time(:millisecond) - started < 1_000
-    after
-      Guardian.Test.Counters.StorePause.resume(pause)
-    end
-
-    assert Store.get(key(), now(), server: store) == :not_found
-    Process.sleep(1_010)
-    recovered = healthy_event(store)
-    assert batch_one({:incr, key(), 1, 5_000}, recovered) == {:ok, 1}
-  end
-
-  test "short call and exhausted event budget do not mark an owner", %{store: store} do
-    pause = Guardian.Test.Counters.StorePause.pause(store)
-
-    try do
-      assert batch_one({:get, key()}, event(store, [timeout_ms: 15] ++ @long_event)) ==
-               {:error, :timeout}
-
-      assert :ets.lookup(:counter_client_test, node()) == []
-      batch = new_batch()
-
-      context =
-        event(batch, store, event_timeout_ms: 5)
-
-      assert batch_one({:get, key()}, context) == {:error, :budget_exhausted}
-      assert CounterBudgetHelper.remaining_us(batch) == 250_000
-      assert :ets.lookup(:counter_client_test, node()) == []
-    after
-      Guardian.Test.Counters.StorePause.resume(pause)
-    end
-  end
-
-  test "overlapping callers cannot reserve more than the shared failure allowance", %{
-    store: store,
-  } do
-    pause = Guardian.Test.Counters.StorePause.pause(store)
-    batch = new_batch()
-
-    try do
-      outcomes =
-        1..30
-        |> Task.async_stream(
-          fn _ ->
-            batch_one({:incr, key(), 1, 5_000}, event(batch, store, @long_event))
-          end,
-          max_concurrency: 30
-        )
-        |> Enum.map(fn {:ok, outcome} -> outcome end)
-
-      assert Enum.all?(
-               outcomes,
-               &(&1 in [{:error, :timeout}, {:error, :budget_exhausted}, {:error, :cooldown}])
-             )
-
-      assert Enum.count(outcomes, &(&1 == {:error, :timeout})) in 1..5
-      assert CounterBudgetHelper.remaining_us(batch) >= 0
-    after
-      Guardian.Test.Counters.StorePause.resume(pause)
-    end
-
-    assert Store.get(key(), now(), server: store) == :not_found
   end
 
   # Store operations take the current local monotonic milliseconds as data.

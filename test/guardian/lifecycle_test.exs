@@ -1,31 +1,24 @@
 defmodule Guardian.LifecycleTest do
   # Promises that need a server to stop, tagged :lifecycle and excluded by default; run
   # them with `mix test --include cluster --include lifecycle` before every deploy. Not
-  # async: one test flips the VM-wide stopping flag, and one connects a peer, which every
-  # query in this VM then fans out to.
+  # async: they connect a peer, which every query in this VM then fans out to.
   use ExUnit.Case, async: false
 
   alias Guardian.Test.Cluster
 
   @moduletag :lifecycle
 
-  # This calls the application's stop callback rather than stopping the server: the test
-  # VM's one Guardian keeps running, so it only flips the stopping flag the callback sets.
+  # This calls the application's stop callback on a peer rather than stopping it: peers
+  # run Storage, not the whole application, and the flag it sets dies with the peer.
   test "new queries are refused and peers told not ready once the machine begins to stop" do
+    %{peer_node: peer_node} = Cluster.single_peer()
     state = make_ref()
-    assert Guardian.Application.prep_stop(state) == state
+    assert :erpc.call(peer_node, Guardian.Application, :prep_stop, [state]) == state
 
-    try do
-      assert Guardian.Query.execute("select 1") ==
-               {:error, "this machine is shutting down; retry"}
+    assert :erpc.call(peer_node, Guardian.Query, :execute, ["select 1"]) ==
+             {:error, "this machine is shutting down; retry"}
 
-      refute Guardian.Storage.ready?()
-    after
-      :persistent_term.erase({Guardian.Application, :stopping})
-    end
-
-    assert {:ok, _labels, [[1]]} = Guardian.Query.execute("select 1")
-    assert Guardian.Storage.ready?()
+    refute :erpc.call(peer_node, Guardian.Storage, :ready?, [])
   end
 
   # Storage stop and start on a peer VM (peers run Storage, not the whole application).

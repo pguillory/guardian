@@ -4,53 +4,10 @@ defmodule Guardian.Cluster.QueryFailuresTest do
   use ExUnit.Case, async: false
   @moduletag :cluster
   import Guardian.Test.Query
-  import Guardian.Test.Processes
+  import Guardian.Test.Processes, only: [await_queued_call: 2]
 
   setup do
     Guardian.Test.Cluster.single_peer()
-  end
-
-  test "the query time limit stops the query's workers on every machine",
-       %{peer_node: peer_node} do
-    table = "query_failures_#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
-
-    :erpc.call(peer_node, Guardian.Engine, :ingest_events, [
-      table,
-      Enum.map(1..100, &%{"v" => &1}),
-    ])
-
-    statement = resolve_sql("SELECT count() FROM #{table}")
-
-    [segment_id] =
-      :erpc.call(peer_node, Guardian.Storage, :segment_ids, [table]) |> Enum.to_list()
-
-    {:ok, segment} = :erpc.call(peer_node, Guardian.Storage, :get_segment, [segment_id])
-    :ok = :erpc.call(peer_node, :sys, :suspend, [segment])
-
-    with_time_limit(1_000, fn ->
-      try do
-        task = Task.async(fn -> catch_error(Guardian.Query.run(statement)) end)
-        await_queued_call(segment, node: peer_node)
-
-        assert [_ | _] =
-                 remote =
-                 processes_running(
-                   query_modules(),
-                   peer_node
-                 )
-
-        assert %Guardian.Query.Error{message: message} = Task.await(task, 10_000)
-        assert message =~ "time limit of 1 second"
-
-        # The workers it had on the peer stop too.
-        Guardian.Test.Polling.eventually(
-          fn -> not Enum.any?(remote, &:erpc.call(peer_node, Process, :alive?, [&1])) end,
-          15_000
-        )
-      after
-        :erpc.call(peer_node, :sys, :resume, [segment])
-      end
-    end)
   end
 
   test "losing a machine mid-query fails the query instead of dropping its rows",

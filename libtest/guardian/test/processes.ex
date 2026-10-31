@@ -1,6 +1,6 @@
 defmodule Guardian.Test.Processes do
   @moduledoc """
-  Observes process queues and stacks on this node or peers, for `:cluster` tests.
+  Observes process queues on this node or peers, for `:cluster` tests.
   Default-suite tests don't peek at processes (CONTRIBUTING.md, "Testing philosophy").
   """
 
@@ -44,38 +44,6 @@ defmodule Guardian.Test.Processes do
       _ ->
         flunk("no call queued at the segment")
     end
-  end
-
-  @doc """
-  The processes on `node` whose current stack runs code from any of `modules`, such
-  as a query's pipeline workers (`Guardian.Test.Query.query_modules/0`).
-  """
-  def processes_running(modules, node \\ node()) do
-    processes_where(node, fn stack -> Enum.any?(modules, &(&1 in stack)) end)
-  end
-
-  defp processes_where(node, predicate) do
-    node
-    |> process_list()
-    |> Enum.filter(fn pid ->
-      case process_info(node, pid, :current_stacktrace) do
-        {:current_stacktrace, frames} ->
-          predicate.(Enum.map(frames, &elem(&1, 0)))
-
-        nil ->
-          false
-      end
-    end)
-  end
-
-  # Read locally without :erpc, so polls on this node keep the cadence of a plain
-  # Process call.
-  defp process_list(node) when node == node() do
-    Process.list()
-  end
-
-  defp process_list(node) do
-    :erpc.call(node, Process, :list, [])
   end
 
   defp process_info(node, pid, item) when node == node() do

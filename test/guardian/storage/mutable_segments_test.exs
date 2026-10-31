@@ -24,7 +24,6 @@ defmodule Guardian.Storage.MutableSegmentsTest do
     assert {:ok, 2} = Guardian.Storage.Segment.count(segment)
 
     # Load the persisted file, so that deleting the table removes it.
-    :sys.get_state(Guardian.Storage.PersistedSegments)
-    :ok = Guardian.Storage.LoadedSegments.rescan()
+    Guardian.Test.Segments.await_persisted(table)
   end
 end

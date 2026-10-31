@@ -60,6 +60,25 @@ defmodule Guardian.Test.Segments do
   end
 
   @doc """
+  Waits until every full segment of `table` has been written to disk and at least one
+  is loaded from its file, asking for the write and a rescan as it polls. For Storage
+  and query tests that need rows on disk.
+  """
+  def await_persisted(table) do
+    Guardian.Test.Polling.eventually(
+      fn ->
+        :ok = Guardian.Storage.PersistedSegments.ping()
+        :ok = Guardian.Storage.LoadedSegments.rescan()
+
+        Guardian.Storage.FullSegments.segment_ids(table) == [] and
+          Guardian.Storage.LoadedSegments.segment_ids(table) != []
+      end,
+      30_000,
+      50
+    )
+  end
+
+  @doc """
   Registers a one-call fake mutable segment for `table`, so the next append to it goes
   through the real Storage and GenServer path to `callback.(from, row)`, which replies
   (or fails) as the test needs. The fake unregisters itself before calling back, so

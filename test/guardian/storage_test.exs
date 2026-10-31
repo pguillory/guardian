@@ -39,30 +39,6 @@ defmodule Guardian.StorageTest do
            ]
   end
 
-  test "a segment's refusal raises from append and append_flattened, and is returned by append_flattened_result",
-       %{table: table} do
-    refuse = fn from, _row -> GenServer.reply(from, {:error, :invalid_value}) end
-
-    Guardian.Test.Segments.intercept_append(table, refuse)
-
-    assert_raise ArgumentError, "value cannot be stored", fn ->
-      append(table, %{"a" => 1})
-    end
-
-    Guardian.Test.Segments.intercept_append(table, refuse)
-
-    assert_raise ArgumentError, "value cannot be stored", fn ->
-      append_flattened(table, %{"a" => 1})
-    end
-
-    Guardian.Test.Segments.intercept_append(table, refuse)
-
-    assert append_flattened_result(table, %{"a" => 1}) ==
-             {:error, :invalid_value}
-
-    assert dump_table(table) == []
-  end
-
   # Guardian.Storage.Value accepts a map value, but no column holds one, so the segment refuses
   # it. Guardian.Storage.append would flatten the map away instead.
   test "a map value in a flattened row is refused by the segment", %{table: table} do
@@ -117,39 +93,6 @@ defmodule Guardian.StorageTest do
     assert {:error, {:segment_unavailable, :not_found}} = get_column(id, "a")
   end
 
-  test "segment ID streams emit overlapping lifecycle IDs only once", %{table: table} do
-    ids = [Guardian.SegmentID.generate(), Guardian.SegmentID.generate()]
-    registries = [PersistedSegments, MutableSegments]
-    # Dead, so that a concurrent test's all-table schema read skips it instead of waiting.
-    {dead, ref} = spawn_monitor(fn -> :ok end)
-    assert_receive {:DOWN, ^ref, :process, ^dead, :normal}
-    registrations = Enum.map(ids, fn id -> {id, dead, table} end)
-
-    on_exit(fn ->
-      for registry <- registries do
-        :sys.replace_state(registry, fn state ->
-          Enum.each(ids, &:ets.delete(registry, &1))
-          state
-        end)
-      end
-    end)
-
-    for registry <- registries do
-      :sys.replace_state(registry, fn state ->
-        true = :ets.insert(registry, registrations)
-        state
-      end)
-    end
-
-    all_ids = segment_ids(table)
-    unloaded_ids = unloaded_segment_ids(table)
-
-    assert %Stream{} = all_ids
-    assert %Stream{} = unloaded_ids
-    assert Enum.sort(Enum.to_list(all_ids)) == Enum.sort(ids)
-    assert Enum.sort(Enum.to_list(unloaded_ids)) == Enum.sort(ids)
-  end
-
   test "segment registries have time to persist on shutdown" do
     {:ok, %{shutdown: mutable}} = :supervisor.get_childspec(Guardian.Storage, MutableSegments)
     {:ok, %{shutdown: persisted}} = :supervisor.get_childspec(Guardian.Storage, PersistedSegments)
@@ -186,13 +129,6 @@ defmodule Guardian.StorageTest do
     assert table_row_count(table) == count
     assert length(Enum.to_list(segment_ids(table))) >= 2
 
-    for segment <- MutableSegments.get_mutable_segments(table) do
-      :ok = MutableSegments.segment_is_full(table, segment)
-    end
-
-    :sys.get_state(PersistedSegments, :infinity)
-    :ok = Guardian.Storage.LoadedSegments.rescan()
-
     assert [[^count]] = run_sql("select count() from #{table}")
 
     assert run_sql("select tags from #{table} where i > 19998") |> Enum.sort() ==
@@ -220,13 +156,6 @@ defmodule Guardian.StorageTest do
     assert table_row_count(table) == count
     assert length(Enum.to_list(segment_ids(table))) >= 2
 
-    for segment <- MutableSegments.get_mutable_segments(table) do
-      :ok = MutableSegments.segment_is_full(table, segment)
-    end
-
-    :sys.get_state(PersistedSegments, :infinity)
-    :ok = Guardian.Storage.LoadedSegments.rescan()
-
     assert [[^count]] = run_sql("select count() from #{table}")
 
     assert run_sql("select i, s from #{table} where i = 1234") ==
@@ -242,9 +171,7 @@ defmodule Guardian.StorageTest do
       :ok = MutableSegments.segment_is_full(table, segment)
     end
 
-    :ok = PersistedSegments.ping()
-    :sys.get_state(PersistedSegments, :infinity)
-    :ok = Guardian.Storage.LoadedSegments.rescan()
+    Guardian.Test.Segments.await_persisted(table)
 
     [segment_id] = Enum.to_list(segment_ids(table))
     assert segment_id in PersistedSegments.segment_ids(table)

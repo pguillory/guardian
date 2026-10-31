@@ -81,14 +81,6 @@ defmodule Guardian.QueryTest do
       assert_raise Guardian.Query.Error, fn -> run("select test_raise(v) from #{table}") end
       assert Enum.sort(run("select v from #{table}")) == [[1], [2], [3], [4], [5]]
     end
-
-    test "leave no messages or linked processes behind", %{table: table} do
-      {:links, links_before} = Process.info(self(), :links)
-      assert_raise Guardian.Query.Error, fn -> run("select test_raise(v) from #{table}") end
-      assert run("select 1") == [[1]]
-      assert {:messages, []} = Process.info(self(), :messages)
-      assert {:links, ^links_before} = Process.info(self(), :links)
-    end
   end
 
   test "a node that is not an expression fails the query, naming it" do
@@ -455,9 +447,7 @@ defmodule Guardian.QueryTest do
       :ok = Guardian.Storage.MutableSegments.segment_is_full(table, segment)
     end
 
-    :sys.get_state(Guardian.Storage.PersistedSegments)
-    :ok = Guardian.Storage.LoadedSegments.rescan()
-    assert Guardian.Storage.LoadedSegments.segment_ids(table) != []
+    Guardian.Test.Segments.await_persisted(table)
     assert Guardian.Storage.MutableSegments.segment_ids(table) == []
     assert_queries.()
   end

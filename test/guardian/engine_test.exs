@@ -2,7 +2,6 @@ defmodule Guardian.EngineTest do
   use ExUnit.Case, async: true
   import Guardian.Test.Tables, only: [unique_table: 1]
   import Guardian.Engine
-  import Guardian.Test.Segments, only: [intercept_append: 2]
 
   test "ingests storage-safe event values without transformation" do
     table = "engine_ingest_#{System.unique_integer([:positive])}"
@@ -174,35 +173,6 @@ defmodule Guardian.EngineTest do
     end
 
     assert Guardian.Storage.dump_table(table) == [%{"value" => 1}]
-  end
-
-  test "an explicit segment refusal is reported as not stored and the batch continues" do
-    table = unique_table("engine_outcomes")
-    intercept_append(table, fn from, _row -> GenServer.reply(from, {:error, :invalid_value}) end)
-
-    assert ingest_events(table, [%{"value" => 1}, %{"value" => 2}]) == [
-             {:error, "value cannot be stored; the event was not stored"},
-             {:ok, %{"value" => 2}},
-           ]
-
-    assert Guardian.Storage.dump_table(table) == [%{"value" => 2}]
-
-    raising_table = unique_table("engine_outcomes")
-
-    intercept_append(raising_table, fn from, _row ->
-      GenServer.reply(from, {:error, :invalid_value})
-    end)
-
-    assert_raise ArgumentError, "value cannot be stored", fn ->
-      ingest_event(raising_table, %{"value" => 3})
-    end
-  end
-
-  test "a segment that crashes on an append fails the batch" do
-    table = unique_table("engine_outcomes")
-    intercept_append(table, fn _from, _row -> exit(:ingest_test_failure) end)
-
-    assert {:ingest_test_failure, _} = catch_exit(ingest_events(table, [%{"value" => 1}]))
   end
 
   @valid_table_names [

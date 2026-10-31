@@ -7,7 +7,7 @@ defmodule Guardian.Test.Counters.ProbeStore do
   `batch/3` is also the mailbox batch adapter that `Guardian.Test.Counters.Backend`
   calls for a `{Guardian.Test.Counters.ProbeStore, server}` store option, for this
   probe or any other process speaking its `{:operation, deadline, {:batch, ops}}`
-  call (such as `Guardian.Test.Counters.PipelineProbe`). Mailbox transport doubles
+  call. Mailbox transport doubles
   stay outside the production ETS Store.
 
   `backend/1` turns a store into the Context `:store` option: a registered name or a
@@ -55,6 +55,13 @@ defmodule Guardian.Test.Counters.ProbeStore do
   end
 
   def backend(store) do
-    if Guardian.Test.Counters.StorePause.store?(store), do: store, else: {__MODULE__, store}
+    if store?(store), do: store, else: {__MODULE__, store}
+  end
+
+  # A real Store publishes its descriptor in its process dictionary.
+  defp store?(pid) when is_pid(pid) do
+    case Process.info(pid, :dictionary) do
+      {:dictionary, dictionary} -> Keyword.has_key?(dictionary, :counter_store_descriptor)
+    end
   end
 end

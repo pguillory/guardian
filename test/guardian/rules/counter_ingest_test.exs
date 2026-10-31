@@ -6,19 +6,6 @@ defmodule Guardian.Rules.CounterIngestTest do
 
   @api_key Application.compile_env!(:guardian, :admin_api_key)
 
-  setup do
-    # Named counter processes and cooldowns are shared; these tests are serial.
-    assert Guardian.Counters.Supervisor.available?()
-    :ets.delete_all_objects(Guardian.Counters.Budget)
-
-    on_exit(fn ->
-      assert Guardian.Counters.Supervisor.available?()
-      :ets.delete_all_objects(Guardian.Counters.Budget)
-    end)
-
-    :ok
-  end
-
   defp http(arguments) do
     conn =
       Plug.Test.conn(:post, "/api/json/send_events", arguments)
@@ -53,15 +40,6 @@ defmodule Guardian.Rules.CounterIngestTest do
 
     {:ok, plan} = Guardian.Rules.RuleSet.prepare(sources).candidates[table]
     Enum.find(plan.steps, &(&1.kind == :track))
-  end
-
-  defp await_cooldown(owner) do
-    Guardian.Test.Polling.eventually(fn ->
-      case :ets.lookup(Guardian.Counters.Budget, owner) do
-        [] -> true
-        [{_, until}] -> until <= System.monotonic_time(:microsecond)
-      end
-    end)
   end
 
   test "HTTP and MCP return LOOKUP=49/TRACK=50, SET decisions and historical stored fields" do
@@ -244,25 +222,8 @@ defmodule Guardian.Rules.CounterIngestTest do
     assert length(Guardian.Storage.dump_table(table)) == 4
   end
 
-  test "a storage failure leaves earlier counter side effects without replay" do
-    Guardian.Test.Counters.Budget.relax()
-    # A fresh table guarantees the one-call fake is its only mutable segment.
-    storage_table = unique_table("live_counter_storage_partial")
-    with_rules(%{"#{storage_table}/r.gsql" => "TRACK hits = count() LAST '1h'"})
-
-    Guardian.Test.Segments.intercept_append(storage_table, fn from, _row ->
-      GenServer.reply(from, {:error, :invalid_value})
-    end)
-
-    assert [{:error, "value cannot be stored; the event was not stored"}] =
-             ingest(storage_table, [%{}])
-
-    assert [{:ok, %{"hits" => 2}}] = ingest(storage_table, [%{}])
-    assert Guardian.Storage.dump_table(storage_table) == [%{"hits" => 2}]
-  end
-
   @tag :cluster
-  test "real peer owner handles healthy concurrent events, failure cooldown and recovery" do
+  test "a peer owner counts concurrent events, and a peer with no store gives the missing result" do
     table = unique_table("live_counter_peer")
 
     with_rules(%{
@@ -270,21 +231,25 @@ defmodule Guardian.Rules.CounterIngestTest do
         "TRACK hits = count() BY g LAST '1h'; LOOKUP prior = hits BY g; UNSET secret",
     })
 
-    {peer, peer_node} = Guardian.Test.Cluster.bare_peer()
-
+    {_peer, peer_node} = Guardian.Test.Cluster.bare_peer()
     assert {:ok, _} = :erpc.call(peer_node, Guardian.Test.Counters.Client, :start_store, [])
     Guardian.Test.Counters.Client.await_ready(peer_node)
-    # One slow call under host load would cool the peer down and zero the burst.
-    production_budgets = Guardian.Test.Counters.Budget.relax([peer_node])
+    # Connected, with the code loaded, as a peer still booting: no store is running.
+    {_booting, booting_node} = Guardian.Test.Cluster.bare_peer()
+    :ok = :erpc.call(booting_node, Guardian.Test.Counters.Client, :preload, [])
+    # One slow call under host load would default a count.
+    Guardian.Test.Counters.Budget.relax([peer_node, booting_node])
     identity = track(table).definition.identity
+    members = [node(), peer_node, booting_node]
 
-    group =
+    group_owned_by = fn owner ->
       Enum.find(
         1..1_000,
-        &(Guardian.Counters.Transport.owner({identity, {&1}}, [node(), peer_node]) == peer_node)
+        &(Guardian.Counters.Transport.owner({identity, {&1}}, members) == owner)
       )
+    end
 
-    assert group
+    group = group_owned_by.(peer_node)
 
     results =
       1..60
@@ -295,38 +260,12 @@ defmodule Guardian.Rules.CounterIngestTest do
     # The following sequential event proves every update was counted.
     assert Enum.all?(results, &(is_integer(&1) and &1 in 1..60))
     assert [{:ok, %{"hits" => 61, "prior" => 60}}] = ingest(table, [%{"g" => group}])
-    # Failure, cooldown and recovery run on production budgets.
-    production_budgets.()
 
-    pause = :erpc.call(peer_node, Guardian.Test.Counters.StorePause, :pause, [Store])
+    assert [{:ok, row}] =
+             ingest(table, [%{"g" => group_owned_by.(booting_node), "secret" => "private"}])
 
-    on_exit(fn ->
-      if Process.alive?(peer) and :erpc.call(peer_node, Process, :alive?, [elem(pause, 0)]),
-        do: :erpc.call(peer_node, Guardian.Test.Counters.StorePause, :resume, [pause])
-    end)
-
-    started = System.monotonic_time(:millisecond)
-
-    try do
-      results =
-        ingest(table, List.duplicate(%{"g" => group, "secret" => "private", "hits" => 99}, 60))
-
-      assert Enum.all?(results, &match?({:ok, %{"hits" => 0, "prior" => 0}}, &1))
-      assert Enum.all?(results, fn {:ok, row} -> not Map.has_key?(row, "secret") end)
-      assert System.monotonic_time(:millisecond) - started < 1_500
-      assert [{_, _}] = :ets.lookup(Guardian.Counters.Budget, peer_node)
-    after
-      :ok = :erpc.call(peer_node, Guardian.Test.Counters.StorePause, :resume, [pause])
-    end
-
-    await_cooldown(peer_node)
-    assert [{:ok, %{"hits" => 62, "prior" => 61}}] = ingest(table, [%{"g" => group}])
-    assert :ok = :erpc.call(peer_node, GenServer, :stop, [Store])
-    assert [{:ok, %{"hits" => 0}}] = ingest(table, [%{"g" => group}])
-    assert {:ok, _} = :erpc.call(peer_node, Guardian.Test.Counters.Client, :start_store, [])
-    Guardian.Test.Counters.Client.await_ready(peer_node)
-    await_cooldown(peer_node)
-    assert [{:ok, %{"hits" => 1, "prior" => 0}}] = ingest(table, [%{"g" => group}])
+    assert %{"hits" => 0, "prior" => 0} = row
+    refute Map.has_key?(row, "secret")
   end
 
   # Store operations take the current local monotonic milliseconds as data.

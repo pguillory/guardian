@@ -36,7 +36,6 @@ defmodule Guardian.Test.Counters.Client do
           Guardian.Counters.Store,
           Guardian.Test.Counters.Backend,
           Guardian.Test.Counters.ProbeStore,
-          Guardian.Test.Counters.StorePause,
         ],
         do: Code.ensure_loaded!(module)
 

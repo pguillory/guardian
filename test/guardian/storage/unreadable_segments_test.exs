@@ -2,7 +2,6 @@ defmodule Guardian.Storage.UnreadableSegmentsTest do
   # Not async: capture_log sees every process's log events, and the skipped-file
   # state and the segment directory are shared with every other test's rescans.
   use ExUnit.Case, async: false
-  import Guardian.Test.Polling
   import Guardian.Test.Segments
 
   import ExUnit.CaptureLog
@@ -62,24 +61,6 @@ defmodule Guardian.Storage.UnreadableSegmentsTest do
       end)
 
     refute log =~ @marker
-  end
-
-  test "a loaded segment is linked to its loader, and dies if the loader is gone",
-       %{table: table} do
-    filename = store_segment(table, Guardian.SegmentID.generate(), [%{"a" => 1}])
-
-    assert {:ok, segment} = Segment.load(filename)
-    assert segment in elem(Process.info(self(), :links), 1)
-    GenServer.stop(segment)
-
-    dead = spawn(fn -> :ok end)
-    ref = Process.monitor(dead)
-    assert_receive {:DOWN, ^ref, :process, ^dead, _}
-
-    case GenServer.start(Segment, load: filename, owner: dead) do
-      {:ok, orphan} -> eventually(fn -> not Process.alive?(orphan) end)
-      {:error, _reason} -> :ok
-    end
   end
 
   test "deleting a loaded segment whose file is gone or cannot be removed unloads it",

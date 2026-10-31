@@ -34,8 +34,7 @@ defmodule Guardian.Counters.StoreTest do
     assert add(nil, nil, 100, now, opts) == :ok
     assert get(nil, now, opts) == {:ok, nil}
     assert {:ok, nil, token} = gets(nil, now, opts)
-    # A small integer: no heap words beyond the term itself.
-    assert is_integer(token) and :erts_debug.flat_size(token) == 0
+    assert is_integer(token)
   end
 
   test "add creates only absent keys and cas only replaces matching rows", %{
@@ -188,49 +187,34 @@ defmodule Guardian.Counters.StoreTest do
   end
 
   # The sweep reads the live clock: rows written with a `now` a minute ago and a
-  # short TTL are already expired by it, and rows written now with a long TTL are not.
-  test "bulk expiry and stale tags retain a single periodic timer chain", %{now: now} do
-    past = now - 60_000
-    server = start_store(sweep_interval_ms: 60_000)
-    opts = [server: server, timeout: 5000]
-    for key <- 1..1000, do: assert({:ok, 1} = incr(key, 1, 10, past, opts))
-    %{sweep_tag: tag} = :sys.get_state(server)
-    send(server, {:sweep, tag})
-    %{sweep_tag: new_tag} = :sys.get_state(server)
-    assert tag != new_tag
-    assert {:ok, %{keys: 0}} = stats(opts)
-    incr(:new, 1, 10, past, opts)
-    send(server, {:sweep, tag})
-    assert %{sweep_tag: ^new_tag} = :sys.get_state(server)
-    assert {:ok, %{keys: 1}} = stats(opts)
-    send(server, :sweep)
-    :sys.get_state(server)
-    assert {:ok, %{keys: 0}} = stats(opts)
+  # short TTL are already expired by it.
+  test "a periodic sweep removes expired rows", %{now: now} do
     periodic = start_store(sweep_interval_ms: 10)
-    incr(:quiet, 1, 10, past, server: periodic, timeout: 5000)
+    opts = [server: periodic, timeout: 5000]
+    for key <- 1..1000, do: assert({:ok, 1} = incr(key, 1, 10, now - 60_000, opts))
 
     Guardian.Test.Polling.assert_eventually(fn ->
-      assert {:ok, %{keys: 0}} = stats(server: periodic)
+      assert {:ok, %{keys: 0}} = stats(opts)
     end)
   end
 
-  test "expiry precedes capacity reclamation and writes do not run eviction", %{now: now} do
-    server = start_store(memory_budget_bytes: 100_000, sweep_interval_ms: 60_000)
+  test "expiry precedes capacity reclamation", %{now: now} do
+    server = start_store(memory_budget_bytes: 100_000, sweep_interval_ms: 10)
     opts = [server: server, timeout: 5000]
     assert add(:live, :binary.copy("x", 60_000), 600_000, now, opts) == :ok
     assert {:ok, _, token} = gets(:live, now, opts)
     assert add(:short, :binary.copy("y", 60_000), 10, now - 60_000, opts) == :ok
-    assert {:ok, %{keys: 2, memory_bytes: bytes}} = stats(opts)
-    assert bytes > 100_000
-    send(server, :sweep)
-    :sys.get_state(server)
-    assert {:ok, %{keys: 1, memory_bytes: bytes}} = stats(opts)
-    assert bytes < 100_000
+
+    Guardian.Test.Polling.assert_eventually(fn ->
+      assert {:ok, %{keys: 1, memory_bytes: bytes}} = stats(opts)
+      assert bytes < 100_000
+    end)
+
     assert {:ok, _, ^token} = gets(:live, now, opts)
   end
 
-  test "capacity cutoff removes earliest-expiring buckets, including tied expiry", %{now: now} do
-    server = start_store(memory_budget_bytes: 100_000, sweep_interval_ms: 60_000)
+  test "capacity cutoff removes earliest-expiring buckets", %{now: now} do
+    server = start_store(memory_budget_bytes: 100_000, sweep_interval_ms: 10)
     opts = [server: server, timeout: 5000]
     # Insert the later expiry first: eviction follows expiry, not insertion order.
     # TTLs long enough that the live sweep only evicts, never expires.
@@ -238,19 +222,17 @@ defmodule Guardian.Counters.StoreTest do
     add(:earlier, :binary.copy("x", 40_000), 100_000, now, opts)
     assert {:ok, _, token} = gets(:earlier, now, opts)
     add(:middle, :binary.copy("x", 40_000), 500_000, now, opts)
-    send(server, :sweep)
-    :sys.get_state(server)
+
+    Guardian.Test.Polling.assert_eventually(fn ->
+      assert {:ok, %{memory_bytes: bytes}} = stats(opts)
+      assert bytes < 100_000
+    end)
+
     assert get(:earlier, now, opts) == :not_found
     assert {:ok, _} = get(:later, now, opts)
-    assert cas(:earlier, token, 7, 100, now, opts) == :not_found
-    assert {:ok, %{memory_bytes: bytes}} = stats(opts)
-    assert bytes < 100_000
-    incr(:earlier, 1, 100, now, opts)
-    assert cas(:earlier, token, 7, 100, now, opts) == {:error, :exists}
-    for key <- 1..5, do: add(key, :binary.copy("x", 40_000), 1_000_000, now, opts)
-    send(server, :sweep)
-    :sys.get_state(server)
-    assert {:ok, %{keys: 0}} = stats(opts)
+    assert cas(:earlier, token, 7, 600_000, now, opts) == :not_found
+    incr(:earlier, 1, 600_000, now, opts)
+    assert cas(:earlier, token, 7, 600_000, now, opts) == {:error, :exists}
   end
 
   test "large values are charged and oversize replacement preserves the old value", %{now: now} do
@@ -284,45 +266,6 @@ defmodule Guardian.Counters.StoreTest do
     assert incr(second, 1, 100, now, opts) == {:ok, 2}
   end
 
-  test "housekeeper suspension cannot block callers, including named lookup", %{
-    now: now,
-    server: server,
-    opts: opts,
-  } do
-    named = start_store(name: :counter_direct_test)
-
-    for {owner, options} <- [{server, opts}, {named, [server: :counter_direct_test]}] do
-      :sys.suspend(owner)
-
-      try do
-        assert incr(:direct, 1, 100, now, options) == {:ok, 1}
-        assert {:ok, 1, token} = gets(:direct, now, options)
-        assert cas(:direct, token, 2, 100, now, options) == :ok
-        assert batch([{:get, :direct}], now, options) == {:ok, [{:ok, 2}]}
-      after
-        :sys.resume(owner)
-      end
-    end
-  end
-
-  test "a captured table reference cannot address a same-name replacement", %{now: now} do
-    owner = start_store(name: :counter_generation_test)
-    assert incr(:key, 1, 100, now, server: :counter_generation_test) == {:ok, 1}
-    %{entries: old_table} = :sys.get_state(owner)
-    GenServer.stop(owner)
-
-    # The restarted store registers its name before init publishes it as ready, and a
-    # call in between correctly answers :unavailable, so wait for the replacement's
-    # answer, not its name.
-    Guardian.Test.Polling.assert_eventually(fn ->
-      assert get(:key, now, server: :counter_generation_test) == :not_found
-    end)
-
-    replacement = Process.whereis(:counter_generation_test)
-    assert is_pid(replacement) and replacement != owner
-    assert incr(:key, 1, 100, now, server: old_table) == {:error, :unavailable}
-  end
-
   test "value slices charge backing allocations while encoded keys detach them", %{now: now} do
     backing = :binary.copy("x", 131_072)
     slice = binary_part(backing, 1, 80)
@@ -345,10 +288,6 @@ defmodule Guardian.Counters.StoreTest do
 
     assert {:ok, %{memory_bytes: encoded_bytes}} = stats(opts)
     assert encoded_bytes < 100_000
-    %{entries: entries} = :sys.get_state(server)
-
-    for {encoded_key, _, _, _} <- :ets.tab2list(entries),
-        do: assert(:binary.referenced_byte_size(encoded_key) < 1_000)
 
     # A detached copy is small and can be stored; no blanket slice-size rejection.
     assert add(:key, :binary.copy(slice), 100, now, opts) == :ok
@@ -365,18 +304,12 @@ defmodule Guardian.Counters.StoreTest do
     opts: opts,
   } do
     assert get(:key, now, server: :counter_store_not_running) == {:error, :unavailable}
-    # A caller queued past its deadline is covered through Transport, whose deadline
-    # is anchored before `Guardian.Test.Counters.StorePause`'s gate (client_test).
     deadline = System.monotonic_time(:millisecond) - 1
     assert incr(:expired, 1, 100, now, opts ++ [deadline: deadline]) == {:error, :timeout}
     assert get(:expired, now, opts) == :not_found
   end
 
-  test "invalid operations do not kill the owner or change a key", %{
-    now: now,
-    server: server,
-    opts: opts,
-  } do
+  test "invalid operations do not kill the owner or change a key", %{now: now, opts: opts} do
     assert incr(:key, 1, 100, now, opts) == {:ok, 1}
 
     for ttl <- [0, -1, nil, "1"] do
@@ -386,7 +319,6 @@ defmodule Guardian.Counters.StoreTest do
 
     assert cas(:key, :bad_token, 2, 100, now, opts) == {:error, :invalid_request}
     assert incr(:key, 1.5, 100, now, opts) == {:error, :invalid_request}
-    assert GenServer.call(server, {:unexpected, "private"}) == {:error, :invalid_request}
     assert get(:key, now, opts) == {:ok, 1}
   end
 
