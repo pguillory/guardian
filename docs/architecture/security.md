@@ -214,10 +214,9 @@ events`. No header is `{:error, :missing}`, whatever the query string; a wrong k
 credential form by `test/guardian/web/auth_routes_test.exs`. Once the key passes, each
 router drops every `x-api-key` header with `Guardian.Web.Auth.drop_api_key/1`. That
 changes only the conn passed on: Bandit's own conn still holds the key and is attached
-to its error-report metadata, which Guardian's logger configuration does not print
-(`test/guardian/config/config_test.exs` fails if `config/config.exs` gives production a
-formatter or handler), and the JSON API's failure boundary answers with the conn it was
-called with.
+to its error-report metadata, which the default formatter Guardian uses does not print
+(no test checks this; logs are not scrubbed, CONTRIBUTING.md, "Logging"), and the JSON
+API's failure boundary answers with the conn it was called with.
 `Guardian.Web.Auth.identify_api_key/1` compares the supplied key with every
 configured key, each with `byte_size(supplied) == byte_size(configured)` and
 `Plug.Crypto.secure_compare(supplied, configured)`, with no early return, and returns
@@ -878,9 +877,9 @@ Where data goes:
      handler after that check has it. Bandit also attaches its own
      connection, built before any plug and so with the header, as Logger metadata on
      that line. Guardian's formatter prints no metadata (no `metadata:` in `config/`);
-     a formatter set to print `conn` or `crash_reason` would expose the key, so don't
-     configure one. Bandit transport/protocol exceptions pass through unchanged to
-     its own status, cleanup and logging policy.
+     a formatter set to print `conn` or `crash_reason` would print the key. Bandit
+     transport/protocol exceptions pass through unchanged to its own status, cleanup
+     and logging policy.
    - A `web_requests`, `web_responses`, `system_stats`, `query_parse_errors` or
      `queries` write
      that fails is logged with the table and the failure's kind only (an exception

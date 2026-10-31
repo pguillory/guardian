@@ -546,6 +546,8 @@ privately, not in this repository.
 - [ ] logging: text logs cover lifecycle only and errors mean work to do; IO.puts
       moves to Logger, scrubbing stops, and a passing `mix test` prints only dots and
       the summary (`docs/changes/logging.md`)
+- [x] no-log-scrub-tests: no test checks what a log line leaves out; the routers
+      still drop the API key from the conn (`docs/changes/no-log-scrub-tests.md`)
 
 ## Tests
 

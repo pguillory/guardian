@@ -152,8 +152,11 @@ A passing run should be simple and fast.
    or global silencing to quiet output, and no `errors` table. A process crashing in
    normal or test operation is a bug: fix it, or if a test causes it on purpose, the
    test goes.
-4. Don't scrub logs or crash reports. The one thing kept out is the API key: each
-   router drops the `x-api-key` header once the key passes.
+4. Don't scrub logs or crash reports, and don't test what a log line leaves out.
+   Each router drops the `x-api-key` header once the key passes, so no plug or
+   handler after it holds the key; that is about the conn, not the log. Bandit's own
+   conn still has the header, attached as metadata to its error lines, which the
+   default formatter doesn't print.
 5. Everything goes through Logger, not `IO.puts`. The one exception is the random admin
    key a dev Mix run generates (`config/runtime.exs`), printed to stderr because Logger
    isn't running yet at config time.
