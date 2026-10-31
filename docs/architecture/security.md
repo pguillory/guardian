@@ -835,7 +835,8 @@ working directory; on Fly, the machine's disposable root filesystem).
    disposable root filesystem (`config/runtime.exs`). Elsewhere, encryption at rest is
    whatever the operator's disk provides.
 2. Retention deletes persisted segments about 15 days after creation, globally. There
-   is no other deletion path through the product.
+   is no other deletion path through the product. A loaded segment whose file was
+   removed by hand keeps serving past that until the next restart.
 3. Backups: on Fly, the Fly guide creates each volume with daily snapshots kept 14
    days (`fly volumes create --snapshot-retention 14`). Snapshots hold everything the
    volume held, so deleted data, including `queries` and `query_parse_errors` query

@@ -775,7 +775,8 @@ the next restart tries it again, so a good copy restored by an operator (written
 another name, then renamed into place, never copied over the file) loads then.
 SegmentExpiration deletes skipped files on the same 15-day schedule as loaded ones.
 `Guardian.Storage.delete_table/1` and `delete_segment/1` (no interface calls them) do not see
-skipped files.
+a file that isn't loaded: a skipped one, a crashed segment's, or one a manager crash left
+unloaded. Its rows come back at the next restart, until expiry deletes it.
 
 Why mmap: a machine's stored data can be larger than its memory (the repository's
 Fly guide pairs a 10 GB volume with a 1 GB machine). Mapping lets every segment be registered and queryable
@@ -806,7 +807,8 @@ adds every node's schemas together (section 7).
 `Guardian.Storage.SegmentExpiration` runs at boot and every 10 minutes. It lists the segment directory
 and deletes every segment file whose ID timestamp is more than 15 days old, loaded or
 not: the file is removed and any segment process serving it stopped. A file being
-written has a temporary name, which it ignores. Age comes from the segment ID, that is from when the segment
+written has a temporary name, which it ignores. A loaded segment whose file was removed
+by hand is not on that list, so it keeps serving past retention until the next restart. Age comes from the segment ID, that is from when the segment
 was created, not from event timestamps. Expiry logs nothing. Retention is global and the 15 days is a
 constant in code. There is no other deletion path through the product; operators can
 call `Guardian.Storage.delete_table/1` and `Guardian.Storage.delete_segment/1` from the remote console.
