@@ -170,7 +170,7 @@ answer, so a fake segment in an async test must answer `:schema` promptly, as
 A module stays `async: false` only when it touches something shared by the whole VM:
 the application env or OS environment, a restart or suspension of an
 application-supervised process, a connected peer node, a scan of every process on the
-node, node-wide counter budgets, the shared rule store, log capture that must see
+node, node-wide counter budgets, the published rule map, log capture that must see
 only its own events, or the system tables. Say which in a one-line comment above `use ExUnit.Case`.
 
 Put new shared test infrastructure under `Guardian.Test.*` in

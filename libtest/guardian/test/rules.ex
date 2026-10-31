@@ -1,9 +1,10 @@
 defmodule Guardian.Test.Rules do
   @moduledoc """
-  Helpers for rule tests. `with_rules/1`, `restart_server/2` and `publish_module/2`
-  use shared Rules state and require `async: false`. `compile_module/2` is safe for
-  async tests using distinct probe modules; `unique_table/1` does not use shared
-  Rules state.
+  Helpers for rule tests. `with_rules/1` is safe for async tests on their own tables:
+  writes queue on the one `Guardian.Rules.Server`, so tests interleave as real callers
+  do, and no two writers in this VM can meet at the store's lock. `restart_server/2`
+  and `publish_module/2` change what that server owns and require `async: false`.
+  `compile_module/2` is safe for async tests using distinct probe modules.
   """
 
   import ExUnit.Callbacks, only: [on_exit: 1]

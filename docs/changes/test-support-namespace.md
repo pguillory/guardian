@@ -54,8 +54,8 @@ DistributedStream peer stages and the engine test key under `Guardian.Test.*`.
 ## Concurrency
 
 Application settings, counter budgets, query-key policy, query time limits and
-connected peers require serial tests. Rules' `with_rules/1`, `restart_server/2`
-and `publish_module/2` use shared Rules state and also require serial tests.
+connected peers require serial tests. Rules' `with_rules/1` is async-safe on a
+test's own table; `restart_server/2` and `publish_module/2` require serial tests.
 `compile_module/2` is async-safe when each test uses a distinct probe module.
 Pure aggregate arguments and caller reduction measurement are async-safe when
 the workload is. Query and process helpers require the caller to isolate the

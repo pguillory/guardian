@@ -7,9 +7,10 @@ defmodule Guardian.Test.FakeS3 do
   not match.
 
   `start/1` returns `%{endpoint, bucket, access_key_id, secret_access_key, server}`.
-  `fault/2` makes the next requests misbehave (`{:status, n}`, `{:delay, ms}`,
-  `{:close}`), `requests/1` lists what it received, and `put_object/3`, `objects/1`,
-  `age/3` inspect or change the stored objects directly.
+  `fault/2` makes the next requests misbehave (`{:status, n}`, `{:delay, ms}`, `{:close}`,
+  or `{:applied_status, n}` to carry out an object request and still answer `n`),
+  `requests/1` lists what it received, and `put_object/3`, `objects/1`, `age/3` inspect or
+  change the stored objects directly.
   """
 
   @behaviour Plug
@@ -144,6 +145,9 @@ defmodule Guardian.Test.FakeS3 do
       {:status, status} ->
         Plug.Conn.send_resp(conn, status, "")
 
+      {:applied_status, status} ->
+        conn |> Plug.Conn.assign(:reply_status, status) |> handle(agent, state, body)
+
       {:close} ->
         raise "closing the connection"
 
@@ -243,7 +247,9 @@ defmodule Guardian.Test.FakeS3 do
       end
     end)
     |> then(fn {status, headers, resp_body} ->
-      conn |> Plug.Conn.merge_resp_headers(headers) |> Plug.Conn.send_resp(status, resp_body)
+      conn
+      |> Plug.Conn.merge_resp_headers(headers)
+      |> Plug.Conn.send_resp(conn.assigns[:reply_status] || status, resp_body)
     end)
   end
 

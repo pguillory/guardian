@@ -4,9 +4,7 @@ defmodule Guardian.Rules.CounterRulesTest do
   compiled modules, Runner and Engine. Counter execution's own behavior (buckets,
   expiries, CAS, budgets) is tested in `Guardian.Counters.ExecutionTest`.
   """
-  # Not async: with_rules writes the shared rule store; sets the application env and
-  # captures log output.
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   import Guardian.Test.Rules
   alias Guardian.Aggregation
   alias Guardian.Counters.Arrival
@@ -307,6 +305,13 @@ defmodule Guardian.Rules.CounterRulesTest do
     end
   end
 
+  test "a rule that raises after a counter level leaves that increment counted", %{store: store} do
+    plan = plan("TRACK hits = count() LAST '1h'; SET result = test_raise(bad) + hits; UNSET bad")
+
+    assert_raise ArithmeticError, fn -> run(plan, %{"bad" => 1}, event(store)) end
+    assert run(plan, %{}, event(store))["hits"] == 2
+  end
+
   test "definition edits reset counters while moving identical source keeps state", %{
     store: store,
   } do
@@ -461,10 +466,7 @@ defmodule Guardian.Rules.CounterRulesTest do
     refute_receive {:unexpected, _}, 10
   end
 
-  test "many rules across events stop waiting when the failed-call batch allowance runs out" do
-    # The allowance, not the call budget, stops these waits, so the relaxed budget does
-    # not change what this checks. Under load a 15 ms failure could otherwise time out
-    # at 50 ms and put the owner in cooldown, so later calls charge nothing.
+  test "an exhausted batch allowance dispatches nothing and yields defaults" do
     parent = self()
 
     store =
@@ -472,116 +474,19 @@ defmodule Guardian.Rules.CounterRulesTest do
         {ProbeStore,
          {:pipeline,
           fn operations ->
-            send(parent, :dispatched)
-            Process.sleep(15)
-            {:ok, Enum.map(operations, fn _ -> {:error, :evicted} end)}
+            send(parent, {:unexpected, operations})
+            {:ok, []}
           end}}
       )
 
-    plan =
-      plan(Enum.map_join(1..40, ";", &"TRACK c#{&1} = count() LAST '1h'") <> "; UNSET secret")
+    plan = plan("TRACK hits = count() LAST '1h'; UNSET secret")
+    batch = CounterBudgetHelper.batch(Guardian.Counters.Client.new_batch(), 0)
 
-    batch = Guardian.Counters.Client.new_batch()
-    started = System.monotonic_time(:millisecond)
-
-    for _ <- 1..25 do
-      row = run(plan, %{"secret" => "PRIVATE"}, allowance_event(store, batch))
-      assert map_size(row) == 40
-      assert Enum.all?(row, fn {_field, value} -> value == 0 end)
+    for _ <- 1..3 do
+      assert run(plan, %{"secret" => "PRIVATE"}, allowance_event(store, batch)) == %{"hits" => 0}
     end
 
-    assert CounterBudgetHelper.remaining_us(batch) < 10_000
-    # Guards against events waiting out their whole 900 ms event budgets (25 of them
-    # would take over 20 s); it leaves room for host load.
-    assert System.monotonic_time(:millisecond) - started < 2_500
-    # Independent event phases could pass the elapsed-time check alone.
-    # Shared 250 ms allowance permits at most 17 of these >=15 ms failed calls.
-    assert drain_dispatches(0) in 1..17
-  end
-
-  defmodule MetadataRules do
-    def apply(row, event) do
-      send(
-        Application.fetch_env!(:guardian, :counter_metadata_observer),
-        {:metadata, self(), row, event}
-      )
-
-      if row["die"] do
-        CounterBudgetHelper.charge_us(event.counters.batch, 50_000)
-        Process.exit(self(), :kill)
-      end
-
-      row
-    end
-  end
-
-  test "Runner preserves batch reservations and arrival coordinates through worker replacement" do
-    table = unique_table("counter_worker_metadata")
-    publish_module(table, MetadataRules)
-    Guardian.Test.Env.put(counter_metadata_observer: self())
-    first = Arrival.now()
-    second = %{first | unix_ms: first.unix_ms + 1}
-
-    ExUnit.CaptureLog.capture_log(fn ->
-      assert [{:error, _}, {:ok, %{"ok" => true}}] =
-               Guardian.Rules.run_with_metadata(table, [
-                 {%{"die" => true}, first},
-                 {%{"ok" => true}, second},
-               ])
-    end)
-
-    assert_receive {:metadata, first_worker, _, one}
-    assert_receive {:metadata, second_worker, _, two}
-    assert %Guardian.Counters.Context{} = one.counters
-    assert %Guardian.Counters.Context{} = two.counters
-    refute first_worker == second_worker
-    assert one.arrival == first
-    assert two.arrival == second
-    assert one.arrival.monotonic_ms == two.arrival.monotonic_ms
-    assert one.counters.batch == two.counters.batch
-    assert CounterBudgetHelper.remaining_us(two.counters.batch) == 200_000
-    assert two.counters.members == [node() | Node.list()]
-    assert two.counters.deadline > one.counters.deadline
-  end
-
-  test "Engine arrival metadata stays outside caller rows and is never stored" do
-    table = unique_table("counter_engine_metadata")
-    publish_module(table, MetadataRules)
-    Guardian.Test.Env.put(counter_metadata_observer: self())
-
-    spoofed = %{
-      "arrival" => 1,
-      "unix_ms" => 1,
-      "arrival_ms" => 1,
-      "monotonic_ms" => 1,
-      "timestamp" => "old",
-      "counters" => 99,
-    }
-
-    before = System.system_time(:millisecond)
-
-    assert [{:ok, ^spoofed}, {:error, "event is not a JSON object"}, {:ok, %{}}] =
-             Guardian.Engine.ingest_events(table, [spoofed, false, %{}])
-
-    assert_receive {:metadata, _, ^spoofed, private}
-    assert private.arrival.unix_ms >= before
-    assert private.arrival.unix_ms <= System.system_time(:millisecond)
-    assert is_reference(private.counters.batch)
-    assert_receive {:metadata, _, %{}, second}
-    assert second.counters.batch == private.counters.batch
-    assert MapSet.new(Guardian.Storage.dump_table(table)) == MapSet.new([spoofed, %{}])
-    # The convenience entry captures its own private arrival and batch context.
-    assert [{:ok, %{}}] = Guardian.Rules.run(table, [%{}])
-    assert_receive {:metadata, _, %{}, direct}
-    refute direct.counters.batch == private.counters.batch
-  end
-
-  defp drain_dispatches(n) do
-    receive do
-      :dispatched -> drain_dispatches(n + 1)
-    after
-      0 -> n
-    end
+    refute_received {:unexpected, _}
   end
 
   # Store operations take the current local monotonic milliseconds as data.

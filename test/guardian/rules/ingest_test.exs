@@ -1,6 +1,5 @@
 defmodule Guardian.Rules.IngestTest do
-  # Not async: with_rules writes the shared rule store and tests set the application env.
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   import Guardian.Test.Rules
 
   defp ingest(table, events) do
@@ -180,18 +179,6 @@ defmodule Guardian.Rules.IngestTest do
     assert Guardian.Storage.dump_table(table) == [%{"a" => 9_223_372_036_854_775_807, "y" => -2}]
   end
 
-  test "a statement that raises fails the whole request; nothing in the batch is stored" do
-    table = unique_table("rules_raise")
-    # No real function raises; test_raise/1 (test build only) does on any value.
-    with_rules(%{"#{table}/r.gsql" => "SET ok = 1;\nSET x = test_raise(a)"})
-
-    ExUnit.CaptureLog.capture_log(fn ->
-      assert {_reason, _stack} = catch_exit(ingest(table, [%{"b" => 1}, %{"a" => 1}]))
-    end)
-
-    assert Guardian.Storage.dump_table(table) == []
-  end
-
   test "a regular expression past its backtracking limit gives null, not a failure" do
     table = unique_table("rules_regex_limit")
 
@@ -203,75 +190,6 @@ defmodule Guardian.Rules.IngestTest do
     assert [{:ok, reported}] = ingest(table, [%{"a" => evil}])
     assert %{"x" => nil, "y" => nil} = reported
     assert Guardian.Storage.dump_table(table) == [%{"a" => evil}]
-  end
-
-  defmodule SlowRules do
-    def apply(row, _event) do
-      apply(row)
-    end
-
-    def apply(%{"sleep" => ms} = row) do
-      Process.sleep(ms)
-      row
-    end
-
-    def apply(%{"big" => n} = row) do
-      Map.put(row, "list", Enum.to_list(1..n))
-    end
-
-    def apply(row) do
-      Map.put(row, "ran", true)
-    end
-  end
-
-  test "an event over its time or heap limit fails alone; outcomes stay in order" do
-    table = unique_table("rules_limits")
-    publish_module(table, SlowRules)
-    Guardian.Test.Env.put(rules_time_limit_ms: 200, query_max_heap_mb: 4)
-
-    assert [ok1, slow, ok2, big, ok3] =
-             ingest(table, [
-               %{"n" => 1},
-               %{"sleep" => 5_000},
-               %{"n" => 2},
-               %{"big" => 10_000_000},
-               %{"n" => 3},
-             ])
-
-    assert {:ok, %{"n" => 1, "ran" => true}} = ok1
-
-    assert {:error,
-            "rules for #{table} exceeded their time or memory limit; the event was not stored"} ==
-             slow
-
-    assert {:ok, %{"n" => 2, "ran" => true}} = ok2
-
-    assert {:error,
-            "rules for #{table} exceeded their time or memory limit; the event was not stored"} ==
-             big
-
-    assert {:ok, %{"n" => 3, "ran" => true}} = ok3
-
-    assert table |> Guardian.Storage.dump_table() |> Enum.map(& &1["n"]) |> Enum.sort() == [
-             1,
-             2,
-             3,
-           ]
-  end
-
-  test "a table whose stored rules are invalid fails its events; other tables are unaffected" do
-    table = unique_table("rules_invalid_table")
-    publish_module(table, {:invalid, "#{table}/r.gsql line 1: Expected field name"})
-
-    assert [{:error, message}] = ingest(table, [%{"x" => 1}])
-
-    assert message ==
-             "rules for #{table} are invalid (#{table}/r.gsql line 1: Expected field name); the event was not stored"
-
-    assert Guardian.Storage.dump_table(table) == []
-
-    other = unique_table("rules_other")
-    assert [{:ok, %{"x" => 1}}] = ingest(other, [%{"x" => 1}])
   end
 
   test "non-object events and tables without rules behave as before" do

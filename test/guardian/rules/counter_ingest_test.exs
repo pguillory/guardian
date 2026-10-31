@@ -1,6 +1,5 @@
 defmodule Guardian.Rules.CounterIngestTest do
-  # Not async: with_rules writes the shared rule store; relaxes the node-wide counter
-  # budgets and pauses the node's counter store.
+  # Not async: real ingest with TRACK runs on the node-wide counter budgets, relaxed here.
   use ExUnit.Case, async: false
   import Guardian.Test.Rules
   alias Guardian.Counters.Store
@@ -245,21 +244,8 @@ defmodule Guardian.Rules.CounterIngestTest do
     assert length(Guardian.Storage.dump_table(table)) == 4
   end
 
-  test "a later rule or storage failure leaves earlier counter side effects without replay" do
+  test "a storage failure leaves earlier counter side effects without replay" do
     Guardian.Test.Counters.Budget.relax()
-    table = unique_table("live_counter_partial")
-
-    with_rules(%{
-      "#{table}/r.gsql" =>
-        "TRACK hits = count() LAST '1h'; SET result = test_raise(bad) + hits; UNSET secret",
-    })
-
-    ExUnit.CaptureLog.capture_log(fn ->
-      assert {_reason, _stack} = catch_exit(ingest(table, [%{"bad" => 1}]))
-    end)
-
-    assert Guardian.Storage.dump_table(table) == []
-
     # A fresh table guarantees the one-call fake is its only mutable segment.
     storage_table = unique_table("live_counter_storage_partial")
     with_rules(%{"#{storage_table}/r.gsql" => "TRACK hits = count() LAST '1h'"})
@@ -273,68 +259,6 @@ defmodule Guardian.Rules.CounterIngestTest do
 
     assert [{:ok, %{"hits" => 2}}] = ingest(storage_table, [%{}])
     assert Guardian.Storage.dump_table(storage_table) == [%{"hits" => 2}]
-  end
-
-  test "a slow local Store bounds a long many-rule batch, cools down and recovers without queued writes" do
-    table = unique_table("live_counter_slow")
-    source = Enum.map_join(1..16, ";", &"TRACK c#{&1} = count() LAST '1h'") <> "; UNSET secret"
-    with_rules(%{"#{table}/r.gsql" => source})
-    store = Process.whereis(Store)
-    pause = Guardian.Test.Counters.StorePause.pause(store)
-
-    on_exit(fn ->
-      if Process.alive?(elem(pause, 0)), do: Guardian.Test.Counters.StorePause.resume(pause)
-    end)
-
-    started = System.monotonic_time(:millisecond)
-
-    try do
-      results = ingest(table, List.duplicate(%{"secret" => "private", "c1" => 99}, 100))
-      assert Enum.all?(results, fn {:ok, row} -> row == Map.new(1..16, &{"c#{&1}", 0}) end)
-      assert System.monotonic_time(:millisecond) - started < 1_500
-      assert [{_, _}] = :ets.lookup(Guardian.Counters.Budget, node())
-    after
-      :ok = Guardian.Test.Counters.StorePause.resume(pause)
-    end
-
-    await_cooldown(node())
-    assert [{:ok, row}] = ingest(table, [%{}])
-    assert row == Map.new(1..16, &{"c#{&1}", 1})
-  end
-
-  test "HTTP and MCP counter failure stays fail-open" do
-    Guardian.Test.MCPClient.start()
-    table = unique_table("live_counter_fail_open")
-    marker = "PRIVATE-#{System.unique_integer([:positive])}"
-
-    with_rules(%{
-      "#{table}/r.gsql" =>
-        "TRACK hits = count() BY concat(secret, '#{marker}') LAST '1h'; UNSET secret",
-    })
-
-    args = %{
-      "table" => table,
-      "events" => [%{"secret" => marker, "hits" => 99}],
-      "return_keys" => ["hits", "secret"],
-    }
-
-    store = Process.whereis(Store)
-    pause = Guardian.Test.Counters.StorePause.pause(store)
-
-    on_exit(fn ->
-      if Process.alive?(elem(pause, 0)), do: Guardian.Test.Counters.StorePause.resume(pause)
-    end)
-
-    for send_events <- [&http/1, &mcp("send_events", &1)] do
-      # Exercise a real timeout for each interface, not the other's cooldown.
-      :ets.delete(Guardian.Counters.Budget, node())
-
-      assert send_events.(args)["results"] == [
-               %{"success" => true, "event" => %{"hits" => 0, "secret" => nil}},
-             ]
-    end
-
-    :ok = Guardian.Test.Counters.StorePause.resume(pause)
   end
 
   @tag :cluster

@@ -180,9 +180,7 @@ defmodule Guardian.Rules.CounterReloadTest do
     load(s3, files)
     reloaded = Map.take(Guardian.Rules.published(), [a, b, c])
 
-    ExUnit.CaptureLog.capture_log(fn ->
-      assert {:ok, _} = restart_server(Guardian.Test.FakeS3.store(s3))
-    end)
+    assert {:ok, _} = restart_server(Guardian.Test.FakeS3.store(s3))
 
     booted = Map.take(Guardian.Rules.published(), [a, b, c])
     assert booted[a].hash() == reloaded[a].hash()

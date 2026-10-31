@@ -649,3 +649,6 @@ privately, not in this repository.
       cleanup promises they guarded are tested on the specific process or file, and
       `system_stats` records open descriptors, mappings, native columns and resident
       memory to watch leaks in production (`docs/changes/vm-wide-leak-tests.md`)
+- [x] async-rule-tests: rule tests that write rules, store events and run queries run
+      async through the one rule server; what stays sync says why, and the rule time limit and a
+      rule worker's crash have no test left (`docs/changes/async-rule-tests.md`)
