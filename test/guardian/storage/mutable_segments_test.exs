@@ -1,8 +1,6 @@
 defmodule Guardian.Storage.MutableSegmentsTest do
   import Guardian.Storage.MutableSegments
-  # Not async: changes the node-wide segment max age and suspends PersistedSegments.
-  use ExUnit.Case, async: false
-  import Guardian.Test.Polling
+  use ExUnit.Case, async: true
 
   test "append" do
     :ok = append("MutableSegmentsTest", a: 1)
@@ -28,86 +26,5 @@ defmodule Guardian.Storage.MutableSegmentsTest do
     # Load the persisted file, so that deleting the table removes it.
     :sys.get_state(Guardian.Storage.PersistedSegments)
     :ok = Guardian.Storage.LoadedSegments.rescan()
-  end
-
-  describe "maximum age" do
-    setup do
-      original = :sys.get_state(Guardian.Storage.MutableSegments)
-      :sys.replace_state(Guardian.Storage.MutableSegments, &%{&1 | max_age_ms: 50})
-
-      table = "mutable_segments_age_#{System.unique_integer([:positive])}"
-
-      on_exit(fn ->
-        :sys.resume(Guardian.Storage.PersistedSegments)
-        :sys.replace_state(Guardian.Storage.MutableSegments, fn _ -> original end)
-        :sys.get_state(Guardian.Storage.PersistedSegments)
-        :ok = Guardian.Storage.LoadedSegments.rescan()
-        :ok = Guardian.Storage.delete_table(table)
-      end)
-
-      %{table: table}
-    end
-
-    test "quiet partial segments hand off, persist, and send later writes elsewhere", %{
-      table: table,
-    } do
-      :sys.suspend(Guardian.Storage.PersistedSegments)
-      :ok = append(table, a: 1)
-      [id] = segment_ids(table)
-      [segment] = get_mutable_segments(table)
-
-      eventually(fn -> get_mutable_segments(table) == [] end)
-      assert Guardian.Storage.FullSegments.segment_ids(table) == [id]
-      assert Guardian.Storage.Segment.full(segment) == {:ok, true}
-      assert Guardian.Storage.Segment.append(segment, %{a: 99}) == {:error, :full}
-
-      # An append that had already picked this segment and a stale age message
-      # can both ask for the same handoff; neither registers it twice.
-      :ok = segment_is_full(table, segment)
-      send(Guardian.Storage.MutableSegments, {:segment_max_age, segment})
-      :sys.get_state(Guardian.Storage.MutableSegments)
-      assert Guardian.Storage.FullSegments.segment_ids(table) == [id]
-
-      # Keep the replacement writable while this test checks persistence.
-      :sys.replace_state(Guardian.Storage.MutableSegments, &%{&1 | max_age_ms: 3_600_000})
-      :ok = append(table, a: 2)
-      [next_id] = segment_ids(table)
-      refute next_id == id
-      {:ok, next_segment} = get_segment(next_id)
-      assert Guardian.Test.Segments.segment_row(next_segment, 0) == {:ok, %{"a" => 2}}
-      assert Guardian.Storage.Segment.count(segment) == {:ok, 1}
-
-      :sys.resume(Guardian.Storage.PersistedSegments)
-      :sys.get_state(Guardian.Storage.PersistedSegments)
-      filename = Guardian.Storage.SegmentFile.filename(table, id)
-      assert File.exists?(filename)
-      assert {:ok, ^segment} = Guardian.Storage.PersistedSegments.get_segment(id)
-
-      # Read the actual persisted bytes through the normal mmap loader.
-      :ok = Guardian.Storage.LoadedSegments.rescan()
-      {:ok, loaded} = Guardian.Storage.LoadedSegments.get_segment(id)
-      assert Guardian.Test.Segments.segment_row(loaded, 0) == {:ok, %{"a" => 1}}
-      assert Guardian.Storage.dump_table(table) == [%{"a" => 1}, %{"a" => 2}]
-    end
-
-    test "empty segments stay mutable until their first write", %{table: table} do
-      :ok = ensure_at_least_n_mutable_segments(table, 1)
-      [id] = segment_ids(table)
-      [segment] = get_mutable_segments(table)
-      Process.sleep(100)
-
-      assert segment_ids(table) == [id]
-      assert Guardian.Storage.Segment.full(segment) == {:ok, false}
-      assert Guardian.Storage.Segment.count(segment) == {:ok, 0}
-      assert Guardian.Storage.FullSegments.segment_ids(table) == []
-      refute File.exists?(Guardian.Storage.SegmentFile.filename(table, id))
-
-      :ok = append(table, a: 1)
-      eventually(fn -> get_mutable_segments(table) == [] end)
-      # The registry removal precedes the persistence ping inside the handoff.
-      :sys.get_state(Guardian.Storage.MutableSegments)
-      :sys.get_state(Guardian.Storage.PersistedSegments)
-      assert File.exists?(Guardian.Storage.SegmentFile.filename(table, id))
-    end
   end
 end

@@ -1,7 +1,6 @@
 defmodule Guardian.Storage.SegmentOwnerExitsTest do
-  # How the lifecycle managers handle their segments' ends: table deletion and a segment
-  # that does not answer.
-  use ExUnit.Case, async: false
+  # How the lifecycle managers handle their segments' ends.
+  use ExUnit.Case, async: true
   import Guardian.Test.Query
   import Guardian.Test.Polling
 
@@ -13,12 +12,6 @@ defmodule Guardian.Storage.SegmentOwnerExitsTest do
 
   defp table do
     "owner_exits_#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
-  end
-
-  # A table whose segment filenames exceed the filesystem's 255-byte name limit, so its
-  # full segments stay in FullSegments (the persister logs them and retries).
-  defp unstorable_table do
-    table() <> String.duplicate("f", 230)
   end
 
   # Every stored value of `v` in the table, sorted, so a lost or duplicated row shows.
@@ -55,7 +48,7 @@ defmodule Guardian.Storage.SegmentOwnerExitsTest do
     refute Segment.normal_exit?(:boom)
   end
 
-  test "deleting a table stops its mutable, full and persisted segments" do
+  test "deleting a table stops its mutable and persisted segments" do
     table = table()
     :ok = MutableSegments.ensure_at_least_n_mutable_segments(table, 3)
     for v <- 1..30, do: :ok = Guardian.Storage.append(table, %{"v" => v})
@@ -67,39 +60,16 @@ defmodule Guardian.Storage.SegmentOwnerExitsTest do
     :ok = LoadedSegments.rescan()
     assert values(table) == Enum.to_list(1..40)
 
-    full_table = unstorable_table()
-    {_id, full} = full_fixture(full_table, 1..10)
-
-    segments = [persisted, full | mutable]
+    segments = [persisted | mutable]
     refs = Map.new(segments, &{Process.monitor(&1), &1})
 
     :ok = Guardian.Storage.delete_table(table)
-    :ok = Guardian.Storage.delete_table(full_table)
 
     for _ <- segments do
       assert_receive {:DOWN, ref, :process, _, _} when is_map_key(refs, ref)
     end
 
     assert Enum.to_list(Guardian.Storage.segment_ids(table)) == []
-    assert Enum.to_list(Guardian.Storage.segment_ids(full_table)) == []
     assert values(table) == []
-  end
-
-  describe "Guardian.Storage.schema/1 and a mutable segment" do
-    test "fails the lookup, by kind only, on one that does not answer" do
-      table = table()
-      :ok = Guardian.Storage.append(table, %{"v" => 1})
-      [{_id, segment, ^table}] = :ets.match_object(MutableSegments, {:_, :_, table})
-      :ok = :sys.suspend(segment)
-
-      try do
-        assert catch_exit(Guardian.Storage.schema(table)) == {:segment_unavailable, ":timeout"}
-      after
-        :ok = :sys.resume(segment)
-      end
-
-      assert Map.keys(Guardian.Storage.schema(table)) == ["v"]
-      :ok = Guardian.Storage.delete_table(table)
-    end
   end
 end

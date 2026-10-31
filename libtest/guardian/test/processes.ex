@@ -1,8 +1,7 @@
 defmodule Guardian.Test.Processes do
   @moduledoc """
-  Observes process queues and stacks on this node or peers. Async tests must
-  isolate the processes they observe; finding processes by scanning a node and peer
-  tests require `async: false`.
+  Observes process queues and stacks on this node or peers, for `:cluster` tests.
+  Default-suite tests don't peek at processes (CONTRIBUTING.md, "Testing philosophy").
   """
 
   import ExUnit.Assertions
@@ -53,15 +52,6 @@ defmodule Guardian.Test.Processes do
   """
   def processes_running(modules, node \\ node()) do
     processes_where(node, fn stack -> Enum.any?(modules, &(&1 in stack)) end)
-  end
-
-  @doc """
-  The processes on `node` whose current stack runs code from every one of `modules`,
-  such as a query worker blocked reading a segment
-  (`[Guardian.Query.Executor, Guardian.Storage.Segment]`).
-  """
-  def processes_running_all(modules, node \\ node()) do
-    processes_where(node, fn stack -> Enum.all?(modules, &(&1 in stack)) end)
   end
 
   defp processes_where(node, predicate) do

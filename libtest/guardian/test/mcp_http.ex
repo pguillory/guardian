@@ -98,15 +98,6 @@ defmodule Guardian.Test.MCPHTTP do
     Jason.decode!(text)
   end
 
-  @doc "Sends `notifications/cancelled` for request `id` on a session; returns the conn."
-  def cancel(session_id, id) do
-    request(
-      :post,
-      %{jsonrpc: "2.0", method: "notifications/cancelled", params: %{requestId: id}},
-      session(session_id)
-    )
-  end
-
   @doc "The live process Anubis runs for a session, or nil."
   def session_pid(session_id) do
     registry = Anubis.Server.Registry.registry_name(Guardian.Web.MCP.Server)

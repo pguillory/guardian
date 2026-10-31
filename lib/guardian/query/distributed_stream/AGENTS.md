@@ -91,4 +91,6 @@ mind, and keep the comments in the file in step with them.
    `libtest/guardian/test/distributed_stream_stages.ex`: test modules aren't loaded there.
 4. Run `test/guardian/query/distributed_stream_test.exs`, `test/guardian/query/distributed_stream/`,
    `test/guardian/query/pipeline_failures_test.exs`, `test/guardian/query/failure_test.exs` and
-   `test/guardian/cluster/query_failures_test.exs`, then the full suite.
+   `test/guardian/cluster/query_failures_test.exs`, then the full suite. A killed
+   worker failing the query, and a LIMIT returning while workers still run, have no
+   test: check them by hand (`docs/changes/async-default-tests.md`).
