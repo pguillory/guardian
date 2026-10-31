@@ -1259,7 +1259,7 @@ Guardian observes itself by writing ordinary tables through `Guardian.Engine.log
 
 Every node is a distributed Erlang node. `rel/env.sh.eex` names it in one of three
 modes, and `DNSCluster` (the `dns_cluster` library, started by `Guardian.Application` through
-`Guardian.Cluster.discovery_child_spec/1`) finds peers when a discovery name is set:
+`Guardian.Cluster.discovery_child_spec/2`) finds peers when a discovery name is set:
 
 1. Single node (neither `GUARDIAN_NODE_HOST` nor `FLY_PRIVATE_IP` set): the short name
    `guardian@localhost`, with `ERL_EPMD_ADDRESS=127.0.0.1` and
@@ -1274,7 +1274,7 @@ modes, and `DNSCluster` (the `dns_cluster` library, started by `Guardian.Applica
    network alias), DNSCluster polls it every 5 seconds and connects to
    `guardian@<each IP>`, asking for AAAA records for an IPv6 node and A records for an
    IPv4 one. Because a peer answers only to its exact name, at boot
-   `Guardian.Cluster.discovery_child_spec/1` refuses to start a node whose host is not an IP
+   `Guardian.Cluster.discovery_child_spec/2` refuses to start a node whose host is not an IP
    literal, is loopback, or is not written exactly as `:inet.ntoa/1` writes it (for
    example `2001:db8::1`, not the expanded form). Without `DNS_CLUSTER_QUERY` the node
    is a standalone long-named node: it discovers nothing but listens for distribution
@@ -1582,7 +1582,8 @@ The image uses Elixir 1.19.7 on OTP 28.5.0.8. See the
 Tests run locally at commit time, with no hosted CI: the pre-commit hook
 (`bin/pre-commit`) runs the checks listed in the
 [development guide](../guides/development.md#checks), the default suite among them
-(`mix test`, without the `:large` and `:cluster` tests).
+(`mix test`, without the `:large`, `:cluster` and `:lifecycle` tests). Modules run
+`async: true` unless they truly can't (CONTRIBUTING.md, "Test isolation").
 About 150 test files cover:
 
 1. Units per subsystem: tokenizer and parser round trips, every operator, function,
@@ -1592,26 +1593,31 @@ About 150 test files cover:
    manager, mmap, regular expressions (semantics, UTF-8, the backtracking limit),
    query limits (including the heap limit, on one node and on a peer that follows its
    own setting), and worker errors.
-2. Concurrency and lifecycle races: handoff visibility, persistence scheduling,
-   column release, and a segment column race run in a child VM
-   (`test/fixtures/segment_column_race.exs`).
+2. Concurrency: column release, counts during ingest, and a segment column race run in
+   a child VM (`test/fixtures/segment_column_race.exs`). Handoff visibility, segment
+   retirement, persistence scheduling and the query time limit's enforcement on one
+   node are checked by hand when a change touches them
+   (`docs/changes/async-default-tests.md`). The `:lifecycle` suite stops Storage on a
+   peer and restarts it on the same data, and checks that a stopping machine refuses
+   new queries.
 3. Interfaces: the JSON API through `Plug.Test` connections against the real router
-   stack, query recording by calling `Guardian.Web.Query.execute/3` directly, and the
+   stack, the query runner by calling `Guardian.Web.Query.execute/3` directly, and the
    MCP endpoint end to end through a real MCP client (`Guardian.Test.MCPClient`
    in `libtest/guardian/test/`, an Anubis client started by `Guardian.Test.MCPClient.start/0`,
    using the admin key) against the
    test listener on an OS-chosen port, and raw requests through the router
    (`Guardian.Test.MCPHTTP`) that pin the wire: sessions, the 404 and 405 rules,
    inline JSON for a client that also accepts SSE, tool schemas, authentication with each key,
-   a key in the URL refused, sessions running concurrently, and what cancellation
-   stops.
+   a key in the URL refused, and sessions running concurrently. Each test's MCP client
+   is its own, so MCP tests run async. What the built-in request and query tables
+   record is not tested.
 4. Clustering: `Guardian.Test.Cluster` (in `libtest/guardian/test/`) starts peer BEAM nodes on the same host,
    each running only Storage in its own data directory, and connects them, so schema
    merging, GROUP BY merging of groups split across nodes, node failures, a peer whose
    Storage has not started, and errors on a peer are tested with real distribution.
    Tests with peers run `async: false`, since every query fans out to them, and are
    tagged `:cluster`: the default `mix test` excludes them; run
-   `mix test --include cluster` before every deploy.
+   `mix test --include cluster --include lifecycle` before every deploy.
    DistributedStream's failure protocol is tested (`test/guardian/query/distributed_stream/`)
    on one node (crashes, halts, nested pipelines, a forged marker, workers that exit
    early) and on three (two peers whose connection to each other drops
@@ -1628,7 +1634,7 @@ About 150 test files cover:
    shared Guardian.Rules.Server on a test store.
 6. Configuration and deployment: `config/runtime.exs` and the production config are
    evaluated in tests, as are the release environment script's three naming modes and
-   `GUARDIAN_DIST_PORT`, and `Guardian.Cluster.discovery_child_spec/1`'s record types and
+   `GUARDIAN_DIST_PORT`, and `Guardian.Cluster.discovery_child_spec/2`'s record types and
    boot-time name check.
 
 Rules: tests use no external services; each `mix test` run stores segments in a fresh
@@ -1641,13 +1647,11 @@ query time limits (`with_time_limit/2`, serial tests only) and names a query's
 process modules (`query_modules/0`). `Guardian.Test.Polling`
 holds `eventually/2`.
 `Guardian.Test.Processes` observes queued calls and finds pipeline workers by their
-stacks on this node or peers. `Guardian.Test.Segments` picks a full segment's loaded copy
-(`loaded_segment/2`), appends nested rows (`segment_append/2`), writes segment files
-(`write_segment_file/2`), injects one-call append replies (`intercept_append/2`) and
-clears a built-in table's mutable segments so the injection is certain to be chosen
-(`hand_off_mutable_segments/1`).
-Callers isolate observed processes, files, segments and tables; shared Storage
-process manipulation requires serial tests. `Guardian.Test.Aggregation` supplies
+stacks on this node or peers (`:cluster` tests). `Guardian.Test.Segments` appends
+nested rows (`segment_append/2`), writes segment files (`write_segment_file/2`) and
+injects one-call append replies (`intercept_append/2`).
+Callers isolate observed processes, files, segments and tables; tests don't suspend
+or restart shared Storage processes. `Guardian.Test.Aggregation` supplies
 pure representative aggregate arguments. The counter test family lives under
 `Guardian.Test.Counters`: the module itself sets up a relaxed-budget store and event
 options for counter execution and rules tests (serial tests only);
@@ -1662,7 +1666,9 @@ server, JSON and MCP clients, DistributedStream peer stages and the engine's
 raising key also live under `Guardian.Test.*`. `Guardian.Query.EvaluationTestCase`
 and the test-only query function `Guardian.Query.Function.TestRaise` keep their homes
 beside the query code they test.
-`Guardian.Test.Cluster.data_root/0` gives a peer a fresh data directory.
+`Guardian.Test.Cluster.data_root/0` gives a peer a fresh data directory, and
+`stop_storage/1` stops a peer's Storage as a server shutdown would, so a test can
+restart a peer on the same data.
 `Guardian.Test.Cluster.single_peer/0` shares a single Storage peer's setup and cleanup
 across query and Rules tests, preserving the calling setup's test or module lifetime.
 Its `await_query_node/1` startup barrier waits for Storage readiness and a GROUP BY

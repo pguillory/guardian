@@ -4,7 +4,7 @@ Status: in progress.
 
 Product spec impact: none. No statements change in `docs/product/overview.md` or
 `docs/product/spec.md`. Tests, test support (`libtest/`), CONTRIBUTING.md and TODO.md
-only; no `lib/` changes.
+only; no `lib/` changes here (async-default-tests changed two signatures, see there).
 
 ## Problem
 
@@ -124,3 +124,7 @@ Coverage given up:
 - Also from logging.md step 3, the log refutes that went with `capture_log`: that no
   S3 secret, rejected MCP body or query worker crash report reaches the log. The code
   is unchanged; a clean `mix test` is now the check.
+
+The async-by-default change applied the "don't peek, kill or freeze" rule to the sync
+modules and moved stop/start promises to `:lifecycle`
+(`docs/changes/async-default-tests.md`).
