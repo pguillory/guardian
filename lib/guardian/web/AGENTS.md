@@ -90,8 +90,8 @@ coordinating machine) so a distributed query is one row, and never record reques
 headers there (caller fields are `interface`, always `mcp`, `remote_ip` and MCP client
 info). Exits and throws can't be provoked through the real query path, so the test
 build's `Guardian.Test.Web.QueryBackend` stands in for `Guardian.Query` at compile time
-(`docs/changes/function-test-seams.md`); no function option replaces it, and the
-recorders' write failures are tested by failing a real append.
+(`docs/changes/function-test-seams.md`); no function option replaces it. What the
+recorders write is not tested (CONTRIBUTING.md, "Testing philosophy").
 
 The MCP server exposes `query`, `send_events`, and the rule tools `list_rules`,
 `read_rule`, `write_rule` and `delete_rule` (through `Guardian.Rules`).

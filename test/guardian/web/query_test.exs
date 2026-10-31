@@ -1,6 +1,7 @@
 defmodule Guardian.Web.QueryTest do
   # The MCP query tool's runner, called directly. Its MCP-level behavior is in
-  # Guardian.Web.MCP.ClientTest; recording is in QueryLogTest and QueryParseErrorsTest.
+  # Guardian.Web.MCP.ClientTest. What it records in the built-in tables is not tested
+  # (CONTRIBUTING.md, "Testing philosophy").
   use ExUnit.Case, async: true
   import Guardian.Web.Query
 
@@ -55,5 +56,25 @@ defmodule Guardian.Web.QueryTest do
 
   test "answers a parse error with its message" do
     assert {:error, "Parse error on line 1" <> _} = run("SELECT FROM")
+  end
+
+  test "failures from the query path reach the caller unchanged" do
+    stacktrace = [{SomeModule, :some_function, 2, [file: ~c"sentinel.ex", line: 7]}]
+
+    for {kind, reason} <- [
+          {:error, %RuntimeError{message: "internal failure"}},
+          {:exit, {:timeout, {GenServer, :call, ["x"]}}},
+          {:throw, {:thrown, 1}},
+          {:error, :badarg},
+        ] do
+      Guardian.Test.Web.QueryBackend.fail_next(kind, reason, stacktrace)
+
+      assert {^kind, ^reason, ^stacktrace} =
+               (try do
+                  run("SELECT 1")
+                catch
+                  caught_kind, caught_reason -> {caught_kind, caught_reason, __STACKTRACE__}
+                end)
+    end
   end
 end

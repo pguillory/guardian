@@ -1,7 +1,7 @@
 defmodule Guardian.Web.MCP.WireTest do
   # What MCP callers see, pinned where the move from Anubis 0.16 to 2.x would otherwise
   # have changed it (docs/changes/mcp-serialized-tool-calls.md).
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Guardian.Test.MCPHTTP
 

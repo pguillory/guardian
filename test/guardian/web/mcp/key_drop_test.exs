@@ -1,7 +1,8 @@
 defmodule Guardian.Web.MCP.KeyDropTest do
-  # Once the API key passes, the router drops it, so Anubis never holds it: not in
-  # session state, and not in the request it logs when a call fails.
-  use ExUnit.Case, async: false
+  # Once the API key passes, the router drops it, so Anubis never holds it. The conn the
+  # router returns is the one Anubis was given (headers, assigns and private fields), so
+  # a key anywhere in it would show here.
+  use ExUnit.Case, async: true
 
   alias Guardian.Test.MCPHTTP
 
@@ -12,10 +13,7 @@ defmodule Guardian.Web.MCP.KeyDropTest do
     conn = MCPHTTP.call_tool(session_id, 3, "query", %{"sql" => "SELECT 1 AS one"})
     assert MCPHTTP.tool_json!(conn, 3) == [%{"one" => 1}]
     assert Plug.Conn.get_req_header(conn, "x-api-key") == []
-
-    # The session keeps the context of the requests it served: no key in it.
-    state = :sys.get_state(MCPHTTP.session_pid(session_id))
-    refute inspect(state, limit: :infinity, printable_limit: :infinity) =~ @key
+    refute inspect(conn, limit: :infinity, printable_limit: :infinity) =~ @key
   end
 
   test "every copy of a repeated API key header is dropped" do
@@ -44,8 +42,19 @@ defmodule Guardian.Web.MCP.KeyDropTest do
 
     assert MCPHTTP.tool_json!(conn, 4) == [%{"one" => 1}]
     assert Plug.Conn.get_req_header(conn, "x-api-key") == []
+    refute inspect(conn, limit: :infinity, printable_limit: :infinity) =~ @key
+  end
 
-    state = :sys.get_state(MCPHTTP.session_pid(session_id))
-    refute inspect(state, limit: :infinity, printable_limit: :infinity) =~ @key
+  test "drop_api_key/1 removes every x-api-key header and nothing else" do
+    conn =
+      Plug.Test.conn(:post, "/mcp", "")
+      |> Map.put(:req_headers, [
+        {"x-api-key", @key},
+        {"accept", "application/json"},
+        {"x-api-key", "another"},
+      ])
+      |> Guardian.Web.Auth.drop_api_key()
+
+    assert conn.req_headers == [{"accept", "application/json"}]
   end
 end

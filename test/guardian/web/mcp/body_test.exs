@@ -1,7 +1,5 @@
 defmodule Guardian.Web.MCP.BodyTest do
-  # Not async, like the other MCP route tests: one test starts a session on the shared
-  # MCP server.
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   @api_key Application.compile_env!(:guardian, :admin_api_key)
   @marker "MCP_BODY_MARKER_8273"
