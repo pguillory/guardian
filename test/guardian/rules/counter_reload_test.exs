@@ -165,6 +165,7 @@ defmodule Guardian.Rules.CounterReloadTest do
     end
   end
 
+  @tag :lifecycle
   test "boot and reload publish the same result for the same invalid files", %{s3: s3} do
     a = unique_table("same_target")
     b = unique_table("same_invalid_reader")

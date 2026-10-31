@@ -123,6 +123,7 @@ defmodule Guardian.Rules.ServerTest do
     assert Guardian.Rules.lookup(good) not in [nil, module]
   end
 
+  @tag :lifecycle
   test "an invalid stored table fails at boot by default; other tables load" do
     s3 = Guardian.Test.FakeS3.start()
     on_exit(fn -> Guardian.Test.FakeS3.stop(s3) end)
@@ -173,6 +174,7 @@ defmodule Guardian.Rules.ServerTest do
     assert [{:ok, %{"c" => 2, "prior" => 1}}] = Guardian.Engine.ingest_events(table, [%{}])
   end
 
+  @tag :lifecycle
   test "invalid counter rules at boot invalidate only their table" do
     s3 = Guardian.Test.FakeS3.start()
     on_exit(fn -> Guardian.Test.FakeS3.stop(s3) end)
@@ -194,6 +196,7 @@ defmodule Guardian.Rules.ServerTest do
     assert [{:ok, %{"x" => 1}}] = Guardian.Engine.ingest_events(good, [%{}])
   end
 
+  @tag :lifecycle
   test "a misconfigured store refuses startup at once" do
     s3 = Guardian.Test.FakeS3.start()
     on_exit(fn -> Guardian.Test.FakeS3.stop(s3) end)

@@ -557,6 +557,8 @@ privately, not in this repository.
       timeouts, counter budgets or the persisted segment cache window in the
       application env, and the runtime config tests' OS environment, keep their
       modules sync; each awaits Preston's decision (`docs/changes/async-default-tests.md`)
+- [x] rules-startup-lifecycle: the Rules.Server tests about startup run in the
+      `:lifecycle` suite (`docs/changes/rules-startup-lifecycle.md`)
 - [ ] lifecycle-whole-application: the `:lifecycle` suite stops and starts Storage on
       a peer; booting and stopping the whole application on a peer would cover clean
       shutdown end to end

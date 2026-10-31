@@ -128,8 +128,9 @@ that a write to them happens. (`system_stats`, the leak watch above, stays teste
 Peer VM tests are tagged `:cluster` and excluded by default. Promises that need a
 server to stop and start, such as a clean shutdown or a restart keeping acknowledged
 rows, are tagged `:lifecycle`: a slow synchronous suite, also excluded by default. Today it
-stops and restarts Storage on a peer and calls the stop callback; it doesn't boot a
-whole server. Segment
+stops and restarts Storage on a peer, calls the stop callback and restarts the rule
+server in the test VM, for its startup tests (`docs/changes/rules-startup-lifecycle.md`);
+it doesn't boot a whole application. Segment
 handoffs, retirement and persistence scheduling aren't in the suite: an agent checks by
 hand (insert, stop, start, query) only when a change touches segment lifetimes or
 persistence.

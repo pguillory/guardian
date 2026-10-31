@@ -53,6 +53,7 @@ counter store frozen, or a timeout. What that leaves untested:
 The worker-replacement test now goes over the heap limit instead of killing the worker. A
 heap limit is a product outcome Runner handles, one event failing with no crash report.
 The boot-retry tests are tagged `:lifecycle`: they need a real start and real backoff.
+The other startup tests followed later (`rules-startup-lifecycle.md`).
 
 ## Loading code before the run
 

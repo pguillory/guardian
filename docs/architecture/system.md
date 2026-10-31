@@ -1598,8 +1598,10 @@ About 150 test files cover:
    retirement, persistence scheduling and the query time limit's enforcement on one
    node are checked by hand when a change touches them
    (`docs/changes/async-default-tests.md`). The `:lifecycle` suite stops Storage on a
-   peer and restarts it on the same data, and checks that a stopping machine refuses
-   new queries.
+   peer and restarts it on the same data, checks that a stopping machine refuses
+   new queries, and holds the Rules.Server startup tests (invalid rules at boot, a
+   misconfigured store, retrying an unreachable or rate-limited store, boot and reload
+   publishing the same result).
 3. Interfaces: the JSON API through `Plug.Test` connections against the real router
    stack, the query runner by calling `Guardian.Web.Query.execute/3` directly, and the
    MCP endpoint end to end through a real MCP client (`Guardian.Test.MCPClient`
