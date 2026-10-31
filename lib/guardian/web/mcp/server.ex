@@ -305,10 +305,6 @@ defmodule Guardian.Web.MCP.Server do
     {:error, "rejected; nothing was saved:\n" <> Enum.join(messages, "\n")}
   end
 
-  defp rule_write_result({:error, {:unknown, message}}) do
-    {:error, message}
-  end
-
   defp rule_write_result({:error, message}) do
     {:error, message}
   end

@@ -91,8 +91,8 @@ under `test/guardian/`, and compiled test helpers follow module names under
 
 Summary; the full description is `docs/architecture/system.md`.
 
-The runtime consists of Guardian.Rules.Server (loads the rule store first; an
-unreachable store is retried until it answers, a misconfigured one refuses startup),
+The runtime consists of Guardian.Rules.Server (loads the rule store first; a failing store is retried until it answers, invalid
+settings refuse startup),
 Guardian.Counters.Restarter
 (isolates and recovers Guardian.Counters.Supervisor, with node-local
 Guardian.Counters.Store and Guardian.Counters.Budget behind the bounded

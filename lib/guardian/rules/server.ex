@@ -5,10 +5,10 @@ defmodule Guardian.Rules.Server do
   ## Startup
 
   `init/1` loads and validates every rule file before anything else in Guardian
-  starts (it is `Guardian.Application`'s first child). An unreachable or rate-limiting
-  (HTTP 429) store is retried with backoff (up to 10 s apart) for as long as it takes,
-  so Guardian is not up until the store answers; a misconfigured store refuses
-  startup at once. A table whose stored rules fail validation is published as
+  starts (it is `Guardian.Application`'s first child). A failed store call is retried
+  with backoff (up to 10 s apart) for as long as it takes, whatever the failure, so
+  Guardian is not up until the store answers; invalid settings refuse startup at once.
+  A table whose stored rules fail validation is published as
   `{:invalid, message}`, so its events fail and other tables run normally.
 
   If this process restarts while Guardian runs, the published set (in
@@ -31,19 +31,17 @@ defmodule Guardian.Rules.Server do
   Under the store's write lock (a `Guardian.ObjectStore.Lock` on
   `lock_key/0`): read the whole set from the store,
   apply the change, reject it if it adds an error the stored set did not have
-  (`Guardian.Rules.RuleSet.new_errors/2`), check the lease has `save_margin_ms/0`
-  left, save the one file (conditional on the ETag read, or on absence), release,
-  publish here, then ask every connected node to reload (up to 10 s). With a local
-  folder and other nodes connected, writes are refused: each node has its own folder.
-  Store sharing is declared by `Guardian.ObjectStore.shared?/1`.
+  (`Guardian.Rules.RuleSet.new_errors/2`), save the one file (conditional on the ETag
+  read, or on absence), release, publish here, then ask every connected node to reload
+  (up to 10 s). A failed save releases the lock too, and says the file may have been
+  saved; if it was, the next reload finds its ETag changed and activates it.
 
   The lock is tried once: if another writer holds it, or a lock left by an interrupted
   write has not yet expired (the 120 s lease), the write fails at once as `:busy`,
   having changed nothing. Whether to try again is the caller's choice.
 
   Outcomes: `{:ok, %{errors: remaining messages, unconfirmed: nodes}}`,
-  `{:error, {:rejected, messages}}`, `{:error, :busy}`, `{:error, {:unknown, message}}`
-  (the save may have happened; the lock is left to expire), or `{:error, message}`.
+  `{:error, {:rejected, messages}}`, `{:error, :busy}`, or `{:error, message}`.
 
   ## Module pool
 
@@ -72,27 +70,12 @@ defmodule Guardian.Rules.Server do
   @reload_timeout_ms 10_000
   @lock_key "_write.lock"
   @lock_lease_ms 120_000
-  # Well over Guardian.ObjectStore.S3.write_deadline_ms/0 for the one S3 write a
-  # holder makes, including time before the write starts. ServerTest checks that
-  # dependency against the defaults; reconsider this margin when the deadline grows.
-  @save_margin_ms 80_000
   @may_be_saved "may have been saved; list the rules to check; if it was, it takes effect " <>
                   "at the latest at the next successful rule write"
 
   @doc false
   def lock_key do
     @lock_key
-  end
-
-  # Tests shorten the lease and the margin through app env.
-  @doc false
-  def lock_lease_ms do
-    Application.get_env(:guardian, :rules_lock_lease_ms, @lock_lease_ms)
-  end
-
-  @doc false
-  def save_margin_ms do
-    Application.get_env(:guardian, :rules_save_margin_ms, @save_margin_ms)
   end
 
   def start_link(opts \\ []) do
@@ -105,7 +88,7 @@ defmodule Guardian.Rules.Server do
   catch
     # Answers the writer needs: its outcome is unknown, or nothing happened.
     :exit, {:timeout, _} ->
-      {:error, {:unknown, "the rule write timed out; it #{@may_be_saved}"}}
+      {:error, "the rule write timed out; it #{@may_be_saved}"}
 
     :exit, {:noproc, _} ->
       {:error, "the rule server is unavailable; retry"}
@@ -156,23 +139,20 @@ defmodule Guardian.Rules.Server do
           {:error, message, _errors} ->
             {:stop, {:rules_compile, message}}
         end
-
-      {:error, reason} ->
-        {:stop, {:rules_store, ObjectStore.reason_message(reason)}}
     end
   end
 
-  # Retries an unreachable store indefinitely: Guardian waits for its rules rather
-  # than starting without them.
+  # Retries any store failure indefinitely: Guardian waits for its rules rather than
+  # starting without them.
   defp read_with_retry(state, backoff) do
     case read_set(state) do
-      {:error, {:unreachable, kind}} ->
-        Logger.warning("Rules: store unreachable (#{kind}); retrying in #{backoff} ms")
+      {:ok, files} ->
+        {:ok, files}
+
+      {:error, message} ->
+        Logger.warning("Rules: #{message}; retrying in #{backoff} ms")
         Process.sleep(backoff)
         read_with_retry(state, min(backoff * 2, 10_000))
-
-      other ->
-        other
     end
   end
 
@@ -229,7 +209,7 @@ defmodule Guardian.Rules.Server do
         read_set(state, attempts - 1)
 
       {:error, changed} when changed in [:precondition_failed, :not_found] ->
-        {:error, {:unreachable, "rule files kept changing during the read"}}
+        {:error, "rule files kept changing during the read"}
 
       other ->
         other
@@ -278,8 +258,8 @@ defmodule Guardian.Rules.Server do
           end
         end
 
-      {:error, reason} ->
-        {:error, ObjectStore.reason_message(reason), state}
+      {:error, message} ->
+        {:error, message, state}
     end
   end
 
@@ -300,21 +280,16 @@ defmodule Guardian.Rules.Server do
       is_binary(source) and byte_size(source) > RuleSet.max_file_bytes() ->
         {{:error, {:rejected, ["#{key}: is over #{RuleSet.max_file_bytes()} bytes"]}}, state}
 
-      not ObjectStore.shared?(state.store) and Node.list() != [] ->
-        {{:error,
-          "rules are in a local folder, which each node has its own copy of; " <>
-            "a cluster needs an S3 rule store"}, state}
-
       true ->
-        case Lock.acquire(state.store, lock_key(), "#{node()}", lease_ms: lock_lease_ms()) do
+        case Lock.acquire(state.store, lock_key(), "#{node()}", lease_ms: @lock_lease_ms) do
           {:ok, lock} ->
             locked_write(state, lock, key, source)
 
           {:error, :busy} ->
             {{:error, :busy}, state}
 
-          {:error, reason} ->
-            {{:error, ObjectStore.reason_message(reason)}, state}
+          {:error, message} ->
+            {{:error, message}, state}
         end
     end
   end
@@ -347,17 +322,13 @@ defmodule Guardian.Rules.Server do
             release(lock)
             {{:error, {:rejected, Enum.map(new_errors, & &1.message)}}, state}
 
-          Lock.remaining_ms(lock) < save_margin_ms() ->
-            release(lock)
-            {{:error, "the write lock's lease ran short; retry"}, state}
-
           true ->
             save(state, lock, key, source, files, validation)
         end
 
-      {:error, reason} ->
+      {:error, message} ->
         release(lock)
-        {{:error, ObjectStore.reason_message(reason)}, state}
+        {{:error, message}, state}
     end
   end
 
@@ -397,20 +368,13 @@ defmodule Guardian.Rules.Server do
 
         {{:ok, %{errors: Enum.map(errors, & &1.message), unconfirmed: unconfirmed}}, state}
 
-      {:error, {:unknown, _kind} = reason} ->
-        # The save may have happened: leave the lock to expire, so the next writer
-        # starts well after this request, and validates whatever it finds. The caller
-        # is told.
-        {{:error, {:unknown, "#{ObjectStore.reason_message(reason)}; #{key} #{@may_be_saved}"}},
-         %{state | stale: true}}
-
       {:error, :precondition_failed} ->
         release(lock)
         {{:error, "#{key} changed concurrently; retry"}, state}
 
-      {:error, reason} ->
+      {:error, message} ->
         release(lock)
-        {{:error, ObjectStore.reason_message(reason)}, state}
+        {{:error, "#{message}; #{key} #{@may_be_saved}"}, state}
     end
   end
 
@@ -420,7 +384,7 @@ defmodule Guardian.Rules.Server do
         :ok
 
       {:error, reason} ->
-        Logger.warning("Rules: releasing the write lock: #{ObjectStore.reason_message(reason)}")
+        Logger.warning("Rules: releasing the write lock: #{inspect(reason)}")
     end
   end
 

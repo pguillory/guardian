@@ -7,7 +7,6 @@ defmodule Guardian.NamespaceTest do
 
     external_implementations = [
       Enumerable.Guardian.Query.DistributedStream,
-      Inspect.Guardian.ObjectStore.S3,
     ]
 
     for module <- modules do

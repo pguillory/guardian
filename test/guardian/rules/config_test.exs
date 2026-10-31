@@ -38,12 +38,10 @@ defmodule Guardian.Rules.ConfigTest do
     assert {:ok, _store} = from_env(%{"GUARDIAN_RULES_DIR" => sibling})
   end
 
-  test "an S3 store holds its secret only in a closure" do
+  test "an S3 store takes its settings from the environment" do
     assert {:ok, {Guardian.ObjectStore.S3, config}} = from_env(@s3)
     assert config.region == "auto" and config.prefix == ""
-    assert config.credentials.() == {"id", "SECRET-XYZ"}
-    refute inspect(config) =~ "SECRET-XYZ"
-    refute inspect(config, structs: false) =~ "SECRET-XYZ"
+    assert config.access_key_id == "id" and config.secret_access_key == "SECRET-XYZ"
   end
 
   test "refuses partial, mixed or malformed settings" do

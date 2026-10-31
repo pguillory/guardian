@@ -234,7 +234,7 @@ authenticated like the JSON API but only with a full-access key: the ingest key 
    validation message, and nothing is saved. A saved write returns `saved: true`, the
    validation errors the set still has (from before this write), and any machine that
    is connected but has not confirmed loading it (it catches up at the next write or
-   restart). A write whose outcome is unknown says it may have been saved, and if it
+   restart). A write that fails while saving says it may have been saved, and if it
    was, it takes effect at the latest at the next successful rule write.
 4. Resource `guardian://query-language`: the full query-language reference as
    Markdown.
@@ -559,8 +559,7 @@ UNSET password
    that misses the reload keeps its rules until the next write or until it restarts.
    The write's reply names a connected machine that didn't confirm; one not connected
    at the time isn't named.
-3. A local folder belongs to one machine, so with other machines connected, writes are
-   refused: a cluster needs a bucket.
+3. A local folder belongs to one machine: a cluster needs a bucket.
 4. A referenced TRACK cannot be deleted or changed to an incompatible grouping
    through a single-file write. Add a new named TRACK, retarget LOOKUPs to it, then
    delete the old one, or remove dependent LOOKUPs first. Rapid edits with many
@@ -570,12 +569,11 @@ UNSET password
 
 #### 5.1.6 Startup
 
-Guardian loads every rule before it loads stored events. A store it cannot get an
-answer from (a mistyped host or a certificate failure included), or one that
-rate-limits it (HTTP 429) or fails with a server error (5xx), is retried until it
-answers, at most 10 seconds apart; Guardian is not up in the meantime. Invalid store
-settings, or a store that answers that they are wrong (HTTP 400, 401, 403 or 404),
-refuse startup at once. A rule write the store rate-limits fails and saves nothing.
+Guardian loads every rule before it loads stored events. Any failure reading the store
+(wrong credentials, a missing bucket, a mistyped host and a certificate failure
+included) is retried until the store answers, at most 10 seconds apart, logging the
+failure each time; Guardian is not up in the meantime. Invalid store settings refuse
+startup at once.
 
 ## 6. Data model
 
@@ -973,10 +971,10 @@ Listed here because they change what a user sees:
 6. Edge cases in value handling, flattening, and corrupt-file handling, such as slow
    flattening of lists of objects with many distinct keys, and a corrupt segment file
    that aborts the VM.
-7. The rule write lock is a lease in the store. A writer that stalls for more than a
-   minute after checking its lease, or a write the store applies more than a minute
-   after the writer gave up, can leave a rule set that validation would have refused;
-   loading then fails the affected table's events until it is fixed.
+7. The rule write lock is a lease in the store. A write that outlasts the two-minute
+   lease, or one the store applies after the writer gave up, can overlap another writer
+   and leave a rule set that validation would have refused; loading then fails the
+   affected table's events until it is fixed.
 8. A segment that crashes on an unexpected insert failure loses the rows it holds in
    memory, including rows already acknowledged.
 9. A machine that misses a rule write's reload, because it wasn't connected yet or its

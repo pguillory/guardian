@@ -268,6 +268,41 @@ defmodule Guardian.Rules.CounterIngestTest do
     refute Map.has_key?(row, "secret")
   end
 
+  test "invalid counter writes save nothing and valid counters execute through generated modules" do
+    # Not about budgets: a larger one keeps healthy counter calls from timing out under load.
+    Guardian.Test.Counters.Budget.relax()
+    table = unique_table("counter_reject")
+    remove_on_exit(table)
+
+    for {word, source} <- [
+          {:counter_window, "TRACK c = count() BY secret_group LAST '0s'"},
+          {:counter_target, "LOOKUP x = c BY secret_group"},
+        ] do
+      assert {:error, {:rejected, [message]}} =
+               Guardian.Rules.write_rule(table, "a", "\n" <> source)
+
+      assert message =~ "#{table}/a.gsql line 2:"
+      refute message =~ "secret_group"
+
+      assert [%{kind: ^word}] =
+               Guardian.Rules.RuleSet.validate(%{"#{table}/a.gsql" => source}).errors
+    end
+
+    assert Guardian.Rules.list_rules(table) == {:ok, []}
+    assert Guardian.Rules.lookup(table) == nil
+
+    assert {:ok, _} =
+             Guardian.Rules.write_rule(
+               table,
+               "a",
+               "TRACK c = count() LAST '1h'; LOOKUP prior = c"
+             )
+
+    module = Guardian.Rules.lookup(table)
+    assert module.apply(%{}) == %{"c" => 1, "prior" => 0}
+    assert [{:ok, %{"c" => 2, "prior" => 1}}] = Guardian.Engine.ingest_events(table, [%{}])
+  end
+
   # Store operations take the current local monotonic milliseconds as data.
   defp now do
     System.monotonic_time(:millisecond)

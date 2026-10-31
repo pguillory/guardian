@@ -12,7 +12,7 @@ defmodule Guardian.Application do
       "Guardian: starting build #{Guardian.Build.commit()} built at #{Guardian.Build.timestamp()}"
     )
 
-    # Rules first: it loads the rule store, so a misconfigured store refuses startup
+    # Rules first: it loads the rule store, so invalid store settings refuse startup
     # in seconds rather than after Storage has loaded every segment.
     children = [
       Guardian.Rules.Server,
