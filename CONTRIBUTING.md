@@ -99,6 +99,10 @@ only to check a removed catch goes with it.
 This is the direction for new tests. Many existing tests predate it and are being
 brought in line a category at a time, so don't read the suite as a counterexample.
 
+Try to write each test at a single layer if possible. Testing `ObjectStore`, for
+example, means testing its functions: read, write, list, delete. After you write a
+file, you can read it. If you delete it, it no longer shows up in listings.
+
 Tests are async by default. A module is `async: false` only when it truly can't be
 made async, and then it names its one reason (see "Test isolation").
 
