@@ -3,9 +3,9 @@ defmodule Guardian.Web.AuthRoutesTest do
   # exact 401 and 403 responses, so how a key is accepted cannot drift between them.
   # Both requests need full access (a JSON path other than POST /send_events, and
   # /mcp), so the ingest key is forbidden on both.
-  # A key in the URL counts as no key at all. One test changes the configured keys, so
-  # this module is not async.
-  use ExUnit.Case, async: false
+  # A key in the URL counts as no key at all. Tests that change the configured keys are
+  # in Guardian.Web.AuthSettingsTest.
+  use ExUnit.Case, async: true
 
   @admin_api_key Application.compile_env!(:guardian, :admin_api_key)
   @ingest_api_key Application.compile_env!(:guardian, :ingest_api_key)
@@ -101,18 +101,6 @@ defmodule Guardian.Web.AuthRoutesTest do
                description
       end
     end
-  end
-
-  test "the removed GUARDIAN_API_KEY's application setting is refused like a wrong key" do
-    former_key = "guardian_test_former_api_key"
-
-    Guardian.Test.Env.with_env([api_key: former_key], fn ->
-      conn = request("/api/json/wrong", "", [former_key])
-      assert {conn.status, conn.resp_body} == {401, @json_unauthorized}
-
-      conn = request("/mcp", "", [former_key])
-      assert {conn.status, conn.resp_body} == {401, @mcp_unauthorized}
-    end)
   end
 
   test "an ingest key naming a session is forbidden before the session check" do
