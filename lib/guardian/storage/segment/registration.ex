@@ -83,8 +83,8 @@ defmodule Guardian.Storage.Segment.Registration do
   @doc """
   Removes the registrations holding `segment` from a manager's registry and returns them,
   for the manager's `{:EXIT, segment, reason}` handler. Matching by PID, never by ID,
-  means a late EXIT from a segment the manager no longer holds (handed off, retired,
-  or replaced by a reload of the same ID) removes nothing.
+  means a late EXIT from a segment the manager no longer holds (handed off or retired)
+  removes nothing.
   """
   def unregister_exited(registry, segment) when is_pid(segment) do
     :ets.select(registry, match_spec(segment: segment))

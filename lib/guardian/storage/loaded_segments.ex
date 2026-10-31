@@ -65,9 +65,8 @@ defmodule Guardian.Storage.LoadedSegments do
   end
 
   def handle_call({:ensure_loaded, table, segment_id}, _from, state) do
-    case get_segment(segment_id) do
-      {:ok, _segment} -> :ok
-      {:error, :not_found} -> load_segment_file(SegmentFile.filename(table, segment_id))
+    if get_segment(segment_id) == {:error, :not_found} do
+      load_segment_file(SegmentFile.filename(table, segment_id))
     end
 
     {:reply, :ok, state}
@@ -104,8 +103,7 @@ defmodule Guardian.Storage.LoadedSegments do
     :ok = Registration.retire_segment_id(__MODULE__, segment_id)
   end
 
-  # Matches by PID, so a late EXIT from a segment that was unloaded, or from an old
-  # process whose ID has since been reloaded, finds nothing. The file is still on disk
+  # Matches by PID, so a late EXIT from a segment that was unloaded finds nothing. The file is still on disk
   # and no longer registered, so the next restart loads it again.
   def handle_info({:EXIT, segment, reason}, state) do
     Registration.unregister_exited(__MODULE__, segment)

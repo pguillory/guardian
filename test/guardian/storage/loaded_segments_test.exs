@@ -6,8 +6,8 @@ defmodule Guardian.Storage.LoadedSegmentsTest do
   import Guardian.Test.Segments
 
   describe "expiration" do
-    # SegmentExpiration.tick/0 expires every loaded segment older than 15 days in the
-    # shared test data directory, so only the expiration test may create old IDs.
+    # SegmentExpiration.tick/0 expires every segment file older than 15 days in the
+    # shared test data directory, so only these expiration tests may create old IDs.
     defp old_segment_id(age_days) do
       timestamp = System.os_time(:nanosecond) - age_days * 24 * 3600 * 1_000_000_000
       Base.encode16(<<timestamp::size(64), :crypto.strong_rand_bytes(8)::binary>>)

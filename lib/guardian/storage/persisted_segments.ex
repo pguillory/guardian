@@ -100,14 +100,15 @@ defmodule Guardian.Storage.PersistedSegments do
 
   # Cached segments are linked to this process, which traps exits. Matches by PID: a
   # late EXIT from a segment that was evicted, deleted, or retired finds nothing. A
-  # cached segment's rows are already on disk, so losing it loses nothing.
+  # cached segment's rows are on disk and normally already loaded from there. If that
+  # load failed or hadn't run yet, they're missing from queries until the next restart.
   def handle_info({:EXIT, segment, reason}, state) do
     Registration.unregister_exited(__MODULE__, segment)
     |> Enum.each(fn Registration.tuple(segment_id: segment_id, table: table) ->
       unless Segment.normal_exit?(reason) do
         Logger.error(
           "Persisted segment #{segment_id} of table #{inspect(table)} exited " <>
-            "(#{Guardian.Failure.exit_kind(reason)}); it is served from its file"
+            "(#{Guardian.Failure.exit_kind(reason)}); its rows are served from its file if it loaded"
         )
       end
     end)
