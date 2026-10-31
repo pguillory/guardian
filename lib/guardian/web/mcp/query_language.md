@@ -24,11 +24,12 @@ SELECT expr [AS alias], ... [FROM table] [WHERE cond] [GROUP BY expr, ...] [HAVI
 - `FROM` names one table; anything else there is an error. Without `FROM`, SELECT
   evaluates constant expressions.
 - `SELECT *` expands to every column of the table, each labeled with its name.
-- `LIMIT` takes an integer literal only.
-- A query may return at most 100,000 rows and about 64 MiB; a larger result fails
-  with an error asking for a LIMIT, a WHERE, or GROUP BY (it is never cut short).
-  Rows scanned or aggregated don't count, so `count()` over a huge table is fine.
-  ORDER BY with a LIMIT over 100,000 is refused.
+- `LIMIT` takes an integer literal, at most 10,000.
+- A query returns at most 10,000 rows. Without `LIMIT` it runs as if it had
+  `LIMIT 10000`: a bigger result is cut to 10,000 rows, with no sign that more
+  matched, so use `count()` to know how many there are. That includes `SHOW TABLES`
+  and `DESC`. Rows scanned or aggregated
+  don't count, so `count()` over a huge table is fine.
 - Repeating a clause is an error, except `WHERE`: repeated WHERE clauses are ANDed.
 
 `LET name = expr` substitutes `expr` for `name` in the statement that follows, separated

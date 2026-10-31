@@ -14,17 +14,18 @@
 4. Retention is fixed: persisted segments expire after 15 days.
 5. A query covers only the nodes connected when it runs. A node that's down or still
    loading its segments is silently missing from results.
-6. Memory isn't fully bounded. Results are capped at 100,000 rows and about 64 MiB, and
-   strings that functions build at 64 KiB per value. Guardian kills any single
+6. Memory isn't fully bounded. Results are capped at 10,000 rows but not in bytes, so
+   10,000 rows of very large values are returned whole and answering takes several
+   times the response's size in memory (a 380 MiB response peaked near 1.5 GB).
+   Strings that functions build are cut at 64 KiB per value. Guardian kills any single
    query process whose Erlang heap passes 256 MiB, but that doesn't bound a query's
    total memory:
    - GROUP BY state lives in ETS, column data in native memory, and shared binaries
      aren't counted.
    - The check runs at garbage collection, so a process can overshoot.
    - Many processes can each reach the limit.
-   A heavy query can still exhaust a machine. Size the machine with headroom. A large
-   `ORDER BY` without `LIMIT` sorts in one process and can hit the heap limit; narrow
-   it or add a `LIMIT`.
+   A heavy query can still exhaust a machine. Size the machine with headroom, and
+   select only the columns you need from tables with large values.
 7. During a rolling deploy across machines running different releases, queries can
    fail until every machine runs the new one. Retry them.
 8. Every machine running `guardian start` with the same cookie and DNS name joins the

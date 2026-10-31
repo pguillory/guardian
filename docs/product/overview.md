@@ -80,9 +80,9 @@ queries.
 5. Reading: one read-only statement per request: `SELECT` with `WHERE`, `GROUP BY`,
    `HAVING`, `ORDER BY`, and `LIMIT` over one table, plus `SHOW TABLES` and `DESC`.
    About 20 aggregates and about 60 scalar functions are built in. There are no joins,
-   subqueries, updates, or deletes. Results, query time, and each query process's
-   heap are capped (not a query's total memory); a query over a cap fails with an error, never a truncated
-   answer.
+   subqueries, updates, or deletes. A query returns at most 10,000 rows: without
+   `LIMIT` it is cut to that many. Query time and each query process's heap are
+   capped (not a query's total memory); a query over either fails with an error.
 6. Lifetime: an event is queryable as soon as its write returns. In-memory segments
    are queued for disk when they fill or one hour after their first event; a hard
    crash loses what has not reached disk. Segments expire about 15 days after they

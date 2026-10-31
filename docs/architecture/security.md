@@ -570,17 +570,21 @@ Counter-specific limits:
      the 64 KiB string cap). The helper's heap is on top of its caller's, so a worker's
      peak can roughly double during a replace, and many workers can each have a
      256 MiB helper at once.
-2. Per-query resource bounds are partial. A query may return at most 100,000 rows and
-   about 64 MiB, counted where rows collect on the machine running the query (the
-   result, the input of an in-memory ORDER BY, the merge of ORDER BY ... LIMIT);
-   ORDER BY with a LIMIT above the cap is refused; strings that functions build are cut
+2. Per-query resource bounds are partial. A query returns at most 10,000 rows (a larger
+   `LIMIT` is a parse error, and a query without one is cut to 10,000), but nothing
+   caps a result's bytes: 10,000 rows of large stored strings are returned whole, and
+   the MCP handler that encodes them has no heap limit, so a holder of the admin key
+   can exhaust a small machine's memory with one query (a 380 MiB response peaked near
+   1.5 GB in a local test). Strings that functions build are cut
    to 64 KiB per value, though a whole column of them (to_string of a big non-string
    column, say) is rows times that in binaries the heap limit doesn't count; regular
    expressions have a backtracking limit, past which a value gives null (item 1). A query is stopped on every machine after 30 seconds
    (`query_time_limit_ms`), which bounds how long it holds memory and CPU but not how
-   much memory it takes first. Exceeding a result or time bound fails the query with an
-   error. These cover the common accidental cases (a SELECT without LIMIT over a big
-   table). Functions return null or a cut string rather than fail or build an
+   much memory it takes first. Exceeding the time bound fails the query with an
+   error. The row cap covers the common accidental case of a SELECT without LIMIT
+   over a big table of small rows. An ingest-key holder can't query, but can store
+   large strings (8 MB bodies, built-in tables included) that an admin's ordinary
+   query of that table then returns whole. Functions return null or a cut string rather than fail or build an
    unbounded value (`factorial(100000000)` is null, `lpad('x', 2000000000)` is 64 KiB;
    `docs/changes/total-functions.md`).
 

@@ -642,7 +642,7 @@ the shipped surface:
    labels the column `Total`).
 2. SELECT clauses: `FROM` (one table, or none for constant expressions), `WHERE`
    (repeatable, ANDed), `GROUP BY`, `HAVING`, `ORDER BY ... ASC|DESC`, `LIMIT` (integer
-   literal only). `FROM` and `DESC` take a table name (for FROM, after LET
+   literal, at most 10,000). `FROM` and `DESC` take a table name (for FROM, after LET
    substitution); anything else is a query error. `SELECT *` expands to every column
    of the table across all machines, each labeled with its name, also where a LET name
    stands for `*`; without `FROM` it is a query error.
@@ -719,10 +719,12 @@ the shipped surface:
 7. Read-only: There is no `INSERT`, `UPDATE`, `DELETE`, `JOIN`, `UNION`, subquery,
    `DISTINCT`, `OFFSET`, or quoted identifier. A column named after a keyword, in any
    case, cannot be referenced.
-8. Results: A query returns all its rows in one response, with no pagination, up to
-   100,000 rows and about 64 MiB; a larger result fails with an error asking for a
-   `LIMIT`, `WHERE`, or `GROUP BY`, never a truncated answer. Rows scanned or
-   aggregated don't count. `ORDER BY` with a `LIMIT` over 100,000 is refused.
+8. Results: A query returns at most 10,000 rows, in one response, with no
+   pagination. `LIMIT` may be at most 10,000; a larger one is a parse error. A
+   query without `LIMIT` runs as if it had `LIMIT 10000`, so a bigger result is cut
+   to 10,000 rows with no sign that more matched. That includes `SHOW TABLES` and
+   `DESC`, which are queries too. Rows scanned or aggregated don't count, so an
+   aggregate reads everything. Nothing caps a result's size in bytes (section 12).
    Each process a query runs in, on every machine, has a fixed 256 MiB heap limit; a
    process killed for exceeding it fails the query with "a query process was killed;
    it may have exceeded its 256 MiB heap limit; narrow the query with WHERE, LIMIT or
@@ -734,7 +736,10 @@ the shipped surface:
    exceeded its time limit. An expression that fails while being evaluated on any machine fails the whole query with an error, rather
    than dropping that machine's rows. So does any other failure while the query runs:
    a query worker that crashes, a machine that disconnects, or a segment it is reading
-   that is deleted, expires, or fails, which the error names. A query that reads a
+   that is deleted, expires, or fails, which the error names. The exception is a
+   query that stops early: without `ORDER BY`, a query stops reading once it has its
+   `LIMIT` rows (10,000 without one), so a failure that would have come later goes
+   unseen and the rows are returned. A query that reads a
    segment at the instant its in-memory copy is replaced by its stored file reads the
    stored file instead and returns the same rows; only if no stored copy remains does
    it fail the same way. A query never returns a
@@ -917,7 +922,9 @@ Product-level behavior:
    `SELECT *`) fails the statement with a node error. Once a query is running, any
    failure on any node (an expression error, a crashed query worker, a node that
    disconnects or loses traffic to another node) fails the whole query with an
-   error. It never returns a partial answer. A segment that stops answering holds a
+   error. It never returns a partial answer, except that a query without `ORDER BY`
+   that already has its `LIMIT` rows (10,000 without one) stops reading and misses
+   a later failure. A segment that stops answering holds a
    query that scans it until the query's time limit.
 7. Single-node deploys stop ingestion briefly; producers must retry. Multi-node
    deploys on Fly, set up as the Fly guide's Scaling section describes, roll one
@@ -964,20 +971,25 @@ Listed here because they change what a user sees:
    to its 30-second limit, after, for a `SELECT *`, up to 60 seconds per table of
    schema lookup when a machine reports ready and then stops answering; an ingest
    until it finishes). Other sessions are not delayed.
-3. Results, some function sizes, query time, and each query process's heap are
+3. Result rows, some function sizes, query time, and each query process's heap are
    capped, but a query's total memory is not: GROUP BY state, column data, and many
    processes together can still exhaust a machine's memory and lose its unpersisted
    events.
-4. A column labeled from `INTERVAL n WEEK` cannot be re-parsed.
-5. `users.name` does not find the list column `users..name`.
-6. Edge cases in value handling, flattening, and corrupt-file handling, such as slow
+4. A result's size in bytes is not capped. 10,000 rows of very large values (long
+   strings) are returned whole, and answering takes several times the response's
+   size in memory: a 380 MiB response peaked near 1.5 GB. On a small machine that can
+   exhaust its memory, failing every query and ingest on it and losing its
+   unpersisted events, not just that query.
+5. A column labeled from `INTERVAL n WEEK` cannot be re-parsed.
+6. `users.name` does not find the list column `users..name`.
+7. Edge cases in value handling, flattening, and corrupt-file handling, such as slow
    flattening of lists of objects with many distinct keys, and a corrupt segment file
    that aborts the VM.
-7. The rule write lock is a lease in the store. A writer that stalls for more than a
+8. The rule write lock is a lease in the store. A writer that stalls for more than a
    minute after checking its lease, or a write the store applies more than a minute
    after the writer gave up, can leave a rule set that validation would have refused;
    loading then fails the affected table's events until it is fixed.
-8. A segment that crashes on an unexpected insert failure loses the rows it holds in
+9. A segment that crashes on an unexpected insert failure loses the rows it holds in
    memory, including rows already acknowledged.
-9. A machine that misses a rule write's reload, because it wasn't connected yet or its
-   reload failed, keeps its rules until the next rule write or until it restarts.
+10. A machine that misses a rule write's reload, because it wasn't connected yet or
+    its reload failed, keeps its rules until the next rule write or until it restarts.

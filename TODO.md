@@ -343,10 +343,14 @@ privately, not in this repository.
 - [x] test-heap-limit: the test environment sets the query heap limit to 16 MiB once
       in config; no test changes it, and the heap tests are async
       (`docs/changes/test-heap-limit.md`)
-- [ ] query-memory-bound: result sizes, string sizes, run time and each query
+- [x] query-result-limit: a query returns at most 10,000 rows; `LIMIT` over 10,000 is a
+      parse error and no `LIMIT` means `LIMIT 10000`; the 64 MiB result cap and both
+      settings are gone (`docs/changes/query-result-limit.md`)
+- [ ] query-memory-bound: result rows, string sizes, run time and each query
       process's heap are bounded, but a query's total memory is not (GROUP BY state in
-      ETS, column data in native memory, many processes); a deliberate or exotic query
-      can still exhaust a machine and lose its unpersisted events
+      ETS, column data in native memory, many processes, and result bytes: 10,000 rows
+      of large strings are returned whole); a deliberate or exotic query can still
+      exhaust a machine and lose its unpersisted events
 - [ ] list-field-paths: let `users.name` find the list column `users..name`
 - [x] select-schema-on-demand: only `SELECT *` looks up table schemas while
       resolving; other SELECTs make no cluster schema call before they run
@@ -558,7 +562,7 @@ privately, not in this repository.
 - [x] async-default-tests: the normal `mix test` is async by default; system-table,
       suspend and peek tests go, and stop/start promises move to the excluded
       `:lifecycle` suite (`docs/changes/async-default-tests.md`)
-- [ ] test-settings-as-data: tests that put query limits, S3 timeouts or counter
+- [ ] test-settings-as-data: tests that put S3 timeouts or counter
       budgets in the application env keep their modules sync; each awaits Preston's
       decision (`docs/changes/async-default-tests.md`)
 - [x] drop-startup-tests: the runtime config tests and the persisted segment cache

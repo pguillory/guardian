@@ -380,6 +380,17 @@ defmodule Guardian.AST.ParserTest do
     )
   end
 
+  test "LIMIT may be at most 10,000" do
+    assert {:ok, [%SelectStatement{limit_expr: %Guardian.AST.Node.Literal{value: 10_000}}]} =
+             Guardian.AST.parse("select a limit 10000")
+
+    assert_parse_error(
+      "select a limit 10001",
+      "         ^",
+      "LIMIT 10001 exceeds the maximum of 10000"
+    )
+  end
+
   test "expected errors name the token found as written" do
     assert_parse_error(
       "select a from t UNION select b from t",

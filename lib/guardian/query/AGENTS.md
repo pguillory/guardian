@@ -43,7 +43,9 @@ the remote IEx shell.
 `Guardian.Query.DistributedStream` pipeline (`lib/guardian/query/distributed_stream.ex`, vendored and
 changed in Guardian; read `lib/guardian/query/distributed_stream/AGENTS.md` before editing it).
 It is internal to Query but keeps a full moduledoc: that is its failure contract. Any
-worker crash or lost machine fails the whole query; it never returns partial rows, and
+worker crash or lost machine fails the whole query; it never returns partial rows (except
+that a query without ORDER BY stops reading once it has its LIMIT rows, 10,000 without
+one, and so misses a later failure), and
 no pipeline stage waits with a timeout. Stages must read all their
 input. `Guardian.Query.run/1` stops the whole query after `Guardian.Query.Limits.time_limit_ms/0`
 (30 s). `Guardian.Query.Limits.limit_heap/0` puts this node's `max_heap_size`
@@ -79,7 +81,7 @@ which reports the first exception to the query and skips the rest of that worker
 work; the query then raises it as `Guardian.Query.Error`. The guard keeps row values out of
 crash reports.
 Raise `Guardian.Query.Error` with an actionable message for failures caused by the query
-itself (result and time limits); the MCP tool answers it with a tool error. Functions and
+itself (the time limit); the MCP tool answers it with a tool error. Functions and
 operators never raise on a value: they give null, and strings they build are cut to
 `Guardian.Query.Text`'s cap (`lib/guardian/query/function/AGENTS.md`, "Totality").
 

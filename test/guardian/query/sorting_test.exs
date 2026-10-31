@@ -68,7 +68,7 @@ defmodule Guardian.Query.SortingTest do
 
   # The old insertion sorts took minutes here (O(n^2) and O(n * limit)), far past
   # ExUnit's 60-second test timeout and the 30-second query limit.
-  test "sort and sort_limit handle the 100,000-row result cap" do
+  test "sort and sort_limit handle 100,000 rows" do
     rows = random_rows(100_000)
     sorted = reference_sort(rows, [:asc, :desc])
     assert sort(rows, [:asc, :desc]) == sorted

@@ -2,13 +2,13 @@ defmodule Guardian.Query.Limits do
   @moduledoc """
   Per-query bounds that keep a careless query from exhausting a machine's memory.
 
-  - Result size: a query may return at most `:query_max_result_rows` rows (100,000)
-    and about `:query_max_result_bytes` (64 MiB, by `:erlang.external_size/1` per
-    row). It is counted where rows collect on the machine running the query: the
-    final result, the input of an ORDER BY without LIMIT (sorted in memory), and the
-    merge of an ORDER BY ... LIMIT. Rows scanned or aggregated are not counted, so
-    aggregates over big tables are unaffected. ORDER BY with a LIMIT above the row cap
-    is refused up front, since each machine would hold that many rows.
+  - Result size: a query returns at most 10,000 rows (`max_result_rows/0`). A `LIMIT`
+    above that is a parse error, and a query without `LIMIT` is planned as if it had
+    `LIMIT 10000` (`Guardian.Query.Planner`), so a bigger result is cut to 10,000
+    rows without notice. Only returned rows count: rows scanned or aggregated don't,
+    so aggregates over big tables read everything. Nothing counts result bytes: the
+    heap limit below stops a result of many small values, but not one of large
+    strings, which are shared binaries it doesn't count (spec section 12).
   - Strings that functions build are cut to 64 KiB (`Guardian.Query.Text`), never refused.
   - Time: a query may run for at most `:query_time_limit_ms` (30 s). `Guardian.Query.run/1`
     then stops it on every machine and raises. Nothing else bounds a query's running
@@ -25,19 +25,18 @@ defmodule Guardian.Query.Limits do
     so a value's match offsets stay bounded; a helper killed by it gives null for that
     value (`Guardian.Query.Regex.replace/3`).
 
-  Exceeding a bound raises `Guardian.Query.Error` with what to change. These cover the common
-  accidental cases, not total query memory: the heap limit is per process and checked
+  Exceeding the time or heap limit raises `Guardian.Query.Error` with what to change.
+  These cover the common accidental cases, not total query memory: the heap limit is per process and checked
   at garbage collection, so it can overshoot, and it does not count GROUP BY state
   (ETS), column data (native memory), or shared binaries. A deliberate or exotic query
   can still exhaust a machine's memory.
   """
 
+  @doc """
+  The most rows a query returns: the largest `LIMIT` allowed, and the implicit one.
+  """
   def max_result_rows do
-    Application.get_env(:guardian, :query_max_result_rows, 100_000)
-  end
-
-  def max_result_bytes do
-    Application.get_env(:guardian, :query_max_result_bytes, 64 * 1024 * 1024)
+    10_000
   end
 
   @doc """
@@ -88,50 +87,5 @@ defmodule Guardian.Query.Limits do
       end
 
     "query exceeded its time limit of #{duration}; narrow it with WHERE or LIMIT"
-  end
-
-  @doc """
-  Passes rows through, raising once more than the result cap has gone by.
-  """
-  def cap_rows(stream) do
-    max_rows = max_result_rows()
-    max_bytes = max_result_bytes()
-
-    Stream.transform(stream, {0, 0}, fn row, {rows, bytes} ->
-      rows = rows + 1
-      bytes = bytes + :erlang.external_size(row)
-
-      cond do
-        rows > max_rows ->
-          raise Guardian.Query.Error,
-            message:
-              "query result exceeds #{max_rows} rows; add a LIMIT, narrow it with WHERE, " <>
-                "or aggregate with GROUP BY"
-
-        bytes > max_bytes ->
-          raise Guardian.Query.Error,
-            message:
-              "query result exceeds #{div(max_bytes, 1024 * 1024)} MiB; add a LIMIT, " <>
-                "select fewer or smaller columns, or aggregate with GROUP BY"
-
-        true ->
-          {[row], {rows, bytes}}
-      end
-    end)
-  end
-
-  @doc """
-  Refuses an ORDER BY ... LIMIT whose limit exceeds the result cap.
-  """
-  def check_sorted_limit!(limit) do
-    max_rows = max_result_rows()
-
-    if limit > max_rows do
-      raise Guardian.Query.Error,
-        message:
-          "ORDER BY with LIMIT #{limit} exceeds the #{max_rows}-row result cap; lower the LIMIT"
-    end
-
-    :ok
   end
 end
