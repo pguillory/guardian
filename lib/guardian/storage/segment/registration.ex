@@ -45,13 +45,6 @@ defmodule Guardian.Storage.Segment.Registration do
   end
 
   @doc """
-  The IDs of every segment registered in `registry`.
-  """
-  def all_segment_ids(registry) do
-    :ets.select(registry, match_spec(select: :segment_id))
-  end
-
-  @doc """
   The segment registered in `registry` under `segment_id`.
   """
   def lookup(registry, segment_id) do

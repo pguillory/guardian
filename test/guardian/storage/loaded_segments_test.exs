@@ -1,86 +1,9 @@
 defmodule Guardian.Storage.LoadedSegmentsTest do
   alias Guardian.Storage.BlobStore
-  alias Guardian.Storage.Segment
   use ExUnit.Case, async: true
   import Guardian.Storage.LoadedSegments
   import Guardian.Test.Polling
   import Guardian.Test.Segments
-
-  describe "rescan/0" do
-    test "loads newly added segment files" do
-      table = "rescan_test"
-      segment_id = Guardian.SegmentID.generate()
-
-      # Create and persist a segment directly
-      filename =
-        write_segment_file(Guardian.Storage.SegmentFile.filename(table, segment_id), [
-          %{"foo" => "bar"},
-        ])
-
-      # Verify not loaded yet
-      assert {:error, :not_found} = get_segment(segment_id)
-
-      # Rescan should pick up the new file
-      :ok = rescan()
-
-      # Now it should be loaded
-      assert {:ok, loaded_segment} = get_segment(segment_id)
-      assert is_pid(loaded_segment)
-
-      # Verify the data is accessible
-      assert {:ok, column} = Segment.get_column(loaded_segment, "foo")
-      assert ["bar"] = Guardian.Storage.Column.to_list(column)
-
-      # Cleanup
-      BlobStore.delete(filename)
-    end
-
-    test "removes segments when files are deleted" do
-      table = "rescan_remove_test"
-      segment_id = Guardian.SegmentID.generate()
-
-      # Create and persist a segment
-      filename =
-        write_segment_file(Guardian.Storage.SegmentFile.filename(table, segment_id), [
-          %{"test" => 123},
-        ])
-
-      # Rescan to load the segment
-      :ok = rescan()
-      assert {:ok, loaded_segment} = get_segment(segment_id)
-
-      # Delete the file
-      :ok = BlobStore.delete(filename)
-
-      # Rescan should remove the segment
-      :ok = rescan()
-
-      # Segment should no longer be accessible
-      assert {:error, :not_found} = get_segment(segment_id)
-
-      # The process should have been stopped
-      refute Process.alive?(loaded_segment)
-    end
-
-    test "ignores legacy per-user segment files without deleting them" do
-      segment_id = Guardian.SegmentID.generate()
-
-      filename =
-        Path.join(
-          Guardian.Storage.segment_dir(),
-          "4f7e7a4c-4cc9-cab7-1ee4-07adb1597c85.legacy_test.#{segment_id}.seg"
-        )
-
-      write_segment_file(filename, [%{"legacy" => true}])
-      on_exit(fn -> BlobStore.delete(filename) end)
-
-      :ok = rescan()
-
-      assert {:error, :not_found} = get_segment(segment_id)
-      assert "legacy_test" not in Guardian.Storage.table_names()
-      assert BlobStore.exists(filename)
-    end
-  end
 
   describe "expiration" do
     # SegmentExpiration.tick/0 expires every loaded segment older than 15 days in the
@@ -103,7 +26,7 @@ defmodule Guardian.Storage.LoadedSegmentsTest do
       segment_id = old_segment_id(20)
       filename = store_segment(table, segment_id, [%{"a" => 1}, %{"a" => "x"}])
 
-      :ok = rescan()
+      :ok = ensure_loaded(table, segment_id)
       assert {:ok, segment} = get_segment(segment_id)
       assert table in Guardian.Storage.table_names()
       assert Map.keys(Guardian.Storage.schema(table)) == ["a"]
@@ -118,6 +41,23 @@ defmodule Guardian.Storage.LoadedSegmentsTest do
       assert Guardian.Storage.table_row_count(table) == 0
     end
 
+    test "an old file that was never loaded is deleted, but not a fresh one or a temp file" do
+      table = "expiration_unloaded_test_#{System.unique_integer([:positive])}"
+      old_id = old_segment_id(20)
+      old_file = Guardian.Storage.SegmentFile.filename(table, old_id)
+      old_temp_file = "#{old_file}.1.tmp"
+      fresh_file = Guardian.Storage.SegmentFile.filename(table, Guardian.SegmentID.generate())
+      File.mkdir_p!(Path.dirname(old_file))
+      for filename <- [old_file, old_temp_file, fresh_file], do: File.write!(filename, "")
+      on_exit(fn -> for file <- [old_temp_file, fresh_file], do: File.rm(file) end)
+
+      Guardian.Storage.SegmentExpiration.tick()
+
+      refute BlobStore.exists(old_file)
+      assert BlobStore.exists(old_temp_file)
+      assert BlobStore.exists(fresh_file)
+    end
+
     test "deleting one of a table's segments keeps the rest of its metadata" do
       table = "expiration_partial_test_#{System.unique_integer([:positive])}"
       # Fresh IDs, so the expiration test's tick cannot remove them concurrently.
@@ -126,7 +66,8 @@ defmodule Guardian.Storage.LoadedSegmentsTest do
       store_segment(table, old_id, [%{"shared" => 1, "old_only" => true}])
       store_segment(table, new_id, [%{"shared" => 2}, %{"shared" => 3}])
 
-      :ok = rescan()
+      :ok = ensure_loaded(table, old_id)
+      :ok = ensure_loaded(table, new_id)
       assert Map.keys(Guardian.Storage.schema(table)) == ["old_only", "shared"]
       assert Guardian.Storage.table_row_count(table) == 3
 

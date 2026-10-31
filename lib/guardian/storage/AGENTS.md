@@ -35,7 +35,8 @@ Query results are still checked through queries.
 1. MutableSegments owns writable in-memory segments.
 2. FullSegments holds segments awaiting persistence.
 3. PersistedSegments packs and writes full segments, retaining a short-lived cache.
-4. LoadedSegments scans disk and memory-maps persisted segments for queries.
+4. LoadedSegments memory-maps persisted segments for queries: every file at startup,
+   then each file right after it is written. Nothing else loads a file.
 
 Every ownership handoff registers its destination before removing its source.
 Segment-ID enumeration reads Mutable, Full, Persisted, then Loaded to preserve
@@ -64,8 +65,8 @@ its segments to FullSegments instead).
 The registry operations the managers share (listing IDs, looking a segment up,
 retiring by ID or all) are plain functions in `Segment.Registration`, which each
 manager wraps. Only the owning manager's module touches its ETS table: other modules
-call that module's functions (SegmentExpiration asks
-`LoadedSegments.all_segment_ids/0`). During a handoff both managers link the
+call that module's functions (SegmentExpiration lists the segment directory and
+calls `LoadedSegments.delete_file/2`). During a handoff both managers link the
 segment, destination first. Retirement waits without a timeout, so anything registered
 as a segment must answer system messages.
 
@@ -73,9 +74,9 @@ A segment file that cannot be loaded (truncated, empty, malformed header) must n
 take LoadedSegments down. `Segment.load/1` starts the segment unlinked and validates
 the file in `init`, returning `{:error, {:unreadable_segment, kind}}`; a segment that
 loaded links itself to the caller before `init` returns. LoadedSegments logs the
-failure once without the file's bytes and records the file in its `skipped` state
-(a content failure is retried when the file's size, mtime, or inode changes, an
-open or map failure on every rescan; expired by SegmentExpiration). Never log an exception message, stack trace,
+failure without the file's bytes and remembers nothing: the file stays on disk, the
+next restart tries it again, and SegmentExpiration deletes it on the usual schedule.
+Never log an exception message, stack trace,
 or argument list from segment loading: they carry segment data. Native column asserts
 on corrupt bytes still abort the VM: packed columns are not yet validated before the
 NIF reads them.
@@ -110,7 +111,7 @@ instead of the error; the read finishes before the delete does.
 Guardian.Storage.Schema tracks metadata for loaded full segments. `Guardian.Storage.schema/1` combines
 that metadata with mutable segments, skipping one that is deleted or stops while it
 reads and failing on one that does not answer in 5 s. A loaded segment's metadata is subtracted when
-its process stops, so unloading a segment (expiration or rescan) must stop the
+its process stops, so unloading a segment (expiration or deletion) must stop the
 process; a table leaves Guardian.Storage.Schema with its last loaded segment. Schemas are
 inferred; there is no metadata DB.
 

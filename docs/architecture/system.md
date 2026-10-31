@@ -83,7 +83,7 @@ Guardian.Application (one_for_one)
 │       └── Guardian.Counters.Budget          failed-wait reservations and node-local cooldown
 ├── Storage (supervisor, rest_for_one)
 │   ├── Guardian.Storage.Schema               per-table schema of loaded segments
-│   ├── Guardian.Storage.LoadedSegments       mmap'd segment files; loads all at boot, rescans each minute
+│   ├── Guardian.Storage.LoadedSegments       mmap'd segment files; loads all at boot, then each new file
 │   ├── Guardian.Storage.FullSegments         full in-memory segments waiting to persist
 │   ├── Guardian.Storage.PersistedSegments    writes full segments to disk (shutdown budget 90 s)
 │   ├── Guardian.Storage.MutableSegments      writable in-memory segments (shutdown budget 10 s)
@@ -137,15 +137,17 @@ before it (MutableSegments hands segments to FullSegments, PersistedSegments loa
 through LoadedSegments, LoadedSegments registers schemas with Schema). If one crashes,
 every later one restarts too. Each manager owns its segments' exits: all four
 link their segments and trap exits, so a segment that crashes is unregistered and loses
-only its own rows (a loaded one is reloaded from its file by the next rescan, up to a
-minute later) instead of restarting the managers. Each manager's `terminate/2` runs on
+only its own rows (a loaded one is loaded from its file at the next restart, and
+its rows are missing from queries until then) instead of restarting the managers. Each manager's `terminate/2` runs on
 shutdown and on any exit of the manager short of a kill (then the links kill its
 segments): MutableSegments hands its segments to FullSegments, PersistedSegments
 persists them and stops the cached ones, and FullSegments and LoadedSegments stop
 whatever they still hold, so no registered segment outlives its manager.
 PersistedSegments stops a cached segment when it releases it (section 4.2).
 Deletion stops a segment's process too. A manager that itself crashes or stops is a
-cascade: when FullSegments goes, MutableSegments has nowhere to hand its segments, so
+cascade: when PersistedSegments or FullSegments goes, a file written but not yet loaded
+waits for the next restart, and its rows are missing from queries until then; when
+FullSegments goes, MutableSegments has nowhere to hand its segments, so
 its unpersisted rows and those of every writable segment are lost, and the restart
 reloads what is on disk. Shutdown needs the managers' budgets in sequence: up to 10 s
 for MutableSegments, 90 s for PersistedSegments, and the default 5 s each for
@@ -694,7 +696,7 @@ Known limits of the lifecycle:
 
 1. Deletion is not serialized with persistence. A segment deleted while the persister
    writes it, or after its file was written but before LoadedSegments registered it,
-   leaves a file that the next rescan loads again.
+   leaves a file that the next restart loads again.
 2. A segment that dies between LoadedSegments starting it and Guardian.Storage.Schema
    registering it (both call the segment) still crashes those processes: their reads
    return `segment_unavailable` at once, and they match only success. Their reads
@@ -734,7 +736,7 @@ Limits:
 3. An unreadable file (truncated, empty, with a bad header, or not mappable) is
    skipped, not loaded: the rest of the data stays available (section 4.4). Corrupt
    column data that does parse aborts the VM inside the column NIF. A loaded
-   segment that raises while answering a query is unregistered, and the next rescan
+   segment that raises while answering a query is unregistered, and the next restart
    loads its file again (section 2.1).
 4. A segment that cannot be written (full disk, rejected filename) is logged once,
    stays in FullSegments and queryable, and is retried every pass; its memory is held
@@ -753,32 +755,28 @@ Changing the format or filename scheme needs an explicit migration plan
 (`lib/guardian/storage/AGENTS.md`). Files in the older `{user_id}.{table}.{segment_id}.seg`
 format are ignored with one startup warning and never deleted.
 
-### 4.4 Loading, mmap, and rescans
+### 4.4 Loading and mmap
 
 At boot, LoadedSegments lists the segment directory and starts one segment process per
 file, each holding the file mapped with `Guardian.Storage.Mmap`. Columns are sub-binaries of
 the mapping, so they occupy page cache, not VM heap, and the kernel pages them in as
-queries touch them. Every 60 seconds it rescans the directory: new files are loaded,
-and segments whose files disappeared are stopped. That rescan is what makes restoring
-or removing files take effect without a restart (spec section 9 item 6). The boot
-load logs "Storage: loading N segment files" before it starts and "Storage: loaded N
-segments (M skipped)" when done, at info; rescans log only the files they skip.
+queries touch them. After that, the only file it loads is one PersistedSegments has just
+written (section 4.2), so restoring or removing a file on the volume takes effect at
+the next restart (spec section 9 item 6). The boot load logs "Storage: loading N
+segment files" before it starts and "Storage: loaded N segments (M skipped)" when done,
+at info.
 
 A file that cannot be loaded (section 4.3, limit 3) is skipped. The segment process
 starts unlinked and validates the file in its `init` (header, column bounds, and each
 column's metadata), stopping with a reason that names only the failure's kind, so
 neither LoadedSegments nor a crash report sees the file's bytes; a segment that loaded
 links itself to LoadedSegments before its `init` returns. LoadedSegments logs one
-error line (filename, size, reason) and leaves the file in place. A file that could
-not be opened or mapped (permissions, descriptor limits) is retried on every rescan.
-For a content failure it remembers the file's size, mtime, and inode, taken before
-the attempt, and rescans and cache evictions do not retry the file until one of those
-changes, so an operator who
-restores a good copy (written under another name, then renamed into place, never
-copied over the file) sees it loaded on the next rescan. A skipped file that disappears
-is forgotten, and SegmentExpiration deletes skipped files on the same 15-day schedule
-as loaded ones. `Guardian.Storage.delete_table/1` (no interface calls it) does not see skipped
-files.
+error line (filename, size, reason), leaves the file in place, and remembers nothing:
+the next restart tries it again, so a good copy restored by an operator (written under
+another name, then renamed into place, never copied over the file) loads then.
+SegmentExpiration deletes skipped files on the same 15-day schedule as loaded ones.
+`Guardian.Storage.delete_table/1` and `delete_segment/1` (no interface calls them) do not see
+skipped files.
 
 Why mmap: a machine's stored data can be larger than its memory (the repository's
 Fly guide pairs a 10 GB volume with a 1 GB machine). Mapping lets every segment be registered and queryable
@@ -798,17 +796,18 @@ the table's writable segments on top (skipping one deleted or stopped while it r
 one that does not answer within 5 s fails the lookup rather than dropping its
 columns), and `Guardian.Storage.table_names/0` likewise lists tables
 with loaded or writable segments. There is no persistent catalog. The model has a gap: a
-segment that is full or recently persisted but not yet loaded (normally under a minute,
-longer if its write fails) is read by SELECT but left out of the schema, so `SHOW
+segment that is full or just persisted but not yet loaded (normally a moment, longer
+if its write fails) is read by SELECT but left out of the schema, so `SHOW
 TABLES`, `DESC`, the `schema` table, and `SELECT *` can briefly miss its columns or, for
 a table with no other segments, the table itself. Across machines, `Guardian.Cluster.Metadata`
 adds every node's schemas together (section 7).
 
 ### 4.6 Retention
 
-`Guardian.Storage.SegmentExpiration` runs at boot and every 10 minutes. It deletes every loaded
-segment whose ID timestamp is more than 15 days old: the file is removed and the
-segment process stopped. Age comes from the segment ID, that is from when the segment
+`Guardian.Storage.SegmentExpiration` runs at boot and every 10 minutes. It lists the segment directory
+and deletes every segment file whose ID timestamp is more than 15 days old, loaded or
+not: the file is removed and any segment process serving it stopped. A file being
+written has a temporary name, which it ignores. Age comes from the segment ID, that is from when the segment
 was created, not from event timestamps. Expiry logs nothing. Retention is global and the 15 days is a
 constant in code. There is no other deletion path through the product; operators can
 call `Guardian.Storage.delete_table/1` and `Guardian.Storage.delete_segment/1` from the remote console.
@@ -1357,7 +1356,7 @@ requests.
    also lose recently written files, since their directory entries are not fsynced.
 5. Retention: 15 days from segment creation, then deleted. On Fly, the volume is
    snapshotted daily and 14 snapshots are kept; elsewhere, backups are the operator's.
-   Restoring is an operator procedure, and the rescan picks up restored files. Restore a file by writing it under a temporary name
+   Restoring is an operator procedure, and restored files load at the next restart. Restore a file by writing it under a temporary name
    and renaming it into place: overwriting a mapped file in place can crash the VM.
 6. Availability: at startup a machine serves nothing until all its segments are
    loaded. After startup, `Guardian.Application` is `:one_for_one`, so if the Storage subtree crashes
@@ -1431,8 +1430,7 @@ these except through the variables above:
 | `persisted_segment_cache_ms` | 600,000 | `Guardian.Storage.PersistedSegments`: how long a written segment's in-memory copy serves before it is stopped (tests shorten it); a value that is not a positive integer stops Storage from starting |
 
 Constants in code that act like configuration: segment capacity 16,384 rows and 64 MiB
-budget (`Guardian.Storage.Segment`), 15-day retention (`Guardian.Storage.SegmentExpiration`), 60-second
-rescan (`LoadedSegments`), shutdown
+budget (`Guardian.Storage.Segment`), 15-day retention (`Guardian.Storage.SegmentExpiration`), shutdown
 budgets (`Guardian.Storage`), the 64-byte table name and 250-byte key limits (`Guardian.Engine`,
 `Guardian.Storage.Value`), the 32-byte key minimum (`config/runtime.exs`), the once-a-minute
 query-key log line (`Guardian.Web.Auth`), the regular expression match and depth limits
@@ -1716,7 +1714,7 @@ The limits named above, in one place:
 
 1. Storage: corrupt column data aborts the VM (4.3).
 2. Storage: a segment whose pack raises at shutdown stops the rest persisting (4.3).
-3. Storage: deletion racing persistence can leave a file the next rescan loads (4.2).
+3. Storage: deletion racing persistence can leave a file the next restart loads (4.2).
 4. Storage: the schema misses full and recently persisted segments, and a segment
    dying before Schema registers it crashes LoadedSegments or Schema (4.2, 4.5).
 5. Storage: no bound on tables or keys per segment (4.7).

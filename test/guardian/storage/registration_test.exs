@@ -47,10 +47,9 @@ defmodule Guardian.Storage.RegistrationTest do
       %{registry: registry, a: a, b: b, c: c}
     end
 
-    test "segment_ids/2 and all_segment_ids/1", %{registry: registry} do
+    test "segment_ids/2", %{registry: registry} do
       assert segment_ids(registry, "bar") == ["B", "C"]
       assert segment_ids(registry, "missing") == []
-      assert all_segment_ids(registry) == ["A", "B", "C"]
     end
 
     test "lookup/2", %{registry: registry, a: a} do
@@ -64,7 +63,8 @@ defmodule Guardian.Storage.RegistrationTest do
       assert retire_segment_id(registry, "A") == :ok
       refute Process.alive?(a)
       assert Process.alive?(b)
-      assert all_segment_ids(registry) == ["B", "C"]
+      assert segment_ids(registry, "foo") == []
+      assert segment_ids(registry, "bar") == ["B", "C"]
       assert retire_segment_id(registry, "Z") == :ok
     end
 

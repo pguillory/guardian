@@ -456,7 +456,7 @@ defmodule Guardian.QueryTest do
     end
 
     :sys.get_state(Guardian.Storage.PersistedSegments)
-    :ok = Guardian.Storage.LoadedSegments.rescan()
+    :ok = Guardian.Test.Segments.load_persisted(table)
     assert Guardian.Storage.LoadedSegments.segment_ids(table) != []
     assert Guardian.Storage.MutableSegments.segment_ids(table) == []
     assert_queries.()

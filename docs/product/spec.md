@@ -876,9 +876,8 @@ Request bodies, API keys, and MCP traffic are not logged in `web_requests` or
    or MCP. An operator in the remote console can delete a table or segment with the
    internal Storage functions; that is an operator escape hatch, not a product
    feature.
-6. Rescans: About once a minute each machine rescans its data directory, loading
-   segment files that appeared and dropping ones that disappeared, so restoring or
-   removing files on the volume takes effect without a restart.
+6. Restores: A machine reads its data directory at startup, so restoring or removing
+   files on the volume takes effect at its next restart.
 7. Backups: There is no replication. On Fly.io, volumes created as in the Fly guide
    are snapshotted daily, with snapshots kept 14 days; elsewhere, backups are the
    operator's to arrange.

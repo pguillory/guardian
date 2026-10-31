@@ -45,7 +45,7 @@ privately, not in this repository.
       the format, so it needs a format version and a migration plan
 - [ ] serialize-segment-deletion: deleting a segment while it is being persisted, or
       after its file is written but before LoadedSegments registers it, leaves a file
-      the next rescan loads again
+      the next restart loads again
 - [ ] segment-schema-gaps: the schema (SHOW TABLES, DESC, the schema table, SELECT *)
       misses segments that are full or persisted but not yet loaded, and a segment
       that dies between LoadedSegments starting it and Guardian.Storage.Schema registering it

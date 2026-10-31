@@ -60,6 +60,19 @@ defmodule Guardian.Test.Segments do
   end
 
   @doc """
+  Makes sure LoadedSegments serves the files of `table`'s persisted segments. Their load
+  is a message PersistedSegments sends itself, so a test that needs it done calls this
+  after waiting for the persist pass.
+  """
+  def load_persisted(table) do
+    for segment_id <- Guardian.Storage.PersistedSegments.segment_ids(table) do
+      :ok = Guardian.Storage.LoadedSegments.ensure_loaded(table, segment_id)
+    end
+
+    :ok
+  end
+
+  @doc """
   Registers a one-call fake mutable segment for `table`, so the next append to it goes
   through the real Storage and GenServer path to `callback.(from, row)`, which replies
   (or fails) as the test needs. The fake unregisters itself before calling back, so

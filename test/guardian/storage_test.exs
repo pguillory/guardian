@@ -191,7 +191,7 @@ defmodule Guardian.StorageTest do
     end
 
     :sys.get_state(PersistedSegments, :infinity)
-    :ok = Guardian.Storage.LoadedSegments.rescan()
+    :ok = Guardian.Test.Segments.load_persisted(table)
 
     assert [[^count]] = run_sql("select count() from #{table}")
 
@@ -225,7 +225,7 @@ defmodule Guardian.StorageTest do
     end
 
     :sys.get_state(PersistedSegments, :infinity)
-    :ok = Guardian.Storage.LoadedSegments.rescan()
+    :ok = Guardian.Test.Segments.load_persisted(table)
 
     assert [[^count]] = run_sql("select count() from #{table}")
 
@@ -233,8 +233,7 @@ defmodule Guardian.StorageTest do
              [[1234, String.duplicate("4", 64_000)]]
   end
 
-  # LoadedSegments' minute scan once loaded a segment that PersistedSegments still
-  # cached while the byte-rollover test above counted, and the old count added it twice.
+  # A persisted segment is loaded while PersistedSegments still caches it.
   test "table_row_count counts a segment once while it is cached and loaded", %{table: table} do
     for i <- 1..10, do: :ok = append(table, %{"i" => i})
 
@@ -244,7 +243,7 @@ defmodule Guardian.StorageTest do
 
     :ok = PersistedSegments.ping()
     :sys.get_state(PersistedSegments, :infinity)
-    :ok = Guardian.Storage.LoadedSegments.rescan()
+    :ok = Guardian.Test.Segments.load_persisted(table)
 
     [segment_id] = Enum.to_list(segment_ids(table))
     assert segment_id in PersistedSegments.segment_ids(table)

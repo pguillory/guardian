@@ -5,7 +5,6 @@ defmodule Guardian.Storage.SegmentOwnerExitsTest do
   import Guardian.Test.Polling
 
   alias Guardian.Storage.FullSegments
-  alias Guardian.Storage.LoadedSegments
   alias Guardian.Storage.MutableSegments
   alias Guardian.Storage.PersistedSegments
   alias Guardian.Storage.Segment
@@ -55,9 +54,9 @@ defmodule Guardian.Storage.SegmentOwnerExitsTest do
     mutable = MutableSegments.get_mutable_segments(table)
     assert length(mutable) == 3
     {_id, persisted} = persisted_fixture(table, 31..40)
-    # Loaded must know the file, or deletion leaves it to be loaded again by a scan
+    # Loaded must know the file, or deletion leaves it for the next restart to load
     # (deletion racing persistence is a separate, known gap).
-    :ok = LoadedSegments.rescan()
+    :ok = Guardian.Test.Segments.load_persisted(table)
     assert values(table) == Enum.to_list(1..40)
 
     segments = [persisted | mutable]

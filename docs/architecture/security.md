@@ -641,9 +641,8 @@ Counter-specific limits:
    so a corrupt `.seg` file crashes the whole VM. A truncated, empty, or structurally
    malformed file is skipped instead, and its load failure is logged by kind only,
    without the file's bytes. Only an operator (or a disk fault) can put a file in the
-   data directory, and the directory is rescanned about every 60 seconds, so a bad
-   file restored from elsewhere takes effect without a restart. Not reachable from the
-   API.
+   data directory, and the directory is read at startup, so a bad file restored from
+   elsewhere takes effect at the next restart. Not reachable from the API.
 6. Ingestion shapes can be expensive: a list of objects with many distinct keys is
    slow to flatten. Bounded by the 8 MB body limit per request.
 7. A segment that never stores (5.1.6) still holds its memory, and it is lost at
