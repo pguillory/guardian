@@ -31,8 +31,7 @@ defmodule Guardian.QueryTest do
   import Guardian.Test.Query, only: [run_sql: 1]
   # import QueryTestHelper
   # require QueryTestHelper
-  # Not async: a test refutes "[error]" in captured log output, which sees every process.
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   defp run(source) do
     run_sql(source)

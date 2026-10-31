@@ -1,6 +1,6 @@
 defmodule Guardian.Test.EnvTest do
-  # Not async: it exercises the node-wide application env.
-  use ExUnit.Case, async: false
+  # Its keys are its own, so concurrent tests never read them.
+  use ExUnit.Case, async: true
   import Guardian.Test.Env
 
   @set :test_env_test_set

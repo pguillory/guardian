@@ -1,6 +1,6 @@
 defmodule Guardian.Counters.RuntimeTest do
-  # Not async: registers the counter runtime's fixed test names.
-  use ExUnit.Case, async: false
+  # The registered names below are this module's own.
+  use ExUnit.Case, async: true
 
   @names [
     :counter_runtime_supervisor,

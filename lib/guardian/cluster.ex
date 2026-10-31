@@ -39,9 +39,14 @@ defmodule Guardian.Cluster do
   name. Raises otherwise, so a misnamed node fails at boot instead of silently never
   joining. The record type follows the address: AAAA for IPv6 (as on Fly, whose
   `.internal` names publish only AAAA records), A for IPv4.
+
+  `query` defaults to the configured `:dns_cluster_query`.
   """
-  def discovery_child_spec(node_name \\ node()) do
-    case Application.get_env(:guardian, :dns_cluster_query) do
+  def discovery_child_spec(
+        query \\ Application.get_env(:guardian, :dns_cluster_query),
+        node_name \\ node()
+      ) do
+    case query do
       nil ->
         {DNSCluster, query: :ignore}
 

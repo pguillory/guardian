@@ -103,7 +103,7 @@ if config_env() != :test do
   end
 
   # A DNS name resolving to every peer's address; rel/env.sh.eex defaults it on Fly.io.
-  # Unset means no peer discovery. Guardian.Cluster.discovery_child_spec/1 checks the node name.
+  # Unset means no peer discovery. Guardian.Cluster.discovery_child_spec/2 checks the node name.
   case System.get_env("DNS_CLUSTER_QUERY") do
     query when query in [nil, ""] -> :ok
     query -> config :guardian, dns_cluster_query: query

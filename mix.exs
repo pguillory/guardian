@@ -31,9 +31,9 @@ defmodule Guardian.MixProject do
   # Only MIX_ENV=prod builds a release. config/runtime.exs generates an admin key when
   # none is set in dev, and a release keeps the MIX_ENV it was built with, so a dev
   # release would boot without a key.
-  def require_prod_release(release) do
-    if Mix.env() != :prod do
-      Mix.raise("Guardian releases must be built with MIX_ENV=prod, not #{Mix.env()}")
+  def require_prod_release(release, env \\ Mix.env()) do
+    if env != :prod do
+      Mix.raise("Guardian releases must be built with MIX_ENV=prod, not #{env}")
     end
 
     release
