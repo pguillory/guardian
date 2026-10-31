@@ -1,6 +1,7 @@
 defmodule Guardian.Rules.PublisherTest do
   # Not async: stops and restarts the node-wide Rules.Server.
   use ExUnit.Case, async: false
+  @moduletag :lifecycle
   import Guardian.Rules.Publisher
   import Guardian.Test.Rules
 
@@ -8,9 +9,7 @@ defmodule Guardian.Rules.PublisherTest do
   alias Guardian.Rules.RuleSet
 
   setup do
-    s3 = Guardian.Test.FakeS3.start()
-    on_exit(fn -> Guardian.Test.FakeS3.stop(s3) end)
-    {:ok, _} = restart_server(Guardian.Test.FakeS3.store(s3))
+    {:ok, _} = restart_server()
     :ok
   end
 
@@ -24,6 +23,7 @@ defmodule Guardian.Rules.PublisherTest do
   test "compiler refusal discards earlier compiled tables without changing publication or pool" do
     a = unique_table("publisher_failure_a")
     b = unique_table("publisher_failure_b")
+    remove_on_exit(a)
     assert {:ok, _} = Rules.write_rule(a, "r", "SET x = 1")
     before = Rules.published()
     old = before[a]
@@ -75,6 +75,7 @@ defmodule Guardian.Rules.PublisherTest do
 
   test "pool reconstruction reserves published names and retires unpublished current and old code" do
     table = unique_table("publisher_recovery")
+    remove_on_exit(table)
     assert {:ok, _} = Rules.write_rule(table, "r", "SET x = 1")
     old = Rules.lookup(table)
     assert {:ok, _} = Rules.write_rule(table, "r", "SET x = 2")

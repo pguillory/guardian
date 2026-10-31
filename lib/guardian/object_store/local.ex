@@ -12,21 +12,21 @@ defmodule Guardian.ObjectStore.Local do
   A folder already being walked above itself is skipped, as are dangling and looping
   links. A file or folder that disappears during the walk is skipped; any other
   file error fails the listing. The walk visits at most `max_entries` names (default
-  20,000), and past that fails with `{:failed, "too many objects"}`.
+  20,000), and past that fails with `"too many objects"`.
 
   Keys are checked before they reach the disk: a key is valid UTF-8 made of
   `/`-separated segments, each one a name `list/1` could return (non-empty, not
   starting with `.`, no NUL byte, not a temporary file's name). That excludes
   absolute paths, empty segments and `..`, so a key cannot climb out of the folder
   lexically (symlinks inside it are followed, as above).
-  Any other key is `{:error, {:failed, "invalid key"}}`.
+  Any other key is `{:error, "invalid key"}`.
 
   Writes go through `Guardian.AtomicFile.write/2` (a temporary file, fsynced, then
   renamed into place), so a crash never leaves a torn file. The directory entry is not
   fsynced, so a power loss can roll a recent write back to the previous version, or to
-  no file for a new key. This node's writes to the folder are serialized, so
-  conditional puts are atomic on one node; nothing coordinates writers on other
-  machines.
+  no file for a new key. Writes to the folder are serialized across this node and every
+  node connected to it, so conditional puts are atomic among them; a hung connected
+  node stalls them, and nothing coordinates writers on machines not connected.
 
   The lock is keyed by the folder's identity (device and inode, through symlinks), taken once
   in `new/2`, so stores naming one folder differently (a trailing slash, a relative
@@ -56,20 +56,14 @@ defmodule Guardian.ObjectStore.Local do
       config = %__MODULE__{dir: dir, lock: identity(stat)}
       {:ok, {__MODULE__, struct!(config, Keyword.take(opts, [:max_entries]))}}
     else
-      {:ok, %File.Stat{}} -> {:error, {:misconfigured, "#{dir} is not a folder"}}
-      {:error, posix} -> {:error, {:misconfigured, "#{dir}: #{:file.format_error(posix)}"}}
+      {:ok, %File.Stat{}} -> {:error, "#{dir} is not a folder"}
+      {:error, posix} -> {:error, "#{dir}: #{:file.format_error(posix)}"}
     end
   end
 
   @impl true
   def describe(%__MODULE__{dir: dir}) do
     "local folder #{dir}"
-  end
-
-  # Conditional writes coordinate only this node, as described above.
-  @impl true
-  def shared?(_config) do
-    false
   end
 
   @impl true
@@ -81,10 +75,10 @@ defmodule Guardian.ObjectStore.Local do
         end
 
       {:error, posix} when posix != :enoent ->
-        {:error, {:misconfigured, "#{dir}: #{posix_text(posix)}"}}
+        {:error, "#{dir}: #{posix_text(posix)}"}
 
       _ ->
-        {:error, {:misconfigured, "#{dir} is not a folder"}}
+        {:error, "#{dir} is not a folder"}
     end
   end
 
@@ -97,7 +91,7 @@ defmodule Guardian.ObjectStore.Local do
         Enum.reduce_while(names, {:ok, objects, left}, fn name, {:ok, objects, left} ->
           cond do
             left <= 0 ->
-              {:halt, {:error, {:failed, "too many objects"}}}
+              {:halt, {:error, "too many objects"}}
 
             not valid_name?(name) ->
               {:cont, {:ok, objects, left - 1}}
@@ -116,7 +110,7 @@ defmodule Guardian.ObjectStore.Local do
         {:ok, objects, left}
 
       {:error, posix} ->
-        {:error, {:failed, "#{prefix || "."}: #{posix_text(posix)}"}}
+        {:error, "#{prefix || "."}: #{posix_text(posix)}"}
     end
   end
 
@@ -135,7 +129,7 @@ defmodule Guardian.ObjectStore.Local do
         case hash_file(path) do
           {:ok, etag, size} -> {:ok, [%{key: key, etag: etag, size: size} | objects], left}
           {:error, :enoent} -> {:ok, objects, left}
-          {:error, posix} -> {:error, {:failed, "#{key}: #{posix_text(posix)}"}}
+          {:error, posix} -> {:error, "#{key}: #{posix_text(posix)}"}
         end
 
       # Devices and sockets hold no object.
@@ -147,7 +141,7 @@ defmodule Guardian.ObjectStore.Local do
         {:ok, objects, left}
 
       {:error, posix} ->
-        {:error, {:failed, "#{key}: #{posix_text(posix)}"}}
+        {:error, "#{key}: #{posix_text(posix)}"}
     end
   end
 
@@ -228,7 +222,7 @@ defmodule Guardian.ObjectStore.Local do
         case File.rm(path) do
           :ok -> :ok
           {:error, :enoent} -> :ok
-          {:error, posix} -> {:error, {:failed, Atom.to_string(posix)}}
+          {:error, posix} -> {:error, Atom.to_string(posix)}
         end
       end)
     end
@@ -237,7 +231,7 @@ defmodule Guardian.ObjectStore.Local do
   defp write(path, body) do
     case Guardian.AtomicFile.write(path, body) do
       :ok -> {:ok, etag(body)}
-      {:error, posix} -> {:error, {:failed, Atom.to_string(posix)}}
+      {:error, posix} -> {:error, Atom.to_string(posix)}
     end
   end
 
@@ -245,7 +239,7 @@ defmodule Guardian.ObjectStore.Local do
     case File.read(path) do
       {:ok, body} -> {:ok, body}
       {:error, :enoent} -> {:error, :not_found}
-      {:error, posix} -> {:error, {:failed, Atom.to_string(posix)}}
+      {:error, posix} -> {:error, Atom.to_string(posix)}
     end
   end
 
@@ -253,24 +247,25 @@ defmodule Guardian.ObjectStore.Local do
     case File.stat(path, time: :posix) do
       {:ok, stat} -> {:ok, stat}
       {:error, :enoent} -> {:error, :not_found}
-      {:error, posix} -> {:error, {:failed, Atom.to_string(posix)}}
+      {:error, posix} -> {:error, Atom.to_string(posix)}
     end
   end
 
   # A `:global` lock id is `{resource, requester}`, and the lock is granted again to its
   # own requester, so the folder is the resource and the calling process the requester.
   # The folder is named by its identity, so every spelling of it shares the lock.
+  # Taken on every connected node, so nodes sharing the folder exclude each other.
   # Do not nest: an inner call would be granted the lock and release it on return.
   # See the moduledoc for the contention and unbounded-wait limits.
   defp serialized(%__MODULE__{lock: lock}, fun) do
-    :global.trans({{__MODULE__, lock}, self()}, fun, [node()])
+    :global.trans({{__MODULE__, lock}, self()}, fun, [node() | Node.list()])
   end
 
   defp path(%__MODULE__{dir: dir}, key) do
     if valid_key?(key) do
       {:ok, Path.join(dir, key)}
     else
-      {:error, {:failed, "invalid key"}}
+      {:error, "invalid key"}
     end
   end
 

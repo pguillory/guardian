@@ -78,7 +78,7 @@ defmodule Guardian.MixProject do
   def application do
     [
       mod: {Guardian.Application, []},
-      extra_applications: [:logger, :runtime_tools, :xmerl],
+      extra_applications: [:logger, :runtime_tools],
     ]
   end
 
@@ -95,6 +95,7 @@ defmodule Guardian.MixProject do
       {:hypex, "~> 1.1"},
       {:jason, ">= 0.0.0"},
       {:req, "~> 0.7"},
+      {:req_s3, "~> 0.2.5"},
       {:superlist, ">= 0.0.0"},
       {:uuid, ">= 0.0.0"},
     ]

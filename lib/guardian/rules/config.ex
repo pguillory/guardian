@@ -14,15 +14,10 @@ defmodule Guardian.Rules.Config do
     every file in the rule folder is read on each load.
 
   Setting the folder and the bucket, or only some of the bucket settings, is an
-  error. The secrets are read here and kept only inside a closure
-  (`Guardian.ObjectStore.S3`), never in application config.
-
-  Tests set `:guardian, :rules_store` to a store directly, skipping the environment.
+  error.
   """
 
   alias Guardian.ObjectStore
-
-  @max_list_pages 20
 
   @s3_vars ~w[
     GUARDIAN_RULES_S3_BUCKET
@@ -37,10 +32,7 @@ defmodule Guardian.Rules.Config do
 
   @doc "The configured store: `{:ok, store}` or `{:error, message}`."
   def store do
-    case Application.get_env(:guardian, :rules_store) do
-      nil -> from_env(rules_env())
-      store -> {:ok, store}
-    end
+    from_env(rules_env())
   end
 
   # Only the named rule settings, never the whole process environment: no other
@@ -73,10 +65,7 @@ defmodule Guardian.Rules.Config do
             {:error, "GUARDIAN_RULES_DIR must not be inside the segments folder"}
 
           true ->
-            case ObjectStore.Local.new(dir) do
-              {:ok, store} -> {:ok, store}
-              {:error, reason} -> {:error, ObjectStore.reason_message(reason)}
-            end
+            ObjectStore.Local.new(dir)
         end
 
       dir != nil ->
@@ -102,18 +91,13 @@ defmodule Guardian.Rules.Config do
         {:error, prefix_message(error)}
 
       true ->
-        access_key_id = s3["GUARDIAN_RULES_S3_ACCESS_KEY_ID"]
-        secret_access_key = s3["GUARDIAN_RULES_S3_SECRET_ACCESS_KEY"]
-
         config = %ObjectStore.S3{
           endpoint: endpoint,
           bucket: s3["GUARDIAN_RULES_S3_BUCKET"],
           region: blank_to_nil(env["GUARDIAN_RULES_S3_REGION"]) || "auto",
           prefix: prefix,
-          credentials: fn -> {access_key_id, secret_access_key} end,
-          # Rule sets hold at most 1,000 files (`Guardian.Rules.RuleSet`); a store
-          # that keeps paging past this many is refused rather than followed forever.
-          max_list_pages: @max_list_pages,
+          access_key_id: s3["GUARDIAN_RULES_S3_ACCESS_KEY_ID"],
+          secret_access_key: s3["GUARDIAN_RULES_S3_SECRET_ACCESS_KEY"],
         }
 
         {:ok, {ObjectStore.S3, config}}

@@ -44,7 +44,8 @@ defmodule Guardian.Rules do
     :persistent_term.put(@store_key, store)
   end
 
-  defp store do
+  @doc false
+  def store do
     :persistent_term.get(@store_key)
   end
 
@@ -55,19 +56,15 @@ defmodule Guardian.Rules do
 
   @doc "Every rule file (optionally one table's): `{:ok, [%{table, name, size}]}`."
   def list_rules(table \\ nil) do
-    case Guardian.ObjectStore.list(store()) do
-      {:ok, objects} ->
-        rules =
-          for %{key: key, size: size} <- objects,
-              {:ok, file_table, name} <- [Guardian.Rules.RuleSet.parse_key(key)],
-              table == nil or file_table == table do
-            %{table: file_table, name: name, size: size}
-          end
+    with {:ok, objects} <- Guardian.ObjectStore.list(store()) do
+      rules =
+        for %{key: key, size: size} <- objects,
+            {:ok, file_table, name} <- [Guardian.Rules.RuleSet.parse_key(key)],
+            table == nil or file_table == table do
+          %{table: file_table, name: name, size: size}
+        end
 
-        {:ok, rules}
-
-      {:error, reason} ->
-        {:error, Guardian.ObjectStore.reason_message(reason)}
+      {:ok, rules}
     end
   end
 
@@ -81,8 +78,8 @@ defmodule Guardian.Rules do
         {:error, :not_found} ->
           {:error, "no rule file #{Guardian.Rules.RuleSet.key(table, name)}"}
 
-        {:error, reason} ->
-          {:error, Guardian.ObjectStore.reason_message(reason)}
+        {:error, message} ->
+          {:error, message}
       end
     end
   end
@@ -90,8 +87,7 @@ defmodule Guardian.Rules do
   @doc """
   Creates or replaces a rule file. See `Guardian.Rules.Server` for the outcomes: `{:ok,
   result}` when saved, `{:error, {:rejected, messages}}`, `{:error, :busy}` when the
-  write lock is held (nothing changed), `{:error, {:unknown, message}}` when it may have
-  been saved, or `{:error, message}`.
+  write lock is held (nothing changed), or `{:error, message}`.
   """
   def write_rule(table, name, source) do
     Guardian.Rules.Server.write(table, name, source)

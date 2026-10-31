@@ -10,24 +10,17 @@ defmodule Guardian.ObjectStore.Lock do
     object's age, from its Last-Modified and the store's Date), is taken over with
     `If-Match` on the ETag read. A live lock is not waited for: acquiring makes one
     attempt and returns `{:error, :busy}`, and the caller decides whether and when
-    to try again. A held lock whose age the store does not give is an error,
-    `{:failed, "lock age unknown"}`: it could never be taken over, and a permanent
-    `:busy` would hide why.
-  - The holder's own deadline is measured from just before its create, so it never
-    outlives the lease as the store sees it.
+    to try again.
   - Release: overwrite with a released body, `If-Match` on the holder's own ETag, so a
     holder whose lease ran out can never release a successor's lock.
 
-  It is a lease, not a fence. With no commit object it cannot fence a holder that
-  stalls past its lease after checking it (`remaining_ms/1`), or a write the store
-  applies long after the holder gave up on it. Callers check enough lease is left
-  before each write they make under it (more than that write's deadline), and leave
-  the lock to expire, rather than releasing it, when a write's outcome is unknown.
+  It is a lease, not a fence: a holder that outlasts its lease can overlap the next
+  holder.
   """
 
   @lease_ms 120_000
 
-  defstruct [:store, :key, :etag, :deadline]
+  defstruct [:store, :key, :etag]
 
   @doc """
   Makes one attempt to acquire the lock on `key` for `holder` (a description).
@@ -38,11 +31,10 @@ defmodule Guardian.ObjectStore.Lock do
   def acquire(store, key, holder, opts \\ []) do
     lease_ms = Keyword.get(opts, :lease_ms, @lease_ms)
     body = body(holder, "held")
-    started = now()
 
     case create_or_take_over(store, key, body, lease_ms) do
       {:ok, etag} ->
-        {:ok, %__MODULE__{store: store, key: key, etag: etag, deadline: started + lease_ms}}
+        {:ok, %__MODULE__{store: store, key: key, etag: etag}}
 
       {:error, lost} when lost in [:busy, :precondition_failed] ->
         {:error, :busy}
@@ -63,15 +55,7 @@ defmodule Guardian.ObjectStore.Lock do
         case Guardian.ObjectStore.get(store, key) do
           {:ok, current, meta} ->
             cond do
-              released?(current) ->
-                Guardian.ObjectStore.put(store, key, body, {:etag, meta.etag})
-
-              # A held lock of unknown age can be neither waited out nor taken over.
-              # Checked before the age comparison: nil compares above every integer.
-              is_nil(meta.age_ms) ->
-                {:error, {:failed, "lock age unknown"}}
-
-              meta.age_ms >= lease_ms ->
+              released?(current) or meta.age_ms >= lease_ms ->
                 Guardian.ObjectStore.put(store, key, body, {:etag, meta.etag})
 
               true ->
@@ -88,11 +72,6 @@ defmodule Guardian.ObjectStore.Lock do
       {:error, reason} ->
         {:error, reason}
     end
-  end
-
-  @doc "Milliseconds left on the lease, by this node's monotonic clock."
-  def remaining_ms(%__MODULE__{deadline: deadline}) do
-    deadline - now()
   end
 
   @doc "Releases the lock if this holder still has it."
@@ -113,9 +92,5 @@ defmodule Guardian.ObjectStore.Lock do
 
   defp released?(body) do
     match?({:ok, %{"state" => "released"}}, Jason.decode(body))
-  end
-
-  defp now do
-    System.monotonic_time(:millisecond)
   end
 end

@@ -2,8 +2,10 @@ defmodule Guardian.Test.Rules do
   @moduledoc """
   Helpers for rule tests. `with_rules/1` is safe for async tests on their own tables:
   writes queue on the one `Guardian.Rules.Server`, so tests interleave as real callers
-  do, and no two writers in this VM can meet at the store's lock. `restart_server/2`
-  and `publish_module/2` change what that server owns and require `async: false`.
+  do, and no two writers in this VM can meet at the store's lock. `plant_file/2` puts
+  a file in the rule folder directly; an invalid one shows in every concurrent write's
+  reply, so such a test is `async: false`. `stop_server/0`, `restart_server/0` and
+  `publish_module/2` change what that server owns and require `async: false`.
   `compile_module/2` is safe for async tests using distinct probe modules.
   """
 
@@ -42,30 +44,49 @@ defmodule Guardian.Test.Rules do
   end
 
   @doc """
-  Restarts the test VM's Guardian.Rules.Server on `store` (or on what `env` configures) from a
-  clean slate (nothing published), returning what restarting the child returned. The
-  previous env and server's running/stopped state are restored when the test exits.
+  Writes a file straight into the rule folder, past validation and the rule server, and
+  removes its table's folder (or a file with no folder, its own) when the test exits.
+  The server sees it at its next reload or write.
   """
-  def restart_server(store, app_env \\ []) do
-    was_running = Process.whereis(Guardian.Rules.Server) != nil
-    stop_server()
-    env = if store, do: [{:rules_store, store} | app_env], else: app_env
-    restore = Guardian.Test.Env.put(env)
+  def plant_file(key, source) do
+    path = rule_path(key)
+    remove_on_exit(key)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, source)
+  end
 
+  @doc "Removes a table's rule folder when the test exits, whatever it holds by then."
+  def remove_on_exit(key) do
+    path = key |> Path.split() |> hd() |> rule_path()
+    on_exit(fn -> File.rm_rf!(path) end)
+  end
+
+  @doc "The path of `key` in the rule folder."
+  def rule_path(key) do
+    {Guardian.ObjectStore.Local, %{dir: dir}} = Guardian.Rules.store()
+    Path.join(dir, key)
+  end
+
+  @doc """
+  Stops the test VM's Guardian.Rules.Server with nothing published, so that the next
+  start is a boot. It starts again when the test exits.
+  """
+  def stop_server do
     on_exit(fn ->
-      stop_server()
-      restore.()
-      # A previous failed start leaves invalid env but no running server. Let its
-      # own cleanup restore the earlier working configuration before restarting.
-      if was_running do
-        {:ok, _} = Supervisor.restart_child(Guardian.Application, Guardian.Rules.Server)
-      end
+      terminate_server()
+      {:ok, _} = Supervisor.restart_child(Guardian.Application, Guardian.Rules.Server)
     end)
 
+    terminate_server()
+  end
+
+  @doc "Stops and boots the rule server, returning what restarting the child returned."
+  def restart_server do
+    stop_server()
     Supervisor.restart_child(Guardian.Application, Guardian.Rules.Server)
   end
 
-  defp stop_server do
+  defp terminate_server do
     _ = Supervisor.terminate_child(Guardian.Application, Guardian.Rules.Server)
     :persistent_term.erase({Guardian.Rules, :tables})
   end
