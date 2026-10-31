@@ -17,9 +17,9 @@ defmodule Guardian.Query.Limits do
     `Guardian.Query.DistributedStream` worker, on every machine) is killed if its own Erlang
     heap grows past 256 MiB. The query then fails with a message saying a process
     was killed and may have exceeded its heap limit (an exit reason of `:killed` does
-    not prove which limit was hit). The limit is not an operator setting; tests lower
-    it through the `:query_max_heap_mb` application env, read on the machine the
-    process runs on.
+    not prove which limit was hit). The limit is not an operator setting; the test
+    environment sets it to 16 MiB in `config/config.exs` through the
+    `:query_max_heap_mb` application env, read on the machine the process runs on.
 
     `replace` on a value over 16 KiB runs in its own helper process with the same cap,
     so a value's match offsets stay bounded; a helper killed by it gives null for that
@@ -41,7 +41,7 @@ defmodule Guardian.Query.Limits do
   end
 
   @doc """
-  The per-process heap limit in MiB: 256, or what a test set in `:query_max_heap_mb`.
+  The per-process heap limit in MiB: 256, or the test environment's `:query_max_heap_mb`.
   """
   def max_heap_mb do
     Application.get_env(:guardian, :query_max_heap_mb, 256)

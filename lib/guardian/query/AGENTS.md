@@ -47,7 +47,8 @@ worker crash or lost machine fails the whole query; it never returns partial row
 no pipeline stage waits with a timeout. Stages must read all their
 input. `Guardian.Query.run/1` stops the whole query after `Guardian.Query.Limits.time_limit_ms/0`
 (30 s). `Guardian.Query.Limits.limit_heap/0` puts this node's `max_heap_size`
-(256 MiB, not an operator setting; tests lower it through `:query_max_heap_mb`; kill,
+(256 MiB, not an operator setting; the test environment sets 16 MiB once in
+`config/config.exs` through `:query_max_heap_mb`, and no test changes it; kill,
 no error_logger report, shared binaries not counted) on the query process and every pipeline
 worker, including the initial worker but not routers; each node reads its own value. A `:killed` exit, from a
 pipeline or the query process, becomes `Guardian.Query.Limits.heap_kill_message/0`, which hedges

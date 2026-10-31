@@ -105,7 +105,8 @@ defmodule Guardian.Query.Function.ReplaceTest do
     s = String.duplicate("b", @max) <> "a"
     assert eval("replace(s, 'a', 'c')", s: s) == String.duplicate("b", @max)
     assert eval("replace(s, 'x', 'c')", s: s) == String.duplicate("b", @max)
-    assert eval("replace(s, 'b', '')", s: s) == "a"
+    # 1,024 matches, not one per byte: the large-value helper has the query heap limit.
+    assert eval("replace(s, 'b{64}', '')", s: s) == "a"
   end
 
   describe "a value over 16 KiB, replaced in a capped helper process" do

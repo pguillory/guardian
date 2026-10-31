@@ -340,6 +340,9 @@ privately, not in this repository.
 - [x] query-heap-fixed: each query process has a fixed 256 MiB heap limit;
       `GUARDIAN_QUERY_MAX_HEAP_MB` and its off mode are gone
       (`docs/changes/query-heap-fixed.md`)
+- [x] test-heap-limit: the test environment sets the query heap limit to 16 MiB once
+      in config; no test changes it, and the heap tests are async
+      (`docs/changes/test-heap-limit.md`)
 - [ ] query-memory-bound: result sizes, string sizes, run time and each query
       process's heap are bounded, but a query's total memory is not (GROUP BY state in
       ETS, column data in native memory, many processes); a deliberate or exotic query
@@ -553,7 +556,7 @@ privately, not in this repository.
 - [x] async-default-tests: the normal `mix test` is async by default; system-table,
       suspend and peek tests go, and stop/start promises move to the excluded
       `:lifecycle` suite (`docs/changes/async-default-tests.md`)
-- [ ] test-settings-as-data: tests that put query limits, the heap limit, S3
+- [ ] test-settings-as-data: tests that put query limits, S3
       timeouts, counter budgets or the persisted segment cache window in the
       application env, and the runtime config tests' OS environment, keep their
       modules sync; each awaits Preston's decision (`docs/changes/async-default-tests.md`)

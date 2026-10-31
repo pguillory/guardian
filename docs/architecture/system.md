@@ -1080,8 +1080,9 @@ Each process a query runs in also carries a heap limit: `Guardian.Query.Limits.l
 sets `max_heap_size` (`kill: true`, `error_logger: false`,
 `include_shared_binaries: false`) to a fixed 256 MiB on the query process and on
 every DistributedStream worker, on whichever node it runs; routers are not limited.
-Tests lower it through the `query_max_heap_mb` application environment value, which
-each node reads for itself. A
+The test environment sets it to 16 MiB once, in `config/config.exs`, through the
+`query_max_heap_mb` application environment value (each node reads its own; a peer
+VM loads no Mix config, so it has 256), and no test changes it. A
 `:killed` exit from a pipeline or the query process becomes the `Guardian.Query.Error` "a query
 process was killed; it may have exceeded its 256 MiB heap limit; narrow the query with
 WHERE, LIMIT or fewer groups" (`Guardian.Query.Failure`). The reason
