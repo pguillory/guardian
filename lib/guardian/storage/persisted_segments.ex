@@ -71,24 +71,28 @@ defmodule Guardian.Storage.PersistedSegments do
     {:noreply, state}
   end
 
+  # Loads the file just written, from a message rather than in the persist pass, which
+  # `terminate` also runs: LoadedSegments may be gone by then. A segment already deleted
+  # stays unloaded. A file that won't load is logged by LoadedSegments; the in-memory
+  # copy serves until its time is up, and then those rows are gone.
+  def handle_info({:load, registration}, state) do
+    Registration.tuple(segment_id: segment_id, table: table) = registration
+
+    if :ets.lookup(__MODULE__, segment_id) == [registration] do
+      :ok = LoadedSegments.ensure_loaded(table, segment_id)
+    end
+
+    {:noreply, state}
+  end
+
+  # Stops the in-memory copy and frees its memory. Lookups check Loaded first, so normally
+  # no read holds its PID. Calls already queued are answered first; a read that resolved
+  # this PID before the file was registered and calls it later gets segment_unavailable.
   def handle_info({:delete, registration}, state) do
     Registration.tuple(segment_id: segment_id) = registration
 
-    # A stale cache timer must not reload an explicitly deleted segment.
     if :ets.lookup(__MODULE__, segment_id) == [registration] do
-      case ensure_loaded(registration) do
-        # LoadedSegments now serves the file (or it was deleted), and lookups check
-        # Loaded first, so stop the in-memory copy and free its memory. Calls already
-        # queued are answered first; a read that resolved this PID before the file
-        # was registered and calls it later gets segment_unavailable.
-        :ok ->
-          :ok = Registration.retire(__MODULE__, registration)
-
-        :unreadable ->
-          # Keep serving the segment from memory and try again later, rather than
-          # dropping acknowledged rows from view.
-          Process.send_after(self(), {:delete, registration}, cache_ms())
-      end
+      :ok = Registration.retire(__MODULE__, registration)
     end
 
     {:noreply, state}
@@ -109,40 +113,6 @@ defmodule Guardian.Storage.PersistedSegments do
     end)
 
     {:noreply, state}
-  end
-
-  # Makes sure LoadedSegments serves the segment's file before the cache lets go of
-  # it. A file that does not load (damaged after the write) is rewritten once from
-  # this in-memory copy, which is authoritative, and loaded again.
-  defp ensure_loaded(Registration.tuple(segment_id: segment_id, table: table, segment: segment)) do
-    case LoadedSegments.ensure_loaded(table, segment_id) do
-      :ok ->
-        :ok
-
-      # A deleted file needs no replacement registry entry.
-      {:error, :not_found} ->
-        :ok
-
-      {:error, :unreadable} ->
-        filename = SegmentFile.filename(table, segment_id)
-        Logger.error("Rewriting unreadable segment file #{filename} from memory")
-
-        with :ok <- store(segment, filename),
-             :ok <- LoadedSegments.ensure_loaded(table, segment_id) do
-          :ok
-        else
-          {:error, :not_found} ->
-            :ok
-
-          error ->
-            Logger.error(
-              "Segment #{segment_id} of table #{inspect(table)} is still unreadable " <>
-                "on disk (#{inspect(error)}); keeping it in memory and retrying"
-            )
-
-            :unreadable
-        end
-    end
   end
 
   defp cache_ms do
@@ -186,6 +156,7 @@ defmodule Guardian.Storage.PersistedSegments do
             true = Process.link(segment)
             :ok = FullSegments.delete(registration)
 
+            send(self(), {:load, registration})
             Process.send_after(self(), {:delete, registration}, cache_ms())
             %{state | unstorable: MapSet.delete(state.unstorable, segment_id)}
 

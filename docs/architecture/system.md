@@ -672,15 +672,16 @@ A segment moves through four managers, each an ETS registry owned by a GenServer
 3. PersistedSegments: every second (and on each handoff) it packs each full segment's
    columns inside the segment process, writes the file, registers the segment as
    persisted, and removes it from FullSegments. The in-memory segment stays registered
-   for 10 minutes, so queries keep using it while the file is picked up.
-4. LoadedSegments: segments backed by a memory-mapped file. After the 10 minutes,
-   PersistedSegments asks LoadedSegments to load the file if it has not already (it
-   also finds new files on its own each minute), then drops its own entry and stops
-   the in-memory process. Lookups check LoadedSegments first, so once the file is
-   loaded no new read reaches the in-memory process; a read that resolved it just
-   before the file was loaded is retried once on the loaded copy, which holds the
-   same rows. If the file cannot be loaded, the in-memory process keeps serving and
-   the check is retried.
+   for 10 minutes.
+4. LoadedSegments: segments backed by a memory-mapped file. Right after the write,
+   PersistedSegments asks LoadedSegments to load the file, from a message to itself so
+   that the persist pass, which `terminate` also runs, never calls LoadedSegments. After
+   the 10 minutes it drops its own entry and stops the in-memory process. Lookups check
+   LoadedSegments first, so once the file is loaded no new read reaches the in-memory
+   process; a read that resolved it just before the file was loaded is retried once on
+   the loaded copy, which holds the same rows. If the file cannot be loaded, nothing
+   rescues it: the in-memory process serves until the 10 minutes are up, and then those
+   rows are gone from queries. Loading the file is the only check on it.
 
 Ordering is the correctness argument for visibility. Every handoff registers the
 destination before removing the source, and `Guardian.Storage.segment_ids/1` reads the registries
@@ -777,9 +778,7 @@ restores a good copy (written under another name, then renamed into place, never
 copied over the file) sees it loaded on the next rescan. A skipped file that disappears
 is forgotten, and SegmentExpiration deletes skipped files on the same 15-day schedule
 as loaded ones. `Guardian.Storage.delete_table/1` (no interface calls it) does not see skipped
-files. If PersistedSegments finds the file it just wrote unreadable when its cache
-expires, it rewrites the file once from the in-memory segment and, if that fails too,
-keeps serving the segment from memory and retries every 10 minutes.
+files.
 
 Why mmap: a machine's stored data can be larger than its memory (the repository's
 Fly guide pairs a 10 GB volume with a 1 GB machine). Mapping lets every segment be registered and queryable

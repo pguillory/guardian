@@ -135,7 +135,6 @@ defmodule Guardian.Storage.UnreadableSegmentsTest do
 
     # An unchanged file is not retried or logged again.
     assert capture_log(fn -> :ok = LoadedSegments.rescan() end) == ""
-    assert {:error, :unreadable} = LoadedSegments.ensure_loaded(table, empty_id)
   end
 
   test "a skipped file is retried once it is replaced", %{table: table} do

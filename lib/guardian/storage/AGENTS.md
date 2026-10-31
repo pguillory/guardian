@@ -39,13 +39,14 @@ Query results are still checked through queries.
 
 Every ownership handoff registers its destination before removing its source.
 Segment-ID enumeration reads Mutable, Full, Persisted, then Loaded to preserve
-visibility during transfers; overlapping IDs are globally deduplicated. Cached
-persisted segments ensure Loaded has registered their file before eviction,
-serialized with disk scans, and eviction then retires the in-memory process (lookups
-check Loaded first, so normally no read holds its PID; one that does is retried once
-on the loaded copy, below). An unreadable file keeps the in-memory copy serving. The
-cache window is `:guardian, :persisted_segment_cache_ms` (default 10 minutes). A
-delayed load can delay eviction/persistence; shutdown retains its existing bounded
+visibility during transfers; overlapping IDs are globally deduplicated. PersistedSegments
+loads a file right after writing it, from a message to itself so that `terminate`'s
+persist pass never calls LoadedSegments. Eviction then retires the in-memory process
+(lookups check Loaded first, so normally no read holds its PID; one that does is
+retried once on the loaded copy, below). A file that won't load is not rescued: the
+in-memory copy serves until eviction, then its rows are gone. Loading the file is the
+only check on it. The cache window is `:guardian, :persisted_segment_cache_ms` (default
+10 minutes). A delayed load delays persistence; shutdown retains its existing bounded
 budget. Segment lookup retries Loaded after searching the forward lifecycle path
 because the first Loaded lookup may precede a handoff.
 

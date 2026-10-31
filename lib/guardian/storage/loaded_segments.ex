@@ -98,16 +98,8 @@ defmodule Guardian.Storage.LoadedSegments do
 
       {:error, :not_found} ->
         filename = SegmentFile.filename(table, segment_id)
-
-        if BlobStore.exists(filename) do
-          case load_unless_skipped(filename, segment_id, state) do
-            {:ok, state} -> {:reply, :ok, state}
-            {:skipped, state} -> {:reply, {:error, :unreadable}, state}
-            {:not_found, state} -> {:reply, {:error, :not_found}, state}
-          end
-        else
-          {:reply, {:error, :not_found}, state}
-        end
+        {_result, state} = load_unless_skipped(filename, segment_id, state)
+        {:reply, :ok, state}
     end
   end
 
