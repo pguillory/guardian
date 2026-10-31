@@ -3,18 +3,20 @@ defmodule Guardian.Storage.Schema do
   @moduledoc false
 
   alias Guardian.Storage.Column.Metadata
-  alias Guardian.Storage.Segment
-  alias Guardian.Storage.Segment.Registration
   require Metadata
-  require Registration
   use GenServer
 
   def start_link(opts \\ []) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  def add_segment(registration, schema) do
-    GenServer.call(__MODULE__, {:add_segment, registration, schema})
+  @doc """
+  Adds a frozen segment's `count` rows and `schema` to `table`, until the segment's
+  process stops. The caller passes them in: Schema never calls a segment, so a
+  segment that dies or hangs cannot crash or block it.
+  """
+  def add_segment(segment, table, count, schema) when is_pid(segment) do
+    GenServer.call(__MODULE__, {:add_segment, segment, table, count, schema})
   end
 
   def get_schema(table) do
@@ -53,10 +55,7 @@ defmodule Guardian.Storage.Schema do
     {:reply, {:ok, tables}, state}
   end
 
-  def handle_call({:add_segment, registration, schema}, _, state) do
-    Registration.tuple(segment: segment, table: table) = registration
-    true = Segment.full!(segment)
-    count = Segment.count!(segment)
+  def handle_call({:add_segment, segment, table, count, schema}, _, state) do
     ref = Process.monitor(segment)
     true = :ets.insert(__MODULE__, {ref, table, schema, count})
 

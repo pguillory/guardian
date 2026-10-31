@@ -674,9 +674,10 @@ Known limits of the lifecycle:
    writes it, or after its file was written but before LoadedSegments registered it,
    leaves a file that the next restart loads again.
 2. A segment that dies between LoadedSegments starting it and Guardian.Storage.Schema
-   registering it (both call the segment) still crashes those processes: their reads
-   return `segment_unavailable` at once, and they match only success. Their reads
-   carry a 5 s timeout, so a hung segment crashes them rather than blocking them.
+   registering it still crashes LoadedSegments, which reads the segment's count and
+   schema to pass them to Schema: its reads return `segment_unavailable` at once, and
+   it matches only success. The reads carry a 5 s timeout, so a hung segment crashes
+   it rather than blocking it. Schema never calls a segment.
 
 ### 4.3 Persistence and the file format
 
@@ -1685,7 +1686,7 @@ The limits named above, in one place:
 2. Storage: a segment whose pack raises at shutdown stops the rest persisting (4.3).
 3. Storage: deletion racing persistence can leave a file the next restart loads (4.2).
 4. Storage: the schema misses full and recently persisted segments, and a segment
-   dying before Schema registers it crashes LoadedSegments or Schema (4.2, 4.5).
+   dying before Schema registers it crashes LoadedSegments (4.2, 4.5).
 5. Storage: no bound on tables or keys per segment (4.7).
 6. Ingest: some event shapes are slow to flatten, and events flatten twice (3.3).
 7. Query: no bound on a query's total memory (the heap limit is per process) and no

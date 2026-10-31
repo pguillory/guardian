@@ -53,7 +53,9 @@ privately, not in this repository.
 - [ ] segment-schema-gaps: the schema (SHOW TABLES, DESC, the schema table, SELECT *)
       misses segments that are full or persisted but not yet loaded, and a segment
       that dies between LoadedSegments starting it and Guardian.Storage.Schema registering it
-      crashes them (docs/architecture/system.md 4.2 and 4.5)
+      crashes LoadedSegments (docs/architecture/system.md 4.2 and 4.5)
+- [x] schema-add-segment-args: Schema.add_segment takes the count and schema instead of
+      calling the segment (`docs/changes/schema-add-segment-args.md`)
 - [ ] reject-oversized-events: reject, never partly store, an event whose flattened
       row has more than 1,000 columns or 1,000,000 slots, reporting it as that event's
       failed result

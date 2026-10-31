@@ -138,11 +138,6 @@ defmodule Guardian.Storage.Segment do
     ok!(count(segment, @storage_read_timeout))
   end
 
-  @doc "`full/2` for Storage's own processes: 5 s, and exits on failure."
-  def full!(segment) do
-    ok!(full(segment, @storage_read_timeout))
-  end
-
   @doc "`keys/2` for Storage's own processes: 5 s, and exits on failure."
   def keys!(segment) do
     ok!(keys(segment, @storage_read_timeout))

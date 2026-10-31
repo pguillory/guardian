@@ -151,8 +151,9 @@ defmodule Guardian.Storage.LoadedSegments do
           )
 
         :ets.insert(__MODULE__, registration)
+        count = Segment.count!(segment)
         schema = Segment.schema!(segment)
-        Schema.add_segment(registration, schema)
+        :ok = Schema.add_segment(segment, table, count, schema)
 
       # Removed between listing and loading (expiry, deletion, an operator).
       {:error, {:unreadable_segment, {:mmap, :enoent}}} ->
