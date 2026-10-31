@@ -56,6 +56,40 @@ defmodule Guardian.LifecycleTest do
              rows
   end
 
+  test "rows a segment wrote while running come back once after a restart" do
+    started_distribution = Cluster.ensure_distributed()
+    data_root = Cluster.data_root()
+
+    on_exit(fn ->
+      File.rm_rf!(data_root)
+      if started_distribution, do: Node.stop()
+    end)
+
+    table = "lifecycle_#{System.unique_integer([:positive])}"
+    persisted = for v <- 1..10, do: %{"v" => v}
+    mutable = for v <- 11..15, do: %{"v" => v}
+
+    {peer, peer_node} = Cluster.start_peer(data_root)
+    Cluster.stop_on_exit(peer)
+
+    for row <- persisted, do: :ok = :erpc.call(peer_node, Guardian.Storage, :append, [table, row])
+    :ok = :erpc.call(peer_node, Guardian.Test.Segments, :await_persisted, [table])
+    for row <- mutable, do: :ok = :erpc.call(peer_node, Guardian.Storage, :append, [table, row])
+    assert :erpc.call(peer_node, Guardian.Storage, :table_row_count, [table]) == 15
+
+    Cluster.stop_storage(peer_node)
+    :ok = :peer.stop(peer)
+
+    {peer, peer_node} = Cluster.start_peer(data_root)
+    Cluster.stop_on_exit(peer)
+
+    assert Enum.sort_by(:erpc.call(peer_node, Guardian.Storage, :dump_table, [table]), & &1["v"]) ==
+             persisted ++ mutable
+
+    assert length(Enum.to_list(:erpc.call(peer_node, Guardian.Storage, :segment_ids, [table]))) ==
+             2
+  end
+
   test "a bad segment file at startup is skipped and the rest of the data stays queryable" do
     started_distribution = Cluster.ensure_distributed()
     data_root = Cluster.data_root()

@@ -16,7 +16,9 @@ defmodule Guardian.Storage.Schema do
   segment that dies or hangs cannot crash or block it.
   """
   def add_segment(segment, table, count, schema) when is_pid(segment) do
-    GenServer.call(__MODULE__, {:add_segment, segment, table, count, schema})
+    # No timeout: Schema calls nothing, so it cannot deadlock, and a frozen segment
+    # whose call timed out would crash and lose its rows.
+    GenServer.call(__MODULE__, {:add_segment, segment, table, count, schema}, :infinity)
   end
 
   def get_schema(table) do
@@ -31,8 +33,8 @@ defmodule Guardian.Storage.Schema do
     GenServer.call(__MODULE__, :get_tables)
   end
 
-  # State: %{table => {schema, event_count, segment_count}} over the table's loaded
-  # segments. A table is removed when its last loaded segment goes away.
+  # State: %{table => {schema, event_count, segment_count}} over the table's frozen
+  # segments. A table is removed when its last frozen segment goes away.
   def init(_opts) do
     :ets.new(__MODULE__, [:named_table])
     state = %{}
@@ -72,7 +74,7 @@ defmodule Guardian.Storage.Schema do
     true = :ets.delete(__MODULE__, ref)
     {old_schema, old_count, segment_count} = Map.fetch!(state, table)
 
-    # Forget a table once its last loaded segment is gone, so expired tables stop
+    # Forget a table once its last frozen segment is gone, so expired tables stop
     # appearing in table_names/0. Otherwise drop columns no remaining segment has.
     state =
       case segment_count do

@@ -1,9 +1,9 @@
-defmodule Guardian.Storage.LoadedSegmentsTest do
+defmodule Guardian.Storage.ReadableSegmentsTest do
   alias Guardian.Storage.BlobStore
+  alias Guardian.Storage.Segment
   use ExUnit.Case, async: true
-  import Guardian.Storage.LoadedSegments
+  import Guardian.Storage.ReadableSegments
   import Guardian.Test.Polling
-  import Guardian.Test.Segments
 
   describe "expiration" do
     # SegmentExpiration.tick/0 expires every segment file older than 15 days in the
@@ -13,21 +13,26 @@ defmodule Guardian.Storage.LoadedSegmentsTest do
       Base.encode16(<<timestamp::size(64), :crypto.strong_rand_bytes(8)::binary>>)
     end
 
+    # A persisted segment under `segment_id`, registered as MutableSegments registers
+    # a new one, so a test can choose its ID (and so its age).
     defp store_segment(table, segment_id, rows) do
-      filename =
-        write_segment_file(Guardian.Storage.SegmentFile.filename(table, segment_id), rows)
-
+      {:ok, segment} = Segment.start_supervised(segment_id: segment_id, table: table)
+      :ok = insert({segment_id, segment, table})
+      for row <- rows, do: :ok = Segment.append(segment, row)
+      :ok = Segment.persist(segment)
+      {:ok, _count} = Segment.count(segment)
+      filename = Guardian.Storage.SegmentFile.filename(table, segment_id)
       on_exit(fn -> if BlobStore.exists(filename), do: BlobStore.delete(filename) end)
-      filename
+      {segment, filename}
     end
 
-    test "an expired segment is unloaded and its table disappears from metadata" do
+    test "an expired segment is stopped, its file deleted and its table gone from metadata" do
       table = "expiration_test_#{System.unique_integer([:positive])}"
       segment_id = old_segment_id(20)
-      filename = store_segment(table, segment_id, [%{"a" => 1}, %{"a" => "x"}])
+      {segment, filename} = store_segment(table, segment_id, [%{"a" => 1}, %{"a" => "x"}])
 
-      :ok = ensure_loaded(table, segment_id)
-      assert {:ok, segment} = get_segment(segment_id)
+      assert BlobStore.exists(filename)
+      assert {:ok, ^segment} = get_segment(segment_id)
       assert table in Guardian.Storage.table_names()
       assert Map.keys(Guardian.Storage.schema(table)) == ["a"]
 
@@ -66,8 +71,6 @@ defmodule Guardian.Storage.LoadedSegmentsTest do
       store_segment(table, old_id, [%{"shared" => 1, "old_only" => true}])
       store_segment(table, new_id, [%{"shared" => 2}, %{"shared" => 3}])
 
-      :ok = ensure_loaded(table, old_id)
-      :ok = ensure_loaded(table, new_id)
       assert Map.keys(Guardian.Storage.schema(table)) == ["old_only", "shared"]
       assert Guardian.Storage.table_row_count(table) == 3
 

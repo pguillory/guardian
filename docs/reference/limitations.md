@@ -7,10 +7,10 @@
    insert-only ingest key can only send events, but can still read what its own
    ingests return and write any table, Guardian's built-in ones included.
 3. Recent events can be lost in a crash. In-memory segments go to disk an hour after
-   their first event by default, and queue or disk delays can stretch that. A hard
-   crash loses what isn't on disk yet. A normal stop persists everything within the
-   shutdown budget (about 110 s, after up to 10 s for the tunnel connector to drain;
-   Fly's `kill_timeout` is 150 s).
+   their first event by default, or sooner when they fill. A hard crash loses what
+   isn't on disk yet, and a segment whose write fails (a full disk) loses its events.
+   A normal stop persists everything within the shutdown budget (about 90 s, after up
+   to 10 s for the tunnel connector to drain; Fly's `kill_timeout` is 150 s).
 4. Retention is fixed: persisted segments expire after 15 days.
 5. A query covers only the nodes connected when it runs. A node that's down or still
    loading its segments is silently missing from results.

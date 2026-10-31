@@ -2,8 +2,7 @@ defmodule Guardian.Storage.SegmentTest do
   alias Guardian.Storage.Segment
   # Segment.append/2 takes flat rows; these tests append nested ones.
   import Segment, except: [append: 2]
-  import Guardian.Test.Polling, only: [eventually: 1]
-  import Guardian.Test.Segments, only: [segment_append: 2, segment_row: 2, write_segment_file: 2]
+  import Guardian.Test.Segments, only: [segment_append: 2, segment_row: 2]
   use ExUnit.Case, async: true
 
   @dir "/tmp/SegmentTest"
@@ -19,11 +18,19 @@ defmodule Guardian.Storage.SegmentTest do
     end)
   end
 
+  # Writes `segment`'s columns to `filename` as persisting would, through its readers,
+  # for segments without a table to name their own file.
+  defp store(segment, filename) do
+    {:ok, count} = count(segment)
+    {:ok, keys} = keys(segment)
+    columns = for key <- keys, do: elem(get_column(segment, key), 1)
+    Guardian.Storage.SegmentFile.write(filename, count, keys, columns)
+  end
+
   test "store + load" do
     {:ok, segment} = start_link()
     :ok = segment_append(segment, %{"a" => 1})
     assert File.exists?(@filename) == false
-    :ok = pack(segment)
     :ok = store(segment, @filename)
     assert File.exists?(@filename)
     :ok = retire(segment)
@@ -32,21 +39,53 @@ defmodule Guardian.Storage.SegmentTest do
     assert keys(segment2) == {:ok, ["a"]}
   end
 
-  test "a loaded segment is linked to its loader, and dies if the loader is gone" do
-    filename = write_segment_file(@filename, [%{"a" => 1}])
+  test "persist writes the segment's file and serves the same columns from it" do
+    table = "segment_test_#{System.unique_integer([:positive])}"
+    segment_id = Guardian.SegmentID.generate()
+    filename = Guardian.Storage.SegmentFile.filename(table, segment_id)
+    on_exit(fn -> File.rm(filename) end)
+    {:ok, segment} = start_link(table: table, segment_id: segment_id)
+    :ok = segment_append(segment, %{"a" => 1, "b" => "x"})
+    :ok = segment_append(segment, %{"a" => 2})
+    {:ok, a} = get_column(segment, "a")
+    {:ok, b} = get_column(segment, "b")
 
-    assert {:ok, segment} = load(filename)
-    assert segment in elem(Process.info(self(), :links), 1)
-    GenServer.stop(segment)
+    :ok = persist(segment)
+    assert full(segment) == {:ok, true}
+    assert File.exists?(filename)
+    assert get_column(segment, "a") == {:ok, a}
+    assert get_column(segment, "b") == {:ok, b}
+    assert segment_append(segment, %{"a" => 3}) == {:error, :full}
 
-    dead = spawn(fn -> :ok end)
-    ref = Process.monitor(dead)
-    assert_receive {:DOWN, ^ref, :process, ^dead, _}
+    # A second persist has nothing to do.
+    :ok = persist(segment)
+    assert count(segment) == {:ok, 2}
 
-    case GenServer.start(Segment, load: filename, owner: dead) do
-      {:ok, orphan} -> eventually(fn -> not Process.alive?(orphan) end)
-      {:error, _reason} -> :ok
+    {:ok, loaded} = start_link(load: filename)
+    assert get_column(loaded, "a") == {:ok, a}
+    assert get_column(loaded, "b") == {:ok, b}
+  end
+
+  test "a segment stopped for shutdown writes its file, one stopped normally does not" do
+    table = "segment_test_#{System.unique_integer([:positive])}"
+    [shutdown_id, normal_id] = for _ <- 1..2, do: Guardian.SegmentID.generate()
+
+    files =
+      for id <- [shutdown_id, normal_id], do: Guardian.Storage.SegmentFile.filename(table, id)
+
+    on_exit(fn -> Enum.each(files, &File.rm/1) end)
+
+    for id <- [shutdown_id, normal_id] do
+      {:ok, segment} = start_link(table: table, segment_id: id)
+      Process.unlink(segment)
+      :ok = segment_append(segment, %{"a" => id})
+      :ok = GenServer.stop(segment, if(id == shutdown_id, do: :shutdown, else: :normal))
     end
+
+    [shutdown_file, normal_file] = files
+    {:ok, loaded} = start_link(load: shutdown_file)
+    assert segment_row(loaded, 0) == {:ok, %{"a" => shutdown_id}}
+    refute File.exists?(normal_file)
   end
 
   test "a nested object is stored as dotted columns" do
@@ -136,7 +175,6 @@ defmodule Guardian.Storage.SegmentTest do
     }
 
     :ok = segment_append(segment, event)
-    :ok = pack(segment)
     :ok = store(segment, @filename)
     :ok = retire(segment)
 
@@ -150,7 +188,7 @@ defmodule Guardian.Storage.SegmentTest do
            }
   end
 
-  test "filtering list columns in mutable, packed, and loaded segments" do
+  test "filtering list columns in loaded segments" do
     # Ingest flattening drops empty lists, so build the column directly to keep them.
     values = [nil, ["x", "y"], [], [["n", 1], [], [true]], "scalar", [nil, 2.5], [[]]]
     keep = [false, true, false, true, false, true, true]
@@ -160,9 +198,10 @@ defmodule Guardian.Storage.SegmentTest do
     column = Guardian.Storage.Column.new(length(values))
     Enum.each(values, &(:ok = Guardian.Storage.Column.append(column, &1)))
 
-    {:ok, segment} = start_link()
-    :ok = put_column(segment, "tags", Guardian.Storage.Column.pack(column))
-    :ok = update_count(segment, length(values))
+    :ok =
+      Guardian.Storage.SegmentFile.write(@filename, length(values), ["tags"], [
+        Guardian.Storage.Column.pack(column),
+      ])
 
     assert_filtered = fn segment ->
       {:ok, column} = get_column(segment, "tags")
@@ -171,14 +210,6 @@ defmodule Guardian.Storage.SegmentTest do
       assert column |> Guardian.Storage.Column.filter(mask) |> Guardian.Storage.Column.to_list() ===
                expected
     end
-
-    assert_filtered.(segment)
-    :ok = pack(segment)
-    {:ok, packed_column} = get_column(segment, "tags")
-    assert is_binary(packed_column)
-    assert_filtered.(segment)
-    :ok = store(segment, @filename)
-    :ok = retire(segment)
 
     {:ok, loaded} = start_link(load: @filename)
     assert_filtered.(loaded)
@@ -195,7 +226,6 @@ defmodule Guardian.Storage.SegmentTest do
       assert full(segment) == {:ok, false}
       :ok = segment_append(segment, %{"n" => 21, "tags" => [21]})
 
-      :ok = pack(segment)
       :ok = store(segment, @filename)
       {:ok, loaded} = start_link(load: @filename)
       assert count(loaded) == {:ok, 21}
@@ -212,7 +242,6 @@ defmodule Guardian.Storage.SegmentTest do
         :ok = segment_append(segment, %{"i" => i, "s" => string, "l" => [string]})
       end
 
-      :ok = pack(segment)
       :ok = store(segment, @filename)
       {:ok, loaded} = start_link(load: @filename)
       assert segment_row(loaded, 49) == {:ok, %{"i" => 50, "s" => string, "l" => [string]}}
@@ -229,7 +258,6 @@ defmodule Guardian.Storage.SegmentTest do
         :ok = segment_append(segment, %{"i" => i, "s" => string})
       end
 
-      :ok = pack(segment)
       {:ok, s} = get_column(segment, "s")
       assert byte_size(s) > 2 ** 28
       assert segment_row(segment, 269) == {:ok, %{"i" => 270, "s" => string}}
@@ -301,7 +329,6 @@ defmodule Guardian.Storage.SegmentTest do
     test "a segment loaded from a file does not expire" do
       {:ok, segment} = start_link()
       :ok = segment_append(segment, %{"a" => 1})
-      :ok = pack(segment)
       :ok = store(segment, @filename)
 
       {:ok, loaded} = start_link(load: @filename, max_age_ms: 1, max_age_owner: self())
@@ -322,7 +349,6 @@ defmodule Guardian.Storage.SegmentTest do
       assert segment_append(segment, %{"i" => 11}) == {:error, :full}
       assert count(segment) == {:ok, 10}
 
-      :ok = pack(segment)
       :ok = store(segment, @filename)
       {:ok, loaded} = start_link(load: @filename)
       assert count(loaded) == {:ok, 10}
@@ -370,7 +396,7 @@ defmodule Guardian.Storage.SegmentTest do
     @race_script Path.expand("../../fixtures/segment_column_race.exs", __DIR__)
 
     @tag timeout: 120_000
-    test "querying a segment while it appends and packs does not corrupt its columns" do
+    test "querying a segment while it appends and persists does not corrupt its columns" do
       {output, status} = run_child(@race_script, 60_000)
       assert status == 0, "race child exited with #{inspect(status)}:\n#{output}"
 
@@ -451,25 +477,14 @@ defmodule Guardian.Storage.SegmentTest do
       assert Guardian.Storage.Column.to_list(b) == [nil, nil, true]
     end
 
-    test "a snapshot follows update_count and put_column" do
-      {:ok, segment} = start_link(capacity: 10)
-      :ok = segment_append(segment, %{"a" => 1})
-      {:ok, _} = get_column(segment, "a")
-
-      :ok = update_count(segment, 3)
-      {:ok, a} = get_column(segment, "a")
-      assert Guardian.Storage.Column.to_list(a) == [1, nil, nil]
-
-      replacement = Guardian.Storage.Column.from_list([7, 8, 9])
-      :ok = put_column(segment, "a", replacement)
-      assert get_column(segment, "a") == {:ok, replacement}
-    end
-
-    test "a mutable list column reads as a packed snapshot, before and after pack" do
+    test "a mutable list column reads as a packed snapshot, and the same once persisted" do
       values = [["x", "y"], nil, [["n", 1], [true]], "scalar", [nil, 2.5]]
       mask = Guardian.Storage.Column.from_list([true, true, true, false, true])
       expected = [["x", "y"], nil, [["n", 1], [true]], [nil, 2.5]]
-      {:ok, segment} = start_link()
+      table = "segment_test_#{System.unique_integer([:positive])}"
+      segment_id = Guardian.SegmentID.generate()
+      on_exit(fn -> File.rm(Guardian.Storage.SegmentFile.filename(table, segment_id)) end)
+      {:ok, segment} = start_link(table: table, segment_id: segment_id)
 
       for value <- values do
         :ok = segment_append(segment, if(value == nil, do: %{}, else: %{"tags" => value}))
@@ -482,60 +497,12 @@ defmodule Guardian.Storage.SegmentTest do
       assert snapshot |> Guardian.Storage.Column.filter(mask) |> Guardian.Storage.Column.to_list() ===
                expected
 
-      :ok = pack(segment)
+      :ok = persist(segment)
       {:ok, packed} = get_column(segment, "tags")
       assert packed == snapshot
 
       assert packed |> Guardian.Storage.Column.filter(mask) |> Guardian.Storage.Column.to_list() ===
                expected
-    end
-
-    test "pack stores the snapshot taken after freezing" do
-      {:ok, segment} = start_link()
-      :ok = segment_append(segment, %{"a" => 1, "b" => "x"})
-      :ok = segment_append(segment, %{"a" => 2})
-      :ok = freeze(segment)
-      {:ok, a} = get_column(segment, "a")
-
-      :ok = pack(segment)
-      assert get_column(segment, "a") == {:ok, a}
-      {:ok, b} = get_column(segment, "b")
-      assert Guardian.Storage.Column.to_list(b) == ["x", nil]
-      :ok = store(segment, @filename)
-
-      {:ok, loaded} = start_link(load: @filename)
-      assert get_column(loaded, "a") == {:ok, a}
-    end
-
-    test "only a frozen segment packs a column" do
-      {:ok, segment} = start_link()
-      :ok = segment_append(segment, %{"a" => 1})
-      assert GenServer.call(segment, {:pack_column, "a"}) == {:error, :not_frozen}
-      :ok = freeze(segment)
-      assert GenServer.call(segment, {:pack_column, "missing"}) == {:error, :not_found}
-      assert GenServer.call(segment, {:pack_column, "a"}) == :ok
-      assert GenServer.call(segment, {:pack_column, "a"}) == :ok
-    end
-
-    test "put_column refuses a mutable column" do
-      {:ok, segment} = start_link()
-      :ok = segment_append(segment, %{"a" => 1})
-      column = Guardian.Storage.Column.new(1)
-      :ok = Guardian.Storage.Column.append(column, 5)
-
-      assert_raise FunctionClauseError, fn -> put_column(segment, "a", column) end
-
-      assert GenServer.call(segment, {:put_column, "a", column}) == {:error, :not_binary}
-      {:ok, a} = get_column(segment, "a")
-      assert Guardian.Storage.Column.to_list(a) == [1]
-    end
-
-    test "store refuses a segment that is not packed" do
-      {:ok, segment} = start_link()
-      :ok = segment_append(segment, %{"a" => 1})
-      :ok = freeze(segment)
-      assert_raise RuntimeError, "Column not packed", fn -> store(segment, @filename) end
-      refute File.exists?(@filename)
     end
   end
 end

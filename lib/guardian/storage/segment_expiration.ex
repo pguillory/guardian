@@ -3,7 +3,7 @@ defmodule Guardian.Storage.SegmentExpiration do
   @moduledoc false
 
   alias Guardian.Storage.BlobStore
-  alias Guardian.Storage.LoadedSegments
+  alias Guardian.Storage.ReadableSegments
   alias Guardian.Storage.SegmentFile
   use GenServer
 
@@ -17,8 +17,10 @@ defmodule Guardian.Storage.SegmentExpiration do
     {:ok, state}
   end
 
+  # Skipped while Storage is not ready: during a restart of the segment registries this
+  # process keeps running, and calling a ReadableSegments that is down would crash it.
   def handle_info(:tick, state) do
-    tick()
+    if Guardian.Storage.ready?(), do: tick()
     Process.send_after(self(), :tick, 600_000)
     {:noreply, state}
   end
@@ -39,7 +41,7 @@ defmodule Guardian.Storage.SegmentExpiration do
     Enum.each(filenames, fn filename ->
       with {:ok, table, segment_id} <- SegmentFile.parse_filename(filename),
            true <- age_days(segment_id) > @max_age_days do
-        LoadedSegments.delete_file(table, segment_id)
+        ReadableSegments.delete_file(table, segment_id)
       end
     end)
   end

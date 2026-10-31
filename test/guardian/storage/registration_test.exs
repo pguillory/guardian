@@ -67,12 +67,5 @@ defmodule Guardian.Storage.RegistrationTest do
       assert segment_ids(registry, "bar") == ["B", "C"]
       assert retire_segment_id(registry, "Z") == :ok
     end
-
-    test "retire_all/1 retires every registration", %{registry: registry, a: a, b: b, c: c} do
-      Process.flag(:trap_exit, true)
-      assert retire_all(registry) == :ok
-      for segment <- [a, b, c], do: refute(Process.alive?(segment))
-      assert :ets.tab2list(registry) == []
-    end
   end
 end

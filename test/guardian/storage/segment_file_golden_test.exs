@@ -48,12 +48,16 @@ defmodule Guardian.Storage.SegmentFileGoldenTest do
     {:ok, dir: dir}
   end
 
-  test "a stored segment matches the checked-in file", %{dir: dir} do
-    {:ok, segment} = Segment.start_link()
+  test "a persisted segment matches the checked-in file" do
+    table = "segment_file_golden_#{System.unique_integer([:positive])}"
+    segment_id = Guardian.SegmentID.generate()
+    filename = Guardian.Storage.SegmentFile.filename(table, segment_id)
+    on_exit(fn -> File.rm(filename) end)
+    {:ok, segment} = Segment.start_link(table: table, segment_id: segment_id)
     Enum.each(rows(), &(:ok = Guardian.Test.Segments.segment_append(segment, &1)))
-    :ok = Segment.pack(segment)
-    filename = Path.join(dir, "golden.seg")
-    :ok = Segment.store(segment, filename)
+    :ok = Segment.persist(segment)
+    # Returns once the persist has run.
+    {:ok, _count} = Segment.count(segment)
     GenServer.stop(segment)
 
     assert File.read!(filename) == File.read!(@fixture)
@@ -63,7 +67,7 @@ defmodule Guardian.Storage.SegmentFileGoldenTest do
     filename = Path.join(dir, "golden.seg")
     File.cp!(@fixture, filename)
 
-    {:ok, segment} = Segment.load(filename)
+    {:ok, segment} = Segment.start_link(load: filename)
     count = length(rows())
 
     assert {:ok, ^count} = Segment.count(segment)
@@ -80,10 +84,15 @@ defmodule Guardian.Storage.SegmentFileGoldenTest do
     assert {:ok, column} = Segment.get_column(segment, "n")
     assert Column.to_list(column) === Enum.map(rows(), & &1["n"])
 
-    # The same column metadata (types and counts) as the segment it was written from.
-    {:ok, original} = Segment.start_link()
+    # The same column metadata (types and counts) as the segment it was written from,
+    # once that is persisted: a writable segment's columns stop at the last row that
+    # had their key.
+    table = "segment_file_golden_#{System.unique_integer([:positive])}"
+    segment_id = Guardian.SegmentID.generate()
+    on_exit(fn -> File.rm(Guardian.Storage.SegmentFile.filename(table, segment_id)) end)
+    {:ok, original} = Segment.start_link(table: table, segment_id: segment_id)
     Enum.each(rows(), &(:ok = Guardian.Test.Segments.segment_append(original, &1)))
-    :ok = Segment.pack(original)
+    :ok = Segment.persist(original)
     assert Segment.schema(segment) === Segment.schema(original)
     GenServer.stop(original)
 

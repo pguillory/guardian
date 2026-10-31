@@ -1,6 +1,7 @@
 # Run by SegmentTest in a child OS process, because the bug it guards against aborts the
 # whole VM. One process appends to a mutable segment while readers query its columns the
-# way a query does, then the segment is packed for persistence while they keep reading.
+# way a query does, then the segment persists itself (packs, writes its file and swaps in
+# the mapped columns) while they keep reading.
 # Before columns were confined to their segment, this aborted the VM within a second or
 # two with a failed assertion in column.c.
 #
@@ -23,7 +24,22 @@ string = String.duplicate("y", 200)
 # Row j holds "i" => j, and "s" => string when rem(j, 7) == 0.
 row = fn j -> if rem(j, 7) == 0, do: %{"i" => j, "s" => string}, else: %{"i" => j} end
 
-{:ok, segment} = Segment.start_link(capacity: 10_000_000, max_bytes: :infinity)
+# Persisting writes under the data directory and registers the frozen segment with
+# Schema, so give it both.
+data_dir =
+  Path.join(System.tmp_dir!(), "segment_column_race_#{System.unique_integer([:positive])}")
+
+Application.put_env(:guardian, :data_dir, data_dir)
+System.at_exit(fn _ -> File.rm_rf(data_dir) end)
+{:ok, _schema} = Guardian.Storage.Schema.start_link()
+
+{:ok, segment} =
+  Segment.start_link(
+    capacity: 10_000_000,
+    max_bytes: :infinity,
+    table: "race",
+    segment_id: Guardian.SegmentID.generate()
+  )
 
 # A seed row, so readers find both columns from the start.
 :ok = Segment.append(segment, row.(0))
@@ -106,9 +122,9 @@ end)
 send(appender.pid, :stop)
 rows = Task.await(appender, :infinity)
 
-# Phase 2: pack the segment for persistence while the readers keep reading, then let
-# them read the packed segment for a while.
-:ok = Segment.pack(segment)
+# Phase 2: persist the segment while the readers keep reading, then let them read the
+# mapped segment for a while. The count call returns once the persist has run.
+:ok = Segment.persist(segment)
 {:ok, ^rows} = Segment.count(segment)
 Process.sleep(500)
 

@@ -29,7 +29,7 @@ runs under emulation there, where the BEAM JIT miscompiles Mix projects. Add `--
 `-e ERL_FLAGS="+JMsingle true"` to `docker run`.
 
 `--stop-timeout 120` gives Guardian time to persist its in-memory segments when the
-container stops (its shutdown budget is about 110 s; Docker's default is 10 s).
+container stops (its shutdown budget is about 90 s; Docker's default is 10 s).
 Mount a volume at `/data`, or segments land in the container's writable layer and are
 lost with it. The server answers `/health` only after loading every segment on its
 volume, so the first check after a restart can take a while on a large volume.

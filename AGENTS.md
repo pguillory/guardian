@@ -120,7 +120,8 @@ SQL -> Guardian.AST -> Guardian.Query.Resolver -> Guardian.Query.Planner
   -> Guardian.Query.Evaluation -> rows
 ```
 
-Storage uses mutable, full, persisted, and loaded segment managers. Files are named
+Storage keeps each segment in one process for its whole life, under a DynamicSupervisor,
+registered in ReadableSegments (all) and MutableSegments (writable). Files are named
 `{table}.{segment_id}.seg`.
 
 Authentication reads only `GUARDIAN_INGEST_API_KEY` and `GUARDIAN_ADMIN_API_KEY`

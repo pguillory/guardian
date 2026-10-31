@@ -177,15 +177,14 @@ defmodule Guardian.Query.Evaluation do
   defp segment_unavailable!(name, reason)
        when reason in [:not_found, :normal, :shutdown, :noproc] or
               (is_tuple(reason) and elem(reason, 0) == :shutdown) do
-    # A segment is stopped normally only when it is deleted, expires, or is unloaded,
-    # or when its in-memory copy is retired after its file is loaded (Storage's reads
-    # retry that case once on the file, so it reaches here only if the file's copy is
-    # gone too). `:noproc` is a read sent to a segment already gone, nearly always for
-    # one of those reasons; a crash is logged by its manager when it happens.
+    # A segment is stopped normally only when it is deleted or expires, or with
+    # `:shutdown` when its machine's Storage stops or restarts. `:noproc` is a read sent
+    # to a segment already gone, nearly always for one of those reasons; a crash is
+    # logged by its supervisor when it happens.
     raise Error,
       message:
         "segment #{name} became unavailable during the query " <>
-          "(it was deleted, expired, or moved to its file)"
+          "(it was deleted or expired, or its machine's storage restarted)"
   end
 
   defp segment_unavailable!(name, reason) do

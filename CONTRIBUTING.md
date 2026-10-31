@@ -135,9 +135,9 @@ rows, are tagged `:lifecycle`: a slow synchronous suite, also excluded by defaul
 stops and restarts Storage on a peer, calls the stop callback on a peer and restarts the
 rule server in the test VM, for its startup and Publisher tests;
 it doesn't boot a whole application. Segment
-handoffs, retirement and persistence scheduling aren't in the suite: an agent checks by
-hand (insert, stop, start, query) only when a change touches segment lifetimes or
-persistence.
+retirement and persistence timing aren't in the suite, nor a registry crash's restart:
+an agent checks by hand (insert, stop or kill, start, query) only when a change touches
+segment lifetimes or persistence.
 
 Run `mix test --include cluster --include lifecycle` before every deploy. With no CI
 and the pre-commit hook on the default run, that is what keeps those tests from

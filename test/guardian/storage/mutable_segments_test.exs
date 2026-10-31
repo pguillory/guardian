@@ -22,8 +22,5 @@ defmodule Guardian.Storage.MutableSegmentsTest do
     assert get_mutable_segments(table) == []
     assert Guardian.Storage.table_row_count(table) == 2
     assert {:ok, 2} = Guardian.Storage.Segment.count(segment)
-
-    # Load the persisted file, so that deleting the table removes it.
-    Guardian.Test.Segments.await_persisted(table)
   end
 end

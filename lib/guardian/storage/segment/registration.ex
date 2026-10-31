@@ -32,10 +32,10 @@ defmodule Guardian.Storage.Segment.Registration do
     table
   end
 
-  # A manager's registry is its named ETS table of `tuple/1` registrations, keyed by
-  # segment ID. The functions below are the registry operations every manager shares;
-  # each manager wraps the ones it needs, so its lifecycle still reads top to bottom.
-  # The functions that change a registry must run in the manager that owns it.
+  # A registry (MutableSegments, ReadableSegments) is a named ETS table of `tuple/1`
+  # registrations, keyed by segment ID. The functions below are its operations; each
+  # registry wraps the ones it needs. The functions that change a registry must run in
+  # the process that owns it.
 
   @doc """
   The IDs of the segments registered in `registry` for the event table `table`.
@@ -62,36 +62,31 @@ defmodule Guardian.Storage.Segment.Registration do
     |> Enum.each(&retire(registry, &1))
   end
 
-  @doc """
-  Retires every registration in `registry` (see `retire/2`), as a manager's
-  `terminate/2` does.
-  """
-  def retire_all(registry) do
-    :ets.tab2list(registry)
-    |> Enum.each(&retire(registry, &1))
-  end
-
-  @doc """
-  Removes a registration from a manager's registry and stops its segment, returning
-  once the process is gone.
-  """
-  def retire(registry, registration) do
+  # Removes a registration from a registry and stops its segment, returning
+  # once the process is gone.
+  defp retire(registry, registration) do
     true = :ets.delete_object(registry, registration)
     :ok = Segment.retire(segment(registration))
   end
 
   @doc """
-  Removes the registrations holding `segment` from a manager's registry and returns them,
-  for the manager's `{:EXIT, segment, reason}` handler. Matching by PID, never by ID,
-  means a late EXIT from a segment the manager no longer holds (handed off or retired)
-  removes nothing.
+  Registers a segment in `registry` and monitors it, so the registry's `:DOWN` handler
+  can `unregister/2` it.
   """
-  def unregister_exited(registry, segment) when is_pid(segment) do
-    :ets.select(registry, match_spec(segment: segment))
-    |> Enum.map(fn registration ->
-      true = :ets.delete_object(registry, registration)
-      registration
-    end)
+  def register(registry, tuple(segment: segment) = registration) do
+    true = :ets.insert(registry, registration)
+    _ref = Process.monitor(segment)
+    :ok
+  end
+
+  @doc """
+  Removes the registrations holding `segment` from a registry, for its `:DOWN` handler.
+  Matching by PID, never by ID, means a late DOWN from a segment the registry no longer
+  holds (persisting, or deleted) removes nothing.
+  """
+  def unregister(registry, segment) when is_pid(segment) do
+    true = :ets.match_delete(registry, {:_, segment, :_})
+    :ok
   end
 
   @segment_id :"$1"

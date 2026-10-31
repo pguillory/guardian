@@ -46,10 +46,10 @@ cluster in which every query and schema lookup runs on all of them.
                  Segment processes (NIF columns)       Guardian.Query.Evaluation
                                     ^                     | segment IDs only
                                     +---- Storage reads <-+ (segment_row_count,
-                                    |                        get_column)
-             FullSegments -> PersistedSegments -> {table}.{id}.seg on the volume
-                                                        |
-                                    LoadedSegments (mmap) <-+
+                                    |                        get_column, by ID through
+                                    |                        ReadableSegments)
+                 each segment persists itself -> {table}.{id}.seg on the volume,
+                 then serves from the mmap'd file
 ```
 
 The design follows from the product commitments (spec section 1):
@@ -81,11 +81,11 @@ Guardian.Application (one_for_one)
 │   └── Guardian.Counters.Supervisor (one_for_one)
 │       └── Guardian.Counters.Store           ephemeral node-local ETS counter storage
 ├── Storage (supervisor, rest_for_one)
-│   ├── Guardian.Storage.Schema               per-table schema of loaded segments
-│   ├── Guardian.Storage.LoadedSegments       mmap'd segment files; loads all at boot, then each new file
-│   ├── Guardian.Storage.FullSegments         full in-memory segments waiting to persist
-│   ├── Guardian.Storage.PersistedSegments    writes full segments to disk (shutdown budget 90 s)
-│   ├── Guardian.Storage.MutableSegments      writable in-memory segments (shutdown budget 10 s)
+│   ├── Guardian.Storage.Schema               per-table schema of frozen segments
+│   ├── segments (supervisor, one_for_all)
+│   │   ├── Guardian.Storage.SegmentSupervisor  DynamicSupervisor: every segment, temporary (shutdown budget 90 s each)
+│   │   ├── Guardian.Storage.ReadableSegments   registry of every segment; loads all files at boot; expiry, deletion
+│   │   └── Guardian.Storage.MutableSegments    registry of writable segments; creates and rotates them
 │   └── Guardian.Storage.SegmentExpiration    deletes segments older than 15 days, every 10 minutes
 ├── SystemStats                      one system_stats row per second
 ├── Guardian.Web.QueryParseErrors             records query parse failures, asynchronously
@@ -111,15 +111,15 @@ Why this order:
 2. Guardian.Counters.Restarter starts after Guardian.Rules.Server and owns a linked counter supervisor
    that starts Store with an empty public ETS table. It does no loading and is independent of rule
    compilation and event storage. Invalid Store options still refuse startup. Storage
-   starts next, and `LoadedSegments.init/1` loads every segment file on the
+   starts next, and `ReadableSegments.init/1` loads every segment file on the
    volume before returning. Supervisors start children one at a time, so the HTTP
    listener does not exist until all stored data is loaded. That is what lets
    `GET /health` double as a readiness check at boot (spec section 4.3), and it is why
    boot time grows with stored data. After boot, `GET /health` answers 503 unless
    `Guardian.Storage.ready?/0`: every Storage child is registered. It only looks up names, so it
    never blocks on a supervisor that is restarting children; because a GenServer
-   registers its name before its `init`, it relies on SegmentExpiration starting last,
-   after LoadedSegments has finished loading.
+   registers its name before its `init`, it relies on MutableSegments starting after
+   ReadableSegments has finished loading, also when only their group restarts.
 3. The writers of built-in tables (SystemStats, Guardian.Web.QueryParseErrors, Guardian.Web.QueryLog)
    start after Storage because they write to it.
 4. Web starts after everything it calls.
@@ -129,30 +129,28 @@ Why this order:
    already running, or racing the flag, can fail. The tree then stops in reverse: discovery stops, then the HTTP listener (in-flight requests
    get at most 500 ms), so no new events arrive while Storage persists what it holds.
 
-Inside Storage, `:rest_for_one` reflects dependencies: each manager calls the ones
-before it (MutableSegments hands segments to FullSegments, PersistedSegments loads
-through LoadedSegments, LoadedSegments registers schemas with Schema). If one crashes,
-every later one restarts too. Each manager owns its segments' exits: all four
-link their segments and trap exits, so a segment that crashes is unregistered and loses
-only its own rows (a loaded one is loaded from its file at the next restart, and
-its rows are missing from queries until then) instead of restarting the managers. Each manager's `terminate/2` runs on
-shutdown and on any exit of the manager short of a kill (then the links kill its
-segments): MutableSegments hands its segments to FullSegments, PersistedSegments
-persists them and stops the cached ones, and FullSegments and LoadedSegments stop
-whatever they still hold, so no registered segment outlives its manager.
-PersistedSegments stops a cached segment when it releases it (section 4.2).
-Deletion stops a segment's process too. A manager that itself crashes or stops is a
-cascade: when PersistedSegments or FullSegments goes, a file written but not yet loaded
-waits for the next restart, and its rows are missing from queries until then; when
-FullSegments goes, MutableSegments has nowhere to hand its segments, so
-its unpersisted rows and those of every writable segment are lost, and the restart
-reloads what is on disk. Shutdown needs the managers' budgets in sequence: up to 10 s
-for MutableSegments, 90 s for PersistedSegments, and the default 5 s each for
-FullSegments and LoadedSegments (stopping about 1,100 loaded segments took 12 ms on the
-development Mac), 110 s in all. A deployment must give the VM longer than that between
-SIGTERM and a kill: on Fly, the Fly guide's 150-second `kill_timeout` covers it after
+Inside Storage, `:rest_for_one` puts Schema first, which every segment calls when it
+freezes, and SegmentExpiration last. Between them, the segments run under
+SegmentSupervisor, a DynamicSupervisor, as `:temporary` children (a crashed segment
+stays dead), and ReadableSegments and MutableSegments are plain registries that monitor
+them (section 4.2). Those three form a `:one_for_all` group: a crash of any restarts all
+three, and the restart reloads every file. ReadableSegments loads into a table under
+another name and renames it when every file is in, so until then queries on the
+machine fail instead of answering from part of its data. Stopping the group, for a restart or at
+shutdown, stops SegmentSupervisor with `:shutdown`, which stops every segment
+concurrently; each traps exits, and its `terminate` writes its file if it still has
+unwritten rows. So a crash of either registry, or of the supervisor short of a kill,
+writes the writable segments before the reload, and loses nothing unless a write fails
+or overruns its budget; ingest and queries on the machine fail meanwhile, and
+`/health` answers 503. A Schema crash restarts everything after it; a segment that
+freezes while Schema is down crashes on its call to it and loses its rows.
+SegmentExpiration skips its tick while Storage is not ready, since it outlives a
+restart of the group. Shutdown needs only the segments' budget: they stop at once
+together, 90 s at most each; the two registries keep the default 5 s but stop at once,
+and the supervisors in between have no budget of their own (`:infinity`). A
+deployment must give the VM longer than that between SIGTERM and a kill: on Fly, the Fly guide's 150-second `kill_timeout` covers it after
 `bin/fly-start` has drained the tunnel connector (up to 10 s, and 20 s at worst before
-it is killed; section 10.1), leaving at least 20 s for the processes that stop before
+it is killed; section 10.1), leaving about 40 s for the processes that stop before
 Guardian.Storage.
 
 `Guardian.Application` uses the default restart intensity (3 restarts in 5 seconds). The release starts
@@ -281,7 +279,7 @@ bypasses Engine fails loudly instead of corrupting a column.
 `MutableSegments` keeps an ETS table of writable segments, keyed by segment ID with
 the table name and segment PID. The append runs in the caller's process: it reads the
 table's writable segments from ETS and calls one directly. Only creating a segment, or
-handing one off, goes through the MutableSegments process.
+rotating one out to persist, goes through the MutableSegments process.
 
 1. A table normally has one writable segment. A new one is created only when the table
    has none (on first write, and after the previous one fills). The selection code
@@ -294,7 +292,7 @@ handing one off, goes through the MutableSegments process.
    64 MiB budget, or one hour after its first row
    (`GUARDIAN_MUTABLE_SEGMENT_MAX_AGE_MS`).
    The budget is soft: the row that crosses it is stored. The row that fills a segment
-   triggers the handoff to FullSegments at once, so a quiet table does not wait for a
+   has the segment persist at once, so a quiet table does not wait for a
    next row.
 4. An append that finds the segment full or dead retries in a new segment. An append
    that times out or crashes the segment is not retried, since it may have stored the
@@ -616,8 +614,8 @@ without touching query code.
 2. A segment is a batch of up to 16,384 rows held as one column per flattened key.
    Each segment is an Erlang process (`Guardian.Storage.Segment`), identified by a segment ID:
    32 hex characters encoding the creation time in nanoseconds plus 8 random bytes
-   (`Guardian.SegmentID`). IDs sort by creation time and are unique across machines, which is
-   why the same ID can be listed by two lifecycle stages and simply deduplicated.
+   (`Guardian.SegmentID`). IDs sort by creation time and are unique across machines. One
+   ID names one process for the segment's whole life.
 3. A column holds any mix of null, boolean, 64-bit integer, float, string, and list
    values (lists of scalars, or of lists of scalars). While a segment is writable a
    column is a mutable NIF resource; once frozen it is a packed binary. Packed columns
@@ -642,42 +640,32 @@ segment bounded.
 
 ### 4.2 Segment lifecycle
 
-A segment moves through four managers, each an ETS registry owned by a GenServer:
+A segment is one process from creation to expiry or deletion, under SegmentSupervisor:
 
-1. MutableSegments: writable segments (section 3.2).
-2. FullSegments: frozen segments waiting to be written. The handoff registers the
-   segment here before removing it from MutableSegments.
-3. PersistedSegments: every second (and on each handoff) it packs each full segment's
-   columns inside the segment process, writes the file, registers the segment as
-   persisted, and removes it from FullSegments. The in-memory segment stays registered
-   for 10 minutes.
-4. LoadedSegments: segments backed by a memory-mapped file. Right after the write,
-   PersistedSegments asks LoadedSegments to load the file, from a message to itself so
-   that the persist pass, which `terminate` also runs, never calls LoadedSegments. After
-   the 10 minutes it drops its own entry and stops the in-memory process. Lookups check
-   LoadedSegments first, so once the file is loaded no new read reaches the in-memory
-   process; a read that resolved it just before the file was loaded is retried once on
-   the loaded copy, which holds the same rows. If the file cannot be loaded, nothing
-   rescues it: the in-memory process serves until the 10 minutes are up, and then those
-   rows are gone from queries. Loading the file is the only check on it.
+1. Created: MutableSegments starts it with its ID and table, registers it in
+   ReadableSegments, then in its own table, so no row reaches a segment that queries
+   can't see. Both registries monitor it.
+2. Writable: appends go to it (section 3.2).
+3. Frozen: when it fills (16,384 rows or 64 MiB) or reaches its maximum age, it stops
+   accepting rows and registers its final count and schema with Schema. MutableSegments
+   then deregisters it and tells it to persist.
+4. Persisted: in one message the segment packs its columns, writes its file, maps it
+   back, swaps the mapped columns in, and hibernates, a full garbage collection that
+   releases the in-memory copy. Reads and appends queued behind it wait for the whole
+   step (measured at about 15 ms to pack and 9 to 20 ms to write with fsync for a 64 MiB
+   segment on the development Mac). A failed write, or a file that won't map, crashes
+   it.
+5. It serves from the mapping until ReadableSegments stops it for expiry or deletion and
+   deletes its file.
 
-Ordering is the correctness argument for visibility. Every handoff registers the
-destination before removing the source, and `Guardian.Storage.segment_ids/1` reads the registries
-in lifecycle order (Mutable, Full, Persisted, Loaded), so a segment moving during a scan
-is seen at least once; duplicates are removed by ID. `Guardian.Storage.get_segment/1` checks
-Loaded again at the end, because a segment can leave the persisted cache after the first
-Loaded lookup.
+Why one process: the ID never moves, so a read resolves it once, in one registry, and
+needs no retry; there is no handoff to order and no second copy to cache. The swap is
+invisible to queries: the mapped columns are byte for byte the packed ones served
+before, and the count is fixed from freezing.
 
-Known limits of the lifecycle:
-
-1. Deletion is not serialized with persistence. A segment deleted while the persister
-   writes it, or after its file was written but before LoadedSegments registered it,
-   leaves a file that the next restart loads again.
-2. A segment that dies between LoadedSegments starting it and Guardian.Storage.Schema
-   registering it still crashes LoadedSegments, which reads the segment's count and
-   schema to pass them to Schema: its reads return `segment_unavailable` at once, and
-   it matches only success. The reads carry a 5 s timeout, so a hung segment crashes
-   it rather than blocking it. Schema never calls a segment.
+Known limit of the lifecycle: a segment that crashes is not restarted. A writable or
+frozen one loses its unwritten rows; a persisted one's rows are missing from queries
+until the next restart loads its file (spec section 12).
 
 ### 4.3 Persistence and the file format
 
@@ -712,19 +700,18 @@ Limits:
 2. No magic number, version, or checksum. A file is trusted to be what its name says.
 3. An unreadable file (truncated, empty, with a bad header, or not mappable) is
    skipped, not loaded: the rest of the data stays available (section 4.4). Corrupt
-   column data that does parse aborts the VM inside the column NIF. A loaded
-   segment that raises while answering a query is unregistered, and the next restart
+   column data that does parse aborts the VM inside the column NIF. A persisted
+   segment that raises while answering a query stays dead, and the next restart
    loads its file again (section 2.1).
-4. A segment that cannot be written (full disk, rejected filename) is logged once,
-   stays in FullSegments and queryable, and is retried every pass; its memory is held
-   until it persists or the machine stops.
-5. A store failure is handled per segment (item 4), at shutdown too, since shutdown
-   runs the same persist loop. So is a segment that dies or stops answering while it
-   packs: the persister moves on, and the segment is unregistered when its exit
-   arrives, or retried next pass if it is alive. A live segment that does not answer
-   a pack step within its 5 s call timeout is logged once, as in item 4. A pack step
-   that raises (an unexpected reply such as `{:error, :not_frozen}`) still crashes
-   the persister, and at shutdown aborts persistence of the remaining full segments.
+4. A segment that cannot be written (full disk, rejected filename) crashes, losing its
+   rows, acknowledged ones included; a freshly written file that won't map crashes it
+   too, and its rows come back at the next restart if the file loads then. Each is the
+   segment's own crash, and a failed write at shutdown loses only that segment: the
+   others are unaffected. A transient full disk now costs each segment that fills
+   meanwhile its rows; the old persister kept them in memory and retried.
+5. There is no limit on concurrent writes: segments that fill at once, and every
+   writable segment at shutdown, write at once, each holding its native and packed
+   columns until its write is done, and each opening a file descriptor.
 6. Temporary files left by a crash mid-write are never cleaned up; their names do not
    parse as segments, so they are ignored without a warning.
 
@@ -734,26 +721,26 @@ format are ignored with one startup warning and never deleted.
 
 ### 4.4 Loading and mmap
 
-At boot, LoadedSegments lists the segment directory and starts one segment process per
+At boot, ReadableSegments lists the segment directory and starts one segment process per
 file, each holding the file mapped with `Guardian.Storage.Mmap`. Columns are sub-binaries of
 the mapping, so they occupy page cache, not VM heap, and the kernel pages them in as
-queries touch them. After that, the only file it loads is one PersistedSegments has just
-written (section 4.2), so restoring or removing a file on the volume takes effect at
+queries touch them. After that, the only file mapped is the one a segment has just
+written itself (section 4.2), so restoring or removing a file on the volume takes effect at
 the next restart (spec section 9 item 6). The boot load logs "Storage: loading N
 segment files" before it starts, at info.
 
 A file that cannot be loaded (section 4.3, limit 3) is skipped. The segment process
-starts unlinked and validates the file in its `init` (header, column bounds, and each
-column's metadata), stopping with a reason that names only the failure's kind, so
-neither LoadedSegments nor a crash report sees the file's bytes; a segment that loaded
-links itself to LoadedSegments before its `init` returns. LoadedSegments logs one
+validates the file in its `init` (header, column bounds, and each column's metadata),
+stopping with `{:shutdown, reason}`, a reason that names only the failure's kind, so
+neither ReadableSegments nor a crash report sees the file's bytes, and SegmentSupervisor
+logs nothing for it. ReadableSegments logs one
 error line (filename, size, reason), leaves the file in place, and remembers nothing:
 the next restart tries it again, so a good copy restored by an operator (written under
 another name, then renamed into place, never copied over the file) loads then.
 SegmentExpiration deletes skipped files on the same 15-day schedule as loaded ones.
 `Guardian.Storage.delete_table/1` and `delete_segment/1` (no interface calls them) do not see
-a file that isn't loaded: a skipped one, a crashed segment's, or one a manager crash left
-unloaded. Its rows come back at the next restart, until expiry deletes it.
+a file that isn't loaded: a skipped one, or a crashed segment's. Its rows come back at
+the next restart, until expiry deletes it.
 
 Why mmap: a machine's stored data can be larger than its memory (the repository's
 Fly guide pairs a 10 GB volume with a 1 GB machine). Mapping lets every segment be registered and queryable
@@ -766,17 +753,20 @@ its wait timeout (15 minutes in the guide's Scaling section) for it.
 ### 4.5 Schema inference
 
 `Guardian.Storage.Schema` keeps, per table, the summed column counts, row count, and segment
-count of all loaded segments. It monitors each loaded segment and subtracts its counts
-when the process stops, which is why unloading a segment must stop its process, and a
-table is forgotten with its last loaded segment. `Guardian.Storage.schema/1` adds the counts of
-the table's writable segments on top (skipping one deleted or stopped while it reads;
-one that does not answer within 5 s fails the lookup rather than dropping its
-columns), and `Guardian.Storage.table_names/0` likewise lists tables
-with loaded or writable segments. There is no persistent catalog. The model has a gap: a
-segment that is full or just persisted but not yet loaded (normally a moment, longer
-if its write fails) is read by SELECT but left out of the schema, so `SHOW
-TABLES`, `DESC`, the `schema` table, and `SELECT *` can briefly miss its columns or, for
-a table with no other segments, the table itself. Across machines, `Guardian.Cluster.Metadata`
+count of all frozen segments: each registers its final counts (every column padded to
+the row count, as its file holds it) when it freezes, and a loaded one in its `init`.
+Schema never calls a segment. It monitors each and subtracts its counts when the process
+stops, which is why deletion and expiry must stop the process, and a table is forgotten
+with its last frozen segment. `Guardian.Storage.schema/1` adds the counts of the table's
+writable segments on top (skipping one deleted or stopped while it reads; one that does
+not answer within 5 s fails the lookup rather than dropping its columns), and
+`Guardian.Storage.table_names/0` likewise lists tables with frozen or writable segments.
+There is no persistent catalog. Both list the writable segments before reading Schema,
+and a segment registers with Schema before it leaves MutableSegments, so a segment
+freezing during a lookup is counted twice rather than missed: normally for a moment,
+but until its next append if the appender that filled it died before rotating it. A writable
+segment's own counts stop at the last row that had each key, so its counts change
+slightly when it freezes. Across machines, `Guardian.Cluster.Metadata`
 adds every node's schemas together (section 7).
 
 ### 4.6 Retention
@@ -796,9 +786,9 @@ Memory on a machine is roughly:
 
 1. Writable segments: one per active table, up to the 64 MiB packed budget each, and
    mutable columns can hold about twice their packed size.
-2. Full and recently persisted segments: their packed columns, until persisted and for
-   10 minutes after (`:guardian, :persisted_segment_cache_ms`).
-3. Loaded segments: page cache for the mapped files, which the kernel can evict, plus
+2. Segments being persisted: native and packed columns at once, for the moment of the
+   write; the garbage collection after the swap releases both.
+3. Persisted segments: page cache for the mapped files, which the kernel can evict, plus
    a small process per file.
 4. Queries: rows in flight, GROUP BY state, sort buffers, and results, bounded only
    partly (section 5.7).
@@ -1077,12 +1067,9 @@ Queries read segments by ID through `Guardian.Storage.segment_row_count/1` and
 `Guardian.Storage.get_column/2`, which resolve the ID on every call and use Segment's monitored
 readers with no timeout: a slow segment is waited for, and one that is deleted,
 expires, crashes, or sits on a node that disconnects fails the query at once with
-"segment `id` became unavailable during the query". The exception is a segment whose
-copy stops normally while another copy of it is still registered (its in-memory copy
-retired after its file loaded, or mid-delete): the read is retried once on that copy
-(section 4.2). Storage's own processes use the
-same readers with a 5 s timeout. The writer-side calls (`pack`,
-`store`, `append`) keep their own timeouts.
+"segment `id` became unavailable during the query". An ID names one process for the
+segment's whole life, so there is no retry (section 4.2). Storage's own callers use the
+same readers with a 5 s timeout. `append` keeps its own timeout.
 
 These catch accidents, not abuse. The time limit bounds how long a query runs, not how
 much memory it takes first. The heap limit bounds each process's own heap, not the
@@ -1324,19 +1311,18 @@ requests.
 ## 8. Durability and availability, end to end
 
 1. Accepted, not durable: an acknowledged event is in a writable segment in memory.
-2. Handoff: within one hour (or at 16,384 rows or 64 MiB), the segment is frozen and
-   queued, and the persister writes it within about a second if nothing is ahead of
-   it and the write succeeds; a segment whose write fails stays queued in memory.
-   The file is fsynced, the directory entry is not (section 4.3).
-3. Graceful stop: on SIGTERM the HTTP listener stops, MutableSegments hands off every
-   writable segment (10 s budget), PersistedSegments writes everything queued (90 s
-   budget), and FullSegments and LoadedSegments stop their segments (5 s each), about
-   110 s in all. Whatever stops the VM must wait longer than that before killing it:
+2. Persisting: within one hour (or at 16,384 rows or 64 MiB), the segment freezes and
+   writes its own file at once; a segment whose write fails crashes and its rows are
+   lost. The file is fsynced, the directory entry is not (section 4.3).
+3. Graceful stop: on SIGTERM the HTTP listener stops, then every segment stops at once,
+   each writing its file if it has unwritten rows (90 s budget each), about 90 s in all
+   at worst. A crash of Storage's segment registries or their supervisor does the same
+   before reloading from disk (section 2.1). Whatever stops the VM must wait longer
+   than that before killing it:
    on Fly, the Fly guide's 150-second `kill_timeout`, which must stay above the budgets
    plus the tunnel connector's drain (10 seconds, 20 at worst).
 4. Crash: a VM crash or out-of-memory kill loses everything not yet written: normally
-   about the last hour of each table on that machine plus any persistence lag, with no
-   hard upper bound while writes are failing or queued. A host crash or power loss can
+   about the last hour of each table on that machine. A host crash or power loss can
    also lose recently written files, since their directory entries are not fsynced.
 5. Retention: 15 days from segment creation, then deleted. On Fly, the volume is
    snapshotted daily and 14 snapshots are kept; elsewhere, backups are the operator's.
@@ -1386,7 +1372,7 @@ Environment variables:
 | `GUARDIAN_PORT` | `config/runtime.exs`, `bin/fly-start` | HTTP port, 1 to 65535. Default 8080. Tests use an OS-chosen port. |
 | `GUARDIAN_COUNTER_MEMORY_MB` | `config/runtime.exs` | Positive integer MiB for the asynchronous resident counter memory target (3.5), default 64; empty/invalid refuses startup. |
 | `GUARDIAN_DATA_DIR` | `config/runtime.exs` (prod) | Data directory; segments go in `segments/` under it. Default `/root/data`; `/data` in the image and on Fly. Must be writable, and on Fly must be a mounted volume, or boot fails. |
-| `GUARDIAN_MUTABLE_SEGMENT_MAX_AGE_MS` | `config/runtime.exs` | Writable segment age before handoff. Default 3,600,000. |
+| `GUARDIAN_MUTABLE_SEGMENT_MAX_AGE_MS` | `config/runtime.exs` | Writable segment age before it persists. Default 3,600,000. |
 | `GUARDIAN_NODE_HOST` | `rel/env.sh.eex` | This node's address; setting it makes the node `guardian@<address>`, a cluster member (section 7). Wins over `FLY_PRIVATE_IP`. |
 | `DNS_CLUSTER_QUERY` | `rel/env.sh.eex`, `config/runtime.exs` | Discovery name resolving to every peer's IP. Defaults to `<app>.internal` on Fly; unset elsewhere means no discovery. |
 | `RELEASE_COOKIE` | `rel/env.sh.eex`, the release | Erlang cookie, printable ASCII. Required with `GUARDIAN_NODE_HOST` or on Fly; must match on every node. |
@@ -1407,11 +1393,10 @@ these except through the variables above:
 | `counter_memory_budget_bytes` | 64 MiB, overridden by `GUARDIAN_COUNTER_MEMORY_MB` | `Guardian.Counters.Store`: asynchronous resident counter memory target (3.5); a non-positive or non-integer value refuses startup |
 | `query_parse_errors_per_hour` | 60 | `Guardian.Web.QueryParseErrors` (tests raise it) |
 | `rules_time_limit_ms`, `rules_reclaim_after_ms` | 1,000; 30,000 | `lib/guardian/rules` (tests shorten them) |
-| `persisted_segment_cache_ms` | 600,000 | `Guardian.Storage.PersistedSegments`: how long a written segment's in-memory copy serves before it is stopped; a value that is not a positive integer stops Storage from starting |
 
 Constants in code that act like configuration: segment capacity 16,384 rows and 64 MiB
-budget (`Guardian.Storage.Segment`), 15-day retention (`Guardian.Storage.SegmentExpiration`), shutdown
-budgets (`Guardian.Storage`), the 64-byte table name and 250-byte key limits (`Guardian.Engine`,
+budget and the 90 s shutdown budget (`Guardian.Storage.Segment`), 15-day retention
+(`Guardian.Storage.SegmentExpiration`), the 64-byte table name and 250-byte key limits (`Guardian.Engine`,
 `Guardian.Storage.Value`), the 32-byte key minimum (`config/runtime.exs`), the once-a-minute
 query-key log line (`Guardian.Web.Auth`), the regular expression match and depth limits
 (`Guardian.Query.Regex`), and DistributedStream's 1,000-byte chunks.
@@ -1566,16 +1551,17 @@ About 150 test files cover:
 1. Units per subsystem: tokenizer and parser round trips, every operator, function,
    and aggregation, the column NIF (including golden outputs in
    `test/fixtures/column_nif_outputs.etf`), the segment file format (golden file
-   `test/fixtures/segment_file.seg`), flattening, segments, each lifecycle
-   manager, mmap, regular expressions (semantics, UTF-8, the backtracking limit),
+   `test/fixtures/segment_file.seg`), flattening, segments (persisting, and writing
+   the file at a shutdown stop), the segment registries, mmap, regular expressions (semantics, UTF-8, the backtracking limit),
    query limits (including the heap limit, on one node and on a peer that follows its
    own setting), and worker errors.
 2. Concurrency: column release, counts during ingest, and a segment column race run in
-   a child VM (`test/fixtures/segment_column_race.exs`). Handoff visibility, segment
-   retirement, persistence scheduling and the query time limit's enforcement on one
-   node are checked by hand when a change touches them
+   a child VM (`test/fixtures/segment_column_race.exs`). Segment retirement,
+   persistence timing, a registry crash's restart and the query time limit's
+   enforcement on one node are checked by hand when a change touches them
    (`docs/changes/async-default-tests.md`). The `:lifecycle` suite stops Storage on a
-   peer and restarts it on the same data, checks that a stopping machine refuses
+   peer and restarts it on the same data (rows still in memory, and rows a segment
+   persisted while running, each come back once), checks that a stopping machine refuses
    new queries, and holds the Rules.Server startup tests (invalid rules at boot, invalid
    settings, retrying a failing store, boot and reload publishing the same result) and
    the Publisher tests, which must stop the server.
@@ -1625,7 +1611,7 @@ query time limits (`with_time_limit/2`, serial tests only). `Guardian.Test.Polli
 holds `eventually/2`.
 `Guardian.Test.Processes` observes queued calls on this node or peers (`:cluster`
 tests). `Guardian.Test.Segments` appends nested rows (`segment_append/2`), writes
-segment files (`write_segment_file/2`), waits for a table's rows to reach disk
+segment files (`write_segment_file/2`), persists a table's segments and waits for them
 (`await_persisted/1`) and injects one-call append replies (`intercept_append/2`).
 Callers isolate observed processes, files, segments and tables; tests don't suspend
 or restart shared Storage processes. `Guardian.Test.Aggregation` supplies
@@ -1683,10 +1669,10 @@ Guardian.SystemStats. There are no benchmarks in the tree.
 The limits named above, in one place:
 
 1. Storage: corrupt column data aborts the VM (4.3).
-2. Storage: a segment whose pack raises at shutdown stops the rest persisting (4.3).
-3. Storage: deletion racing persistence can leave a file the next restart loads (4.2).
-4. Storage: the schema misses full and recently persisted segments, and a segment
-   dying before Schema registers it crashes LoadedSegments (4.2, 4.5).
+2. Storage: a segment whose file can't be written loses its rows (4.3).
+3. Storage: a crashed segment is not restarted; a persisted one's rows are missing until
+   the next restart (4.2).
+4. Storage: a schema lookup can count a freezing segment twice for a moment (4.5).
 5. Storage: no bound on tables or keys per segment (4.7).
 6. Ingest: some event shapes are slow to flatten, and events flatten twice (3.3).
 7. Query: no bound on a query's total memory (the heap limit is per process) and no

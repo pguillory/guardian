@@ -736,9 +736,8 @@ the shipped surface:
    query that stops early: without `ORDER BY`, a query stops reading once it has its
    `LIMIT` rows (10,000 without one), so a failure that would have come later goes
    unseen and the rows are returned. A query that reads a
-   segment at the instant its in-memory copy is replaced by its stored file reads the
-   stored file instead and returns the same rows; only if no stored copy remains does
-   it fail the same way. A failure while a query runs never produces a
+   segment while it is being written to its file waits for the write and returns the
+   same rows. A failure while a query runs never produces a
    partial answer, and slow steps are waited for, up to the time limit. Rows a
    machine isn't serving when the query starts are a different matter: they're
    silently missing from the answer (section 12).
@@ -859,16 +858,19 @@ Request bodies, API keys, and MCP traffic are not logged in `web_requests` or
    Other `.seg` files, including the old `{user_id}.{table}.{segment_id}.seg` format,
    are ignored with one startup warning and never deleted.
 2. In-memory segments: New events go to a writable in-memory segment per table. It is
-   handed off for persistence when it reaches 16,384 rows, about 64 MiB of packed
-   column data, or one hour after its first event (configurable with
-   `GUARDIAN_MUTABLE_SEGMENT_MAX_AGE_MS`). The hour bounds when persistence starts,
-   not when the write reaches disk.
+   written to disk when it reaches 16,384 rows, about 64 MiB of packed column data, or
+   one hour after its first event (configurable with
+   `GUARDIAN_MUTABLE_SEGMENT_MAX_AGE_MS`).
 3. Crash window: Events not yet on disk are lost if the machine crashes hard. A
-   normal stop (SIGTERM) tries to persist in-memory segments within a 90-second
-   budget, about 110 seconds for the whole stop, so whatever stops Guardian must wait
-   longer than that before killing it (the Fly configuration allows 150 seconds);
-   anything not written by then is lost. One segment whose pack raises an error during
-   shutdown currently aborts persistence of the rest.
+   normal stop (SIGTERM) persists in-memory segments, all at once, each within a
+   90-second budget, about 90 seconds for the whole stop at worst, so whatever stops
+   Guardian must wait longer than that before killing it (the Fly configuration allows
+   150 seconds); anything not written by then is lost. A segment that fails to write
+   loses only its own events. If one of the internal processes that keep track of
+   segments crashes (not a segment itself, and not killed outright), the machine
+   persists its in-memory segments the same way and reloads all its data from disk;
+   ingest and queries sent to it fail until that finishes, and other machines' queries
+   leave it out meanwhile.
 4. Startup: A machine loads every segment in its data directory before it serves
    HTTP, so boot time grows with stored data. Production refuses to start if the data
    directory is not writable, or on Fly.io if it is not a mounted volume.
@@ -963,8 +965,8 @@ These are deliberately absent.
 
 Listed here because they change what a user sees:
 
-1. One segment that fails to pack at shutdown can lose the remaining unpersisted
-   segments.
+1. A segment whose file can't be written (for example, on a full disk) is dropped,
+   losing the events it held in memory, acknowledged ones included.
 2. One slow MCP tool call delays later calls in the same MCP session (a query for up
    to its 30-second limit, after, for a `SELECT *`, up to 60 seconds per table of
    schema lookup when a machine reports ready and then stops answering; an ingest
@@ -987,16 +989,16 @@ Listed here because they change what a user sees:
    lease, or one the store applies after the writer gave up, can overlap another writer
    and leave a rule set that validation would have refused; loading then fails the
    affected table's events until it is fixed.
-9. A segment that crashes on an unexpected insert failure loses the rows it holds in
-   memory, including rows already acknowledged.
+9. An in-memory segment that crashes loses the rows it holds in memory, including rows
+   already acknowledged: on an unexpected insert failure, for example, or if it fills
+   while the internal schema tracker is restarting.
 10. A machine that misses a rule write's reload, because it wasn't connected yet or
     its reload failed, keeps its rules until the next rule write or until it restarts.
 11. A segment file that won't load is skipped. The machine logs an error and keeps
     going, the file stays on disk, and its rows are silently missing from queries, with
     nothing in the answer to show it: a query over that table returns a partial result
     as if it were complete. That's so at startup, and for a file that won't load right
-    after it's written, whose rows serve from memory for up to 10 minutes and then go
-    missing. Each restart tries the file again until it expires.
-12. After a loaded segment crashes, its rows are silently missing from queries until
-    the machine's next restart. So are the rows of a file written just before an
-    internal storage process crashes, if it wasn't loaded yet.
+    after it's written, whose rows go missing until the next restart. Each restart tries
+    the file again until it expires.
+12. After a persisted segment crashes, its rows are silently missing from queries until
+    the machine's next restart.

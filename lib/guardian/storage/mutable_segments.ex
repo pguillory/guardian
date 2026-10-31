@@ -2,12 +2,17 @@ defmodule Guardian.Storage.MutableSegments do
   # Internal to Storage; see lib/guardian/storage/AGENTS.md, "Public boundary".
   @moduledoc false
 
-  alias Guardian.Storage.FullSegments
-  alias Guardian.Storage.PersistedSegments
+  # The registry of writable segments, and the segment lifecycle: it creates each
+  # segment under SegmentSupervisor and registers it in ReadableSegments and here, and
+  # when one is full or reaches its maximum age it deregisters it and tells it to
+  # persist; the segment does the rest. It monitors its segments rather than linking
+  # them, so a segment that dies drops out. At shutdown it does nothing: each segment
+  # writes its own file (`Guardian.Storage.Segment.terminate/2`).
+
+  alias Guardian.Storage.ReadableSegments
   alias Guardian.Storage.Segment
   alias Guardian.Storage.Segment.Registration
   require Registration
-  require Logger
   use GenServer
 
   def start_link(opts \\ []) do
@@ -21,14 +26,6 @@ defmodule Guardian.Storage.MutableSegments do
   def table_names do
     :ets.select(__MODULE__, Registration.match_spec(select: :table))
     |> Enum.uniq()
-  end
-
-  def get_segment(segment_id) do
-    Registration.lookup(__MODULE__, segment_id)
-  end
-
-  def delete_segment(segment_id) do
-    GenServer.call(__MODULE__, {:delete_segment, segment_id})
   end
 
   def get_mutable_segments(table) do
@@ -77,7 +74,7 @@ defmodule Guardian.Storage.MutableSegments do
           :ok ->
             :ok
 
-          # The row filled the segment. Hand it off for persistence now rather than
+          # The row filled the segment. Persist it now rather than
           # when the next row arrives, which on a quiet table may be much later.
           {:ok, :full} ->
             :ok = segment_is_full(table, segment)
@@ -126,7 +123,6 @@ defmodule Guardian.Storage.MutableSegments do
   end
 
   def init(opts) do
-    Process.flag(:trap_exit, true)
     :ets.new(__MODULE__, [:named_table, :ordered_set])
 
     max_age_ms =
@@ -144,33 +140,19 @@ defmodule Guardian.Storage.MutableSegments do
     {:ok, state}
   end
 
-  def terminate(_reason, _state) do
-    :ets.tab2list(__MODULE__)
-    |> Enum.each(fn registration ->
-      :ok = FullSegments.insert(registration)
-      segment = Registration.segment(registration)
-      true = Process.unlink(segment)
-    end)
-  end
-
-  def handle_call({:delete_segment, segment_id}, _, state) do
-    :ok = Registration.retire_segment_id(__MODULE__, segment_id)
-    {:reply, :ok, state}
-  end
-
   def handle_call({:segment_is_full, table, segment}, _, state) do
     :ets.select(
       __MODULE__,
       Registration.match_spec(segment: segment, table: table)
     )
-    |> Enum.each(&handoff/1)
+    |> Enum.each(&persist/1)
 
     {:reply, :ok, state}
   end
 
   def handle_call({:segment_died, segment}, _, state) do
     # An append found it gone, without its exit reason.
-    :ok = unregister_dead_segment(segment, :noproc)
+    :ok = Registration.unregister(__MODULE__, segment)
     {:reply, :ok, state}
   end
 
@@ -182,20 +164,22 @@ defmodule Guardian.Storage.MutableSegments do
     {:reply, :ok, state}
   end
 
+  # Registered in ReadableSegments first: an appender can use the segment as soon as it
+  # is in this table, and its rows must be readable once the append returns.
   defp create_segments(table, count, max_age_ms) when count > 0 do
-    {:ok, segment} = Segment.start_link(max_age_ms: max_age_ms, max_age_owner: self())
     segment_id = Guardian.SegmentID.generate()
 
-    true =
-      :ets.insert(
-        __MODULE__,
-        Registration.tuple(
-          segment_id: segment_id,
-          segment: segment,
-          table: table
-        )
+    {:ok, segment} =
+      Segment.start_supervised(
+        segment_id: segment_id,
+        table: table,
+        max_age_ms: max_age_ms,
+        max_age_owner: self()
       )
 
+    registration = Registration.tuple(segment_id: segment_id, segment: segment, table: table)
+    :ok = ReadableSegments.insert(registration)
+    :ok = Registration.register(__MODULE__, registration)
     create_segments(table, count - 1, max_age_ms)
   end
 
@@ -205,34 +189,20 @@ defmodule Guardian.Storage.MutableSegments do
 
   def handle_info({:segment_max_age, segment}, state) do
     :ets.select(__MODULE__, Registration.match_spec(segment: segment))
-    |> Enum.each(&handoff/1)
+    |> Enum.each(&persist/1)
 
     {:noreply, state}
   end
 
-  # Mutable segments are linked to this process, which traps exits. Matches by PID: a
-  # late EXIT from a segment this manager no longer holds (deleted, or handed to
-  # FullSegments) finds nothing and is ignored.
-  def handle_info({:EXIT, segment, reason}, state) do
-    :ok = unregister_dead_segment(segment, reason)
+  # Matches by PID: a late DOWN from a segment already persisting finds nothing.
+  def handle_info({:DOWN, _ref, :process, segment, _reason}, state) do
+    :ok = Registration.unregister(__MODULE__, segment)
     {:noreply, state}
   end
 
-  defp handoff(registration) do
-    segment = Registration.segment(registration)
-    :ok = FullSegments.insert(registration)
+  # Readers may still hold its PID; it stays in ReadableSegments.
+  defp persist(registration) do
     true = :ets.delete_object(__MODULE__, registration)
-    true = Process.unlink(segment)
-    :ok = PersistedSegments.ping()
-  end
-
-  defp unregister_dead_segment(segment, reason) do
-    Registration.unregister_exited(__MODULE__, segment)
-    |> Enum.each(fn Registration.tuple(segment_id: segment_id, table: table) ->
-      Logger.error(
-        "Dropping dead mutable segment #{segment_id} of table #{inspect(table)} " <>
-          "(#{Guardian.Failure.exit_kind(reason)}); its rows are lost"
-      )
-    end)
+    :ok = Segment.persist(Registration.segment(registration))
   end
 end

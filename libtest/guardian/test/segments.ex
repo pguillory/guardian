@@ -46,35 +46,41 @@ defmodule Guardian.Test.Segments do
   end
 
   @doc """
-  Writes a segment file holding flat `rows` to `filename`, through a temporary
-  in-memory segment (appended, packed, stored, stopped), and returns `filename`. The
-  caller removes the file.
+  Writes a segment file holding flat `rows` to `filename`, packing their columns
+  directly (no segment process, so it can write into any directory, such as a peer's),
+  and returns `filename`. The caller removes the file.
   """
   def write_segment_file(filename, rows) do
-    {:ok, segment} = Guardian.Storage.Segment.start_link()
-    Enum.each(rows, &(:ok = Guardian.Storage.Segment.append(segment, &1)))
-    :ok = Guardian.Storage.Segment.pack(segment)
-    :ok = Guardian.Storage.Segment.store(segment, filename)
-    GenServer.stop(segment)
+    keys = rows |> Enum.flat_map(&Map.keys/1) |> Enum.uniq() |> Enum.sort()
+
+    columns =
+      Enum.map(keys, fn key ->
+        rows |> Enum.map(&Map.get(&1, key)) |> Guardian.Storage.Column.from_list()
+      end)
+
+    :ok = Guardian.Storage.SegmentFile.write(filename, length(rows), keys, columns)
     filename
   end
 
   @doc """
-  Waits until every full segment of `table` has been written to disk and at least one
-  is loaded from its file, asking for the write as it polls. For Storage and query tests
-  that need rows on disk.
+  Persists every segment of `table`: its writable segments are rotated out as if full,
+  and the call returns once each segment has written its file and serves from it. For
+  Storage and query tests that need rows on disk.
   """
   def await_persisted(table) do
-    Guardian.Test.Polling.eventually(
-      fn ->
-        :ok = Guardian.Storage.PersistedSegments.ping()
+    for segment <- Guardian.Storage.MutableSegments.get_mutable_segments(table) do
+      :ok = Guardian.Storage.MutableSegments.segment_is_full(table, segment)
+    end
 
-        Guardian.Storage.FullSegments.segment_ids(table) == [] and
-          Guardian.Storage.LoadedSegments.segment_ids(table) != []
-      end,
-      30_000,
-      50
-    )
+    for segment_id <- Guardian.Storage.segment_ids(table),
+        {:ok, segment} <- [Guardian.Storage.get_segment(segment_id)] do
+      # Messages from one sender arrive in order, so the read returns after this
+      # persist has run (MutableSegments' may have run already, which is the same).
+      :ok = Guardian.Storage.Segment.persist(segment)
+      {:ok, _count} = Guardian.Storage.Segment.count(segment)
+    end
+
+    :ok
   end
 
   @doc """
@@ -83,7 +89,8 @@ defmodule Guardian.Test.Segments do
   (or fails) as the test needs. The fake unregisters itself before calling back, so
   later rows use real segments, and exits with the callback's exit reason. Call it from
   the test process: cleanup is `on_exit`. It writes MutableSegments' registry directly,
-  which test code may do to inject faults (`lib/guardian/storage/AGENTS.md`).
+  which test code may do to inject faults (`lib/guardian/storage/AGENTS.md`). The fake is
+  not registered in ReadableSegments, so queries never see it.
 
   Every all-table schema read (SHOW TABLES, DESC, `schema`) in any concurrent test can
   reach the fake, and fails after 5 s without an answer, so the fake answers `:schema`
@@ -107,9 +114,12 @@ defmodule Guardian.Test.Segments do
     end)
 
     ExUnit.Callbacks.on_exit(fn ->
-      # Kill first: deletion stops the segment, and this fake one does not answer.
       Process.exit(segment, :kill)
-      Guardian.Storage.MutableSegments.delete_segment(segment_id)
+
+      :sys.replace_state(Guardian.Storage.MutableSegments, fn state ->
+        true = :ets.delete(Guardian.Storage.MutableSegments, segment_id)
+        state
+      end)
     end)
   end
 
@@ -120,7 +130,7 @@ defmodule Guardian.Test.Segments do
         answer_as_fake_segment(segment_id, callback, callback_pid)
 
       {:"$gen_call", from, {:append, row}} when callback_pid == nil ->
-        # Unregister without stopping: deletion would stop this fake segment.
+        # Unregister, so later rows use real segments.
         :sys.replace_state(Guardian.Storage.MutableSegments, fn state ->
           true = :ets.delete(Guardian.Storage.MutableSegments, segment_id)
           state

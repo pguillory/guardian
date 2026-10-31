@@ -442,11 +442,7 @@ defmodule Guardian.QueryTest do
     # Mutable segments.
     assert_queries.()
 
-    # Full, then persisted and loaded from disk.
-    for segment <- Guardian.Storage.MutableSegments.get_mutable_segments(table) do
-      :ok = Guardian.Storage.MutableSegments.segment_is_full(table, segment)
-    end
-
+    # Persisted, and served from the mapped file.
     Guardian.Test.Segments.await_persisted(table)
     assert Guardian.Storage.MutableSegments.segment_ids(table) == []
     assert_queries.()

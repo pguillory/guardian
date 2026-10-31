@@ -2,13 +2,10 @@ defmodule Guardian.Storage do
   @moduledoc """
   Main storage layer interface for Guardian's custom columnar event storage.
 
-  Storage manages the lifecycle of segments (columnar batches of ~16K events) through
-  four states:
-
-  1. **MutableSegments** - In-memory GenServer processes actively receiving writes
-  2. **FullSegments** - Segments at capacity, waiting to be persisted
-  3. **PersistedSegments** - Segments written to disk as .seg files
-  4. **LoadedSegments** - Segments memory-mapped from disk for queries
+  Storage keeps events in segments (columnar batches of up to 16K events), each one
+  process for its whole life: writable in memory, then frozen, then written to its
+  `.seg` file and served from the memory-mapped file. `ReadableSegments` registers every
+  segment and `MutableSegments` the writable ones (see `lib/guardian/storage/AGENTS.md`).
 
   Operations are scoped by `table`. Guardian is single-user; there is no namespace.
 
@@ -17,7 +14,7 @@ defmodule Guardian.Storage do
   This module is Storage's boundary. Code outside `lib/guardian/storage` calls only the
   functions documented here (and the data modules `Guardian.Storage.Column`,
   `Guardian.Storage.Column.Metadata`, `Guardian.Storage.Value` and `Guardian.Storage.Flattening`), names segments
-  by ID, and never holds a segment's PID. The segment processes, their managers and
+  by ID, and never holds a segment's PID. The segment processes, their registries and
   `Guardian.Storage.Schema` are internal (see `lib/guardian/storage/AGENTS.md`).
 
   - `append/2`, `append_flattened/2`, `append_flattened_result/2` - Store a row
@@ -43,11 +40,9 @@ defmodule Guardian.Storage do
 
   alias Guardian.Storage.Column
   alias Guardian.Storage.Flattening
-  alias Guardian.Storage.FullSegments
-  alias Guardian.Storage.LoadedSegments
   alias Guardian.Storage.Mmap
   alias Guardian.Storage.MutableSegments
-  alias Guardian.Storage.PersistedSegments
+  alias Guardian.Storage.ReadableSegments
   alias Guardian.Storage.Schema
   alias Guardian.Storage.Segment
   require Guardian.SegmentID
@@ -57,58 +52,61 @@ defmodule Guardian.Storage do
     Supervisor.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  # On shutdown, MutableSegments hands every partial segment to FullSegments and then
-  # PersistedSegments writes them all to disk, so they must stop in that order (reverse
-  # child order below). The default 5 s worker shutdown can kill either mid-way and lose
-  # acknowledged events, so give them more time. They must fit inside the platform's stop
-  # timeout (Fly `kill_timeout`, 150 s, of which the tunnel connector's drain in
-  # bin/fly-start takes up to 10 s, and 20 s at worst, before Guardian gets SIGTERM)
-  # with room left for the other children. FullSegments and LoadedSegments trap exits
-  # and stop their segments in `terminate/2` within the default 5 s each (about 12 ms
-  # for 1,100 loaded segments), so the worst case is 110 s, leaving at least 20 s for
-  # the children of Guardian.Application that stop before Storage (they normally stop at once). Past
-  # its budget, a manager is killed and its links kill its segments.
-  @mutable_segments_shutdown_ms 10_000
-  @persisted_segments_shutdown_ms 90_000
+  # The segments run under SegmentSupervisor, a DynamicSupervisor, with ReadableSegments
+  # and MutableSegments, their registries, in a `:one_for_all` group: a crash of any of
+  # the three restarts all three, and the restart reloads from disk. Storage itself is
+  # `:rest_for_one`, so a Schema crash restarts everything after it.
+  #
+  # On shutdown (or a restart of the group) SegmentSupervisor stops every segment
+  # concurrently, and each writes its file if it has unwritten rows
+  # (`Guardian.Storage.Segment.terminate/2`), within the segment's own 90 s budget.
+  # The group and SegmentSupervisor are supervisors, with no budget of their own
+  # (`:infinity`), so the segments' budget is the one that counts. It must fit inside
+  # the platform's stop timeout (Fly `kill_timeout`, 150 s, of which the tunnel
+  # connector's drain in bin/fly-start takes up to 10 s, and 20 s at worst, before
+  # Guardian gets SIGTERM) with room left for the other children. Past its budget a
+  # segment is killed and its unwritten rows are lost.
+  @segment_group [
+    {DynamicSupervisor, name: Guardian.Storage.SegmentSupervisor},
+    ReadableSegments,
+    MutableSegments,
+  ]
 
-  # Every child of Storage, in start order. `ready?/0` relies on the order: a
-  # GenServer registers its name before its `init` runs, so LoadedSegments is
-  # registered during its long load, but SegmentExpiration, started last, is not
-  # registered until every earlier child has finished starting.
-  @children [
+  # Every named Storage process, in start order. `ready?/0` relies on the order: a
+  # GenServer registers its name before its `init` runs, so ReadableSegments is
+  # registered during its long load, but MutableSegments, started after it, is not
+  # registered until the load has finished, also when only the group restarts.
+  @names [
     Schema,
-    LoadedSegments,
-    FullSegments,
-    PersistedSegments,
+    Guardian.Storage.SegmentSupervisor,
+    ReadableSegments,
     MutableSegments,
     Guardian.Storage.SegmentExpiration,
   ]
 
   def init(_opts) do
-    children = Enum.map(@children, &child_spec_for/1)
+    children = [
+      Schema,
+      %{
+        id: :segments,
+        type: :supervisor,
+        shutdown: :infinity,
+        start: {Supervisor, :start_link, [@segment_group, [strategy: :one_for_all]]},
+      },
+      Guardian.Storage.SegmentExpiration,
+    ]
+
     Supervisor.init(children, strategy: :rest_for_one)
-  end
-
-  defp child_spec_for(PersistedSegments) do
-    Supervisor.child_spec(PersistedSegments, shutdown: @persisted_segments_shutdown_ms)
-  end
-
-  defp child_spec_for(MutableSegments) do
-    Supervisor.child_spec(MutableSegments, shutdown: @mutable_segments_shutdown_ms)
-  end
-
-  defp child_spec_for(module) do
-    module
   end
 
   @doc """
   Whether every Storage process is running and finished starting, and the machine has
   not begun to stop. False while Storage or one of its children restarts, including the
-  segment reload after a LoadedSegments restart. Never blocks: it only looks up
+  segment reload after a restart of the segment registries. Never blocks: it only looks up
   registered names, so it cannot wait on a supervisor that is busy restarting children.
   """
   def ready? do
-    not Guardian.Application.stopping?() and Enum.all?(@children, &(Process.whereis(&1) != nil))
+    not Guardian.Application.stopping?() and Enum.all?(@names, &(Process.whereis(&1) != nil))
   end
 
   @doc """
@@ -140,43 +138,19 @@ defmodule Guardian.Storage do
     MutableSegments.append(table, row)
   end
 
+  @doc """
+  The IDs of `table`'s segments on this node, newest first. Every segment is registered
+  in ReadableSegments from its creation to its deletion.
+  """
   def segment_ids(table) when is_binary(table) do
-    # Handoffs insert the destination before removing the source. Read in that same
-    # direction so a segment moving during this scan is seen in at least one state.
-    [
-      MutableSegments.segment_ids(table),
-      FullSegments.segment_ids(table),
-      PersistedSegments.segment_ids(table),
-      LoadedSegments.segment_ids(table),
-    ]
-    |> Stream.concat()
-    # |> Enum.sort()
-    |> Stream.uniq()
-  end
-
-  @doc false
-  def unloaded_segment_ids(table) when is_binary(table) do
-    [
-      MutableSegments.segment_ids(table),
-      FullSegments.segment_ids(table),
-      PersistedSegments.segment_ids(table),
-    ]
-    |> Stream.concat()
-    |> Stream.uniq()
+    ReadableSegments.segment_ids(table) |> Enum.reverse()
   end
 
   # Internal to Storage: code outside `lib/guardian/storage` names segments by ID and reads them
   # with `segment_row_count/1` and `get_column/2`, never holding a segment's PID.
   @doc false
   def get_segment(Guardian.SegmentID.match(segment_id: segment_id)) do
-    with {:error, :not_found} <- LoadedSegments.get_segment(segment_id),
-         {:error, :not_found} <- MutableSegments.get_segment(segment_id),
-         {:error, :not_found} <- FullSegments.get_segment(segment_id),
-         {:error, :not_found} <- PersistedSegments.get_segment(segment_id),
-         # It may have left the persisted cache after the first loaded lookup.
-         {:error, :not_found} <- LoadedSegments.get_segment(segment_id) do
-      {:error, :not_found}
-    end
+    ReadableSegments.get_segment(segment_id)
   end
 
   @doc """
@@ -211,32 +185,8 @@ defmodule Guardian.Storage do
 
   defp read_segment(segment_id, read) do
     case get_segment(segment_id) do
-      {:ok, segment} -> read_segment(segment_id, segment, read)
+      {:ok, segment} -> read.(segment)
       {:error, :not_found} -> {:error, {:segment_unavailable, :not_found}}
-    end
-  end
-
-  # Reads `segment`, which `segment_id` resolved to, retrying once on the process the
-  # ID resolves to now if `segment` stopped normally or was already gone (`:noproc`)
-  # and the ID has moved to a different process. That is the in-memory copy of a
-  # persisted segment retired after its file was loaded (or a copy retired by a
-  # delete, which then also retires the file's copy). Both copies hold the same rows
-  # from the start, and every read is cut to the query's snapshot count, so the retry
-  # returns what the first read would have. A crash is not retried, nor a second failure. Public only so tests can
-  # pass a PID resolved before a retirement.
-  @doc false
-  def read_segment(segment_id, segment, read) do
-    case read.(segment) do
-      {:error, {:segment_unavailable, reason}} = error ->
-        with true <- reason == :noproc or Segment.normal_exit?(reason),
-             {:ok, other} when other != segment <- get_segment(segment_id) do
-          read.(other)
-        else
-          _ -> error
-        end
-
-      result ->
-        result
     end
   end
 
@@ -248,10 +198,7 @@ defmodule Guardian.Storage do
   end
 
   def delete_segment(Guardian.SegmentID.match(segment_id: segment_id)) do
-    :ok = MutableSegments.delete_segment(segment_id)
-    :ok = FullSegments.delete_segment(segment_id)
-    :ok = PersistedSegments.delete_segment(segment_id)
-    :ok = LoadedSegments.delete_segment(segment_id)
+    ReadableSegments.delete_segment(segment_id)
   end
 
   # Very expensive! Don't run in prod.
@@ -277,21 +224,23 @@ defmodule Guardian.Storage do
   end
 
   @doc """
-  The schema of `table` on this node: the loaded segments' (from `Guardian.Storage.Schema`)
-  merged with each mutable segment's. A mutable segment that is deleted or stops
-  between listing and reading (and has no newer copy under its ID to read instead) is
-  skipped, since its rows are gone. One that does not
-  answer within 5 s exits the caller with `{:segment_unavailable, kind}`: it still
-  holds rows queries can read, so its columns are not silently dropped.
+  The schema of `table` on this node: its frozen segments' (from
+  `Guardian.Storage.Schema`) merged with each writable segment's. Writable segments are
+  listed first: a segment registers with Schema when it freezes, before it leaves
+  MutableSegments, so one changing state during the lookup is counted twice for a
+  moment rather than missed. A writable segment that is deleted or stops before it is
+  read is skipped, since its rows are gone. One that does not answer within 5 s exits
+  the caller with `{:segment_unavailable, kind}`: it still holds rows queries can read,
+  so its columns are not silently dropped.
   """
   def schema(table) when is_binary(table) do
+    segments = MutableSegments.get_mutable_segments(table)
     {:ok, schema} = Schema.get_schema(table)
 
-    MutableSegments.segment_ids(table)
-    |> Enum.reduce(schema, fn segment_id, schema ->
+    Enum.reduce(segments, schema, fn segment, schema ->
       # As for Segment's bang readers: this runs in its callers' processes (a cluster
       # schema lookup), which must not wait on a hung segment forever.
-      case read_segment(segment_id, &Segment.schema(&1, Segment.storage_read_timeout())) do
+      case Segment.schema(segment, Segment.storage_read_timeout()) do
         {:ok, schema2} ->
           Schema.merge_schemas(schema, schema2)
 
@@ -305,9 +254,7 @@ defmodule Guardian.Storage do
   end
 
   @doc """
-  The number of rows in `table` on this node. Expensive: asks every segment, loaded or
-  not. Each segment ID counts once, even while a segment is both cached after
-  persisting and loaded from its file. A segment deleted or expired during the count
+  The number of rows in `table` on this node. Expensive: asks every segment. A segment deleted or expired during the count
   is skipped, since its rows are gone. One that does not answer within 5 s, or crashes,
   exits the caller with `{:segment_unavailable, kind}`.
   """
@@ -335,10 +282,11 @@ defmodule Guardian.Storage do
   """
   defdelegate merge_schemas(schema1, schema2), to: Schema
 
+  # Writable tables first, as in `schema/1`.
   def table_names do
-    {:ok, persisted_tables} = Schema.get_tables()
     mutable_tables = MutableSegments.table_names()
-    Enum.uniq(persisted_tables ++ mutable_tables) |> Enum.sort()
+    {:ok, frozen_tables} = Schema.get_tables()
+    Enum.uniq(frozen_tables ++ mutable_tables) |> Enum.sort()
   end
 
   @doc """

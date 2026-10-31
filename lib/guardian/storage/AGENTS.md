@@ -11,15 +11,15 @@ never deleted.
 `Guardian.Storage` is the public API (see its moduledoc); so are the data modules
 `Guardian.Storage.Column`, `Guardian.Storage.Column.Metadata`, `Guardian.Storage.Value` and `Guardian.Storage.Flattening`,
 which hold no processes. Everything else here is internal and marked
-`@moduledoc false`: `Guardian.Storage.Segment`, the four managers, `SegmentExpiration`,
-`Segment.Registration`, `SegmentFile`, `Guardian.Storage.Schema`, `BlobStore`, `Mmap`, and the
-`@doc false` functions `Guardian.Storage.get_segment/1` and `unloaded_segment_ids/1`. Code outside
+`@moduledoc false`: `Guardian.Storage.Segment`, `MutableSegments`, `ReadableSegments`,
+`SegmentExpiration`, `Segment.Registration`, `SegmentFile`, `Guardian.Storage.Schema`,
+`BlobStore`, `Mmap`, and the `@doc false` function `Guardian.Storage.get_segment/1`. Code outside
 `lib/guardian/storage` names a segment by its ID and reads it with `Guardian.Storage.segment_row_count/1`
 or `Guardian.Storage.get_column/2`; it never holds a segment PID or calls an internal module.
 There is no xref check: keep to this by convention and in review. Tests under
 `test/guardian/storage` may use the internals. Other tests and the shared helpers in `libtest`
 may use them only to set up a segment's state or inject faults into its process
-(suspending, killing, or swapping a segment, or picking which copy a test holds).
+(suspending, killing, or swapping a segment).
 The exceptions:
 
 - `Guardian.Test.Segments.segment_row/2` reads a flat row, for the tests under
@@ -32,107 +32,108 @@ Query results are still checked through queries.
 
 ## Segment lifecycle
 
-1. MutableSegments owns writable in-memory segments.
-2. FullSegments holds segments awaiting persistence.
-3. PersistedSegments packs and writes full segments, retaining a short-lived cache.
-4. LoadedSegments memory-maps persisted segments for queries: every file at startup,
-   then each file right after it is written. Nothing else loads a file.
+A segment is one process for its whole life, under the DynamicSupervisor
+`Guardian.Storage.SegmentSupervisor` as a `:temporary` child: a crashed segment stays
+dead, and the supervisor and its crash report log it.
 
-Every ownership handoff registers its destination before removing its source.
-Segment-ID enumeration reads Mutable, Full, Persisted, then Loaded to preserve
-visibility during transfers; overlapping IDs are globally deduplicated. PersistedSegments
-loads a file right after writing it, from a message to itself so that `terminate`'s
-persist pass never calls LoadedSegments. Eviction then retires the in-memory process
-(lookups check Loaded first, so normally no read holds its PID; one that does is
-retried once on the loaded copy, below). A file that won't load is not rescued: the
-in-memory copy serves until eviction, then its rows are gone. Loading the file is the
-only check on it. The cache window is `:guardian, :persisted_segment_cache_ms` (default
-10 minutes). A delayed load delays persistence; shutdown retains its existing bounded
-budget. Segment lookup retries Loaded after searching the forward lifecycle path
-because the first Loaded lookup may precede a handoff.
+1. MutableSegments starts it under SegmentSupervisor with its ID and table, registers it
+   in ReadableSegments, then in its own table. Readable first: an appender can use the
+   segment as soon as it is in MutableSegments, and its rows must be readable once the
+   append returns.
+2. Appends go to it while it is in MutableSegments.
+3. When it is full or reaches its maximum age it freezes: it stops accepting rows and
+   registers its final count and schema (each column padded to the row count, as the
+   file will hold it) with Guardian.Storage.Schema, once. MutableSegments then
+   deregisters it and casts `Segment.persist/1`.
+4. Persisting runs inside the segment, in one message: pack every column, write the file
+   (temp, fsync, rename), map it back, swap the mapped columns into its state, and
+   hibernate, which is a full garbage collection that releases the native and packed
+   columns. Reads and appends queued behind it wait. A failed write, or a file that
+   won't map, fails a match and crashes the segment. There is no task, no queue of full
+   segments and no cached copy.
+5. It stays in ReadableSegments, served from the mapping, until expiry or deletion.
 
-Each manager owns its segments' exits. All four link their segments and trap exits. An `{:EXIT, pid, reason}`
-removes only the registration holding that PID, never one found by ID alone, because a
-late EXIT can follow a handoff, a retirement, or a reload of the same ID; one that
-matches nothing is ignored. Log an exit reason only through the leaf
-`Guardian.Failure.exit_kind/1`, which names its kind: a crash reason can
-carry rows. Managers stop a segment only with
-`Segment.retire/1` (or `Registration.retire/2`, which also unregisters it), which
-returns once the process is gone even if it already died or dies concurrently; a bare
-`GenServer.stop/3` crashes the caller then. Deletion and every manager's `terminate/2`
-retire what they own (MutableSegments' `terminate` hands
-its segments to FullSegments instead).
-The registry operations the managers share (listing IDs, looking a segment up,
-retiring by ID or all) are plain functions in `Segment.Registration`, which each
-manager wraps. Only the owning manager's module touches its ETS table: other modules
-call that module's functions (SegmentExpiration lists the segment directory and
-calls `LoadedSegments.delete_file/2`). During a handoff both managers link the
-segment, destination first. Retirement waits without a timeout, so anything registered
-as a segment must answer system messages.
+ReadableSegments and MutableSegments are plain registries of the same
+`Segment.Registration` tuple: register, deregister, look up, and monitor. Neither links a
+segment or traps exits, and a `:DOWN` removes only the registration holding that PID, so
+a late DOWN from a segment already persisting or deleted matches nothing. Only the
+owning module touches its ETS table. ReadableSegments loads every file in its `init`
+into a table under another name and renames it to its own when every file is in: keep
+it that way, so a query during a reload fails rather than answering from part of the
+data. It owns expiry and deletion: it deregisters the segment, stops it with
+`Segment.retire/1` (`:normal`, waiting until it is gone, so a segment busy writing
+finishes first), then deletes the file; a missing file is not logged, since a writable
+segment never had one. SegmentExpiration lists the segment directory and calls
+`ReadableSegments.delete_file/2`, and skips its tick while Storage is not ready. Code
+holding a segment's PID must cope with it stopping at any moment.
+
+SegmentSupervisor, ReadableSegments and MutableSegments are a `:one_for_all` group, in
+that order, inside Storage's `:rest_for_one` (Schema first, SegmentExpiration last). Each
+segment traps exits, and its `terminate` writes its file if it has rows, is not yet
+persisted, and the reason is `:shutdown` or `{:shutdown, _}`: never on `:normal`
+(deletion) or a crash (its columns may be half-appended). SegmentSupervisor stops its
+children concurrently, each within its 90 s budget, at a normal stop and at a restart of
+the group, so a crash of either registry or of the supervisor writes the writable
+segments' files before the restart reloads every file. A segment that is persisting
+when the stop arrives finishes first, then has nothing to write. The registries do
+nothing at shutdown.
 
 A segment file that cannot be loaded (truncated, empty, malformed header) must not
-take LoadedSegments down. `Segment.load/1` starts the segment unlinked and validates
-the file in `init`, returning `{:error, {:unreadable_segment, kind}}`; a segment that
-loaded links itself to the caller before `init` returns. LoadedSegments logs the
-failure without the file's bytes and remembers nothing: the file stays on disk, the
-next restart tries it again, and SegmentExpiration deletes it on the usual schedule.
-Never log an exception message, stack trace,
-or argument list from segment loading: they carry segment data. Native column asserts
-on corrupt bytes still abort the VM: packed columns are not yet validated before the
-NIF reads them.
+take ReadableSegments down. The segment validates the file in `init` and stops with
+`{:shutdown, {:unreadable_segment, kind}}`, which `DynamicSupervisor.start_child/2`
+returns without a crash report. ReadableSegments logs the failure without the file's
+bytes and remembers nothing: the file stays on disk, the next restart tries it again,
+and SegmentExpiration deletes it on the usual schedule. Never log an exception message,
+stack trace, or argument list from segment loading: they carry segment data. Native
+column asserts on corrupt bytes still abort the VM: packed columns are not yet validated
+before the NIF reads them.
 
 Segment readers (`count`, `full`, `keys`, `schema`, `get_column`) are
 monitored calls that return `{:error, {:segment_unavailable, reason}}` when the
 segment is gone or dies, instead of exiting the caller. Their timeout defaults to
-`:infinity` for queries. Storage's own processes use the bang readers (`count!`,
-`keys!`, `schema!`, `get_column!`), which wait at most 5 s so a hung segment
+`:infinity` for queries. Storage's own callers use the bang readers (`count!`,
+`keys!`, `get_column!`), which wait at most 5 s so a hung segment
 can't block them and exit with only the reason's kind.
 `Guardian.Storage.schema/1` shares that budget and exit through
-`Segment.storage_read_timeout/0` and `Segment.exit_unavailable/1`. The writers
-(`freeze`, `pack`, `store`, `put_column`, `update_count`) are plain 5 s
-`GenServer.call`s that exit on failure; `GenServer.call` drops a reply that arrives
-after its timeout. Log the reason only through `Guardian.Failure.exit_kind/1`.
+`Segment.storage_read_timeout/0` and `Segment.exit_unavailable/1`. Registries never
+call a segment, except deletion's stop; MutableSegments casts `persist`. Log an exit reason only through
+`Guardian.Failure.exit_kind/1`: a crash reason can carry rows.
 
-`Guardian.Storage.segment_row_count/1` and `Guardian.Storage.get_column/2` resolve the ID on every call.
-If the process they resolved stopped normally (`:normal`, `:shutdown`,
-`{:shutdown, _}`) or was already gone (`:noproc`) and the ID now resolves to a
-different process, they read once more from that process and return its result,
-even a second failure (there is no further retry). A crash, or an ID that resolves
-to nothing or to the same process, returns the first error.
-This is safe because a segment ID only ever moves to a copy made from the same frozen
-process (its file), whose rows start with the same rows, and query reads are cut to
-the snapshot's row count (checked by hand since its test went:
-`docs/changes/async-default-tests.md`). Keep it that
-way: never let an ID resolve to a process holding different rows. A side effect:
-`delete_segment` retires the Persisted copy before the Loaded one, so a read on the
-Persisted copy during a delete can retry onto the Loaded copy and return its rows
-instead of the error; the read finishes before the delete does.
+`Guardian.Storage.segment_row_count/1` and `Guardian.Storage.get_column/2` resolve the ID
+in ReadableSegments on every call and read once: an ID names one process for its whole
+life, so there is no retry. A persisted segment's mapped columns are byte for byte the
+packed columns it served before, and its count is fixed from freezing, so a query
+reading across the swap sees the same rows.
 
-Guardian.Storage.Schema tracks metadata for loaded full segments. `Guardian.Storage.schema/1` combines
-that metadata with mutable segments, skipping one that is deleted or stops while it
-reads and failing on one that does not answer in 5 s. A loaded segment's metadata is subtracted when
-its process stops, so unloading a segment (expiration or deletion) must stop the
-process; a table leaves Guardian.Storage.Schema with its last loaded segment. Schemas are
+Guardian.Storage.Schema tracks the metadata of frozen segments, which register
+themselves when they freeze (loaded segments in `init`), and never calls a segment.
+`Guardian.Storage.schema/1` lists the writable segments first, then merges Schema's
+metadata with each writable segment's, skipping one that is deleted or stops while it
+reads and failing on one that does not answer in 5 s. Because a segment registers with
+Schema before it leaves MutableSegments, one changing state during the lookup is counted
+twice for a moment rather than missed; `table_names/0` reads in the same order. A
+frozen segment's metadata is subtracted when its process stops, so deletion and expiry
+must stop the process; a table leaves Schema with its last frozen segment. Schemas are
 inferred; there is no metadata DB.
 
 A mutable segment is full when it holds `capacity` rows or when the packed size of its
 columns (each padded to the row count) reaches its byte budget (`max_bytes`, 64 MiB).
 MutableSegments also configures a one-hour maximum age, starting a segment's timer
-at its first successfully stored row. Expiry freezes the segment and uses the same
-handoff as size rollover; later writes retry in a new segment. Empty segments have
+at its first successfully stored row. Expiry freezes the segment and persists it as size rollover
+does; later writes retry in a new segment. Empty segments have
 no timer. Set `:guardian, :mutable_segment_max_age_ms` or the runtime environment
 variable `GUARDIAN_MUTABLE_SEGMENT_MAX_AGE_MS` to a positive millisecond duration.
-The age bounds when handoff begins, not when a queued write reaches disk.
+The age bounds when persisting begins.
 Columns have no per-layer size caps. The byte budget is soft: the row that crosses it
-is stored, the append replies `{:ok, :full}`, and MutableSegments normally hands the
-segment off for persistence at once, as it does for the row that reaches `capacity`.
-(If that caller dies first, the next append gets `{:error, :full}` and hands it off.)
+is stored, the append replies `{:ok, :full}`, and MutableSegments normally has the
+segment persist at once, as it does for the row that reaches `capacity`.
+(If that caller dies first, the next append gets `{:error, :full}` and does it.)
 A full segment replies `{:error, :full}` and MutableSegments retries the row in a new
 segment. A valid value always fits a column. The
 budget bounds accumulated data, not memory: mutable columns can hold about twice their
 packed size. New columns start empty and
 grow with use, so sparse keys stay cheap. Rows are appended atomically: every value is
-validated before any column is changed. MutableSegments unregisters mutable segments
+validated before any column is changed. MutableSegments' monitor unregisters mutable segments
 that die, and `Segment.append/2` reports a segment that is gone as `{:error, :dead}` so
 the row is retried elsewhere. A segment that crashes while handling a row is not
 retried. Below Storage there is one append path, for flat rows that return explicit
@@ -148,9 +149,8 @@ segment, losing the rows it holds in memory, acknowledged ones included (spec se
 Native column resources never leave their Segment process (column.c has no locks, and
 `append` grows and reallocates its buffers). `get_column` replies with a packed binary: for a
 mutable column, a snapshot padded to the row count, built in the segment and cached until
-the row count changes. `Segment.pack/1` freezes the segment and packs one column per
-call inside it, reusing a cached snapshot. `store`
-asks it for the packed columns, and `put_column` accepts only binaries. Costs: an append
+the row count changes. Persisting packs every column inside the segment, reusing cached
+snapshots. Costs: an append
 waits behind the reader calls queued ahead of it, each one column's pad and pack. The
 cache bounds the number of packs, not their time, so a huge column on a slow machine
 could still approach `append`'s 5 s call timeout. Under sustained reads, each append
@@ -161,13 +161,13 @@ Stored rows accept scalar/list/map values supported by `Guardian.Storage.Value`,
 come from the column NIF (`Guardian.Storage.Column.valid_value?/1`). `Guardian.Storage.append/2`
 flattens nested maps into dot-notation columns (`Segment.append/2` takes flat rows),
 and rows stay flat when read: nothing rebuilds nested JSON from them. Column packing
-uses the native implementation under `src/column.c`. Loaded segments map their file
+uses the native implementation under `src/column.c`. Persisted segments map their file
 with `Guardian.Storage.Mmap` (`src/mmap.c`), which closes the descriptor once the file is mapped
 and unmaps it when the last binary referring to it is collected.
 
 `Guardian.Storage.SegmentFile` is the one home of the on-disk format: segment filenames
 (`filename/2`, `parse_filename/1`, `unparseable/1`) and the file's contents
-(`write/4`, `read/1`). It holds no process logic; Segment calls it to store and to
+(`write/4`, `read/1`). It holds no process logic; Segment calls it to persist and to
 load. `test/guardian/storage/segment_file_golden_test.exs` pins the format byte for byte
 against `test/fixtures/segment_file.seg`. Do not change the binary format or filename
 format as a side effect of unrelated work. Such changes require an explicit migration

@@ -29,17 +29,11 @@ privately, not in this repository.
 - [x] pack-timeout-logged: a full segment that does not answer a pack step within
       its call timeout is logged once at error level and retried, like a failed write,
       instead of retrying silently (`docs/changes/fail-closed-findings.md`)
-- [ ] harden-shutdown-persist: a segment whose pack raises during shutdown (an
-      unexpected reply such as `{:error, :not_frozen}` fails a match) aborts persistence
-      of every remaining full segment
-- [ ] full-segments-crash-cascade: if FullSegments crashes, Storage's `:rest_for_one`
-      stops MutableSegments, whose `terminate/2` hands its segments to the dead
-      FullSegments and crashes, so every unpersisted mutable row is lost, acknowledged
-      events included; PersistedSegments' `terminate/2` crashes the same way on
-      FullSegments' missing table and skips `retire_all`. docs/architecture/system.md
-      2.1 documents the row loss as the cascade; whether that is acceptable, and
-      whether terminate should crash on that path, is undecided. Normal shutdown stops
-      in the safe order and is unaffected
+- [x] segment-lifecycle-consolidation: one process per segment for its whole life, under
+      a DynamicSupervisor, with two monitoring registries; segments persist and register
+      their schema themselves and write their files at shutdown. Closes
+      harden-shutdown-persist, full-segments-crash-cascade, serialize-segment-deletion and
+      segment-schema-gaps (`docs/changes/segment-lifecycle-consolidation.md`)
 - [ ] segment-count-columns: segment files still carry six per-type count columns
       (null, false, true, int, float, string) that nothing reads; dropping them changes
       the format, so it needs a format version and a migration plan
@@ -47,13 +41,6 @@ privately, not in this repository.
       the rewrite-from-memory path, the 60-second scan and the skipped-file memory are
       gone, and expiry goes by the files on disk
       (`docs/changes/segments-load-at-startup.md`)
-- [ ] serialize-segment-deletion: deleting a segment while it is being persisted, or
-      after its file is written but before LoadedSegments registers it, leaves a file
-      the next restart loads again
-- [ ] segment-schema-gaps: the schema (SHOW TABLES, DESC, the schema table, SELECT *)
-      misses segments that are full or persisted but not yet loaded, and a segment
-      that dies between LoadedSegments starting it and Guardian.Storage.Schema registering it
-      crashes LoadedSegments (docs/architecture/system.md 4.2 and 4.5)
 - [x] schema-add-segment-args: Schema.add_segment takes the count and schema instead of
       calling the segment (`docs/changes/schema-add-segment-args.md`)
 - [ ] reject-oversized-events: reject, never partly store, an event whose flattened

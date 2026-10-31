@@ -3,8 +3,14 @@ defmodule Guardian.Storage.Segment do
   @moduledoc false
 
   alias Guardian.Storage.Column
+  alias Guardian.Storage.Schema
   alias Guardian.Storage.SegmentFile
   alias Guardian.Storage.Value
+
+  # Every segment runs under Guardian.Storage's SegmentSupervisor, a DynamicSupervisor
+  # that stops its children concurrently at shutdown. A crashed segment stays dead. The
+  # budget is for writing a segment's file in `terminate` (see there).
+  use GenServer, restart: :temporary, shutdown: 90_000
 
   # Exit reasons of a GenServer call to a segment that is gone rather than one that
   # crashed while handling the call.
@@ -12,6 +18,12 @@ defmodule Guardian.Storage.Segment do
 
   @default_max_bytes 64 * 1024 * 1024
 
+  # A segment is one process for its whole life: writable, then frozen (`capacity`
+  # equals `count`; its final count and schema are registered with Schema), then
+  # persisted (its file is written and its columns are sub-binaries of the mapped
+  # file). `segment_id` and `table` name its file and its Schema entry; a bare segment
+  # in a unit test may have neither, and then never registers or writes.
+  #
   # `value_bytes` maps each key to its column's packed size beyond that of a column of
   # nils (`Column.nil_column_size/1`), and `total_value_bytes` sums them. Only
   # appended rows maintain them.
@@ -20,11 +32,18 @@ defmodule Guardian.Storage.Segment do
   # Only this process ever touches one (column.c has no locks). Readers get
   # `snapshots`: packed copies of mutable columns padded to the current `count`, made
   # here and kept until the row count changes.
+  #
+  # `segment_id` and `table` come first so that a crash report, which prints the state
+  # truncated, names the segment before its columns.
   @enforce_keys [:count, :capacity, :columns]
   defstruct [
+    :segment_id,
+    :table,
     :count,
     :capacity,
     :columns,
+    frozen: false,
+    persisted: false,
     max_bytes: :infinity,
     value_bytes: %{},
     total_value_bytes: 0,
@@ -35,44 +54,54 @@ defmodule Guardian.Storage.Segment do
   ]
 
   @doc """
-  Starts a segment.
+  Starts a segment, linked to the caller (SegmentSupervisor, through
+  `start_supervised/1`, for Storage's segments).
 
   Options:
 
+    * `:segment_id`, `:table` - the segment's ID and table, which name its file and its
+      Schema entry. Without them it never registers its schema or writes a file.
     * `:capacity` - rows the segment holds before it is full (default 16384).
     * `:max_bytes` - byte budget (default 64 MiB, or `:infinity`). The segment is also
       full once the packed size of its columns, padded to its row count, reaches the
       budget. See `append/2`.
-    * `:load` - a segment file to load instead of starting empty.
+    * `:load` - a segment file to load instead of starting empty. A file that cannot
+      be loaded (truncated, empty, malformed header, unmappable) stops the segment in
+      `init` with `{:shutdown, {:unreadable_segment, reason}}`, so no crash report
+      carries the file's bytes.
     * `:max_age_ms` - freeze after this many milliseconds from the first stored row
       (default `:infinity`). Empty segments have no age timer.
     * `:max_age_owner` - process notified with `{:segment_max_age, segment}` when
       the age timer freezes a nonempty segment.
   """
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, opts)
+    GenServer.start_link(__MODULE__, opts)
   end
 
   @doc """
-  Starts a segment from a segment file, linked to the caller only if the file loads.
-  Returns `{:ok, pid}`, or `{:error, {:unreadable_segment, reason}}` for a file that
-  cannot be loaded (truncated, empty, malformed header, unmappable), without affecting
-  the caller. The segment links itself to the caller at the end of a successful
-  `init`, so there is no moment when a loaded segment outlives a dead caller.
+  Starts a segment (`start_link/1`'s options) under SegmentSupervisor.
   """
-  def load(filename) do
-    case GenServer.start(__MODULE__, load: filename, owner: self()) do
-      {:ok, pid} -> {:ok, pid}
-      {:error, {:shutdown, {:unreadable_segment, _} = reason}} -> {:error, reason}
-      {:error, reason} -> {:error, {:unreadable_segment, reason}}
-    end
+  def start_supervised(opts) do
+    DynamicSupervisor.start_child(Guardian.Storage.SegmentSupervisor, {__MODULE__, opts})
+  end
+
+  @doc """
+  Asks the segment to persist itself, without waiting: it freezes, packs its columns,
+  writes its file, maps the file back and serves from the mapping from then on. A
+  failed write, or a file that won't map, crashes the segment. A segment already
+  persisted, or without rows, does nothing. Messages from one sender arrive in order,
+  so a caller's later call to the segment returns after the persist has finished.
+  """
+  def persist(segment) when is_pid(segment) do
+    GenServer.cast(segment, :persist)
   end
 
   @doc """
   Stops a segment and returns once its process is gone, however it died. Safe when the
   segment has already exited or exits concurrently (a bare `GenServer.stop/3` would
-  exit the caller with `:noproc` or the competing reason). A manager that links the
-  segment still receives its `{:EXIT, ...}` afterward and must ignore it.
+  exit the caller with `:noproc` or the competing reason). A registry that monitors the
+  segment still receives its `:DOWN` afterward and must ignore it. It stops the segment
+  with `:normal`, so `terminate` writes no file: a deleted segment stays deleted.
   """
   def retire(segment) when is_pid(segment) do
     ref = Process.monitor(segment)
@@ -106,19 +135,19 @@ defmodule Guardian.Storage.Segment do
   # calls with no timeout by default, so a slow segment is waited for, and a segment
   # that is gone or dies mid-call (including a remote one whose node disconnects)
   # returns `{:error, {:segment_unavailable, reason}}` at once. Queries rely on this
-  # to fail cleanly instead of crashing or hanging. Storage's own processes
+  # to fail cleanly instead of crashing or hanging. Storage's own callers
   # use the bang readers below instead, so a segment that hangs or dies crashes them
   # as it always did instead of blocking them. A reply that arrives after a timeout is
   # dropped.
   @type read_error :: {:error, {:segment_unavailable, term()}}
 
-  # The bang readers are for Storage's own processes: they wait at most 5 s, and a
+  # The bang readers are for Storage's own callers: they wait at most 5 s, and a
   # failed read exits with only the reason's kind (`Guardian.Failure.exit_kind/1`),
   # because the crash report must not carry the segment's rows.
   # `Guardian.Storage.schema/1` uses the same budget and exit.
   @storage_read_timeout 5_000
 
-  @doc "How long Storage's own processes wait on a segment read: 5 s."
+  @doc "How long Storage's own callers wait on a segment read: 5 s."
   def storage_read_timeout do
     @storage_read_timeout
   end
@@ -133,22 +162,17 @@ defmodule Guardian.Storage.Segment do
     exit({:segment_unavailable, Guardian.Failure.exit_kind(reason)})
   end
 
-  @doc "`count/2` for Storage's own processes: 5 s, and exits on failure."
+  @doc "`count/2` for Storage's own callers: 5 s, and exits on failure."
   def count!(segment) do
     ok!(count(segment, @storage_read_timeout))
   end
 
-  @doc "`keys/2` for Storage's own processes: 5 s, and exits on failure."
+  @doc "`keys/2` for Storage's own callers: 5 s, and exits on failure."
   def keys!(segment) do
     ok!(keys(segment, @storage_read_timeout))
   end
 
-  @doc "`schema/2` for Storage's own processes: 5 s, and exits on failure."
-  def schema!(segment) do
-    ok!(schema(segment, @storage_read_timeout))
-  end
-
-  @doc "`get_column/3` for Storage's own processes: 5 s, and exits on failure."
+  @doc "`get_column/3` for Storage's own callers: 5 s, and exits on failure."
   def get_column!(segment, key) do
     ok!(get_column(segment, key, @storage_read_timeout))
   end
@@ -232,18 +256,6 @@ defmodule Guardian.Storage.Segment do
     end
   end
 
-  # Calls for Storage's writers (freeze, packing, storing). Unlike the readers they
-  # exit on failure: a segment that is gone exits at once, one that dies mid-call exits
-  # with its reason, and one stuck past 5 s exits with `:timeout`. GenServer.call
-  # monitors the segment and drops a reply that arrives after the timeout.
-  defp write_call(segment, message) do
-    GenServer.call(segment, message, 5_000)
-  end
-
-  def freeze(segment) do
-    write_call(segment, :freeze)
-  end
-
   @spec keys(pid(), timeout()) :: {:ok, [String.t()]} | read_error()
   def keys(segment, timeout \\ :infinity) do
     read(segment, :keys, timeout)
@@ -252,18 +264,6 @@ defmodule Guardian.Storage.Segment do
   @spec schema(pid(), timeout()) :: {:ok, map()} | read_error()
   def schema(segment, timeout \\ :infinity) do
     read(segment, :schema, timeout)
-  end
-
-  @doc """
-  Stores a packed column under `key`. Only packed (binary) columns are accepted: a
-  mutable column kept by the caller could be changed behind the segment's back.
-  """
-  def put_column(segment, key, column) when is_binary(key) and is_binary(column) do
-    write_call(segment, {:put_column, key, column})
-  end
-
-  def update_count(segment, count) when is_integer(count) do
-    write_call(segment, {:update_count, count})
   end
 
   @doc """
@@ -277,40 +277,21 @@ defmodule Guardian.Storage.Segment do
     read(segment, {:get_column, key}, timeout)
   end
 
-  @doc """
-  Freezes the segment and packs its columns. The segment packs one column per call, so
-  reads interleave with packing.
-  """
-  def pack(segment) do
-    # Writer side: 5 s calls that exit when the segment is dead, dies, or is stuck,
-    # which the persister handles.
-    :ok = freeze(segment)
-    {:ok, keys} = write_call(segment, :keys)
-
-    Enum.each(keys, fn key ->
-      :ok = write_call(segment, {:pack_column, key})
-    end)
-  end
-
-  @doc """
-  Writes a frozen, packed segment to `filename` (`Guardian.Storage.SegmentFile.write/4`).
-  """
-  def store(segment, filename) do
-    {:ok, true} = write_call(segment, :full)
-
-    case write_call(segment, :packed_columns) do
-      {:ok, count, keys, columns} -> SegmentFile.write(filename, count, keys, columns)
-      {:error, :not_packed} -> raise RuntimeError, "Column not packed"
-    end
-  end
-
   def init(opts) do
+    # A trapped exit from SegmentSupervisor at shutdown runs `terminate`, which writes
+    # the file of a segment not yet persisted.
+    Process.flag(:trap_exit, true)
+    segment_id = Keyword.get(opts, :segment_id)
+    table = Keyword.get(opts, :table)
+
     case Keyword.fetch(opts, :load) do
       :error ->
         state = %__MODULE__{
           count: 0,
           capacity: Keyword.get(opts, :capacity, 16 * 1024),
           columns: %{},
+          segment_id: segment_id,
+          table: table,
           max_bytes: Keyword.get(opts, :max_bytes, @default_max_bytes),
           max_age_ms: Keyword.get(opts, :max_age_ms, :infinity),
           max_age_owner: Keyword.get(opts, :max_age_owner),
@@ -326,9 +307,16 @@ defmodule Guardian.Storage.Segment do
       {:ok, filename} ->
         case SegmentFile.read(filename) do
           {:ok, count, columns} ->
-            # A dead owner makes this exit with :noproc, so the segment cannot leak.
-            if owner = opts[:owner], do: Process.link(owner)
-            {:ok, %__MODULE__{count: count, capacity: count, columns: columns}}
+            state = %__MODULE__{
+              count: count,
+              capacity: count,
+              columns: columns,
+              segment_id: segment_id,
+              table: table,
+              persisted: true,
+            }
+
+            {:ok, freeze_state(state)}
 
           # `:shutdown` keeps proc_lib from logging a crash report, whose stack
           # trace would carry the file's bytes as call arguments.
@@ -374,10 +362,6 @@ defmodule Guardian.Storage.Segment do
     end
   end
 
-  def handle_call(:freeze, _, state) do
-    {:reply, :ok, freeze_state(state)}
-  end
-
   def handle_call(:keys, _, state) do
     keys = Map.keys(state.columns)
     {:reply, {:ok, keys}, state}
@@ -390,24 +374,6 @@ defmodule Guardian.Storage.Segment do
       end)
 
     {:reply, {:ok, schema}, state}
-  end
-
-  def handle_call({:put_column, key, column}, _, state) when is_binary(column) do
-    state = put_in(state.columns[key], column)
-    {:reply, :ok, drop_snapshot(state, key)}
-  end
-
-  def handle_call({:put_column, _key, _column}, _, state) do
-    {:reply, {:error, :not_binary}, state}
-  end
-
-  def handle_call({:update_count, new_count}, _, state) do
-    state =
-      update_in(state.count, fn
-        old_count when old_count <= new_count -> new_count
-      end)
-
-    {:reply, :ok, %{state | snapshots: %{}}}
   end
 
   def handle_call({:get_column, key}, _, state) do
@@ -424,33 +390,23 @@ defmodule Guardian.Storage.Segment do
     end
   end
 
-  # Replaces a frozen segment's mutable column with its packed form, reusing the
-  # snapshot when there is one, so the segment never holds two packed copies.
-  def handle_call({:pack_column, key}, _, state) do
-    cond do
-      state.count != state.capacity ->
-        {:reply, {:error, :not_frozen}, state}
+  # Freezes, packs, writes, maps and swaps in one message: reads and appends queued
+  # behind it wait (tens of milliseconds for a full segment), and appends then get
+  # `{:error, :full}` and retry elsewhere. Hibernating is a full-sweep garbage
+  # collection, which releases the native and packed columns the mapped ones replaced;
+  # an idle process would otherwise hold them until its next collection.
+  def handle_cast(:persist, state) do
+    state = freeze_state(state)
 
-      not Map.has_key?(state.columns, key) ->
-        {:reply, {:error, :not_found}, state}
-
-      is_binary(state.columns[key]) ->
-        {:reply, :ok, state}
-
-      true ->
-        {packed, state} = snapshot(state, key)
-        state = put_in(state.columns[key], packed)
-        {:reply, :ok, drop_snapshot(state, key)}
-    end
-  end
-
-  def handle_call(:packed_columns, _, state) do
-    {keys, columns} = Enum.unzip(state.columns)
-
-    if Enum.all?(columns, &is_binary/1) do
-      {:reply, {:ok, state.count, keys, columns}, state}
+    if not unwritten_rows?(state) do
+      {:noreply, state}
     else
-      {:reply, {:error, :not_packed}, state}
+      filename = write_file(state)
+      # A file that won't map crashes the segment; it stays on disk for the next start.
+      {:ok, count, columns} = SegmentFile.read(filename)
+      ^count = state.count
+      state = %{state | columns: columns, snapshots: %{}, persisted: true}
+      {:noreply, state, :hibernate}
     end
   end
 
@@ -489,13 +445,68 @@ defmodule Guardian.Storage.Segment do
     end
   end
 
-  defp drop_snapshot(state, key) do
-    %{state | snapshots: Map.delete(state.snapshots, key)}
+  defp freeze_state(%{frozen: true} = state) do
+    state
   end
 
+  # Stops accepting rows and, the first time, registers the final count and schema with
+  # Schema: before the segment can leave MutableSegments, so a schema read counts it
+  # twice rather than missing it. Columns are padded to the row count first, so the
+  # schema counts the nils of rows that lacked a key, as the file will.
   defp freeze_state(state) do
     if state.age_timer, do: Process.cancel_timer(state.age_timer)
-    %{state | capacity: state.count, age_timer: nil}
+    state = %{state | capacity: state.count, age_timer: nil, frozen: true}
+
+    if state.table != nil and state.count > 0 do
+      schema =
+        Map.new(state.columns, fn {key, column} ->
+          {key, column |> pad_column(state.count) |> Column.metadata()}
+        end)
+
+      :ok = Schema.add_segment(self(), state.table, state.count, schema)
+    end
+
+    state
+  end
+
+  defp pad_column(column, _count) when is_binary(column) do
+    column
+  end
+
+  defp pad_column(column, count) do
+    Column.pad(column, count)
+  end
+
+  # Whether the segment has rows not yet in its file, and a file to write them to.
+  defp unwritten_rows?(state) do
+    state.table != nil and not state.persisted and state.count > 0
+  end
+
+  # Writes the segment's columns, packed and padded to the row count (reusing cached
+  # snapshots), to its file, crashing the segment if the write fails.
+  defp write_file(state) do
+    {keys, columns} =
+      state.columns
+      |> Enum.map(fn
+        {key, column} when is_binary(column) -> {key, column}
+        {key, _column} -> {key, state |> snapshot(key) |> elem(0)}
+      end)
+      |> Enum.unzip()
+
+    filename = SegmentFile.filename(state.table, state.segment_id)
+    :ok = SegmentFile.write(filename, state.count, keys, columns)
+    filename
+  end
+
+  # Writes the file of a segment that has rows and isn't persisted yet, when Storage
+  # stops (SegmentSupervisor's `:shutdown`, at a normal stop or a restart of its
+  # group). Never on `:normal`, which deletion uses, or on a crash, whose columns may
+  # be half-appended. A segment busy persisting finishes that first, and then has
+  # nothing to write.
+  def terminate(reason, state) do
+    if (reason == :shutdown or match?({:shutdown, _}, reason)) and unwritten_rows?(state) do
+      write_file(state)
+    end
   end
 
   defp append_row(state, row) do

@@ -33,11 +33,10 @@ Assets, roughly in order of value:
 4. The Erlang cookie (`RELEASE_COOKIE`): grants full code execution on every node to
    any Erlang node that can reach the nodes' distribution ports.
 5. Availability and integrity of recent events: events not yet persisted live only in
-   memory. A table's in-memory segment is handed off for persistence after one hour by
-   default (spec section 9), and queue or disk delays can stretch the time to disk
-   beyond that, so anything that kills the VM without a graceful stop loses every event
-   not yet on disk: by default up to the last hour of each table, longer when
-   persistence is backed up.
+   memory. A table's in-memory segment is written to disk after one hour by default
+   (spec section 9), or sooner when it fills, so anything that kills the VM without a
+   graceful stop loses every event not yet on disk: by default up to the last hour of
+   each table. A segment whose write fails loses its events.
 
 Principals:
 
@@ -429,9 +428,9 @@ and no single request that takes the service down or destroys stored data.
    (`Guardian.Web.QueryLog`): 16 KiB SQL, 1 KiB error, 256-byte caller fields, queue cap 1,000
    rows, and no rate cap, since each query writes one row whose cost is of the order
    of the query's own.
-6. A segment the persister cannot store (for any reason, such as a full disk) is
-   logged once, stays in memory and queryable, and is retried on every pass while
-   other segments persist, so one bad segment does not stall persistence.
+6. A segment that cannot write its file (for any reason, such as a full disk) crashes,
+   and its rows are lost; other segments persist independently, so one bad segment
+   does not stall persistence or hold memory.
 7. Rules are a key holder's power over ingestion, the same principal's. A rule can set
    or remove any field of any event sent through the ingest APIs to its table, on any
    table name, but cannot query stored event data. Rules run on API-ingested rows;
@@ -641,8 +640,8 @@ Counter-specific limits:
    elsewhere takes effect at the next restart. Not reachable from the API.
 6. Ingestion shapes can be expensive: a list of objects with many distinct keys is
    slow to flatten. Bounded by the 8 MB body limit per request.
-7. A segment that never stores (5.1.6) still holds its memory, and it is lost at
-   shutdown like any unpersisted segment.
+7. A segment that cannot write its file (5.1.6) loses its rows, acknowledged ones
+   included; a full disk loses each segment as it fills.
 8. Rules (5.1.7): a rule set can cost up to a second of CPU per event, and a whole
    batch runs its events in turn, so a key holder can slow ingestion of a table. The
    write lock is a lease in the store, not a fence: a write that outlasts the
@@ -978,7 +977,7 @@ Open gaps named above, by boundary:
 9. B3: MCP error messages can carry internal detail such as node names (5.2.4).
 10. B3, B6: a corrupt segment file aborts the VM (5.2.5).
 11. B3: some event shapes are slow to flatten (5.2.6).
-12. B3: a segment that never stores holds its memory and is lost at shutdown (5.2.7).
+12. B3: a segment that cannot write its file loses its rows (5.2.7).
 13. B4: distribution traffic is unencrypted; the cookie is the only authority, with no
     member allowlist (6.5).
 14. B4: the image carries a build-time cookie, used by a single node (6.5.3).

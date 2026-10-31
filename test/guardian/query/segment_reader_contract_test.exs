@@ -22,7 +22,7 @@ defmodule Guardian.Query.SegmentReaderContractTest do
     snapshot = %Guardian.Query.Evaluation.SegmentSnapshot{segment: id, count: 100}
 
     assert_raise Guardian.Query.Error,
-                 "segment #{id} became unavailable during the query (it was deleted, expired, or moved to its file)",
+                 "segment #{id} became unavailable during the query (it was deleted or expired, or its machine's storage restarted)",
                  fn ->
                    Guardian.Query.Evaluation.eval(snapshot, %Guardian.AST.Node.Identifier{
                      name: "v",

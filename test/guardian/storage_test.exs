@@ -1,11 +1,11 @@
 defmodule Guardian.StorageTest do
   use ExUnit.Case, async: true
   import Guardian.Storage
-  import Guardian.Test.Polling, only: [eventually: 1]
   import Guardian.Test.Query, only: [run_sql: 1]
+  import Guardian.Test.Segments, only: [await_persisted: 1]
 
-  alias Guardian.Storage.MutableSegments
-  alias Guardian.Storage.PersistedSegments
+  alias Guardian.Storage.Segment
+  require Guardian.Storage.Column.Metadata
 
   # Every invocation has its own table, so no test deletes the tables it fills except
   # the two that fill several segments.
@@ -94,24 +94,25 @@ defmodule Guardian.StorageTest do
     assert {:error, {:segment_unavailable, :not_found}} = get_column(id, "a")
   end
 
-  test "segment registries have time to persist on shutdown" do
-    {:ok, %{shutdown: mutable}} = :supervisor.get_childspec(Guardian.Storage, MutableSegments)
-    {:ok, %{shutdown: persisted}} = :supervisor.get_childspec(Guardian.Storage, PersistedSegments)
+  test "segments have time to write their files on shutdown" do
+    # Supervisors in between have no budget of their own, so a segment's is the one
+    # that counts.
+    {:ok, %{type: :supervisor, shutdown: :infinity}} =
+      :supervisor.get_childspec(Guardian.Storage, :segments)
+
+    [group] =
+      for {:segments, pid, :supervisor, _} <- Supervisor.which_children(Guardian.Storage),
+          do: pid
+
+    {:ok, %{type: :supervisor, shutdown: :infinity}} =
+      :supervisor.get_childspec(group, Guardian.Storage.SegmentSupervisor)
+
+    %{shutdown: shutdown, restart: :temporary} = Segment.child_spec([])
 
     # Longer than the 5 s default, within the 150 s Fly kill_timeout less the tunnel
     # connector's drain (20 s at worst), with room for the rest of the application to stop.
-    assert is_integer(mutable) and mutable > 5_000
-    assert is_integer(persisted) and persisted > 5_000
-    assert mutable + persisted <= 100_000
-  end
-
-  test "segment registries stop in handoff order" do
-    # which_children lists children in the order the supervisor stops them.
-    stop_order = Supervisor.which_children(Guardian.Storage) |> Enum.map(&elem(&1, 0))
-    index = &Enum.find_index(stop_order, fn id -> id == &1 end)
-
-    assert index.(MutableSegments) < index.(PersistedSegments)
-    assert index.(PersistedSegments) < index.(Guardian.Storage.FullSegments)
+    assert is_integer(shutdown) and shutdown > 5_000
+    assert shutdown <= 100_000
   end
 
   test "list-heavy events fill segments by row count" do
@@ -163,31 +164,86 @@ defmodule Guardian.StorageTest do
              [[1234, String.duplicate("4", 64_000)]]
   end
 
-  # A persisted segment is loaded while PersistedSegments still caches it.
-  test "table_row_count counts a segment once while it is cached and loaded", %{table: table} do
-    for i <- 1..10, do: :ok = append(table, %{"i" => i})
-
-    for segment <- MutableSegments.get_mutable_segments(table) do
-      :ok = MutableSegments.segment_is_full(table, segment)
-    end
-
-    Guardian.Test.Segments.await_persisted(table)
-
+  test "a persisted segment keeps its rows and columns", %{table: table} do
+    for i <- 1..10, do: :ok = append(table, %{"i" => i, "odd" => rem(i, 2) == 1 || nil})
+    :ok = append(table, %{"i" => 11, "late" => "x"})
     [segment_id] = Enum.to_list(segment_ids(table))
-    assert segment_id in PersistedSegments.segment_ids(table)
-    assert segment_id in Guardian.Storage.LoadedSegments.segment_ids(table)
-    assert table_row_count(table) == 10
+    before = for key <- ["i", "odd", "late"], do: get_column(segment_id, key)
+
+    await_persisted(table)
+
+    assert Enum.to_list(segment_ids(table)) == [segment_id]
+    filename = Guardian.Storage.SegmentFile.filename(table, segment_id)
+    assert segment_row_count(segment_id) == {:ok, 11}
+    assert for(key <- ["i", "odd", "late"], do: get_column(segment_id, key)) == before
+
+    # The schema registered at freezing is the file's, which counts the nils of rows
+    # that lack a key (row 11 has no "odd").
+    {:ok, loaded} = Segment.start_link(load: filename)
+    assert schema(table) == elem(Segment.schema(loaded), 1)
+    assert [Guardian.Storage.Column.Metadata.tuple(count: 11) | _] = schema(table)["odd"]
+    assert table_row_count(table) == 11
+  end
+
+  test "deleting a table stops its writable and persisted segments and removes the files",
+       %{table: table} do
+    for v <- 1..5, do: :ok = append(table, %{"v" => v})
+    await_persisted(table)
+    for v <- 6..8, do: :ok = append(table, %{"v" => v})
+    ids = Enum.to_list(segment_ids(table))
+    assert length(ids) == 2
+    files = for id <- ids, do: Guardian.Storage.SegmentFile.filename(table, id)
+    assert Enum.count(files, &File.exists?/1) == 1
+
+    :ok = delete_table(table)
+
+    assert Enum.to_list(segment_ids(table)) == []
+    refute Enum.any?(files, &File.exists?/1)
+    assert table_row_count(table) == 0
+
+    for id <- ids,
+        do: assert({:error, {:segment_unavailable, :not_found}} = segment_row_count(id))
+  end
+
+  test "a segment loaded from its file registers its schema", %{table: table} do
+    segment_id = Guardian.SegmentID.generate()
+    filename = Guardian.Storage.SegmentFile.filename(table, segment_id)
+    on_exit(fn -> File.rm(filename) end)
+    File.mkdir_p!(Path.dirname(filename))
+    Guardian.Test.Segments.write_segment_file(filename, [%{"a" => 1}, %{"b" => "x"}])
+
+    {:ok, segment} =
+      Segment.start_supervised(load: filename, table: table, segment_id: segment_id)
+
+    on_exit(fn -> Segment.retire(segment) end)
+
+    assert Map.keys(schema(table)) == ["a", "b"]
+
+    assert [Guardian.Storage.Column.Metadata.tuple(count: 2, null_count: 1) | _] =
+             schema(table)["a"]
+
+    assert table in table_names()
+  end
+
+  test "deleting a persisted segment removes its file", %{table: table} do
+    :ok = append(table, %{"a" => 1})
+    [segment_id] = Enum.to_list(segment_ids(table))
+    await_persisted(table)
+    filename = Guardian.Storage.SegmentFile.filename(table, segment_id)
+    assert File.exists?(filename)
+
+    :ok = delete_segment(segment_id)
+
+    refute File.exists?(filename)
+    assert Enum.to_list(segment_ids(table)) == []
+    assert {:error, {:segment_unavailable, :not_found}} = segment_row_count(segment_id)
   end
 
   test "a table stays in the schema once all its rows are persisted", %{table: table} do
     :ok = append(table, %{"a" => 1})
+    await_persisted(table)
 
-    for segment <- MutableSegments.get_mutable_segments(table) do
-      :ok = MutableSegments.segment_is_full(table, segment)
-    end
-
-    # Much sooner than the in-memory copy's 10 minutes.
-    eventually(fn -> Map.keys(schema(table)) == ["a"] end)
+    assert Map.keys(schema(table)) == ["a"]
     assert table in table_names()
   end
 
