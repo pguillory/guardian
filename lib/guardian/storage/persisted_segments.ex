@@ -12,8 +12,8 @@ defmodule Guardian.Storage.PersistedSegments do
   require Logger
 
   # How long a persisted segment stays cached in memory after it is written, by
-  # default. Configurable (`:guardian, :persisted_segment_cache_ms`) so tests and
-  # measurements can shorten it.
+  # default. Configurable (`:guardian, :persisted_segment_cache_ms`) so measurements
+  # can shorten it.
   @default_cache_ms 600_000
 
   def start_link(opts \\ []) do

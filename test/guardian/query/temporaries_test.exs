@@ -68,9 +68,18 @@ defmodule Guardian.Query.TemporariesTest do
       n = 40_000
       for k <- 1..n, do: :ok = Guardian.Storage.append(table, k: k)
 
-      rows = run_sql("select k, count(*) from #{table} group by k having count(*) = 1")
-      assert length(rows) == n
-      assert rows |> Enum.map(&hd/1) |> Enum.sort() == Enum.to_list(1..n)
+      # Every group goes through reassembly; HAVING returns them a quarter at a time,
+      # under the 10,000-row result limit.
+      keys =
+        Enum.flat_map(0..3, fn i ->
+          run_sql(
+            "select k, count(*) from #{table} group by k " <>
+              "having count(*) = 1 and k > #{i * 10_000} and k <= #{(i + 1) * 10_000}"
+          )
+        end)
+        |> Enum.map(&hd/1)
+
+      assert Enum.sort(keys) == Enum.to_list(1..n)
     end
   end
 

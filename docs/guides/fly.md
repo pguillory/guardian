@@ -172,7 +172,7 @@ them, which is more than one from four machines on). Fly caps the check's grace 
 at 1 minute, so `wait_timeout` is what covers a slow boot: `fly deploy`, rollbacks
 included, waits that long for each machine to pass its check. Raise it if boots get
 slower. A new release that fails its check stops the deploy without rolling back.
-A machine whose rule store is unreachable waits for it at boot, so it fails its check
+A machine whose rule store fails, wrong credentials included, waits for it at boot, so it fails its check
 until the store answers and a rolling deploy stops there, leaving the other machines
 running.
 
@@ -191,8 +191,8 @@ machine joins the cluster within seconds. With more than one machine:
 - Deploys replace machines one at a time, so ingestion continues on the others.
 - Queries miss a machine's data until it has loaded its segments.
 - A query running while a machine shuts down can fail with a node error. Retry it.
-- Rules need an S3-compatible bucket: rule writes to the default local folder are
-  refused while machines are connected ([Rule storage](rules.md)).
+- Rules need an S3-compatible bucket: with the default local folder, each machine
+  would have its own copy ([Rule storage](rules.md)).
 
 Scaling down destroys a machine but leaves its volume unattached. That machine's
 events drop out of queries until a machine uses that volume again.

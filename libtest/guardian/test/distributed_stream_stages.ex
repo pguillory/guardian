@@ -9,9 +9,13 @@ defmodule Guardian.Test.DistributedStreamStages do
     fn _ -> {node, 1} end
   end
 
-  @doc "Builds about 3 MiB of heap (200,000 small tuples) and returns its length."
+  @doc """
+  Builds about 40 MB of heap plus its stack (1,000,000 small tuples) and returns its
+  length: over the test environment's 16 MiB query heap limit, well under production's
+  256 MiB.
+  """
   def grow_heap(_value) do
-    1..200_000 |> Enum.map(&{&1, &1}) |> length()
+    1..1_000_000 |> Enum.map(&{&1, &1}) |> length()
   end
 
   @doc "Pads each value to fill a 1,000-byte chunk on its own."

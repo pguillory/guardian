@@ -50,9 +50,6 @@ defmodule Guardian.Query.PlannerTest do
 
         {:reassemble_segments, keys_and_old_exprs}
 
-      {:order_by, _directions} = step ->
-        step
-
       {:limit, _limit} = step ->
         step
 
@@ -62,20 +59,24 @@ defmodule Guardian.Query.PlannerTest do
   end
 
   test "query_plan" do
+    # Without LIMIT, a statement is planned with the implicit LIMIT 10000.
     assert debug_query_plan("select a, b") == [
              {:from, nil},
              {:select, ["a", "b"]},
+             {:limit, 10_000},
            ]
 
     assert debug_query_plan("select a, b where c") == [
              {:from, nil},
              {:select_where, ["a", "b"], "c"},
+             {:limit, 10_000},
            ]
 
     assert debug_query_plan("select a, b where c group by d, e") == [
              {:from, nil},
              {:select_where, ["d", "e", "a", "b"], "c"},
              {:group_by, ["d", "e"], [arbitrary: 1, arbitrary: 1]},
+             {:limit, 10_000},
            ]
 
     assert debug_query_plan("select a, b where c group by d, e order by f, g limit 10") == [
@@ -89,6 +90,7 @@ defmodule Guardian.Query.PlannerTest do
              {:from, nil},
              {:select, ["c", "a", "b"]},
              {:group_by, ["c"], [arbitrary: 1, avg: 1]},
+             {:limit, 10_000},
            ]
 
     assert debug_query_plan(
@@ -99,7 +101,17 @@ defmodule Guardian.Query.PlannerTest do
              {:group_by, ["c"], [avg: 1, arbitrary: 1, arbitrary: 1]},
              {:reassemble_segments, [v0: "avg(b)", v1: "e", v2: "a"]},
              {:select_where, ["v1", "v2", "v0"], "v0 > 5"},
-             {:order_by, [:asc]},
+             {:order_by_limit, [:asc], 10_000},
+           ]
+
+    # HAVING's inner halves are not limited: the one implicit LIMIT comes last.
+    assert debug_query_plan("select a, count() group by a having count() > 1") == [
+             {:from, nil},
+             {:select, ["a", "a"]},
+             {:group_by, ["a"], [count: 0, arbitrary: 1]},
+             {:reassemble_segments, [v0: "count()", v1: "a"]},
+             {:select_where, ["v1", "v0"], "v0 > 1"},
+             {:limit, 10_000},
            ]
 
     # The sort expressions are selected first, in ORDER BY order; each step carries
@@ -107,7 +119,7 @@ defmodule Guardian.Query.PlannerTest do
     assert debug_query_plan("select a from t order by b desc, c, d asc") == [
              {:from, "t"},
              {:select, ["b", "c", "d", "a"]},
-             {:order_by, [:desc, :asc, :asc]},
+             {:order_by_limit, [:desc, :asc, :asc], 10_000},
            ]
 
     assert debug_query_plan("select a from t order by b, c desc limit 5") == [
@@ -127,6 +139,7 @@ defmodule Guardian.Query.PlannerTest do
              {:select, ["null", "a", "b"]},
              {:group_by, ["null"], [arbitrary: 1, avg: 1]},
              {:default, [nil, nil]},
+             {:limit, 10_000},
            ]
 
     assert debug_query_plan("select a, count()") == [
@@ -134,6 +147,7 @@ defmodule Guardian.Query.PlannerTest do
              {:select, ["null", "a"]},
              {:group_by, ["null"], [arbitrary: 1, count: 0]},
              {:default, [nil, 0]},
+             {:limit, 10_000},
            ]
 
     assert debug_query_plan("select min(a), var_pop(b), count()") == [
@@ -141,12 +155,14 @@ defmodule Guardian.Query.PlannerTest do
              {:select, ["null", "a", "b"]},
              {:group_by, ["null"], [min: 1, var_pop: 1, count: 0]},
              {:default, [nil, nil, 0]},
+             {:limit, 10_000},
            ]
 
     assert debug_query_plan("select a, count() group by b") == [
              {:from, nil},
              {:select, ["b", "a"]},
              {:group_by, ["b"], [arbitrary: 1, count: 0]},
+             {:limit, 10_000},
            ]
 
     assert debug_query_plan("select a, round(avg(b))") == [
@@ -156,6 +172,7 @@ defmodule Guardian.Query.PlannerTest do
              {:default, [nil, nil]},
              {:reassemble_segments, [v0: "a", v1: "avg(b)"]},
              {:select_where, ["v0", "round(v1)"], "true"},
+             {:limit, 10_000},
            ]
   end
 

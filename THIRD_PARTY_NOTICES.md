@@ -28,6 +28,7 @@ the release. Licenses are as each package declares them on Hex.
 | plug | 1.20.3 | Apache-2.0 | release |
 | plug_crypto | 2.2.0 | Apache-2.0 | release |
 | req | 0.7.5 | Apache-2.0 | release |
+| req_s3 | 0.2.5 | Apache-2.0 | release |
 | superlist | 0.1.5 | MIT | release |
 | telemetry | 1.4.2 | Apache-2.0 | release |
 | thousand_island | 1.6.0 | MIT | release |

@@ -102,11 +102,10 @@ Guardian.Application (one_for_one)
 Why this order:
 
 1. Guardian.Rules.Server starts first: its `init` loads and validates the whole rule set from
-   the store (section 3.4). A store that gives no answer (including a mistyped host or
-   a certificate failure), rate-limits or answers 5xx is retried until it answers
-   (backoff up to 10 s), so Guardian is not up meanwhile; invalid settings, or a
-   store answering 400, 401, 403 or 404, refuse startup. Starting before Storage
-   makes a bad store fail in seconds instead of after every segment has loaded. It
+   the store (section 3.4). Any failed read, wrong credentials and a missing bucket included, is retried until
+   the store answers (backoff up to 10 s), so Guardian is not up meanwhile; invalid
+   settings refuse startup. Starting before Storage makes invalid settings fail in
+   seconds instead of after every segment has loaded. It
    holds nothing the ingest path needs between calls: the compiled rules are in
    `:persistent_term`, so if it restarts, ingestion keeps the published rules and the
    new process reloads in the background instead of failing again.
@@ -400,23 +399,20 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    `If-None-Match: *` create, 120 s lease judged by the store's own clock, takeover of
    an expired or released lock with `If-Match`, ownership-safe release; one attempt,
    so a held lock fails the write at once as `{:error, :busy}`), read the set
-   from the store, refuse the change if it adds an error, check 80 s of lease remain,
-   save the one file conditionally (20 s deadline), release, publish locally, and ask
-   every connected node to reload (10 s). An unknown save outcome leaves the lock to
-   expire. Server owns the rule lock key, lease and save margin. Store capabilities
-   come from the generic `Guardian.ObjectStore.shared?/1` callback (optional, default
-   true): S3 is shared, Local is not. With a local folder and peers connected,
-   writes are refused. A local folder writes each rule or lock file through
+   from the store, refuse the change if it adds an error,
+   save the one file conditionally, release, publish locally, and ask
+   every connected node to reload (10 s). A failed save releases the lock too and says
+   the file may have been saved. Server owns the rule lock key and lease.
+   A local folder writes each rule or lock file through
    `Guardian.AtomicFile.write/2`, as segments are written (section 4.3): a crash never
    leaves a torn file, but a power
    loss can roll a recent write back to the previous version, or to no file for a
    new key (no directory fsync), and a crash mid-write can leave an ignored
    `{key}.{n}.tmp` file.
 7. The S3 client is the generic `Guardian.ObjectStore.S3` (`lib/guardian/object_store/`):
-   Req with SigV4 (`service: :s3`, region `auto` for R2), path-style
-   URLs, `:xmerl` for ListObjectsV2, 5 s connect and 15 s receive timeouts, no
-   retries. Credentials stay in a closure; requests carry an MFA for signing; every
-   store call returns a reason naming only a kind (security.md).
+   `req_s3` (signing, `s3://` URLs, path-style on R2, ListObjectsV2 parsing), region
+   `auto` for R2, 5 s connect and 15 s receive timeouts, no retries. A failed store call
+   is `:not_found`, `:precondition_failed` or a message.
 
 Why a lock object and not `:global`: `:global` gives each side of a partition its own
 lock. Why no manifest: the design keeps the store as plain files, so a set
@@ -887,10 +883,12 @@ clauses off from the outside in (`Guardian.Query.Executor` runs them):
    `{:reassemble_segments, ...}` packing its output into column snapshots, then a
    second SELECT over those. An aggregate without GROUP BY groups by a constant and
    adds a `{:default, row}` step, so an empty table still returns one row.
-4. `{:order_by, directions}`, `{:limit, n}`, or the combined
-   `{:order_by_limit, directions, n}`. ORDER BY's expressions are selected ahead of
-   the statement's own, so these steps carry only each key's direction (`:asc` or
-   `:desc`) and the integer limit.
+4. `{:limit, n}`, or with ORDER BY the combined `{:order_by_limit, directions, n}`.
+   A statement without LIMIT is planned with `LIMIT 10000`
+   (`Guardian.Query.Limits.max_result_rows/0`), at the top only, so every top-level
+   plan ends in one of these and HAVING's inner statements aren't limited. ORDER BY's expressions
+   are selected ahead of the statement's own, so these steps carry only each key's
+   direction (`:asc` or `:desc`) and the integer limit.
 
 There is no cost model and no index: every plan scans every segment of the table.
 `Guardian.Query.Evaluation.pre_eval/1` can fold constant subexpressions, but the query path does
@@ -923,11 +921,12 @@ How Guardian's plan maps onto stages:
    aggregates into an ETS table with the aggregation's `start`, `merge`, and `finish`
    functions (`lib/guardian/aggregation/AGENTS.md`; merge must be associative because partial
    results combine across segments and nodes).
-3. ORDER BY ... LIMIT n sorts and truncates to n on each worker, then merges on the
-   coordinator. ORDER BY without LIMIT collects everything on the coordinator and sorts
-   it in memory. LIMIT without ORDER BY stops the stream after n rows.
-4. Results are gathered on the coordinator, counted against the result caps, and
-   returned as a list.
+3. ORDER BY ... LIMIT n (n is 10,000 when the query names none) sorts and truncates
+   to n on each worker, then merges on the coordinator as the rows arrive, holding
+   about n rows plus one chunk. For an input that isn't a FROM scan or a GROUP BY
+   (no FROM, the `schema` table, HAVING's second half) that is one extra fan-out.
+   LIMIT without ORDER BY stops the stream after n rows: the first n to arrive.
+4. Results are gathered on the coordinator and returned as a list.
 
 Process structure and failure handling:
 
@@ -1066,21 +1065,24 @@ for `RLIKE`: roughly 2.5 to 10 µs a row for an 89-byte string, against under 1.
 
 ### 5.7 Query limits
 
-`Guardian.Query.Limits` caps what collects on the coordinator: 100,000 rows and about 64 MiB of
-result, the input of an in-memory ORDER BY, and the merge of ORDER BY ... LIMIT; ORDER
-BY with a LIMIT above the row cap is refused. Strings that functions build are cut to
-64 KiB (`Guardian.Query.Text`), never refused. A query may run for 30 seconds:
-`Guardian.Query.run/1` then kills its process, whose links stop every router and worker on
-every machine, and raises. Exceeding a cap or the time limit raises `Guardian.Query.Error`,
-which the MCP `query` tool reports with its message. The caps are application environment
-values (section 9).
+A query returns at most 10,000 rows (`Guardian.Query.Limits.max_result_rows/0`): the
+parser refuses a larger `LIMIT`, and the planner gives a statement without one `LIMIT
+10000` (5.3). Nothing is counted while the query runs, and nothing counts result bytes:
+a result of large values is bounded only by the heap limit below, which doesn't count
+shared binaries, so 10,000 rows of large strings are held whole, copied into the MCP
+handler and encoded as JSON (several times the response's size at the peak). Strings
+that functions build are cut to 64 KiB (`Guardian.Query.Text`), never refused. A query
+may run for 30 seconds: `Guardian.Query.run/1` then kills its process, whose links stop
+every router and worker on every machine, and raises. Exceeding the time limit raises
+`Guardian.Query.Error`, which the MCP `query` tool reports with its message.
 
 Each process a query runs in also carries a heap limit: `Guardian.Query.Limits.limit_heap/0`
 sets `max_heap_size` (`kill: true`, `error_logger: false`,
 `include_shared_binaries: false`) to a fixed 256 MiB on the query process and on
 every DistributedStream worker, on whichever node it runs; routers are not limited.
-Tests lower it through the `query_max_heap_mb` application environment value, which
-each node reads for itself. A
+The test environment sets it to 16 MiB once, in `config/config.exs`, through the
+`query_max_heap_mb` application environment value (each node reads its own; a peer
+VM loads no Mix config, so it has 256), and no test changes it. A
 `:killed` exit from a pipeline or the query process becomes the `Guardian.Query.Error` "a query
 process was killed; it may have exceeded its 256 MiB heap limit; narrow the query with
 WHERE, LIMIT or fewer groups" (`Guardian.Query.Failure`). The reason
@@ -1420,15 +1422,11 @@ these except through the variables above:
 | Key | Default | Used by |
 | --- | --- | --- |
 | `ingest_api_key`, `admin_api_key` (each nil when unset), `http_port`, `data_dir`, `dns_cluster_query`, `mutable_segment_max_age_ms` | from the variables above | as above |
-| `query_max_result_rows` | 100,000 | `Guardian.Query.Limits` |
-| `query_max_result_bytes` | 64 MiB | `Guardian.Query.Limits` |
 | `query_time_limit_ms` | 30,000 | `Guardian.Query.run/1` (`Guardian.Query.Limits`) |
 | `counter_memory_budget_bytes` | 64 MiB, overridden by `GUARDIAN_COUNTER_MEMORY_MB` | `Guardian.Counters.Store`: asynchronous resident counter memory target (3.5); a non-positive or non-integer value refuses startup |
 | `query_parse_errors_per_hour` | 60 | `Guardian.Web.QueryParseErrors` (tests raise it) |
-| `rules_store` | from the variables above | `Guardian.Rules.Config` (tests set a store directly) |
-| `rules_time_limit_ms`, `rules_reclaim_after_ms`, `rules_lock_lease_ms`, `rules_save_margin_ms` | 1,000; 30,000; 120,000; 80,000 | `lib/guardian/rules` (tests shorten them) |
-| `object_store_s3_receive_timeout_ms`, `object_store_s3_write_deadline_ms` | 15,000; 20,000 | `Guardian.ObjectStore.S3` (tests shorten them) |
-| `persisted_segment_cache_ms` | 600,000 | `Guardian.Storage.PersistedSegments`: how long a written segment's in-memory copy serves before it is stopped (tests shorten it); a value that is not a positive integer stops Storage from starting |
+| `rules_time_limit_ms`, `rules_reclaim_after_ms` | 1,000; 30,000 | `lib/guardian/rules` (tests shorten them) |
+| `persisted_segment_cache_ms` | 600,000 | `Guardian.Storage.PersistedSegments`: how long a written segment's in-memory copy serves before it is stopped; a value that is not a positive integer stops Storage from starting |
 
 Constants in code that act like configuration: segment capacity 16,384 rows and 64 MiB
 budget (`Guardian.Storage.Segment`), 15-day retention (`Guardian.Storage.SegmentExpiration`), shutdown
@@ -1597,9 +1595,9 @@ About 150 test files cover:
    node are checked by hand when a change touches them
    (`docs/changes/async-default-tests.md`). The `:lifecycle` suite stops Storage on a
    peer and restarts it on the same data, checks that a stopping machine refuses
-   new queries, and holds the Rules.Server startup tests (invalid rules at boot, a
-   misconfigured store, retrying an unreachable or rate-limited store, boot and reload
-   publishing the same result).
+   new queries, and holds the Rules.Server startup tests (invalid rules at boot, invalid
+   settings, retrying a failing store, boot and reload publishing the same result) and
+   the Publisher tests, which must stop the server.
 3. Interfaces: the JSON API through `Plug.Test` connections against the real router
    stack, the query runner by calling `Guardian.Web.Query.execute/3` directly, and the
    MCP endpoint end to end through a real MCP client (`Guardian.Test.MCPClient`
@@ -1625,13 +1623,12 @@ About 150 test files cover:
    `libtest/guardian/test/distributed_stream_stages.ex`, because test modules are not loaded
    there.
 5. Rules: the parser, whole-set validation, semantics through real ingestion, the
-   worker's limits, the server (boot refusals, repair, activation, the module pool),
-   both rule stores, and a peer cluster sharing a store; the object-store
-   client's S3 and folder implementations, their shared contract and the key lock
-   have their own tests. `Guardian.Test.FakeS3` (in
-   `libtest/guardian/test/`) is a small S3 server that checks every request's SigV4 signature with
-   its own implementation of the canonical request; `Guardian.Test.Rules` restarts the
-   shared Guardian.Rules.Server on a test store.
+   worker's limits, the server (repair, activation, the module pool), and a peer cluster sharing the rule
+   folder; the folder store and the key lock have their own tests, and the lock is raced
+   across peers. Tests use one rule store, the folder in the run's fresh data directory,
+   and each its own tables. S3 mode has no automated test: when `ObjectStore` changes, an
+   agent checks it by hand (CONTRIBUTING.md). `Guardian.Test.Rules` plants files in the
+   folder and restarts the shared Guardian.Rules.Server for the lifecycle suite.
 6. Configuration and deployment: `config/runtime.exs` and the production config are
    evaluated in tests, as are the release environment script's three naming modes and
    `GUARDIAN_DIST_PORT`, and `Guardian.Cluster.discovery_child_spec/2`'s record types and
@@ -1661,8 +1658,8 @@ backend; `Guardian.Test.Counters.StorePause` pauses a real Store's callers and i
 one test module that reads the Store's private descriptor;
 `Guardian.Test.Counters.PipelineProbe` holds pipelines until released.
 `Guardian.Test.Web.QueryBackend` is the test build's `Guardian.Query` for
-`Guardian.Web.Query`, passing through unless a test asks for an exit or throw. The fake S3
-server, JSON and MCP clients, DistributedStream peer stages and the engine's
+`Guardian.Web.Query`, passing through unless a test asks for an exit or throw. The JSON
+and MCP clients, DistributedStream peer stages and the engine's
 raising key also live under `Guardian.Test.*`. `Guardian.Query.EvaluationTestCase`
 and the test-only query function `Guardian.Query.Function.TestRaise` keep their homes
 beside the query code they test.

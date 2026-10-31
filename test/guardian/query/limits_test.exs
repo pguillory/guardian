@@ -1,6 +1,5 @@
 defmodule Guardian.Query.LimitsTest do
-  # Changes limits in the application environment, so not async.
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   import Guardian.Test.Query, only: [run_sql: 1]
 
   setup do
@@ -14,36 +13,22 @@ defmodule Guardian.Query.LimitsTest do
     %{table: table}
   end
 
-  defp error(source) do
-    assert_raise(Guardian.Query.Error, fn -> run_sql(source) end).message
-  end
+  test "a query without LIMIT returns at most 10,000 rows; aggregates read them all" do
+    table = "limits_big_#{System.unique_integer([:positive])}"
 
-  describe "result cap" do
-    setup do
-      Guardian.Test.Env.put(query_max_result_rows: 10)
-      :ok
-    end
+    1..10_001
+    |> Enum.map(&%{"v" => &1})
+    |> Enum.chunk_every(10_000)
+    |> Enum.each(&Guardian.Engine.ingest_events(table, &1))
 
-    test "counts returned rows, not scanned rows", %{table: table} do
-      assert error("SELECT v FROM #{table}") =~ "query result exceeds 10 rows; add a LIMIT"
-      assert length(run_sql("SELECT v FROM #{table} LIMIT 10")) == 10
-      assert run_sql("SELECT count(), sum(v) FROM #{table}") == [[30, 465]]
-      assert length(run_sql("SELECT k, count() FROM #{table} GROUP BY k")) == 3
-      assert run_sql("SELECT count() FROM #{table} WHERE v > 25") == [[5]]
-      assert length(run_sql("SELECT v FROM #{table} WHERE v > 20")) == 10
-    end
+    assert length(run_sql("SELECT v FROM #{table}")) == 10_000
+    assert run_sql("SELECT count(), max(v) FROM #{table}") == [[10_001, 10_001]]
+    assert length(run_sql("SELECT v, count() FROM #{table} GROUP BY v")) == 10_000
 
-    test "applies to ORDER BY", %{table: table} do
-      assert error("SELECT v FROM #{table} ORDER BY v") =~ "exceeds 10 rows"
-      assert run_sql("SELECT v FROM #{table} ORDER BY v DESC LIMIT 2") == [[30], [29]]
-      assert error("SELECT v FROM #{table} ORDER BY v LIMIT 11") =~ "LIMIT 11 exceeds the 10-row"
-    end
-
-    test "bounds bytes too", %{table: table} do
-      Guardian.Test.Env.put(query_max_result_rows: 1_000, query_max_result_bytes: 200)
-      assert error("SELECT s FROM #{table}") =~ "query result exceeds 0 MiB"
-      assert length(run_sql("SELECT s FROM #{table} LIMIT 3")) == 3
-    end
+    sorted = run_sql("SELECT v FROM #{table} ORDER BY v DESC")
+    assert length(sorted) == 10_000
+    assert hd(sorted) == [10_001]
+    assert List.last(sorted) == [2]
   end
 
   describe "string functions" do

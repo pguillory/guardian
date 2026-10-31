@@ -482,7 +482,13 @@ defmodule Guardian.AST.Parser do
           throw {:parse_error, "Duplicate LIMIT clause", bad_tokens}
         end
 
-        {expr, tokens} = parse_integer_literal!(tokens)
+        {%Literal{value: limit} = expr, tokens} = parse_integer_literal!(tokens)
+        max = Guardian.Query.Limits.max_result_rows()
+
+        if limit > max do
+          throw {:parse_error, "LIMIT #{limit} exceeds the maximum of #{max}", bad_tokens}
+        end
+
         statement = put_in(statement.limit_expr, expr)
         continue_select_statement(tokens, statement)
 

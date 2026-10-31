@@ -22,7 +22,6 @@ defmodule Guardian.Rules.RunnerTest do
   test "an event over its heap limit fails alone; outcomes stay in order" do
     table = unique_table("rules_limits")
     publish_module(table, LimitRules)
-    Guardian.Test.Env.put(query_max_heap_mb: 4)
 
     assert [ok1, big, ok2] =
              ingest(table, [%{"n" => 1}, %{"big" => 10_000_000}, %{"n" => 2}])
@@ -73,7 +72,7 @@ defmodule Guardian.Rules.RunnerTest do
   test "Runner preserves batch reservations and arrival coordinates through worker replacement" do
     table = unique_table("counter_worker_metadata")
     publish_module(table, MetadataRules)
-    Guardian.Test.Env.put(counter_metadata_observer: self(), query_max_heap_mb: 4)
+    Guardian.Test.Env.put(counter_metadata_observer: self())
     first = Arrival.now()
     second = %{first | unix_ms: first.unix_ms + 1}
 
