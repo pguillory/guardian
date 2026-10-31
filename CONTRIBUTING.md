@@ -99,6 +99,10 @@ only to check a removed catch goes with it.
 This is the direction for new tests. Many existing tests predate it and are being
 brought in line a category at a time, so don't read the suite as a counterexample.
 
+Try to write each test at a single layer if possible. Testing `ObjectStore`, for
+example, means testing its functions: read, write, list, delete. After you write a
+file, you can read it. If you delete it, it no longer shows up in listings.
+
 Tests are async by default. A module is `async: false` only when it truly can't be
 made async, and then it names its one reason (see "Test isolation").
 
@@ -129,7 +133,7 @@ Peer VM tests are tagged `:cluster` and excluded by default. Promises that need 
 server to stop and start, such as a clean shutdown or a restart keeping acknowledged
 rows, are tagged `:lifecycle`: a slow synchronous suite, also excluded by default. Today it
 stops and restarts Storage on a peer, calls the stop callback and restarts the rule
-server in the test VM, for its startup tests (`docs/changes/rules-startup-lifecycle.md`);
+server in the test VM, for its startup and Publisher tests;
 it doesn't boot a whole application. Segment
 handoffs, retirement and persistence scheduling aren't in the suite: an agent checks by
 hand (insert, stop, start, query) only when a change touches segment lifetimes or
@@ -138,6 +142,34 @@ persistence.
 Run `mix test --include cluster --include lifecycle` before every deploy. With no CI
 and the pre-commit hook on the default run, that is what keeps those tests from
 rotting unseen.
+
+Rule tests use the one rule store, a folder in the run's fresh data directory, and each
+its own tables. S3 mode has no automated test. When a change touches `ObjectStore`,
+an agent checks it by hand against the real bucket, in a console holding the S3 settings
+(`iex -S mix` with the `GUARDIAN_RULES_S3_*` variables set, before the build serves;
+otherwise the node's remote console):
+
+```elixir
+alias Guardian.ObjectStore, as: OS
+# `; :ok`, because printing the store prints its secret.
+store = (with {:ok, {m, c}} <- Guardian.Rules.Config.store(), do: {m, %{c | prefix: c.prefix <> "_objectstore_check/"}}); :ok
+{:ok, e1} = OS.put(store, "a b+c&d.txt", "one", :absent)
+{:error, :precondition_failed} = OS.put(store, "a b+c&d.txt", "x", :absent)
+{:error, :precondition_failed} = OS.put(store, "a b+c&d.txt", "x", {:etag, "nope"})
+{:ok, e2} = OS.put(store, "a b+c&d.txt", "two", {:etag, e1})
+{:ok, [%{key: "a b+c&d.txt", etag: ^e2, size: 3}]} = OS.list(store)
+{:ok, "two", %{etag: ^e2, age_ms: age}} = OS.get(store, "a b+c&d.txt")
+true = age < 60_000
+{:error, :precondition_failed} = OS.get(store, "a b+c&d.txt", e1)
+:ok = OS.delete(store, "a b+c&d.txt")
+{:error, :not_found} = OS.get(store, "a b+c&d.txt")
+{:ok, []} = OS.list(store)
+```
+
+The rule loader ignores those keys: any key not ending in `.gsql` is skipped before it
+is fetched, validated or listed (`Guardian.Rules.RuleSet.parse_key/1`). The check can't
+show two writers racing. A store answering a listing with a content type other than
+`application/xml` shows as `HTTP 200` from `OS.list`.
 
 A passing run should be simple and fast.
 
@@ -187,7 +219,7 @@ answer, so a fake segment in an async test must answer `:schema` promptly, as
 Every module is `async: true` unless it touches something shared by the whole VM that
 can't be avoided: a connected peer node, the `:lifecycle` suite's
 stops (a VM-wide stopping flag, a peer), node-wide counter budgets, the rule server's
-store and published map, log capture that must see only its own events, or an
+published map or write lock, an invalid rule file every concurrent write would report, log capture that must see only its own events, or an
 application env setting the code reads instead of taking it as an argument (being
 retired: pass the setting to the function it applies to). Say which in a
 one-line comment above `use ExUnit.Case`. Suspending, restarting or scanning

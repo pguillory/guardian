@@ -562,9 +562,9 @@ privately, not in this repository.
 - [x] async-default-tests: the normal `mix test` is async by default; system-table,
       suspend and peek tests go, and stop/start promises move to the excluded
       `:lifecycle` suite (`docs/changes/async-default-tests.md`)
-- [ ] test-settings-as-data: tests that put S3 timeouts or counter
-      budgets in the application env keep their modules sync; each awaits Preston's
-      decision (`docs/changes/async-default-tests.md`)
+- [ ] test-settings-as-data: tests that put counter budgets in the application env
+      keep their modules sync; each awaits Preston's decision
+      (`docs/changes/async-default-tests.md`)
 - [x] drop-startup-tests: the runtime config tests and the persisted segment cache
       window's invalid-value test are gone; startup code is unchanged
       (`docs/changes/drop-startup-tests.md`)
@@ -673,6 +673,10 @@ privately, not in this repository.
       cleanup promises they guarded are tested on the specific process or file, and
       `system_stats` records open descriptors, mappings, native columns and resident
       memory to watch leaks in production (`docs/changes/vm-wide-leak-tests.md`)
+- [x] rule-store-simplify: FakeS3 goes; rule tests use one local folder with no server
+      restarts to swap stores; S3 access uses `req_s3`; a failed store call is an error,
+      with the lock released, and boot retries any failure; the local-folder cluster
+      guard and `shared?` go; S3 mode is checked by hand (`docs/changes/rule-store-simplify.md`)
 - [x] async-rule-tests: rule tests that write rules, store events and run queries run
       async through the one rule server; what stays sync says why, and the rule time limit and a
       rule worker's crash have no test left (`docs/changes/async-rule-tests.md`)

@@ -450,7 +450,8 @@ and no single request that takes the service down or destroys stored data.
 8. The rule store is read at boot, on writes and on reload, never per event, so
    the ingest path makes no rule-store/external-service calls (counter peer RPCs
    stay inside Guardian). Its S3 credentials stay out of
-   application config, logs and error messages (7.2). The S3 endpoint must use
+   application config and error messages, though the server's state, so a crash report,
+   can show them (7.2). The S3 endpoint must use
    `https://` unless it is on the same machine (`localhost`, 127.0.0.0/8 or
    `[::1]`; `Guardian.Rules.Config` refuses anything else at startup, with the
    object-store client's check, `Guardian.ObjectStore.S3.check_endpoint/1`), so no one on the
@@ -653,17 +654,15 @@ Counter-specific limits:
    shutdown like any unpersisted segment.
 8. Rules (5.1.7): a rule set can cost up to a second of CPU per event, and a whole
    batch runs its events in turn, so a key holder can slow ingestion of a table. The
-   write lock is a lease in the store, not a fence: a writer stalled more than a
-   minute past its lease check, or a request the store applies more than a minute
-   after the writer abandoned it, can leave a stored set validation would have
+   write lock is a lease in the store, not a fence: a write that outlasts the
+   two-minute lease, or a request the store applies after the writer abandoned it, can leave a stored set validation would have
    refused. Each node then fails that table's events from its next load until it is
    fixed, and the error quotes up to 40 characters of the rule to whoever sent them,
    the ingest key included. Anyone who can write to the rule store directly (the
    bucket's credentials, or the rule folder) controls ingest-time rules without an API key;
    those writes take effect at the next load and go through validation there. The S3
-   endpoint is trusted too: its list responses are parsed with `:xmerl` (entities
-   off, at most 20 pages), which makes atoms of element names, so a hostile endpoint
-   could grow the atom table.
+   endpoint is trusted too: its list responses are parsed by `req_s3` (`:xmerl` SAX, entities off, no
+   atoms made), with no bound on pages, so a hostile endpoint could keep a read going and grow its memory.
 
 ## 6. B4: Machine to machine (clustering)
 
@@ -825,7 +824,7 @@ and the boundary is whatever protects those. Guardian adds nothing on top.
 | `GUARDIAN_INGEST_API_KEY` (optional) | process environment (on Fly, a Fly secret); app env `:guardian, :ingest_api_key` | operators; producers | set the new value and restart; independent of the other keys |
 | `RELEASE_COOKIE` | process environment (on Fly, a Fly secret); node memory; owner-only `.erlang.cookie` files for the server and for whoever runs a client command, which stay on disk (6.1.5); never a command line | operators; peers | set the new value and restart; all nodes must share it |
 | `TUNNEL_TOKEN` (optional) | process environment (on Fly, a Fly secret, also visible in `fly ssh` sessions); `bin/fly-start` unsets it before starting Guardian, so Guardian's process doesn't hold it; the script's shell and connector loop keep it, as cloudflared does | operators; whoever administers the operator's Cloudflare account | rotate the tunnel's token on Cloudflare, then set the new value and restart |
-| `GUARDIAN_RULES_S3_ACCESS_KEY_ID`, `GUARDIAN_RULES_S3_SECRET_ACCESS_KEY` (optional) | process environment (on Fly, Fly secrets); read once by `Guardian.Rules.Config`, which looks up only the named `GUARDIAN_RULES_*` variables (never the whole environment, so no other secret is a function argument through this configuration path), into a closure inside the `Guardian.ObjectStore.S3` config held by Guardian.Rules.Server and `:persistent_term`, never application config; requests carry only an MFA for signing, and store errors name only a kind | operators; whoever administers the bucket's account | create a new bucket-scoped token, set both values and restart, then revoke the old token |
+| `GUARDIAN_RULES_S3_ACCESS_KEY_ID`, `GUARDIAN_RULES_S3_SECRET_ACCESS_KEY` (optional) | process environment (on Fly, Fly secrets); read once by `Guardian.Rules.Config`, which looks up only the named `GUARDIAN_RULES_*` variables (never the whole environment, so no other secret is a function argument through this configuration path), into the `Guardian.ObjectStore.S3` config held by Guardian.Rules.Server and `:persistent_term`, never application config. It is plain config: its formatted status or a crash report can show it, so a Rules.Server crash report in the logs is a reason to rotate the key. Store errors name only a status or failure | operators; whoever administers the bucket's account | create a new bucket-scoped token, set both values and restart, then revoke the old token |
 | Build-time cookie | `releases/COOKIE` in the release and image, copied to the same owner-only files as `RELEASE_COOKIE` | anyone with the image or release | per build; used only by a single node (6.4) |
 
 Secrets also end up in any Erlang crash dump the VM writes (`erl_crash.dump` in the
@@ -896,8 +895,8 @@ Where data goes:
      load is not a crash: its process stops with a `:shutdown` reason naming only the
      failure's kind, so no crash report carries the file's bytes.
    - Guardian.Rules.Server's state is not redacted: its formatted status and a crash
-     report's state and last message can show rule text (rules can hold secrets,
-     such as a value a SET compares against). Compiled modules hold their execution
+     report's state and last message can show the S3 secret and rule text (rules can
+     hold secrets, such as a value a SET compares against). Compiled modules hold their execution
      levels (typed steps, with canonical source and expression constants) as escaped
      literal data, whose lifetime is bounded by the fixed module pool and normal code
      reclamation. The
@@ -1011,8 +1010,7 @@ Open gaps named above, by boundary:
 Written from the code: the routers, `Guardian.Web.Auth`, `Guardian.Web.Logger`, `Guardian.Web.QueryParseErrors`,
 `Guardian.Web.QueryLog`, `Guardian.Engine`, `lib/guardian/rules`, `Guardian.Cluster`, `Guardian.Query.Limits`, `config/runtime.exs`,
 `rel/env.sh.eex`, `bin/fly-start`, `Dockerfile`, and the Fly guide in this repository,
-and the pinned dependencies `cors_plug` 3.0.3, `anubis_mcp` 2.2.0, and `req` 0.7.5
-(its SigV4 step accepts an MFA for credentials, read from its source). Query
+and the pinned dependencies `cors_plug` 3.0.3, `anubis_mcp` 2.2.0, `req` 0.7.5 and `req_s3` 0.2.5. Query
 regular expressions (`RLIKE`, `replace`) run on OTP's `:re` through `Guardian.Query.Regex`. Statements about Fly's platform
 (volume encryption, private network membership, edge behavior) come from Fly's
 tooling and documentation, not from Guardian's code. Where something was read from a

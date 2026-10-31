@@ -1,33 +1,20 @@
 defmodule Guardian.ObjectStore do
   @moduledoc """
   The generic object-store client: a behaviour for stores of keyed objects with
-  conditional writes, and the functions that call one. `Guardian.ObjectStore.S3` is the
-  S3-compatible implementation (Cloudflare R2, or any S3 API);
-  `Guardian.ObjectStore.Lock` is a lease lock on one key of any store. The layer knows
-  nothing about its callers' keys; a caller may supply its own implementation of the
-  behaviour.
+  conditional writes, and the functions that call one. `Guardian.ObjectStore.S3` is an
+  S3-compatible bucket (Cloudflare R2, or any S3 API), `Guardian.ObjectStore.Local` a
+  local folder; `Guardian.ObjectStore.Lock` is a lease lock on one key of either. The
+  layer knows nothing about its callers' keys.
 
-  A store is `{module, config}`. Results never carry credentials or response bodies:
-  failures are `{:error, reason}` with reason one of
-
-  - `:not_found`, `:precondition_failed` (a conditional request lost)
-  - `{:unreachable, kind}`: could not get an answer, and safe to retry (connection,
-    timeout, a 5xx on a read, or a read rate limited with 429)
-  - `{:misconfigured, kind}`: the store answered that the settings are wrong (bad
-    credentials, missing bucket or folder)
-  - `{:unknown, kind}`: a write whose outcome is unknown (its deadline passed or the
-    connection dropped after sending)
-  - `{:failed, kind}`: the request failed in a known way and did not change the store
-    (a write rate limited with 429, another unexpected status, a local file error)
+  A store is `{module, config}`. A failure is `{:error, :not_found}`,
+  `{:error, :precondition_failed}` (a conditional request lost), or `{:error, message}`
+  for anything else.
   """
 
   @type t :: {module(), term()}
-  @type reason ::
-          :not_found
-          | :precondition_failed
-          | {:unreachable | :misconfigured | :unknown | :failed, String.t()}
+  @type reason :: :not_found | :precondition_failed | String.t()
   @type object :: %{key: String.t(), etag: String.t(), size: non_neg_integer()}
-  @type meta :: %{etag: String.t(), age_ms: integer() | nil}
+  @type meta :: %{etag: String.t(), age_ms: integer()}
   @type condition :: :none | :absent | {:etag, String.t()}
 
   @callback list(term()) :: {:ok, [object()]} | {:error, reason()}
@@ -37,9 +24,6 @@ defmodule Guardian.ObjectStore do
               {:ok, String.t()} | {:error, reason()}
   @callback delete(term(), String.t()) :: :ok | {:error, reason()}
   @callback describe(term()) :: String.t()
-  @callback shared?(term()) :: boolean()
-
-  @optional_callbacks shared?: 1
 
   def list({mod, config}) do
     mod.list(config)
@@ -48,7 +32,7 @@ defmodule Guardian.ObjectStore do
   @doc """
   Gets `key`. With `etag`, only that version: a different one is
   `{:error, :precondition_failed}`. `meta.age_ms` is how long ago the object was last
-  modified, by the store's own clock, or nil when the store did not say.
+  modified, by the store's own clock.
   """
   def get({mod, config}, key, etag \\ nil) do
     mod.get(config, key, etag)
@@ -69,42 +53,5 @@ defmodule Guardian.ObjectStore do
   @doc "A description of the store for logs: its kind and location, never a secret."
   def describe({mod, config}) do
     mod.describe(config)
-  end
-
-  @doc """
-  Whether nodes using this store share objects and coordinate conditional writes.
-
-  Implementations may declare this capability through the optional `shared?/1`
-  callback. Without it, a store is assumed shared for compatibility with existing
-  implementations. This describes the store's guarantees, without probing it.
-  """
-  def shared?({mod, config}) do
-    Code.ensure_loaded!(mod)
-    if function_exported?(mod, :shared?, 1), do: mod.shared?(config), else: true
-  end
-
-  @doc "A message for a failure reason, safe to log and to return to clients."
-  def reason_message(:not_found) do
-    "not found"
-  end
-
-  def reason_message(:precondition_failed) do
-    "changed concurrently"
-  end
-
-  def reason_message({:unreachable, kind}) do
-    "store unreachable (#{kind})"
-  end
-
-  def reason_message({:misconfigured, kind}) do
-    "store misconfigured (#{kind})"
-  end
-
-  def reason_message({:unknown, kind}) do
-    "outcome unknown (#{kind})"
-  end
-
-  def reason_message({:failed, kind}) do
-    "store request failed (#{kind})"
   end
 end

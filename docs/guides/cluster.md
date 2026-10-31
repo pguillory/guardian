@@ -20,8 +20,8 @@ Give every node:
 3. `RELEASE_COOKIE`: the same long random secret on every node, in printable ASCII
    (`openssl rand -base64 48`).
 4. Its own volume. Segment IDs are per node, and nodes never share storage.
-5. If you use rules, the same S3-compatible rule bucket: rule writes to a local
-   folder are refused while nodes are connected ([Rule storage](rules.md)).
+5. If you use rules, the same S3-compatible rule bucket: with local folders, each node
+   would have its own copy of the rules ([Rule storage](rules.md)).
 
 The machines must reach each other on epmd (4369) and the distribution port. Pin that
 port with `GUARDIAN_DIST_PORT`.

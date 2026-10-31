@@ -4,11 +4,10 @@ Rules are files named `<table>/<name>.gsql` (the language is in the
 [product spec](../product/spec.md#51-rules)). Guardian reads them from one store: a
 local folder, or an S3-compatible bucket such as Cloudflare R2. It loads every rule at
 startup and after each write through the MCP rule tools, and never
-reads the store while ingesting. If the store settings are invalid, or the store
-answers that they are wrong, Guardian refuses to start; if it cannot get an answer at
-startup (a mistyped host or a certificate failure included), is rate-limited or gets a
-server error, it keeps retrying and does not come up until the store answers, rather
-than run without its rules.
+reads the store while ingesting. If the store settings are invalid, Guardian refuses to
+start. If a read fails at startup for any other reason (wrong credentials, a missing
+bucket and a mistyped host included), it logs the failure, keeps retrying and does not
+come up until the store answers, rather than run without its rules.
 
 ## Counters with TRACK and LOOKUP
 
@@ -108,8 +107,8 @@ more than 20,000 entries fails to load, so keep only rules there: Guardian refus
 start if the folder is `GUARDIAN_DATA_DIR`, contains it, or is inside its `segments`
 folder.
 
-A folder suits one node only. A node that is connected to others refuses rule writes
-to a local folder, since each node would have its own copy.
+A folder suits one node only: a cluster needs a bucket, or each node would have its own
+copy of the rules. Nothing refuses this for you.
 
 ## An S3-compatible bucket
 
@@ -125,10 +124,10 @@ A cluster needs a bucket, so that every node reads the same rules. Set all four 
 Optionally `GUARDIAN_RULES_S3_REGION` (default `auto`, right for R2) and
 `GUARDIAN_RULES_S3_PREFIX` (default none; a prefix must end in `/`, such as `rules/`,
 and use only letters, digits and `. _ ~ / -`). Guardian lists everything under the
-prefix and gives up past 20 pages (about 20,000 objects), so give rules their own
-bucket or prefix.
+prefix on every load, so give rules their own bucket or prefix.
 Setting only some of the four, or the bucket and `GUARDIAN_RULES_DIR` together,
-refuses startup. Requests use path-style URLs and SigV4 signing.
+refuses startup. Requests use SigV4 signing and path-style URLs (virtual-host style on
+`s3.amazonaws.com`).
 
 The store must support conditional writes (`If-None-Match: *` and `If-Match`), which
 the cluster-wide write lock depends on. R2 and current Amazon S3 do. Give the key

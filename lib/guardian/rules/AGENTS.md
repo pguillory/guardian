@@ -61,14 +61,12 @@ Modules:
 - `Guardian.Rules.Server`: process, startup load, reload, locked writes and
   admission. Nothing re-reads the store on a timer: rules change only through writes,
   which reload every connected node (`docs/changes/rules-no-poll.md`). Owns rule lock
-  policy (key, lease and save margin). The store is a
+  policy (key and lease). The store is a
   `Guardian.ObjectStore` (`lib/guardian/object_store/AGENTS.md`): S3 or a local folder.
   Both list every object; Server and `Guardian.Rules.list_rules/1` apply the rule
   layout (`Guardian.Rules.RuleSet.parse_key/1`). The write lock is a
   `Guardian.ObjectStore.Lock`, tried once: a held lock returns `{:error, :busy}`, with
-  no retry in Rules (the MCP tools retry briefly); stores declaring
-  `ObjectStore.shared?/1` false refuse writes with peers connected. Holds Publisher's
-  pool value and forwards reclamation messages.
+  no retry in Rules (the MCP tools retry briefly). Holds Publisher's pool value and forwards reclamation messages.
 
 ## Rules to keep
 
@@ -79,9 +77,8 @@ Modules:
    `:code.soft_purge/1`. Never `:code.purge/1` a published or retired module.
 3. Atoms stay bounded: module names come only from `Guardian.Rules.Compiler`'s pool. Never
    create an atom from rule text, a table name or a store key.
-4. Credentials never leave `Guardian.ObjectStore.S3` or `Guardian.Rules.Config` (the
-   object store's rule 2). Never log or return a response body, header, request, or
-   a caught exception's message from a store call.
+4. A failed store call is an error to the caller, with the lock released; only boot
+   retries, and it retries any failure.
 5. An event over its limit tells the sender and logs nothing. Validation errors are
    not logged: a message can quote rule text, and an invalid table already shows in
    its events' error and the rule tools' replies, so don't add a log line for it.
@@ -119,7 +116,7 @@ Modules:
 Read the reviewed counter design in `docs/changes/ingest-rules.md` and its follow-up
 change documents before changing any counter semantics.
 
-Tests use `Guardian.Test.Rules`: `with_rules/1` is async-safe on a test's own table,
-`restart_server/2` and `publish_module/2` require `async: false`, and `compile_module/2`
-is async-safe for distinct probe modules. `Guardian.Test.FakeS3`
-checks SigV4 with its own implementation of the canonical request.
+Tests use the one rule store, each on its own tables, through `Guardian.Test.Rules`:
+`with_rules/1` is async-safe on a test's own table, `plant_file/2` of an invalid file,
+`stop_server/0`, `restart_server/0` and `publish_module/2` require `async: false`, and
+`compile_module/2` is async-safe for distinct probe modules.
