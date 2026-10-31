@@ -763,8 +763,7 @@ the mapping, so they occupy page cache, not VM heap, and the kernel pages them i
 queries touch them. After that, the only file it loads is one PersistedSegments has just
 written (section 4.2), so restoring or removing a file on the volume takes effect at
 the next restart (spec section 9 item 6). The boot load logs "Storage: loading N
-segment files" before it starts and "Storage: loaded N segments (M skipped)" when done,
-at info.
+segment files" before it starts, at info.
 
 A file that cannot be loaded (section 4.3, limit 3) is skipped. The segment process
 starts unlinked and validates the file in its `init` (header, column bounds, and each

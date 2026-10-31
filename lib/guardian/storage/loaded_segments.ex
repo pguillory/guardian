@@ -54,7 +54,7 @@ defmodule Guardian.Storage.LoadedSegments do
   def init(_opts) do
     Process.flag(:trap_exit, true)
     :ets.new(__MODULE__, [:named_table, :ordered_set])
-    :ok = load_all_segments_from_disk()
+    load_all_segments_from_disk()
     {:ok, nil}
   end
 
@@ -121,7 +121,7 @@ defmodule Guardian.Storage.LoadedSegments do
   end
 
   # Startup logs a line before it, since loading every file can take long enough to
-  # matter (docs/architecture/system.md, section 4.4), and a summary after.
+  # matter (docs/architecture/system.md, section 4.4).
   defp load_all_segments_from_disk do
     {:ok, filenames} = BlobStore.list(Guardian.Storage.segment_dir())
     warn_about_unparseable_segment_files(filenames)
@@ -133,9 +133,7 @@ defmodule Guardian.Storage.LoadedSegments do
 
     Logger.info("Storage: loading #{length(filenames)} segment files")
 
-    loaded = Enum.count(filenames, &(load_segment_file(&1) == :ok))
-
-    Logger.info("Storage: loaded #{loaded} segments (#{length(filenames) - loaded} skipped)")
+    Enum.each(filenames, &load_segment_file/1)
   end
 
   # Loads a validly named segment file. A file that cannot be loaded is logged and left
@@ -157,11 +155,10 @@ defmodule Guardian.Storage.LoadedSegments do
         :ets.insert(__MODULE__, registration)
         schema = Segment.schema!(segment)
         Schema.add_segment(registration, schema)
-        :ok
 
       # Removed between listing and loading (expiry, deletion, an operator).
       {:error, {:unreadable_segment, {:mmap, :enoent}}} ->
-        :not_found
+        :ok
 
       {:error, {:unreadable_segment, reason}} ->
         Logger.error(
@@ -169,8 +166,6 @@ defmodule Guardian.Storage.LoadedSegments do
             "(#{describe_size(filename)}, #{inspect(reason)}); " <>
             "the file is left in place and the rest of the data stays available"
         )
-
-        :skipped
     end
   end
 
