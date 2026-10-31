@@ -99,6 +99,9 @@ only to check a removed catch goes with it.
 This is the direction for new tests. Many existing tests predate it and are being
 brought in line a category at a time, so don't read the suite as a counterexample.
 
+Tests are async by default. A module is `async: false` only when it truly can't be
+made async, and then it names its one reason (see "Test isolation").
+
 The bulk of tests use the primitives users have: create or modify a rule, store
 events, run a query, and check responses and results. They're clean and async, each on
 its own table, and tests that pick different table names can't interfere. The MCP and
@@ -118,12 +121,22 @@ production through `system_stats`, which records memory, process, port and ETS c
 open file descriptors, segment-file mappings, native columns and resident memory: a
 number rising over time reveals a leak.
 
-Peer VM tests are tagged `:cluster` and excluded by default. Restart and durability
-aren't in the suite: an agent checks by hand (insert, stop, start, query) only when a
-change touches segment lifetimes or persistence.
+The built-in tables `queries`, `query_parse_errors`, `web_requests` and
+`web_responses` are records for ad hoc analysis. Tests don't check what they hold or
+that a write to them happens. (`system_stats`, the leak watch above, stays tested.)
 
-Run `mix test --include cluster` before every deploy. With no CI and the pre-commit
-hook on the default run, that is what keeps the cluster tests from rotting unseen.
+Peer VM tests are tagged `:cluster` and excluded by default. Promises that need a
+server to stop and start, such as a clean shutdown or a restart keeping acknowledged
+rows, are tagged `:lifecycle`: a slow synchronous suite, also excluded by default. Today it
+stops and restarts Storage on a peer and calls the stop callback; it doesn't boot a
+whole server. Segment
+handoffs, retirement and persistence scheduling aren't in the suite: an agent checks by
+hand (insert, stop, start, query) only when a change touches segment lifetimes or
+persistence.
+
+Run `mix test --include cluster --include lifecycle` before every deploy. With no CI
+and the pre-commit hook on the default run, that is what keeps those tests from
+rotting unseen.
 
 A passing run should be simple and fast.
 
@@ -167,11 +180,14 @@ ask every registered mutable segment for its schema and fail after 5 s without a
 answer, so a fake segment in an async test must answer `:schema` promptly, as
 `Guardian.Test.Segments.intercept_append/2`'s does, or be a dead PID.
 
-A module stays `async: false` only when it touches something shared by the whole VM:
-the application env or OS environment, a restart or suspension of an
-application-supervised process, a connected peer node, a scan of every process on the
-node, node-wide counter budgets, the published rule map, log capture that must see
-only its own events, or the system tables. Say which in a one-line comment above `use ExUnit.Case`.
+Every module is `async: true` unless it touches something shared by the whole VM that
+can't be avoided: the OS environment, a connected peer node, the `:lifecycle` suite's
+stops (a VM-wide stopping flag, a peer), node-wide counter budgets, the rule server's
+store and published map, log capture that must see only its own events, or an
+application env setting the code reads instead of taking it as an argument (being
+retired: pass the setting to the function it applies to). Say which in a
+one-line comment above `use ExUnit.Case`. Suspending, restarting or scanning
+application processes is not a reason: such tests go (see "Testing philosophy").
 
 Put new shared test infrastructure under `Guardian.Test.*` in
 `libtest/guardian/test/`, split by concern. Reuse what is there instead of writing a

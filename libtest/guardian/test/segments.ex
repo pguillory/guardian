@@ -1,30 +1,8 @@
 defmodule Guardian.Test.Segments do
   @moduledoc """
   Builds segment fixtures and injects append failures. Tests must isolate their
-  segments, filenames and tables; tests that suspend or replace shared Storage
-  processes require `async: false`.
+  segments, filenames and tables.
   """
-
-  @doc """
-  The ID and process of `table`'s full segment at `index` (by ID order), as queries
-  find it: written and loaded. Until its file is loaded, a full segment also has an
-  in-memory process, and LoadedSegments' periodic scan can load the file at any
-  moment, after which queries read the loaded copy (lookups check it first). A test
-  that suspends or kills the in-memory process would then find queries unaffected.
-  Fails if the segment is never written, as for a mutable segment.
-  """
-  @spec loaded_segment(String.t(), non_neg_integer()) :: {String.t(), pid()}
-  def loaded_segment(table, index) do
-    id = table |> Guardian.Storage.segment_ids() |> Enum.sort() |> Enum.at(index)
-    filename = Guardian.Storage.SegmentFile.filename(table, id)
-    :ok = Guardian.Storage.PersistedSegments.ping()
-    Guardian.Test.Polling.eventually(fn -> File.exists?(filename) end, 30_000)
-    # Loads just this file, with no call timeout (a full rescan is a 5 s call).
-    :ok = Guardian.Storage.LoadedSegments.ensure_loaded(table, id)
-    {:ok, pid} = Guardian.Storage.LoadedSegments.get_segment(id)
-    {:ok, ^pid} = Guardian.Storage.get_segment(id)
-    {id, pid}
-  end
 
   @doc """
   Appends a row that may be nested to `segment`, flattening it first as
@@ -145,19 +123,5 @@ defmodule Guardian.Test.Segments do
       {:EXIT, ^callback_pid, reason} ->
         exit(reason)
     end
-  end
-
-  @doc """
-  Hands off `table`'s mutable segments, as if each had filled; their rows stay readable.
-  An append chooses among a table's mutable segments, so `intercept_append/2`'s fake
-  gets the next append only if it is the only one: call this first for a table that
-  can't be a fresh one, such as a built-in table. The table's writers must be idle.
-  """
-  def hand_off_mutable_segments(table) do
-    for segment <- Guardian.Storage.MutableSegments.get_mutable_segments(table) do
-      :ok = Guardian.Storage.MutableSegments.segment_is_full(table, segment)
-    end
-
-    :ok
   end
 end

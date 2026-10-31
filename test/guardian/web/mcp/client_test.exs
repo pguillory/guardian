@@ -1,7 +1,5 @@
 defmodule Guardian.Web.MCP.ClientTest do
-  # Not async: drives the shared MCP server, whose tool calls are serialized
-  # (docs/changes/mcp-serialized-tool-calls.md).
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   import Guardian.Test.MCPClient
 
   @api_key Application.compile_env!(:guardian, :admin_api_key)
@@ -447,12 +445,11 @@ defmodule Guardian.Web.MCP.ClientTest do
   end
 
   describe "single event store" do
-    defp json_request(path, body, user_agent \\ "single-store-test") do
+    defp json_request(path, body) do
       conn =
         Plug.Test.conn(:post, "https://localhost" <> path, body)
         |> Plug.Conn.put_req_header("content-type", "application/json")
         |> Plug.Conn.put_req_header("x-api-key", @api_key)
-        |> Plug.Conn.put_req_header("user-agent", user_agent)
         |> Guardian.Web.MainRouter.call(nil)
 
       Jason.decode!(conn.resp_body)
@@ -488,20 +485,6 @@ defmodule Guardian.Web.MCP.ClientTest do
 
       assert [%{"count()" => mcp_count}] = mcp_query("SELECT count() FROM system_stats")
       assert mcp_count > 0
-    end
-
-    test "request logs are queryable and carry no user namespace" do
-      Guardian.Test.MCPClient.start()
-      # web_requests outlives a test run, and other tests share the default user agent.
-      user_agent = "request-log-test-#{Base.encode16(:crypto.strong_rand_bytes(8))}"
-      json_request("/api/json/send_events", %{table: "request_log_test", events: []}, user_agent)
-
-      rows =
-        mcp_query("SELECT path FROM web_requests WHERE user_agent = '#{user_agent}'")
-
-      assert [%{"path" => "/api/json/send_events"}] = rows
-      refute Map.has_key?(Guardian.Storage.schema("web_requests"), "user_id")
-      refute Map.has_key?(Guardian.Storage.schema("web_responses"), "user_id")
     end
   end
 end

@@ -5,9 +5,9 @@ defmodule Guardian.Web.MCP.ConcurrencyTest do
   #
   # A telemetry handler on Anubis's tool-call start (which runs in the request's task,
   # before the tool does) holds `query` calls from this test's sessions until the test
-  # releases them, so "slow" is deterministic. The handler is global, so this module
-  # is not async, and it only holds tasks started by the sessions a test registers.
-  use ExUnit.Case, async: false
+  # releases them, so "slow" is deterministic. The handler is global, but it only holds
+  # tasks started by the sessions a test registers, so the module can run async.
+  use ExUnit.Case, async: true
 
   alias Guardian.Test.MCPHTTP
 

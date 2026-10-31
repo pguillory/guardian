@@ -83,10 +83,10 @@ stdin (`mix format -`). The build-only `Guardian.Formatter` plugin in
 This retains Guardian's existing style and makes one invocation pass the check.
 `mix credo` runs exactly one Credo check, `Credo.Check.Readability.MultiAlias`
 (one alias per line, see CONTRIBUTING.md); `.credo.exs` enables nothing else.
-Run the default suite after every change. Tests tagged `:cluster` start peer VMs and
-are excluded by default, so the pre-commit hook doesn't run them. Run
-`mix test --include cluster` before every deploy: with no CI, that is what keeps them
-from rotting unseen. They need `epmd`; the tests start it themselves
+Run the default suite after every change. Tests tagged `:cluster` start peer VMs, and
+tests tagged `:lifecycle` stop and start a server; both are excluded by default, so the
+pre-commit hook doesn't run them. Run `mix test --include cluster --include lifecycle`
+before every deploy: with no CI, that is what keeps them from rotting unseen. They need `epmd`; the tests start it themselves
 when it isn't running, and in a sandbox that blocks that, run `epmd -daemon` first.
 Tests need no external services (no PostgreSQL, Memcached or GeoIP files) and no API
 key of your own: they use their own fixed configuration. Tests tagged `:large`

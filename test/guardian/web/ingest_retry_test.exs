@@ -1,7 +1,7 @@
 defmodule Guardian.Web.IngestRetryTest do
-  # Not async: writes the web_requests and web_responses system tables and uses the
-  # application's shared IngestIdempotency coordinator.
-  use ExUnit.Case, async: false
+  # The application's IngestIdempotency coordinator keys receipts by table and key, and
+  # each test uses its own tables, so tests can't see each other's receipts.
+  use ExUnit.Case, async: true
 
   @api_key Application.compile_env!(:guardian, :admin_api_key)
 

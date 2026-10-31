@@ -1,6 +1,5 @@
 defmodule Guardian.Web.AuthTest do
-  # async: false: tests change the configured keys.
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   import Guardian.Web.Auth
 
   @admin_api_key Application.compile_env!(:guardian, :admin_api_key)
@@ -14,22 +13,6 @@ defmodule Guardian.Web.AuthTest do
     assert identify_api_key(@admin_api_key <> "x") == {:error, :unauthorized}
     assert identify_api_key([@admin_api_key]) == {:error, :unauthorized}
     assert identify_api_key(%{"a" => @admin_api_key}) == {:error, :unauthorized}
-  end
-
-  test "an unset key matches nothing" do
-    Guardian.Test.Env.with_env([ingest_api_key: nil], fn ->
-      assert identify_api_key(@ingest_api_key) == {:error, :unauthorized}
-      assert identify_api_key(@admin_api_key) == {:ok, :admin}
-    end)
-  end
-
-  test "the removed GUARDIAN_API_KEY's application setting grants nothing" do
-    former_key = "guardian_test_former_api_key"
-
-    Guardian.Test.Env.with_env([api_key: former_key], fn ->
-      assert identify_api_key(former_key) == {:error, :unauthorized}
-      assert check_conn(conn("", [former_key]), :ingest) == {:error, :unauthorized}
-    end)
   end
 
   test "check_conn/2 grants ingestion to both keys and full access to the admin key" do

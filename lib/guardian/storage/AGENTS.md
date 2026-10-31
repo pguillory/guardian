@@ -24,8 +24,9 @@ The exceptions:
 
 - `Guardian.Test.Segments.segment_row/2` reads a flat row, for the tests under
   `test/guardian/storage` only.
-- `test/guardian/query/segment_reader_contract_test.exs` tests Segment's reader
-  contract under queries.
+- `test/guardian/query/segment_reader_contract_test.exs` tests that a segment gone
+  before its columns are read fails the query, naming it. Slow and vanishing segments
+  mid-query are checked by hand (`docs/changes/async-default-tests.md`).
 
 Query results are still checked through queries.
 
@@ -98,7 +99,8 @@ even a second failure (there is no further retry). A crash, or an ID that resolv
 to nothing or to the same process, returns the first error.
 This is safe because a segment ID only ever moves to a copy made from the same frozen
 process (its file), whose rows start with the same rows, and query reads are cut to
-the snapshot's row count (proved in `persisted_segment_retirement_test`). Keep it that
+the snapshot's row count (checked by hand since its test went:
+`docs/changes/async-default-tests.md`). Keep it that
 way: never let an ID resolve to a process holding different rows. A side effect:
 `delete_segment` retires the Persisted copy before the Loaded one, so a read on the
 Persisted copy during a delete can retry onto the Loaded copy and return its rows

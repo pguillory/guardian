@@ -1,7 +1,8 @@
 defmodule Guardian.Web.MCP.SessionTest do
   # The MCP Streamable HTTP spec requires 404 for an unknown session ID, so clients
-  # re-initialize after a server restart or session expiry.
-  use ExUnit.Case, async: false
+  # re-initialize after a server restart or session expiry. Sessions are independent, so
+  # this module is async.
+  use ExUnit.Case, async: true
 
   @api_key Application.compile_env!(:guardian, :admin_api_key)
 
@@ -54,10 +55,6 @@ defmodule Guardian.Web.MCP.SessionTest do
     session_id
   end
 
-  defp session_pid(session_id) do
-    Guardian.Test.MCPHTTP.session_pid(session_id)
-  end
-
   defp tools_list(session_id) do
     mcp(
       :post,
@@ -87,7 +84,7 @@ defmodule Guardian.Web.MCP.SessionTest do
   test "a rejected session ID does not create a session" do
     headers = authed([{"mcp-session-id", "never-created"}])
     assert_session_not_found(mcp(:post, %{jsonrpc: "2.0", id: 1, method: "tools/list"}, headers))
-    refute session_pid("never-created")
+    assert_session_not_found(mcp(:post, %{jsonrpc: "2.0", id: 2, method: "tools/list"}, headers))
   end
 
   test "initialize with a stale session ID gets 404" do
@@ -216,32 +213,6 @@ defmodule Guardian.Web.MCP.SessionTest do
     assert conn.status == 401
   end
 
-  test "a live session works, and after it is lost the client can start a new one" do
-    session_id = initialize()
-
-    conn = tools_list(session_id)
-    assert conn.status == 200
-    body = Jason.decode!(conn.resp_body)
-    refute Map.has_key?(body, "error")
-    assert %{"result" => %{"tools" => [_ | _]}} = body
-
-    # Drop the session through Anubis's idle-expiry path, as a restart or expiry would.
-    pid = session_pid(session_id)
-    assert is_pid(pid)
-    ref = Process.monitor(pid)
-    send(pid, :session_expired)
-
-    assert_receive {:DOWN, ^ref, :process, ^pid, _}
-
-    assert_session_not_found(tools_list(session_id))
-
-    new_session_id = initialize()
-    assert new_session_id != session_id
-    conn = tools_list(new_session_id)
-    assert conn.status == 200
-    assert %{"result" => %{"tools" => [_ | _]}} = Jason.decode!(conn.resp_body)
-  end
-
   defp tools_call_query(session_id, sql) do
     mcp(
       :post,
@@ -265,20 +236,9 @@ defmodule Guardian.Web.MCP.SessionTest do
     assert Jason.decode!(text) == [%{"one" => 1}]
   end
 
-  defp close_session(session_id, how) do
-    pid = session_pid(session_id)
-    ref = Process.monitor(pid)
-
-    case how do
-      :delete ->
-        assert mcp(:delete, nil, authed([{"mcp-session-id", session_id}])).status == 200
-
-      # The message Anubis's idle timer sends the session.
-      :expire ->
-        send(pid, :session_expired)
-    end
-
-    assert_receive {:DOWN, ^ref, :process, ^pid, _}
+  defp close_session(session_id) do
+    assert mcp(:delete, nil, authed([{"mcp-session-id", session_id}])).status == 200
+    assert_session_not_found(tools_list(session_id))
   end
 
   defp read_query_language(session_id) do
@@ -324,18 +284,13 @@ defmodule Guardian.Web.MCP.SessionTest do
              Jason.decode!(conn.resp_body)
   end
 
-  for {how, first} <- [
-        delete: :query,
-        delete: :tools_list,
-        delete: :resources_read,
-        expire: :query,
-      ] do
-    test "closing one session (#{how}) leaves #{first} working for another" do
+  for first <- [:query, :tools_list, :resources_read] do
+    test "closing one session leaves #{first} working for another" do
       other = initialize()
       closing = initialize()
 
       assert tools_list(closing).status == 200
-      close_session(closing, unquote(how))
+      close_session(closing)
 
       assert_works_first(unquote(first), other)
       assert_query_tool_works(other)

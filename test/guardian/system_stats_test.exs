@@ -1,6 +1,6 @@
 defmodule Guardian.SystemStatsTest do
-  # Not async: counts rows of the shared system_stats table.
-  use ExUnit.Case, async: false
+  # Other tests only add system_stats rows, so a growing count holds concurrently.
+  use ExUnit.Case, async: true
   import Guardian.SystemStats
 
   test "records system_stats events through normal ingestion" do

@@ -48,7 +48,7 @@ Node naming has three modes, set in `rel/env.sh.eex`: on Fly.io (`FLY_PRIVATE_IP
 `guardian@<private IPv6>`; elsewhere with `GUARDIAN_NODE_HOST`, `guardian@<that
 address>` (IPv6 distribution when it contains `:`); otherwise a single node,
 `guardian@localhost` with epmd and distribution on loopback only. The first two need
-`RELEASE_COOKIE`. With `DNS_CLUSTER_QUERY` set, `Guardian.Cluster.discovery_child_spec/1`
+`RELEASE_COOKIE`. With `DNS_CLUSTER_QUERY` set, `Guardian.Cluster.discovery_child_spec/2`
 refuses at boot a node whose host is not a non-loopback IP written as `:inet.ntoa/1`
 writes it, and queries AAAA or A records to match. Every node in a cluster must run the
 same build: mid rolling deploy, queries can fail until all nodes are upgraded.

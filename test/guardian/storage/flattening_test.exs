@@ -1,5 +1,5 @@
 defmodule Guardian.Storage.FlatteningTest do
-  use ExUnit.Case
+  use ExUnit.Case, async: true
   import Guardian.Storage.Flattening
 
   defp assert_flatten_event(event, expected) do

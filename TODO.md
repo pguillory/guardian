@@ -550,6 +550,17 @@ privately, not in this repository.
       category at a time; the decided supervisor-tree kills are gone, and the other
       categories are pending Preston's decisions (`docs/changes/test-rules.md`)
 
+- [x] async-default-tests: the normal `mix test` is async by default; system-table,
+      suspend and peek tests go, and stop/start promises move to the excluded
+      `:lifecycle` suite (`docs/changes/async-default-tests.md`)
+- [ ] test-settings-as-data: tests that put query limits, the heap limit, S3
+      timeouts, counter budgets or the persisted segment cache window in the
+      application env, and the runtime config tests' OS environment, keep their
+      modules sync; each awaits Preston's decision (`docs/changes/async-default-tests.md`)
+- [ ] lifecycle-whole-application: the `:lifecycle` suite stops and starts Storage on
+      a peer; booting and stopping the whole application on a peer would cover clean
+      shutdown end to end
+
 - [x] persisted-segment-test-synchronization: wait for fixture creation through task
       completion instead of a 1 s message deadline; preserve segment lifetime and
       verify the retained row (`docs/changes/persisted-segment-test-synchronization.md`)

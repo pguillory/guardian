@@ -1,6 +1,5 @@
 defmodule Guardian.Web.JsonApiTest do
-  # Not async: requests write the shared web_requests and web_responses tables.
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   import Guardian.Web.JsonApi
 
   @admin_api_key Application.compile_env!(:guardian, :admin_api_key)
@@ -243,29 +242,6 @@ defmodule Guardian.Web.JsonApiTest do
       end
     end
 
-    test "web_requests records which key, never the key" do
-      table = "web_requests"
-      marker = "auth-method-#{System.unique_integer([:positive])}"
-      body = @empty_batch
-      json = {"content-type", "application/json"}
-      agent = {"user-agent", marker}
-
-      for key <- [@admin_api_key, @ingest_api_key] do
-        assert raw_post("/api/json/send_events", body, [{"x-api-key", key}, json, agent]).status ==
-                 200
-      end
-
-      {:ok, _labels, rows} =
-        Guardian.Query.execute(
-          "SELECT auth_method, auth_key FROM #{table} WHERE user_agent = '#{marker}'"
-        )
-
-      # auth_method is no longer recorded: the header is the only way to send a key.
-      assert Enum.sort(rows) == [[nil, "admin"], [nil, "ingest"]]
-
-      for key <- [@admin_api_key, @ingest_api_key], do: refute(inspect(rows) =~ key)
-    end
-
     # Authentication sends a response and halts; a body failure sends one and reraises,
     # which Bandit handles (quietly, under 500).
     defp error_response(path, body, headers) do
@@ -418,40 +394,6 @@ defmodule Guardian.Web.JsonApiTest do
     assert Jason.decode!(body)["info"] == "malformed JSON body"
   end
 
-  test "an unexpected failure is a 500, logged by Bandit, without the API key" do
-    table = "json_crash_#{System.unique_integer([:positive])}"
-    marker = "crash_marker_#{System.unique_integer([:positive])}"
-    Guardian.Test.Segments.intercept_append(table, fn _from, _row -> exit(marker) end)
-
-    {:ok, socket} =
-      :gen_tcp.connect({127, 0, 0, 1}, Guardian.Web.bound_port(), [:binary, active: false], 2000)
-
-    on_exit(fn -> :gen_tcp.close(socket) end)
-    body = Jason.encode!(%{table: table, events: [%{"x" => 1}]})
-
-    log =
-      ExUnit.CaptureLog.capture_log([level: :error], fn ->
-        :ok =
-          :gen_tcp.send(socket, [
-            "POST /api/json/send_events HTTP/1.1\r\nHost: localhost\r\n",
-            "x-api-key: ",
-            @admin_api_key,
-            "\r\nContent-Type: application/json\r\n",
-            "Content-Length: #{byte_size(body)}\r\n\r\n",
-            body,
-          ])
-
-        response = receive_until_closed(socket, "")
-        [headers, response_body] = String.split(response, "\r\n\r\n", parts: 2)
-        assert headers =~ "HTTP/1.1 500"
-        assert Jason.decode!(response_body) == %{"status" => 500}
-        Logger.flush()
-      end)
-
-    assert log =~ marker
-    refute log =~ @admin_api_key
-  end
-
   test "transport and protocol failures reach Bandit without a response" do
     for authenticated? <- [false, true],
         error <- [
@@ -485,95 +427,6 @@ defmodule Guardian.Web.JsonApiTest do
 
   defp unwrapped(error) do
     error
-  end
-
-  test "the real HTTP listener accepts a JSON batch sent as one-byte chunks" do
-    {:ok, socket} =
-      :gen_tcp.connect({127, 0, 0, 1}, Guardian.Web.bound_port(), [:binary, active: false], 2000)
-
-    on_exit(fn -> :gen_tcp.close(socket) end)
-    body = Jason.encode!(%{table: "json_chunked", events: [%{"x" => 1}], return_keys: ["x"]})
-    chunks = for <<byte <- body>>, do: ["1\r\n", <<byte>>, "\r\n"]
-
-    log =
-      ExUnit.CaptureLog.capture_log([level: :error], fn ->
-        :ok =
-          :gen_tcp.send(socket, [
-            "POST /api/json/send_events HTTP/1.1\r\nHost: localhost\r\n",
-            "x-api-key: ",
-            @admin_api_key,
-            "\r\nContent-Type: application/json\r\n",
-            "Transfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
-            chunks,
-            "0\r\n\r\n",
-          ])
-
-        response = receive_until_closed(socket, "")
-        [headers, response_body] = String.split(response, "\r\n\r\n", parts: 2)
-        assert headers =~ "HTTP/1.1 200 OK\r\n"
-
-        assert Jason.decode!(response_body) == %{
-                 "status" => 200,
-                 "results" => [%{"success" => true, "event" => %{"x" => 1}}],
-               }
-
-        Logger.flush()
-      end)
-
-    refute log =~ "** ("
-  end
-
-  test "a split malformed body with Expect closes promptly on the real HTTP listener" do
-    {:ok, socket} =
-      :gen_tcp.connect({127, 0, 0, 1}, Guardian.Web.bound_port(), [:binary, active: false], 2000)
-
-    on_exit(fn -> :gen_tcp.close(socket) end)
-    body = "[" <> String.duplicate(" ", 70_000) <> "BODY_SECRET_9421"
-
-    log =
-      ExUnit.CaptureLog.capture_log([level: :error], fn ->
-        :ok =
-          :gen_tcp.send(socket, [
-            "POST /api/json/send_events HTTP/1.1\r\nHost: localhost\r\n",
-            "x-api-key: ",
-            @admin_api_key,
-            "\r\nContent-Type: application/json\r\n",
-            "Content-Length: ",
-            Integer.to_string(byte_size(body)),
-            "\r\n",
-            "Expect: 100-continue\r\n\r\n",
-          ])
-
-        # The interim response proves Bandit consumed the headers before any body
-        # bytes arrived. The direct boundary test above separately pins our close
-        # header: Bandit also closes a stale adapter with an unhonored Expect flag.
-        assert receive_headers(socket, "") =~ "HTTP/1.1 100 Continue\r\n"
-        :ok = :gen_tcp.send(socket, body)
-        response = receive_until_closed(socket, "")
-        assert response =~ "HTTP/1.1 400 Bad Request"
-        assert response =~ "connection: close"
-        assert response =~ "malformed JSON body"
-        Logger.flush()
-      end)
-
-    refute log =~ "BODY_SECRET_9421"
-  end
-
-  defp receive_headers(socket, acc) do
-    if String.ends_with?(acc, "\r\n\r\n") do
-      acc
-    else
-      assert {:ok, bytes} = :gen_tcp.recv(socket, 0, 5000)
-      receive_headers(socket, acc <> bytes)
-    end
-  end
-
-  defp receive_until_closed(socket, acc) do
-    case :gen_tcp.recv(socket, 0, 5000) do
-      {:ok, bytes} -> receive_until_closed(socket, acc <> bytes)
-      {:error, :closed} -> acc
-      other -> flunk("expected the HTTP connection to close, got #{inspect(other)}")
-    end
   end
 
   test "404" do

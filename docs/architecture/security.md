@@ -704,7 +704,7 @@ Invariants and argument:
    without Storage readiness checks (5.1.9), so a visible non-Guardian peer can own
    keys that then fail open. Membership is therefore exactly invariants 1 and 2.
 4. A misnamed node fails at boot rather than silently never joining: with
-   `DNS_CLUSTER_QUERY` set, `Guardian.Cluster.discovery_child_spec/1` refuses a node whose host
+   `DNS_CLUSTER_QUERY` set, `Guardian.Cluster.discovery_child_spec/2` refuses a node whose host
    is not an IP literal, is loopback, or is not written exactly as `:inet.ntoa/1`
    writes it (`2001:db8::1`, not an expanded form). This is a correctness check, not
    an admission control.

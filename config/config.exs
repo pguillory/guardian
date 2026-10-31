@@ -33,7 +33,7 @@ if config_env() == :test do
   # query can do reaches. Releases call Guardian.Query directly.
   config :guardian, Guardian.Web.Query, query_backend: Guardian.Test.Web.QueryBackend
 
-  # Many tests send malformed queries; the hourly cap has its own test.
+  # Many tests send malformed queries; keep them under the hourly cap.
   config :guardian, query_parse_errors_per_hour: 1_000_000
 
   config :logger, level: :warning

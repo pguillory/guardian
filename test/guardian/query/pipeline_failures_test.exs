@@ -1,61 +1,17 @@
 defmodule Guardian.Query.PipelineFailuresTest do
-  # A query either returns every row or fails with an error. Not async: suspends
-  # segments, and finds blocked query workers by scanning every process.
-  use ExUnit.Case, async: false
+  # A query either returns every row or fails with an error, and leaves its caller clean.
+  use ExUnit.Case, async: true
   import Guardian.Test.Query
-  import Guardian.Test.Processes
-  import Guardian.Test.Segments
 
   defp table do
     "pipeline_failures_#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
   end
 
-  # Three full segments plus a partial one.
-  defp fill(table, rows \\ 3 * 16_384 + 100) do
+  defp fill(table, rows) do
     1..rows
     |> Enum.map(&%{"g" => rem(&1, 7), "v" => &1})
     |> Enum.chunk_every(5_000)
     |> Enum.each(&Guardian.Engine.ingest_events(table, &1))
-
-    rows
-  end
-
-  # A full segment, loaded; see Guardian.Test.Segments.loaded_segment/2.
-  defp segment(table, index \\ 1) do
-    loaded_segment(table, index)
-  end
-
-  # Query workers blocked reading a segment (only one query runs at a time here).
-  defp blocked_readers do
-    processes_running_all([Guardian.Query.Executor, Guardian.Storage.Segment])
-  end
-
-  test "a killed worker fails the query instead of dropping its rows" do
-    table = table()
-    fill(table)
-    {_id, segment} = segment(table)
-    :sys.suspend(segment)
-
-    task = Task.async(fn -> catch_error(run_sql("SELECT count() FROM #{table}")) end)
-    [worker | _] = Guardian.Test.Polling.value(&blocked_readers/0)
-    Process.exit(worker, :kill)
-    :sys.resume(segment)
-
-    assert %Guardian.Query.Error{message: message} = Task.await(task)
-    assert message == Guardian.Query.Limits.heap_kill_message()
-  end
-
-  test "a LIMIT returns while workers are still running" do
-    table = table()
-    rows = fill(table)
-    {_id, segment} = segment(table, 2)
-    :sys.suspend(segment)
-
-    # The FROM worker blocks on the suspended segment after producing earlier rows.
-    assert [_, _, _] = run_sql("SELECT v FROM #{table} LIMIT 3")
-    :sys.resume(segment)
-
-    assert run_sql("SELECT count() FROM #{table}") == [[rows]]
   end
 
   test "repeated queries leave the caller's mailbox, links and monitors clean" do

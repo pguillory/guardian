@@ -52,7 +52,10 @@ defmodule Guardian.Test.Cluster do
     {peer, peer_node}
   end
 
-  defp stop_on_exit(peer) do
+  @doc """
+  Stops `peer` when the calling test exits; also safe if the test stopped it.
+  """
+  def stop_on_exit(peer) do
     ExUnit.Callbacks.on_exit(fn ->
       try do
         :peer.stop(peer)
@@ -139,6 +142,16 @@ defmodule Guardian.Test.Cluster do
     end
 
     {peer, node}
+  end
+
+  @doc """
+  Stops Storage on a peer started with a data root, the way it stops when its server
+  shuts down: its supervisor stops its children in order, so mutable segments are handed
+  off and persisted first. The peer itself keeps running; stop it with `:peer.stop/1`
+  afterwards, which halts it without running any shutdown.
+  """
+  def stop_storage(peer_node) do
+    :ok = :erpc.call(peer_node, Supervisor, :stop, [Guardian.Storage, :normal, :infinity])
   end
 
   @doc false

@@ -37,7 +37,8 @@ Guardian runs Anubis 2.x (pinned exactly in mix.exs). Each MCP session is its ow
 process, and each request runs in its own task, so sessions never wait for each other;
 requests within one session run one at a time. Wire behavior is pinned in
 `test/guardian/web/mcp/` (`wire_test.exs`, `session_test.exs`, `body_test.exs`),
-concurrency in `concurrency_test.exs`, and cancellation in `cancellation_test.exs`.
+and concurrency in `concurrency_test.exs`. Cancellation has no test: it could only be
+observed by holding the request inside Guardian, which tests don't do.
 Anything below that names an Anubis internal must be rechecked on an Anubis upgrade,
 and the wire compared before and after (status, headers and whole bodies).
 
