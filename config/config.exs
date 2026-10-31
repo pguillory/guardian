@@ -40,6 +40,12 @@ if config_env() == :test do
   # Many tests send malformed queries; keep them under the hourly cap.
   config :guardian, query_parse_errors_per_hour: 1_000_000
 
+  # The query heap limit (Guardian.Query.Limits.max_heap_mb/0) for the whole test run:
+  # query processes, pipeline workers, the large-value replace helper and rule workers.
+  # Production's is the fixed 256 MiB default. 16 MiB is about the lowest the suite
+  # passes under, with headroom (docs/changes/test-heap-limit.md). No test changes it.
+  config :guardian, query_max_heap_mb: 16
+
   config :logger, level: :warning
 end
 

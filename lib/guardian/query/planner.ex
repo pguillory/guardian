@@ -7,34 +7,40 @@ defmodule Guardian.Query.Planner do
   alias Guardian.AST.Node.Literal
   alias Guardian.AST.Node.Statements.SelectStatement
   alias Guardian.Aggregation
+  alias Guardian.Query.Limits
 
-  def query_plan(
-        %SelectStatement{order_by_exprs: order_by_exprs, limit_expr: limit_expr} = statement
-      )
-      when limit_expr != nil and order_by_exprs != nil do
+  @doc """
+  The plan's steps for a top-level SELECT. A statement without LIMIT is planned as if it
+  had `LIMIT 10000` (`Guardian.Query.Limits.max_result_rows/0`). Only here: the
+  statements planning builds inside (HAVING's two halves) are not limited.
+  """
+  def query_plan(%SelectStatement{limit_expr: nil} = statement) do
+    plan_steps(%{statement | limit_expr: %Literal{value: Limits.max_result_rows()}})
+  end
+
+  def query_plan(%SelectStatement{} = statement) do
+    plan_steps(statement)
+  end
+
+  defp plan_steps(
+         %SelectStatement{order_by_exprs: order_by_exprs, limit_expr: limit_expr} = statement
+       )
+       when limit_expr != nil and order_by_exprs != nil do
     {sort_exprs, directions} = split_order_by(order_by_exprs)
     statement = update_in(statement.select_exprs, &(sort_exprs ++ &1))
     statement = put_in(statement.order_by_exprs, nil)
     statement = put_in(statement.limit_expr, nil)
     # Plan the rest first, so its errors come first.
-    query_plan(statement) ++ [{:order_by_limit, directions, limit!(limit_expr)}]
+    plan_steps(statement) ++ [{:order_by_limit, directions, limit!(limit_expr)}]
   end
 
-  def query_plan(%SelectStatement{limit_expr: limit_expr} = statement) when limit_expr != nil do
+  defp plan_steps(%SelectStatement{limit_expr: limit_expr} = statement) when limit_expr != nil do
     statement = put_in(statement.limit_expr, nil)
-    query_plan(statement) ++ [{:limit, limit!(limit_expr)}]
+    plan_steps(statement) ++ [{:limit, limit!(limit_expr)}]
   end
 
-  def query_plan(%SelectStatement{order_by_exprs: order_by_exprs} = statement)
-      when order_by_exprs != nil do
-    {sort_exprs, directions} = split_order_by(order_by_exprs)
-    statement = update_in(statement.select_exprs, &(sort_exprs ++ &1))
-    statement = put_in(statement.order_by_exprs, nil)
-    query_plan(statement) ++ [{:order_by, directions}]
-  end
-
-  def query_plan(%SelectStatement{having_expr: having_expr} = statement)
-      when having_expr != nil do
+  defp plan_steps(%SelectStatement{having_expr: having_expr} = statement)
+       when having_expr != nil do
     {old_exprs, keys, new_exprs} =
       [having_expr | statement.select_exprs]
       |> Enum.flat_map(&aggregate_exprs/1)
@@ -55,12 +61,12 @@ defmodule Guardian.Query.Planner do
       where_expr: substitute(having_expr, old_exprs, new_exprs),
     }
 
-    query_plan(statement1) ++
-      [{:reassemble_segments, Enum.zip(keys, old_exprs)}] ++ query_plan(statement2)
+    plan_steps(statement1) ++
+      [{:reassemble_segments, Enum.zip(keys, old_exprs)}] ++ plan_steps(statement2)
   end
 
-  def query_plan(%SelectStatement{group_by_exprs: group_by_exprs} = statement)
-      when group_by_exprs != nil do
+  defp plan_steps(%SelectStatement{group_by_exprs: group_by_exprs} = statement)
+       when group_by_exprs != nil do
     reselect_required =
       Enum.any?(statement.select_exprs, fn expr ->
         aggregate_exprs(expr) != [expr]
@@ -72,7 +78,7 @@ defmodule Guardian.Query.Planner do
         | having_expr: %Literal{value: true},
       }
 
-      query_plan(statement1)
+      plan_steps(statement1)
     else
       {aggregate_args, aggregate_names_and_arities} =
         Enum.map(statement.select_exprs, fn
@@ -107,49 +113,51 @@ defmodule Guardian.Query.Planner do
           group_by_exprs: nil,
       }
 
-      query_plan(statement1) ++
+      plan_steps(statement1) ++
         [{:group_by, statement.group_by_exprs, aggregate_names_and_arities}] ++ default_step
     end
   end
 
-  def query_plan(%SelectStatement{select_exprs: select_exprs, where_expr: where_expr} = statement)
-      when select_exprs != nil and where_expr != nil do
+  defp plan_steps(
+         %SelectStatement{select_exprs: select_exprs, where_expr: where_expr} = statement
+       )
+       when select_exprs != nil and where_expr != nil do
     if Enum.any?(select_exprs, &has_aggregate_function_call/1) do
-      query_plan(%SelectStatement{
+      plan_steps(%SelectStatement{
         statement
         | group_by_exprs: [%Literal{value: nil}],
       })
     else
       statement = put_in(statement.select_exprs, nil)
       statement = put_in(statement.where_expr, nil)
-      query_plan(statement) ++ [{:select_where, select_exprs, where_expr}]
+      plan_steps(statement) ++ [{:select_where, select_exprs, where_expr}]
     end
   end
 
-  def query_plan(%SelectStatement{where_expr: where_expr} = statement) when where_expr != nil do
+  defp plan_steps(%SelectStatement{where_expr: where_expr} = statement) when where_expr != nil do
     statement1 = %SelectStatement{
       statement
       | select_exprs: [where_expr | statement.select_exprs],
         where_expr: nil,
     }
 
-    query_plan(statement1) ++ [{:where, where_expr}]
+    plan_steps(statement1) ++ [{:where, where_expr}]
   end
 
-  def query_plan(%SelectStatement{select_exprs: select_exprs} = statement)
-      when select_exprs != nil do
+  defp plan_steps(%SelectStatement{select_exprs: select_exprs} = statement)
+       when select_exprs != nil do
     if Enum.any?(select_exprs, &has_aggregate_function_call/1) do
-      query_plan(%SelectStatement{
+      plan_steps(%SelectStatement{
         statement
         | group_by_exprs: [%Literal{value: nil}],
       })
     else
       statement1 = %SelectStatement{statement | select_exprs: nil}
-      query_plan(statement1) ++ [{:select, select_exprs}]
+      plan_steps(statement1) ++ [{:select, select_exprs}]
     end
   end
 
-  def query_plan(%SelectStatement{from_expr: %Literal{value: "_stream"}} = statement) do
+  defp plan_steps(%SelectStatement{from_expr: %Literal{value: "_stream"}} = statement) do
     statement = %SelectStatement{statement | from_expr: nil}
 
     # Assert all other fields null.
@@ -157,7 +165,7 @@ defmodule Guardian.Query.Planner do
     []
   end
 
-  def query_plan(%SelectStatement{from_expr: %Identifier{} = from_expr} = statement) do
+  defp plan_steps(%SelectStatement{from_expr: %Identifier{} = from_expr} = statement) do
     statement = %SelectStatement{statement | from_expr: nil}
 
     # Assert all other fields null.
@@ -166,7 +174,7 @@ defmodule Guardian.Query.Planner do
     [{:from, from_expr}]
   end
 
-  def query_plan(%SelectStatement{from_expr: nil = from_expr} = statement) do
+  defp plan_steps(%SelectStatement{from_expr: nil = from_expr} = statement) do
     # Assert all other fields null.
     ^statement = %SelectStatement{}
 

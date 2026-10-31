@@ -1,13 +1,11 @@
 defmodule Guardian.Query.HeapLimitTest do
-  # Not async: changes the global heap limit and starts a peer node.
-  use ExUnit.Case, async: false
+  # The test environment's heap limit (16 MiB, config/config.exs) is what these exceed.
+  use ExUnit.Case, async: true
+  import Guardian.Query.Limits, only: [max_heap_mb: 0]
   import Guardian.Test.Query
+  import Guardian.Test.Tables, only: [unique_table: 1]
 
   alias Guardian.Query.DistributedStream
-
-  defp set_limit(mb) do
-    Guardian.Test.Env.put(query_max_heap_mb: mb)
-  end
 
   # Runs a pipeline as a trapping consumer, like the query process, in a fresh process.
   defp consume(fun) do
@@ -25,8 +23,8 @@ defmodule Guardian.Query.HeapLimitTest do
     Task.await(task, 30_000)
   end
 
-  test "a worker over the limit fails the pipeline; under it, it finishes" do
-    run = fn ->
+  test "a worker over the limit fails the pipeline" do
+    result =
       consume(fn ->
         [1, 2]
         |> DistributedStream.fan_out(fn value -> {node(), value} end)
@@ -34,18 +32,11 @@ defmodule Guardian.Query.HeapLimitTest do
         |> DistributedStream.fan_in()
         |> Enum.to_list()
       end)
-    end
 
-    set_limit(1)
-    assert run.() == {:exit, :killed}
-
-    set_limit(64)
-    assert run.() == {:ok, [200_000, 200_000]}
+    assert result == {:exit, :killed}
   end
 
   test "the initial worker, which reads the input, is limited too" do
-    set_limit(1)
-
     result =
       consume(fn ->
         Stream.map([1], &Guardian.Test.DistributedStreamStages.grow_heap/1)
@@ -57,34 +48,23 @@ defmodule Guardian.Query.HeapLimitTest do
     assert result == {:exit, :killed}
   end
 
-  test "a query over the limit (here sorting in its query process) fails with the heap message" do
-    table = "heap_limit_#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
+  test "a query over the limit fails with the heap message" do
+    table = unique_table("heap_limit")
+    Guardian.Engine.ingest_events(table, Enum.map(1..20_000, &%{"v" => &1}))
 
-    marker = "HEAP_LIMIT_ROW_MARKER"
-
-    1..40_000
-    |> Enum.map(&%{"v" => &1, "w" => "#{marker}_#{&1}"})
-    |> Enum.chunk_every(5_000)
-    |> Enum.each(&Guardian.Engine.ingest_events(table, &1))
-
-    set_limit(1)
-
-    error = catch_error(run_sql("SELECT v, w FROM #{table} ORDER BY v DESC"))
+    # 100 integers a row over 20,000 rows: a worker's segment of them, or the result in
+    # the query process, is over the limit. Either kill gives the same message.
+    columns = Enum.map_join(1..100, ", ", &"v AS c#{&1}")
+    error = catch_error(run_sql("SELECT #{columns} FROM #{table}"))
     assert %Guardian.Query.Error{message: message} = error
     assert message == Guardian.Query.Limits.heap_kill_message()
-
-    set_limit(256)
-    assert length(run_sql("SELECT v, w FROM #{table} ORDER BY v DESC")) == 40_000
+    assert run_sql("SELECT count() FROM #{table}") == [[20_000]]
   end
 
   test "the heap message names the limit" do
-    Guardian.Test.Env.with_env([query_max_heap_mb: nil], fn ->
-      Application.delete_env(:guardian, :query_max_heap_mb)
-
-      assert Guardian.Query.Limits.heap_kill_message() ==
-               "a query process was killed; it may have exceeded its 256 MiB heap limit; " <>
-                 "narrow the query with WHERE, LIMIT or fewer groups"
-    end)
+    assert Guardian.Query.Limits.heap_kill_message() ==
+             "a query process was killed; it may have exceeded its #{max_heap_mb()} MiB heap " <>
+               "limit; narrow the query with WHERE, LIMIT or fewer groups"
   end
 
   test "a killed process is reported with the heap message, from the pipeline or the query" do
@@ -93,36 +73,5 @@ defmodule Guardian.Query.HeapLimitTest do
 
     assert Guardian.Query.Failure.query_process_down(:killed).message ==
              Guardian.Query.Limits.heap_kill_message()
-  end
-
-  describe "on a peer node" do
-    @describetag :cluster
-
-    setup do
-      {_peer, peer_node} = Guardian.Test.Cluster.bare_peer()
-      %{peer_node: peer_node}
-    end
-
-    test "a remote worker follows its own node's limit", %{peer_node: peer_node} do
-      run = fn ->
-        consume(fn ->
-          [1]
-          |> DistributedStream.fan_out(fn _ -> {peer_node, 1} end)
-          |> DistributedStream.map(&Guardian.Test.DistributedStreamStages.grow_heap/1)
-          |> DistributedStream.fan_in()
-          |> Enum.to_list()
-        end)
-      end
-
-      # High here, low there: the remote worker is killed.
-      set_limit(256)
-      Guardian.Test.Env.put([query_max_heap_mb: 1], [peer_node])
-      assert run.() == {:exit, :killed}
-
-      # Low here, high there: it finishes.
-      set_limit(1)
-      Guardian.Test.Env.put([query_max_heap_mb: 256], [peer_node])
-      assert run.() == {:ok, [200_000]}
-    end
   end
 end

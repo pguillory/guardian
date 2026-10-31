@@ -5,23 +5,20 @@ defmodule Guardian.Query.Executor do
   alias Guardian.Query.DistributedStream
   alias Guardian.Query.Evaluation
   alias Guardian.Query.Evaluation.SegmentSnapshot
-  alias Guardian.Query.Limits
   alias Guardian.Query.Planner
   alias Guardian.Query.Sorting
   alias Guardian.Query.WorkerErrors
   alias Guardian.Storage.Column
 
   @doc """
-  Plans a SELECT, runs each step of the plan, and returns the rows, capped by
-  `Guardian.Query.Limits.cap_rows/1`. Runs in the query process, the consumer of the plan's
-  DistributedStream pipeline; worker exceptions are reported to `errors`, a
-  `Guardian.Query.WorkerErrors` collector.
+  Plans a SELECT, runs each step of the plan, and returns the rows. Runs in the query
+  process, the consumer of the plan's DistributedStream pipeline; worker exceptions are
+  reported to `errors`, a `Guardian.Query.WorkerErrors` collector.
   """
   def run(statement, errors) do
     statement
     |> Planner.query_plan()
     |> Enum.reduce(nil, &step(&1, &2, errors))
-    |> Limits.cap_rows()
     |> Enum.to_list()
   end
 
@@ -149,29 +146,19 @@ defmodule Guardian.Query.Executor do
     end)
   end
 
-  defp step({:order_by, directions}, stream, _errors) do
-    # Sorted in memory here, so cap its input, not only the result.
-    stream
-    |> Limits.cap_rows()
-    |> Sorting.sort(directions)
-    |> Sorting.drop_prefix(directions)
-  end
-
   defp step({:limit, limit}, stream, _errors) do
     Stream.take(stream, limit)
   end
 
   defp step({:order_by_limit, directions, limit}, stream, _errors) do
-    Limits.check_sorted_limit!(limit)
-
     stream
     |> DistributedStream.fan_out()
     |> DistributedStream.transform(fn stream ->
       Sorting.sort_limit(stream, directions, limit)
     end)
+    # Streamed, so this process holds about the limit plus one chunk, not every
+    # worker's top rows at once.
     |> DistributedStream.fan_in()
-    |> Limits.cap_rows()
-    |> Enum.to_list()
     |> Sorting.sort_limit(directions, limit)
     |> Sorting.drop_prefix(directions)
   end
