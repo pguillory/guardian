@@ -556,10 +556,12 @@ privately, not in this repository.
 - [x] async-default-tests: the normal `mix test` is async by default; system-table,
       suspend and peek tests go, and stop/start promises move to the excluded
       `:lifecycle` suite (`docs/changes/async-default-tests.md`)
-- [ ] test-settings-as-data: tests that put query limits, S3
-      timeouts, counter budgets or the persisted segment cache window in the
-      application env, and the runtime config tests' OS environment, keep their
-      modules sync; each awaits Preston's decision (`docs/changes/async-default-tests.md`)
+- [ ] test-settings-as-data: tests that put query limits, S3 timeouts or counter
+      budgets in the application env keep their modules sync; each awaits Preston's
+      decision (`docs/changes/async-default-tests.md`)
+- [x] drop-startup-tests: the runtime config tests and the persisted segment cache
+      window's invalid-value test are gone; startup code is unchanged
+      (`docs/changes/drop-startup-tests.md`)
 - [x] rules-startup-lifecycle: the Rules.Server tests about startup run in the
       `:lifecycle` suite (`docs/changes/rules-startup-lifecycle.md`)
 - [ ] lifecycle-whole-application: the `:lifecycle` suite stops and starts Storage on

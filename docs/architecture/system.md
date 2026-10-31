@@ -1430,7 +1430,7 @@ these except through the variables above:
 | `rules_store` | from the variables above | `Guardian.Rules.Config` (tests set a store directly) |
 | `rules_time_limit_ms`, `rules_reclaim_after_ms`, `rules_lock_lease_ms`, `rules_save_margin_ms` | 1,000; 30,000; 120,000; 80,000 | `lib/guardian/rules` (tests shorten them) |
 | `object_store_s3_receive_timeout_ms`, `object_store_s3_write_deadline_ms` | 15,000; 20,000 | `Guardian.ObjectStore.S3` (tests shorten them) |
-| `persisted_segment_cache_ms` | 600,000 | `Guardian.Storage.PersistedSegments`: how long a written segment's in-memory copy serves before it is stopped (tests shorten it); a value that is not a positive integer stops Storage from starting |
+| `persisted_segment_cache_ms` | 600,000 | `Guardian.Storage.PersistedSegments`: how long a written segment's in-memory copy serves before it is stopped; a value that is not a positive integer stops Storage from starting |
 
 Constants in code that act like configuration: segment capacity 16,384 rows and 64 MiB
 budget (`Guardian.Storage.Segment`), 15-day retention (`Guardian.Storage.SegmentExpiration`), 60-second

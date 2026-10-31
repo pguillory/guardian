@@ -182,7 +182,7 @@ answer, so a fake segment in an async test must answer `:schema` promptly, as
 `Guardian.Test.Segments.intercept_append/2`'s does, or be a dead PID.
 
 Every module is `async: true` unless it touches something shared by the whole VM that
-can't be avoided: the OS environment, a connected peer node, the `:lifecycle` suite's
+can't be avoided: a connected peer node, the `:lifecycle` suite's
 stops (a VM-wide stopping flag, a peer), node-wide counter budgets, the rule server's
 store and published map, log capture that must see only its own events, or an
 application env setting the code reads instead of taking it as an argument (being
