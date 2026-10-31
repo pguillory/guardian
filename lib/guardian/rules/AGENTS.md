@@ -54,8 +54,7 @@ Modules:
 - `Guardian.Rules.Event`: what a compiled module gets besides the row: the event's
   private `Guardian.Counters.Arrival` (Unix/monotonic arrival coordinates outside
   the row, which Engine captures before validation) and the typed Counters.Context
-  that Runner adds under Event.counters on worker entry, sharing one batch atomics
-  budget across replacement workers.
+  that Runner adds under Event.counters on worker entry.
 - `Guardian.Rules.Runner`: runs a batch in a worker under the heap limit, 1 s per event.
 - `Guardian.Rules.Config`: chooses the store from the environment.
 - `Guardian.Rules.Server`: process, startup load, reload, locked writes and

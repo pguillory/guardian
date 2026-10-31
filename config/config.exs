@@ -29,6 +29,10 @@ if config_env() == :test do
   # Internal compile-time test seam, not an operator setting. Releases call Store directly.
   config :guardian, Guardian.Counters.Transport, store_backend: Guardian.Test.Counters.Backend
 
+  # Same kind of seam: a slow healthy call under host load must not silently give a
+  # default count, and this stays under Runner's 1 s row limit. Releases use 50 ms.
+  config :guardian, Guardian.Counters.Context, call_timeout_ms: 500
+
   # Same kind of seam: lets a test make the query path exit or throw, which nothing a
   # query can do reaches. Releases call Guardian.Query directly.
   config :guardian, Guardian.Web.Query, query_backend: Guardian.Test.Web.QueryBackend

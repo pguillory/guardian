@@ -124,9 +124,8 @@ including a rule-store outage.
 Counters are advisory and ephemeral, with one owner per definition/group. Restarts,
 eviction, partitions and cluster membership changes can lose/split counts. Every
 failed counter statement defaults its whole result, then other rules/UNSETs run.
-SET/UNSET failures still reject the event. Calls wait at most 50 ms within a 100 ms
-event phase and 250 ms shared failed-wait batch allowance; suspect owners cool down
-for one second. Healthy calls refund the batch allowance. Only definite CAS conflicts
+SET/UNSET failures still reject the event. Each call waits at most 50 ms, which a slow
+or stalled owner can repeat across a whole request. Only definite CAS conflicts
 retry (three total attempts), never uncertain writes or entire events. There is no
 rollback: a later rule/storage failure can leave increments. Unkeyed retries count
 again. Completed matching same-node idempotency-key retries skip rules for ten

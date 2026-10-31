@@ -7,10 +7,8 @@ defmodule Guardian.Counters.ClientPeerTest do
   @moduletag :cluster
   import Guardian.Counters.Client
   import Guardian.Test.Counters.Client, only: [batch_one: 2, key: 0, key: 1, named: 2]
-  alias Guardian.Counters.Budget
   alias Guardian.Counters.Store
   alias Guardian.Counters.Transport
-  alias Guardian.Test.Counters.Budget, as: CounterBudgetHelper
 
   setup_all do
     {_peer, peer_node} = Guardian.Test.Cluster.bare_peer()
@@ -22,18 +20,11 @@ defmodule Guardian.Counters.ClientPeerTest do
 
   setup do
     store = start_supervised!({Store, name: nil})
-    start_supervised!({Budget, name: :counter_client_peer_test})
     %{store: store}
   end
 
-  defp event(batch, store, opts) do
-    new_event(
-      batch,
-      Keyword.merge(
-        [store: store, members: [node()], cooldown_table: :counter_client_peer_test],
-        opts
-      )
-    )
+  defp event(store, opts) do
+    new_event(Keyword.merge([store: store, members: [node()]], opts))
   end
 
   defp owned_key(owner, members) do
@@ -43,12 +34,11 @@ defmodule Guardian.Counters.ClientPeerTest do
   end
 
   test "a batch across owners answers each operation in place", %{peer_node: peer} do
-    CounterBudgetHelper.relax([peer])
     members = [node(), peer]
     local_key = owned_key(node(), members)
     remote_key = owned_key(peer, members)
 
-    context = event(CounterBudgetHelper.batch(5), Store, members: members)
+    context = event(Store, members: members)
     :ok = :erpc.call(peer, Store, :add, [remote_key, "remote", 5_000, now(peer), []])
     :ok = Store.add(local_key, "local", 5_000, now(), [])
 
@@ -58,7 +48,7 @@ defmodule Guardian.Counters.ClientPeerTest do
            ) == [{:ok, "remote"}, {:ok, "local"}, {:error, :invalid_request}, {:ok, "remote"}]
   end
 
-  test "the renamed remote endpoint preserves batch replies and duration bounds", %{
+  test "the remote endpoint preserves batch replies and refuses bad durations", %{
     peer_node: peer,
   } do
     remote_key = key({"remote-endpoint"})
@@ -70,7 +60,7 @@ defmodule Guardian.Counters.ClientPeerTest do
            ]) ==
              {:ok, [:not_found]}
 
-    for duration <- [0, -1, 51, 1.0, nil] do
+    for duration <- [0, -1, 1.0, nil] do
       assert :erpc.call(peer, Transport, :remote_operation, [
                {:batch, [{:incr, remote_key, 1, 1_000}]},
                Store,
@@ -85,25 +75,18 @@ defmodule Guardian.Counters.ClientPeerTest do
     store: store,
     peer_node: peer,
   } do
-    CounterBudgetHelper.relax([peer])
-
-    batch = CounterBudgetHelper.batch(5)
-
     for {server, members} <- [{store, [node()]}, {Store, [peer]}],
         value <- [{:error, :unavailable}, [{:error, :timeout}, {:error, :unavailable}]] do
-      context = event(batch, server, members: members)
+      context = event(server, members: members)
       stored_key = key({System.unique_integer([:positive])})
       assert batch_one({:add, stored_key, value, 5_000}, context) == :ok
       assert batch_one({:get, stored_key}, context) == {:ok, value}
       assert {:ok, ^value, _token} = batch_one({:gets, stored_key}, context)
-      assert CounterBudgetHelper.remaining_us(batch) == CounterBudgetHelper.allowance_us(5)
-      assert :ets.tab2list(:counter_client_peer_test) == []
     end
   end
 
   test "peer get/gets/add/CAS/incr carry native terms and integer tokens", %{peer_node: peer} do
-    CounterBudgetHelper.relax([peer])
-    context = event(CounterBudgetHelper.batch(5), Store, members: [peer])
+    context = event(Store, members: [peer])
     key = key({System.unique_integer([:positive])})
     value = %{nested: [nil, 1, 1.0, {"native", true}]}
     assert batch_one({:add, key, value, 5_000}, context) == :ok
@@ -177,39 +160,27 @@ defmodule Guardian.Counters.ClientPeerTest do
 
   test "booting and lost owners fail immediately without readiness or failover", %{store: store} do
     {peer, booting} = Guardian.Test.Cluster.bare_peer()
-    # The refusal and the cooldown it marks do not depend on the call budget; a larger
-    # one only keeps a cold peer's first call from timing out under host load.
+    # Keeps a cold peer's first call from timing out under host load.
     :ok = :erpc.call(booting, Guardian.Test.Counters.Client, :preload, [])
-    CounterBudgetHelper.relax([booting])
-    context = event(CounterBudgetHelper.batch(5), Store, members: [booting])
+    context = event(Store, members: [booting])
     assert batch_one({:incr, key(), 1, 5_000}, context) == {:error, :unavailable}
-    assert batch_one({:get, key()}, context) == {:error, :cooldown}
     :ok = :peer.stop(peer)
-    lost = event(context.batch, store, members: [booting])
-    assert batch_one({:get, key()}, lost) in [{:error, :unavailable}, {:error, :cooldown}]
+    lost = event(store, members: [booting])
+    assert batch_one({:get, key()}, lost) == {:error, :unavailable}
     assert Store.get(key(), now(), server: store) == :not_found
   end
 
-  test "large healthy local and peer batches never spend the failure budget", %{
+  test "many calls on local and peer owners all answer", %{
     store: store,
     peer_node: peer,
   } do
-    # A healthy call is refunded in full whatever it reserved, so a larger budget does
-    # not change what this checks; it keeps a slow healthy call from timing out.
-    CounterBudgetHelper.relax([peer])
-
     for {target, members} <- [{store, [node()]}, {Store, [peer]}] do
-      batch = CounterBudgetHelper.batch(5)
       key = key({System.unique_integer([:positive])})
 
       for n <- 1..300 do
-        context =
-          event(batch, target, members: members)
-
+        context = event(target, members: members)
         assert batch_one({:incr, key, 1, 30_000}, context) == {:ok, n}
       end
-
-      assert CounterBudgetHelper.remaining_us(batch) == CounterBudgetHelper.allowance_us(5)
     end
   end
 

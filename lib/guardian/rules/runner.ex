@@ -13,8 +13,7 @@ defmodule Guardian.Rules.Runner do
   The worker reads the table's compiled module once per row (`Guardian.Rules.lookup/1`), so a
   reload between rows applies to the rows after it; each row sees one rule set.
   Arrival coordinates come from Engine before validation, outside caller row data.
-  One failed-counter-wait budget lives outside replaceable workers; each event
-  snapshots membership and starts its own counter phase on entry to the worker.
+  Each event snapshots membership on entry to the worker.
 
   Outcomes: `{:ok, row}`, or `{:error, message}` for a row over a limit or with invalid
   rules, which must not be stored.
@@ -35,19 +34,17 @@ defmodule Guardian.Rules.Runner do
 
   @doc false
   def run_with_metadata(table, rows) do
-    batch = Guardian.Counters.Client.new_batch()
-
     rows
     |> Enum.with_index()
-    |> run_from(table, [], batch)
+    |> run_from(table, [])
     |> Enum.reverse()
   end
 
-  defp run_from([], _table, acc, _batch) do
+  defp run_from([], _table, acc) do
     acc
   end
 
-  defp run_from(rows, table, acc, batch) do
+  defp run_from(rows, table, acc) do
     caller = self()
     ref = make_ref()
 
@@ -56,28 +53,28 @@ defmodule Guardian.Rules.Runner do
         limit_heap()
 
         Enum.each(rows, fn {{row, arrival}, index} ->
-          event = Guardian.Rules.Event.start(arrival, batch)
+          event = Guardian.Rules.Event.start(arrival)
           send(caller, {ref, index, apply_rules(table, row, event)})
         end)
       end)
 
-    collect(rows, table, acc, ref, pid, monitor, batch)
+    collect(rows, table, acc, ref, pid, monitor)
   end
 
-  defp collect([], _table, acc, _ref, _pid, monitor, _batch) do
+  defp collect([], _table, acc, _ref, _pid, monitor) do
     Process.demonitor(monitor, [:flush])
     acc
   end
 
-  defp collect([{_row, index} | rest], table, acc, ref, pid, monitor, batch) do
+  defp collect([{_row, index} | rest], table, acc, ref, pid, monitor) do
     receive do
       {^ref, ^index, result} ->
-        collect(rest, table, [result | acc], ref, pid, monitor, batch)
+        collect(rest, table, [result | acc], ref, pid, monitor)
 
       # The heap limit. The time limit below flushes this message, so it never lands here.
       {:DOWN, ^monitor, :process, ^pid, :killed} ->
         flush(ref)
-        run_from(rest, table, [over_limit(table) | acc], batch)
+        run_from(rest, table, [over_limit(table) | acc])
 
       {:DOWN, ^monitor, :process, ^pid, reason} ->
         exit(reason)
@@ -86,7 +83,7 @@ defmodule Guardian.Rules.Runner do
         Process.exit(pid, :kill)
         Process.demonitor(monitor, [:flush])
         flush(ref)
-        run_from(rest, table, [over_limit(table) | acc], batch)
+        run_from(rest, table, [over_limit(table) | acc])
     end
   end
 

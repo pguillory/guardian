@@ -6,37 +6,17 @@ defmodule Guardian.Counters.ClientTest do
   use ExUnit.Case, async: true
   import Guardian.Counters.Client
   import Guardian.Test.Counters.Client, only: [batch_one: 2, key: 0, key: 1, key: 2, named: 2]
-  alias Guardian.Counters.Budget
   alias Guardian.Counters.Store
   alias Guardian.Counters.Transport
-  alias Guardian.Test.Counters.Budget, as: CounterBudgetHelper
+  alias Guardian.Test.Counters.ProbeStore
 
   setup do
     store = start_supervised!({Store, name: nil})
-    start_supervised!({Budget, name: :counter_client_test})
     %{store: store}
   end
 
   defp event(store, opts \\ []) do
-    event(new_batch(), store, opts)
-  end
-
-  defp event(batch, store, opts) do
-    new_event(
-      batch,
-      Keyword.merge(
-        [store: store, members: [node()], cooldown_table: :counter_client_test],
-        opts
-      )
-    )
-  end
-
-  # For tests of results, not budgets: scaled budgets (1 s calls, a 10 s event) on a
-  # batch of five calls, so a healthy call under host load is not cut off by
-  # production's 250 ms batch allowance or by an event shared across calls.
-  defp healthy_event(store) do
-    {options, batch} = CounterBudgetHelper.healthy()
-    event(batch, store, options)
+    new_event(Keyword.merge([store: store, members: [node()]], opts))
   end
 
   defp route({identity, group, _bucket}) do
@@ -63,44 +43,12 @@ defmodule Guardian.Counters.ClientTest do
       assert named(%{one: operation}, context) ==
                %{one: {:error, :invalid_request}}
     end
-
-    assert CounterBudgetHelper.remaining_us(context.batch) == 250_000
-    assert :ets.lookup(:counter_client_test, node()) == []
-  end
-
-  test "malformed anchored expiries are refused before budget and cooldown admission", %{
-    store: store,
-  } do
-    context = event(store)
-    CounterBudgetHelper.batch(context.batch, 0)
-
-    operations = %{
-      incr: {:incr, key(), 1, {:expires, nil}},
-      add: {:add, key(), 1, {:expires, "bad"}},
-      cas: {:cas, key(), 1, 1, {:expires, "bad"}},
-    }
-
-    errors = %{
-      incr: {:error, :invalid_request},
-      add: {:error, :invalid_request},
-      cas: {:error, :invalid_request},
-    }
-
-    assert named(operations, context) == errors
-    assert CounterBudgetHelper.remaining_us(context.batch) == 0
-
-    CounterBudgetHelper.batch(context.batch, 5)
-    cooldown = {node(), System.monotonic_time(:microsecond) + 10_000_000}
-    :ets.insert(:counter_client_test, cooldown)
-    assert named(operations, context) == errors
-    assert CounterBudgetHelper.remaining_us(context.batch) == 250_000
-    assert :ets.lookup(:counter_client_test, node()) == [cooldown]
   end
 
   test "malformed anchored writes leave healthy siblings and integer expiries intact", %{
     store: store,
   } do
-    context = healthy_event(store)
+    context = event(store)
     expiry = System.monotonic_time(:millisecond) + 60_000
     incr_key = key({}, 2)
     add_key = key({}, 3)
@@ -124,20 +72,15 @@ defmodule Guardian.Counters.ClientTest do
              expired: {:error, :expired},
            }
 
-    assert Store.get(key(), now(), server: store) == :not_found
-    assert Store.get(incr_key, now(), server: store) == {:ok, 2}
-    assert Store.get(add_key, now(), server: store) == {:ok, 3}
-
-    assert CounterBudgetHelper.remaining_us(context.batch) ==
-             CounterBudgetHelper.healthy_allowance_us(:scaled, 5)
-
-    assert :ets.lookup(:counter_client_test, node()) == []
+    assert batch_one({:get, key()}, context) == :not_found
+    assert batch_one({:get, incr_key}, context) == {:ok, 2}
+    assert batch_one({:get, add_key}, context) == {:ok, 3}
   end
 
   test "batch keeps each response at its operation's position around expired writes", %{
     store: store,
   } do
-    context = healthy_event(store)
+    context = event(store)
     live = System.monotonic_time(:millisecond) + 60_000
     elapsed = live - 120_000
 
@@ -160,12 +103,9 @@ defmodule Guardian.Counters.ClientTest do
                {:error, :expired},
              ]
 
-    assert Store.get(key({}, 1), now(), server: store) == :not_found
+    assert batch_one({:get, key({}, 1)}, context) == :not_found
 
-    assert CounterBudgetHelper.remaining_us(context.batch) ==
-             CounterBudgetHelper.healthy_allowance_us(:scaled, 5)
-
-    # With every write expired nothing dispatches, and the reservation is refunded.
+    # With every write expired nothing dispatches.
     expired = [
       {:incr, key({}, 6), 1, {:expires, elapsed}},
       {:incr, key({}, 7), 1, {:expires, elapsed}},
@@ -173,33 +113,17 @@ defmodule Guardian.Counters.ClientTest do
 
     assert batch(expired, context) == [{:error, :expired}, {:error, :expired}]
 
-    assert Store.get(key({}, 6), now(), server: store) == :not_found
-
-    assert CounterBudgetHelper.remaining_us(context.batch) ==
-             CounterBudgetHelper.healthy_allowance_us(:scaled, 5)
-
-    assert :ets.lookup(:counter_client_test, node()) == []
+    assert batch_one({:get, key({}, 6)}, context) == :not_found
   end
 
-  test "an owner's pipeline keeps input order above 32 operations" do
-    parent = self()
+  test "an owner's pipeline keeps input order above 32 operations", %{store: store} do
+    context = event(store)
 
-    probe =
-      start_supervised!(
-        {Guardian.Test.Counters.ProbeStore,
-         {:pipeline,
-          fn ops ->
-            send(parent, {:pipeline, ops})
-            {:ok, Enum.map(ops, fn {:get, {_, _, bucket}} -> {:ok, bucket} end)}
-          end}}
-      )
+    assert batch(for(n <- 1..40, do: {:add, key({}, n), n, 5_000}), context) ==
+             List.duplicate(:ok, 40)
 
-    ops = for n <- 1..40, do: {:get, key({}, n)}
-
-    context = healthy_event({Guardian.Test.Counters.ProbeStore, probe})
-
-    assert batch(ops, context) == for(n <- 1..40, do: {:ok, n})
-    assert_receive {:pipeline, ^ops}
+    assert batch(for(n <- 1..40, do: {:get, key({}, n)}), context) ==
+             for(n <- 1..40, do: {:ok, n})
   end
 
   test "the remote endpoint refuses scalar operations", %{store: store} do
@@ -210,10 +134,7 @@ defmodule Guardian.Counters.ClientTest do
     assert Store.get(key(), now(), server: store) == :not_found
   end
 
-  test "malformed pipeline replies are charged consistently and never escape as exceptions" do
-    # A malformed reply is charged its elapsed wait and never marks cooldown whatever
-    # the call reserved, so a larger budget does not change what this checks; it keeps
-    # the 2 ms reply from timing out under host load.
+  test "malformed pipeline replies never escape as exceptions" do
     responses = [
       {:ok, []},
       {:ok, [:not_found | :improper]},
@@ -222,32 +143,25 @@ defmodule Guardian.Counters.ClientTest do
     ]
 
     for {response, index} <- Enum.with_index(responses) do
-      store =
+      probe =
         start_supervised!(
-          {Task,
-           fn ->
-             receive do
-               {:"$gen_call", from, _} ->
-                 Process.sleep(2)
-                 GenServer.reply(from, response)
-             end
-
-             Process.sleep(:infinity)
-           end},
+          {ProbeStore, {:pipeline, fn _operations -> response end}},
           id: {:malformed, index}
         )
 
-      context =
-        healthy_event({Guardian.Test.Counters.ProbeStore, store})
+      context = event({ProbeStore, probe})
 
       assert named(%{a: {:get, key()}}, context) ==
                %{a: {:error, :invalid_response}}
-
-      assert CounterBudgetHelper.remaining_us(context.batch) <
-               CounterBudgetHelper.healthy_allowance_us(:scaled, 5)
-
-      assert :ets.lookup(:counter_client_test, node()) == []
     end
+  end
+
+  test "a store that doesn't answer gives a timeout" do
+    probe =
+      start_supervised!({ProbeStore, {:pipeline, fn _operations -> Process.sleep(:infinity) end}})
+
+    context = event({ProbeStore, probe}, timeout_ms: 10)
+    assert batch_one({:get, key()}, context) == {:error, :timeout}
   end
 
   test "phash2 rendezvous is order-independent and only moves to an added member" do
@@ -298,17 +212,17 @@ defmodule Guardian.Counters.ClientTest do
   end
 
   test "atom group terms route and store", %{store: store} do
-    context = healthy_event(store)
+    context = event(store)
     atom_key = key({:group})
 
     assert batch_one({:incr, atom_key, 1, 5_000}, context) == {:ok, 1}
-    assert Store.get(atom_key, now(), server: store) == {:ok, 1}
+    assert batch_one({:get, atom_key}, context) == {:ok, 1}
   end
 
   test "local native operations preserve nil, tokens, colocation and definite errors", %{
     store: store,
   } do
-    context = healthy_event(store)
+    context = event(store)
     assert batch_one({:add, key(), nil, 5_000}, context) == :ok
     assert {:ok, nil, token} = batch_one({:gets, key()}, context)
     assert batch_one({:cas, key(), token, 7, 5_000}, context) == :ok
@@ -322,7 +236,6 @@ defmodule Guardian.Counters.ClientTest do
 
     assert batch_one({:add, key({}, 3), "text", 5_000}, context) == :ok
     assert batch_one({:incr, key({}, 3), 1, 5_000}, context) == {:error, :not_integer}
-    assert :ets.lookup(:counter_client_test, node()) == []
   end
 
   # Store operations take the current local monotonic milliseconds as data.

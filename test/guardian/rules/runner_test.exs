@@ -2,8 +2,6 @@ defmodule Guardian.Rules.RunnerTest do
   # Not async: publish_module replaces the published map, which Rules.Server also writes.
   use ExUnit.Case, async: false
   import Guardian.Test.Rules
-  alias Guardian.Counters.Arrival
-  alias Guardian.Test.Counters.Budget, as: CounterBudgetHelper
 
   defp ingest(table, events) do
     Guardian.Engine.ingest_events(table, events)
@@ -60,41 +58,8 @@ defmodule Guardian.Rules.RunnerTest do
         {:metadata, self(), row, event}
       )
 
-      # Past the worker's heap limit: Runner fails this row and starts a new worker.
-      if row["over_heap_limit"] do
-        CounterBudgetHelper.charge_us(event.counters.batch, 50_000)
-        Map.put(row, "list", Enum.to_list(1..10_000_000))
-      else
-        row
-      end
+      row
     end
-  end
-
-  test "Runner preserves batch reservations and arrival coordinates through worker replacement" do
-    table = unique_table("counter_worker_metadata")
-    publish_module(table, MetadataRules)
-    Guardian.Test.Env.put(counter_metadata_observer: self(), query_max_heap_mb: 4)
-    first = Arrival.now()
-    second = %{first | unix_ms: first.unix_ms + 1}
-
-    assert [{:error, _}, {:ok, %{"ok" => true}}] =
-             Guardian.Rules.run_with_metadata(table, [
-               {%{"over_heap_limit" => true}, first},
-               {%{"ok" => true}, second},
-             ])
-
-    assert_receive {:metadata, first_worker, _, one}
-    assert_receive {:metadata, second_worker, _, two}
-    assert %Guardian.Counters.Context{} = one.counters
-    assert %Guardian.Counters.Context{} = two.counters
-    refute first_worker == second_worker
-    assert one.arrival == first
-    assert two.arrival == second
-    assert one.arrival.monotonic_ms == two.arrival.monotonic_ms
-    assert one.counters.batch == two.counters.batch
-    assert CounterBudgetHelper.remaining_us(two.counters.batch) == 200_000
-    assert two.counters.members == [node() | Node.list()]
-    assert two.counters.deadline > one.counters.deadline
   end
 
   test "Engine arrival metadata stays outside caller rows and is never stored" do
@@ -119,13 +84,10 @@ defmodule Guardian.Rules.RunnerTest do
     assert_receive {:metadata, _, ^spoofed, private}
     assert private.arrival.unix_ms >= before
     assert private.arrival.unix_ms <= System.system_time(:millisecond)
-    assert is_reference(private.counters.batch)
-    assert_receive {:metadata, _, %{}, second}
-    assert second.counters.batch == private.counters.batch
+    assert_receive {:metadata, _, %{}, _second}
     assert MapSet.new(Guardian.Storage.dump_table(table)) == MapSet.new([spoofed, %{}])
-    # The convenience entry captures its own private arrival and batch context.
+    # The convenience entry captures its own private arrival.
     assert [{:ok, %{}}] = Guardian.Rules.run(table, [%{}])
-    assert_receive {:metadata, _, %{}, direct}
-    refute direct.counters.batch == private.counters.batch
+    assert_receive {:metadata, _, %{}, _direct}
   end
 end

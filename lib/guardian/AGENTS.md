@@ -23,8 +23,8 @@ prefix. Keep the Mix application and its configuration under `:guardian`.
   a memory budget (`lib/guardian/counters/AGENTS.md`); Rules runs TRACK/LOOKUP through
   `Guardian.Counters.Execution` using bounded owner routing and fail-open defaults.
 - `Guardian.Counters.Client`: facade for batched counter calls; internal Transport owns routing
-  and bounded dispatch, and supervised Budget owns reservations, deadlines and cooldowns.
-- `Guardian.Counters.Restarter`: owns the disposable Store/Budget supervisor and recovers
+  and bounded dispatch, with one per-call timeout.
+- `Guardian.Counters.Restarter`: owns the disposable Store supervisor and recovers
   it with backoff, so counter crash loops cannot exhaust Guardian.Application's restart intensity.
 - `Guardian.Storage`: custom columnar segment storage.
 - `Guardian.Query`: plans and executes SQL-like queries. `Guardian.Query.Limits` holds the per-query

@@ -1,6 +1,5 @@
 defmodule Guardian.Rules.CounterIngestTest do
-  # Not async: real ingest with TRACK runs on the node-wide counter budgets, relaxed here.
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
   import Guardian.Test.Rules
   alias Guardian.Counters.Store
 
@@ -43,7 +42,6 @@ defmodule Guardian.Rules.CounterIngestTest do
   end
 
   test "HTTP and MCP return LOOKUP=49/TRACK=50, SET decisions and historical stored fields" do
-    Guardian.Test.Counters.Budget.relax()
     Guardian.Test.MCPClient.start()
 
     for interface <- [:http, :mcp] do
@@ -143,7 +141,6 @@ defmodule Guardian.Rules.CounterIngestTest do
   end
 
   test "cross-table lookups preserve typed/null groups and all enabled aggregate operators" do
-    Guardian.Test.Counters.Budget.relax()
     table = unique_table("live_aggregates")
     reader = unique_table("live_aggregate_reader")
 
@@ -184,7 +181,6 @@ defmodule Guardian.Rules.CounterIngestTest do
   end
 
   test "a count outside int64 is refused where the event is stored, keeping the rest" do
-    Guardian.Test.Counters.Budget.relax()
     table = unique_table("live_counter_int64")
     with_rules(%{"#{table}/r.gsql" => "TRACK hits = count() LAST '1h'; SET seen = true"})
     definition = track(table).definition
@@ -198,7 +194,6 @@ defmodule Guardian.Rules.CounterIngestTest do
   end
 
   test "unkeyed resubmissions count twice; completed HTTP/MCP keyed retries return only a receipt" do
-    Guardian.Test.Counters.Budget.relax()
     Guardian.Test.MCPClient.start()
     table = unique_table("live_counter_retry")
     with_rules(%{"#{table}/r.gsql" => "TRACK hits = count() LAST '1h'"})
@@ -222,55 +217,7 @@ defmodule Guardian.Rules.CounterIngestTest do
     assert length(Guardian.Storage.dump_table(table)) == 4
   end
 
-  @tag :cluster
-  test "a peer owner counts concurrent events, and a peer with no store gives the missing result" do
-    table = unique_table("live_counter_peer")
-
-    with_rules(%{
-      "#{table}/r.gsql" =>
-        "TRACK hits = count() BY g LAST '1h'; LOOKUP prior = hits BY g; UNSET secret",
-    })
-
-    {_peer, peer_node} = Guardian.Test.Cluster.bare_peer()
-    assert {:ok, _} = :erpc.call(peer_node, Guardian.Test.Counters.Client, :start_store, [])
-    Guardian.Test.Counters.Client.await_ready(peer_node)
-    # Connected, with the code loaded, as a peer still booting: no store is running.
-    {_booting, booting_node} = Guardian.Test.Cluster.bare_peer()
-    :ok = :erpc.call(booting_node, Guardian.Test.Counters.Client, :preload, [])
-    # One slow call under host load would default a count.
-    Guardian.Test.Counters.Budget.relax([peer_node, booting_node])
-    identity = track(table).definition.identity
-    members = [node(), peer_node, booting_node]
-
-    group_owned_by = fn owner ->
-      Enum.find(
-        1..1_000,
-        &(Guardian.Counters.Transport.owner({identity, {&1}}, members) == owner)
-      )
-    end
-
-    group = group_owned_by.(peer_node)
-
-    results =
-      1..60
-      |> Task.async_stream(fn _ -> ingest(table, [%{"g" => group}]) end, max_concurrency: 4)
-      |> Enum.map(fn {:ok, [{:ok, row}]} -> row["hits"] end)
-
-    # Concurrent arrivals can straddle buckets: individual reads are not a snapshot.
-    # The following sequential event proves every update was counted.
-    assert Enum.all?(results, &(is_integer(&1) and &1 in 1..60))
-    assert [{:ok, %{"hits" => 61, "prior" => 60}}] = ingest(table, [%{"g" => group}])
-
-    assert [{:ok, row}] =
-             ingest(table, [%{"g" => group_owned_by.(booting_node), "secret" => "private"}])
-
-    assert %{"hits" => 0, "prior" => 0} = row
-    refute Map.has_key?(row, "secret")
-  end
-
   test "invalid counter writes save nothing and valid counters execute through generated modules" do
-    # Not about budgets: a larger one keeps healthy counter calls from timing out under load.
-    Guardian.Test.Counters.Budget.relax()
     table = unique_table("counter_reject")
     remove_on_exit(table)
 

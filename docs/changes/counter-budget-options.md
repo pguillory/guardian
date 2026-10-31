@@ -2,6 +2,9 @@
 
 Status: implemented.
 
+Superseded by [counter-budget-removal.md](counter-budget-removal.md): the budgets and
+their test seam are gone.
+
 Product spec impact: none. No statements change in overview.md or spec.md. Production
 counter budgets, caps, cooldowns and results are unchanged, and no `lib/` behavior
 changes.

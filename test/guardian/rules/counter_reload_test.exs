@@ -1,14 +1,8 @@
 defmodule Guardian.Rules.CounterReloadTest do
-  # Not async: relaxes the node-wide counter budgets.
+  # Not async: restarts the rule server and plants invalid rule files, which every
+  # concurrent write would report.
   use ExUnit.Case, async: false
   import Guardian.Test.Rules
-
-  setup do
-    # No test here is about budgets: a larger one keeps healthy counter calls from
-    # timing out under load.
-    Guardian.Test.Counters.Budget.relax()
-    :ok
-  end
 
   # Makes the store hold `files`, of the files this test has loaded, and reloads.
   defp load(files) do

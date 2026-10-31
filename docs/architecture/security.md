@@ -479,32 +479,22 @@ and no single request that takes the service down or destroys stored data.
    with aggregate defaults and continue, so final UNSETs still remove secrets;
    anything that raises fails closed. Arrival coordinates are captured before
    validation, outside caller-writable fields, and are never automatically stored.
-   Runner holds the shared failed-wait budget outside replaceable workers.
    Compiled dependency levels batch counters through per-key machines. Store
    pipelines contain at most 4,000 operations and check the queued deadline before
-   each. Owner calls reserve independently and run concurrently; pending owners
-   wait for refunds within the same event deadline. Pipeline errors retain the
+   each. Owner calls run concurrently. Pipeline errors retain the
    whole-statement default and no-rollback policy; no uncertain write is replayed.
    `Guardian.Counters.Client` delegates routing and bounded dispatch to internal
    `Guardian.Counters.Transport`; its `remote_operation/3` endpoint sends native terms
    to one owner through the fully trusted Erlang
    distribution boundary (section 6), without another API or authorization layer.
-   It captures connected members without readiness RPCs. Calls are bounded at
-   50 ms, within a 100 ms event phase and a shared 250 ms failed-wait batch budget.
-   An internal application-env test seam replaces the first two, including the
-   remote endpoint's bound; nothing outside tests sets it, and values other than
-   positive integers keep the defaults (`docs/changes/counter-test-budgets.md`).
-   Killed callers retain reservations conservatively. A guard kills its linked
-   RPC worker even under distribution flow control, and caller cleanup revokes
+   It captures connected members without readiness RPCs. Each call is bounded at
+   50 ms; the test build compiles in a longer timeout, and releases can't change it. A
+   guard kills its linked RPC worker even under distribution flow control, and caller cleanup revokes
    aliases and flushes replies. Remote endpoints translate remaining duration
    onto their own clocks; already dispatched mutations can still complete late.
-   `Guardian.Counters.Budget` owns reservations/deadlines and a separate member-keyed
-   ETS cooldown that suppresses unavailable owners for a second,
-   and timed-out owners only with at least 25 ms allowance; definite failures and
-   budget skips never mark owners. No group keys or values are retained there.
    An unreachable owner's RPC failures become fixed error atoms; a raise on the owner
    crashes the rule worker.
-   Store and Budget have a disposable supervisor whose linked lifecycle owner
+   Store has a disposable supervisor whose linked lifecycle owner
    traps its exits and retries with backoff; counter crash loops cannot exhaust
    Guardian.Application's restart intensity. The owner's down/recovery messages use only fixed
    reason categories, never arbitrary exit/startup terms; its formatted status is not
@@ -525,7 +515,7 @@ Counter-specific limits:
   headroom for temporary overshoot, housekeeping's row copies and the rest of the
   VM; a VM crash dump can include counter ETS too (7.2).
 - Untrusted high-cardinality BY inputs can fill the shared memory budget and evict
-  other groups, or trigger stalls/cooldowns. A SET decision based on a default count
+  other groups, or trigger stalls. A SET decision based on a default count
   can then fail open; it is an advisory signal, not a durable security limit.
 - Top-N counters have no cap on n. A huge n makes each event's reads and CAS writes
   proportional to n, and Store's payload check measures external size, which is
@@ -539,9 +529,11 @@ Counter-specific limits:
   or appear in later computed fields. Distribution is fully trusted and unencrypted.
 - WHERE false/null preserves caller-supplied outputs. Apply a counter unconditionally
   or explicitly set the skipped output before trusting it as a decision.
-- Healthy responses refund the batch failure allowance; slow successful calls can
-  accumulate up to the per-event phase across a large batch. The 250 ms allowance
-  is not an end-to-end request deadline.
+- Nothing but each row's rule time limit bounds total counter waiting. With a stalled,
+  connected peer, one ingest request can wait about 50 ms times levels times rows, which
+  on a large batch is minutes, holding its idempotency claim meanwhile (TODO.md). That
+  makes MCP's 30 s call timeout and its error log of the call easier to reach, with an
+  admin key and a stalled peer: about 600 rows at one level.
 
 1. Regular expressions run in the VM, bounded but not cheap. `RLIKE` and `replace`
    run caller patterns on Erlang's `:re` (PCRE2, part of OTP), not in a NIF of
@@ -906,7 +898,7 @@ Where data goes:
      timed-out or missing server into an error without logging the exit reason, which
      carries the message. Proc_lib and supervisor reports (which include the message
      queue) are SASL reports, which Logger drops in this configuration.
-   - Guardian.Counters.Store's, Budget's, Restarter's and IngestIdempotency's
+   - Guardian.Counters.Store's, Restarter's and IngestIdempotency's
      formatted status is not redacted, and a Store callback failure crashes as is, so
      a crash report can show counter keys and values or idempotency keys. Ordinary
      operations do not log their arguments or returned values.

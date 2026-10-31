@@ -59,23 +59,15 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    Successful writes return success even if housekeeping later evicts them.
 5. Operations check real monotonic deadlines; batch executes at most 4,000 operations
    in order, with a check before each, without rollback or a multi-key snapshot.
-   Budget retains its wait budgets/cooldowns and never replays uncertain increments.
+   Never replay an uncertain increment.
    Test builds select a libtest batch adapter (`Guardian.Test.Counters.Backend`) at
    compile time; only that adapter interprets the internal {backend_module, server}
    store option for transport probes.
    Production calls Store directly, with no backend tuple handling or mailbox fallback.
-   Context's `event_ms`/`operation_ms` application env is the other internal test
-   seam: it replaces the 100/50 ms defaults and the remote endpoint bound.
-   Never set it outside tests; only `Guardian.Test.Counters.Budget` does, for its own
-   test and for tests with no per-event path, which are ingestion through Engine, HTTP
-   or MCP and calls to peers. Those not about budgets relax it; budget tests scale the
-   operation budget (`scale/1`) and size their batch allowance in units of it
-   (`batch/1`, with `allowance_us/1` for expected values), with no durations or allowances derived from 50 ms
-   (`docs/changes/counter-test-budgets.md`).
-   Context's `:timeout_ms`/`:event_timeout_ms` options replace those budgets for one
-   event, locally only (a peer still enforces its own bound); production passes neither.
-   A test that builds its own Context with local owners uses them and can stay async
-   (`docs/changes/counter-budget-options.md`).
+   Context's call timeout is the other compile-time seam: 50 ms in releases, longer in
+   the test build (`config/config.exs`), where a slow healthy call under load would
+   silently give a default count. Context's `:timeout_ms` option replaces it for one
+   event; production passes none.
 6. Return fixed errors; no key/value/exception logging. Formatted status is not
    redacted.
    Store takes no injected functions: tests pass `now` as data, while deadlines and
@@ -84,7 +76,7 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    table is missing or not ready answers `:unavailable`; anything else raises, on the owner, and reaches
    the rule worker as a crash. Transport's `route/2` checks
    anchored add/increment/CAS expiries are integers before grouping or admission, so
-   malformed expiries return `:invalid_request` without reserving allowance.
+   malformed expiries return `:invalid_request`.
    `dispatch/2` takes only operations `route/2` accepted, which `Client.batch/2`
    ensures. It rescues nothing: bad membership is a programming error that crashes the
    rule worker. An owner that is unreachable fails open: Transport names what that
@@ -95,7 +87,7 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
 list of operations and returns one response per operation, in order. Only Client and
 below know that operations are spread across owners. `new_event` returns a typed
 `Guardian.Counters.Context`, which Rules carries per event.
-Context captures the event deadline before snapshotting connected members; private
+Context snapshots connected members; private
 Unix/monotonic arrival coordinates are a separate `Guardian.Counters.Arrival`,
 outside the row. Internal
 `Guardian.Counters.Transport` routes `{identity, group_tuple, bucket}` keys with rendezvous
@@ -108,30 +100,21 @@ remain distinct stored counters through Store's ETF keys. All buckets share one 
 Membership comes from this node plus connected peers, once per event, without
 Storage readiness calls. Remote endpoints call only the owner's local store.
 
-`Guardian.Counters.Budget` is supervised after Store and owns cooldown ETS lifecycle,
-reservations, deadline enforcement and settlement. Its hot path uses atomics/ETS directly;
-Transport has no process. Client routes and groups, then hands dispatch to Transport,
-which calls Budget before dispatch and after normalized pipeline completion. A round's
-whole `[{owner, operations}]` goes to one `dispatch/2` call, which starts owners in the
-order given (Client sorts them with `Guardian.Lists.group/1`, the one place
+Transport has no process. Client routes and groups, then hands dispatch to Transport. A
+round's whole `[{owner, operations}]` goes to one `dispatch/2` call, which starts every
+owner at once (Client sorts them with `Guardian.Lists.group/1`, the one place
 that orders a round's owners) and answers
 `[{owner, responses}]` in that order, one response per operation and in operation
 order. Transport keeps one response list per owner, never positional ids, and puts
-operations refused at dispatch back in place with `Guardian.Lists.unfilter/3`. Settlement unwraps
-the pipeline once; successful stored values are never inspected for errors.
-`Guardian.Counters.Clock` owns the local monotonic microsecond coordinate that
-Context deadlines/timeouts, Budget reservations, settlement timestamps and
-cooldowns, and Transport dispatch deadlines share; read the clock and convert
-ms/us only through it. Store's
+operations refused at dispatch back in place with `Guardian.Lists.unfilter/3`. Successful
+stored values are never inspected for errors.
+`Guardian.Counters.Clock` owns the local monotonic microsecond coordinate of Transport's
+dispatch deadlines; read the clock and convert ms/us only through it. Store's
 `:deadline` stays monotonic ms (`to_store_ms/1`) and mutation TTLs stay on the
 monotonic arrival milliseconds (`Guardian.Counters.Arrival`).
 
-1. Keep `new_batch/0` outside replaceable workers; its atomics handle holds 250 ms
-   of failed-call allowance. `new_event(batch)` snapshots members and starts a
-   100 ms wall-clock counter phase. Every operation uses at most 50 ms, skips below
-   10 ms remaining, and reserves atomically before dispatch. Healthy responses
-   (including missing and lost add/CAS races) refund the full allowance. Failures refund
-   unused wait; caller death conservatively retains its outstanding reservation.
+1. `new_event` snapshots members. Every call to an owner waits at most 50 ms, and nothing
+   else bounds counter waiting: a real cluster may need that (TODO.md).
 2. Local deadlines stay anchored to dispatch; remote endpoints translate a
    remaining duration onto their own clock. Transit and dispatched mutations can
    outlive the caller's wait. Never retry an uncertain increment or fail over to
@@ -139,12 +122,7 @@ monotonic arrival milliseconds (`Guardian.Counters.Arrival`).
 3. A guard and linked worker bound distribution flow-control waits. The guard
    monitors caller death; caller cleanup revokes the reply alias, kills the guard,
    consumes its DOWN, and flushes delivered replies. No caller helper may linger.
-4. Cooldown ETS is owned independently of Store, keyed only by members, and cleaned
-   on membership changes and every second. Unavailability marks the owner for one
-   second; timeout does so only with at least 25 ms allowance. Budget skips and
-   definite errors never mark it. Cooldown fast-fail precedes reservation/dispatch.
-   Restarting Budget clears cooldown; while absent, calls fail immediately.
-5. These counters are ephemeral and advisory. Membership changes, partitions,
+4. These counters are ephemeral and advisory. Membership changes, partitions,
    restarts, eviction and uncertain writes can lose or split counts. The remote
    endpoint uses the existing cookie-authenticated, fully trusted distribution
    boundary; it is not an HTTP endpoint or a new authorization mechanism.
@@ -161,11 +139,8 @@ most six rounds, while an arbitrary callback passed to `Machine.new/3` carries n
 such guarantee. Machine errors remain errors:
 missing keys alone default at the bucket layer; a failed bucket defaults the whole
 statement. Client groups each round by owner; Transport dispatches the owner
-batches as concurrent pipelines. Pending
-owners wait for any completed call's reservation refund; cooldown, truly exhausted
-budgets or deadlines skip them. Charge failed waits once per pipeline using its
-completion timestamp. Recompute anchored mutation TTLs at actual pipeline dispatch,
-including after waiting for a reservation. Client exposes only
+batches as concurrent pipelines. Compute anchored mutation TTLs at pipeline dispatch.
+Client exposes only
 `batch/2` for operations; the Transport remote endpoint accepts only owner pipelines. Its renamed RPC module
 requires all nodes to restart on the same build; mixed-version rolling deploys across
 this split are unsupported (`docs/changes/counter-client.md`). Store retains its

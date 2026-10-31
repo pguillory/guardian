@@ -520,13 +520,11 @@ UNSET password
    resubmissions count again. A matching completed same-node idempotency-key retry
    skips rules but returns only its receipt, without decision values (section 5).
    Eviction, overload, restart or another node can bypass receipt protection.
-6. Calls wait at most 50 ms, within a 100 ms counter phase per event and a shared
-   250 ms failed-call wait allowance per batch, including replacement workers.
-   Unavailable owners enter a one-second cooldown; timeouts do so with at least
-   25 ms call allowance. Healthy calls refund the batch allowance, so slow successful
-   events can still accumulate latency across a batch. There is no uncertain-write
-   retry or owner failover. Only definite CAS conflicts retry, at most three total
-   attempts within the same budgets. SET/UNSET keep their fail-closed behavior.
+6. Each call to a counter owner waits at most 50 ms. Nothing else bounds counter
+   waiting short of each row's rule time limit, so a slow or stalled owner can cost
+   50 ms per call across a whole request. There is no uncertain-write retry or owner
+   failover. Only definite CAS conflicts retry, at most three total attempts. SET/UNSET
+   keep their fail-closed behavior.
 7. State is ephemeral and advisory: restarts, eviction, membership changes,
    partitions and uncertain writes can lose or split counts (section 10). The
    resident counter memory target is GUARDIAN_COUNTER_MEMORY_MB, positive MiB, default

@@ -2,7 +2,7 @@ defmodule Guardian.Rules.CounterRulesTest do
   @moduledoc """
   TRACK and LOOKUP through Rules: rule plans run by `Guardian.Rules.Runtime` and
   compiled modules, Runner and Engine. Counter execution's own behavior (buckets,
-  expiries, CAS, budgets) is tested in `Guardian.Counters.ExecutionTest`.
+  expiries, CAS) is tested in `Guardian.Counters.ExecutionTest`.
   """
   use ExUnit.Case, async: true
   import Guardian.Test.Rules
@@ -14,30 +14,14 @@ defmodule Guardian.Rules.CounterRulesTest do
   alias Guardian.Rules.DependencyGraph
   alias Guardian.Rules.Event
   alias Guardian.Rules.Runtime
-  alias Guardian.Test.Counters.Budget, as: CounterBudgetHelper
   alias Guardian.Test.Counters.ProbeStore
 
   setup do
-    Guardian.Test.Counters.private_store(:rules_counter_rules_test)
+    Guardian.Test.Counters.private_store()
   end
 
-  # No test here depends on the production 50 ms call or 100 ms event budget. Larger
-  # budgets keep healthy calls, including a cold first call, from timing out under host
-  # load and setting a cooldown that fails later calls open. A test of results gets a
-  # batch allowance to match (`healthy/1` returns both), since production's 250 ms would
-  # cap those calls anyway; only the allowance tests pass `Client.new_batch/0`.
-  defp event(store, {options, batch} \\ CounterBudgetHelper.healthy(:relaxed)) do
-    Event.start(
-      Arrival.now(),
-      batch,
-      Guardian.Test.Counters.event_options(store, :rules_counter_rules_test, options)
-    )
-  end
-
-  # Relaxed budgets over production's 250 ms batch allowance, for allowance tests.
-  defp allowance_event(store, batch) do
-    {options, _} = CounterBudgetHelper.healthy(:relaxed)
-    event(store, {options, batch})
+  defp event(store) do
+    Event.start(Arrival.now(), Guardian.Test.Counters.event_options(store))
   end
 
   # One LOOKUP straight through counter execution, unwrapped to its value.
@@ -90,18 +74,13 @@ defmodule Guardian.Rules.CounterRulesTest do
         "#{table}/copy.gsql" => "TRACK hits = count() BY group_key LAST '1h'",
       })[table]
 
-    {_, batch} = healthy = CounterBudgetHelper.healthy(:relaxed, 5)
-    allowance = CounterBudgetHelper.remaining_us(batch)
-
     for n <- 1..50 do
-      row = run(plan, %{"ip" => "A", "secret" => "private"}, event(store, healthy))
+      row = run(plan, %{"ip" => "A", "secret" => "private"}, event(store))
       assert row["hits"] == n
       assert row["before"] == n - 1
       assert row["blocked"] == n >= 50
       refute Map.has_key?(row, "secret")
     end
-
-    assert CounterBudgetHelper.remaining_us(batch) == allowance
   end
 
   test "cross-table lookups preserve exact ordered typed groups, including null", %{store: store} do
@@ -464,29 +443,6 @@ defmodule Guardian.Rules.CounterRulesTest do
     assert_raise ArithmeticError, fn -> run(plan, %{"v" => "x"}, event(store)) end
 
     refute_receive {:unexpected, _}, 10
-  end
-
-  test "an exhausted batch allowance dispatches nothing and yields defaults" do
-    parent = self()
-
-    store =
-      start_supervised!(
-        {ProbeStore,
-         {:pipeline,
-          fn operations ->
-            send(parent, {:unexpected, operations})
-            {:ok, []}
-          end}}
-      )
-
-    plan = plan("TRACK hits = count() LAST '1h'; UNSET secret")
-    batch = CounterBudgetHelper.batch(Guardian.Counters.Client.new_batch(), 0)
-
-    for _ <- 1..3 do
-      assert run(plan, %{"secret" => "PRIVATE"}, allowance_event(store, batch)) == %{"hits" => 0}
-    end
-
-    refute_received {:unexpected, _}
   end
 
   # Store operations take the current local monotonic milliseconds as data.

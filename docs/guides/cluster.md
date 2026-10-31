@@ -47,7 +47,7 @@ distributed operations. Stored segments and rule files need no migration.
 
 The [counter client split](../changes/counter-client.md) also renames a peer RPC
 module. Mixed-version rolling deploys across that change are unsupported: counter
-peer calls fail open with owner cooldown until every node runs the same build.
+peer calls fail open until every node runs the same build.
 
 ## Network security
 

@@ -1,9 +1,7 @@
 defmodule Guardian.Counters.Transport do
   @moduledoc """
   Internal owner routing and bounded pipeline transport for Counters.Client.
-  Budget owns admission and settlement; this module owns dispatch and cleanup.
   """
-  alias Guardian.Counters.Budget
   alias Guardian.Counters.Clock
   alias Guardian.Counters.Context
   alias Guardian.Lists
@@ -35,88 +33,49 @@ defmodule Guardian.Counters.Transport do
   end
 
   @doc """
-  Runs one round's owner batches (`[{owner, operations}]`, in the order given) as
-  concurrent owner pipelines within the shared budgets, returning
-  `[{owner, responses}]` in the same order with one response per operation.
+  Runs one round's owner batches (`[{owner, operations}]`) as concurrent owner
+  pipelines, each within the call timeout, returning `[{owner, responses}]` in the
+  order given with one response per operation.
   """
   @spec dispatch([{node(), [tuple()]}], Context.t()) :: [{node(), [term()]}]
   def dispatch(batches, %Context{} = event) when is_list(batches) do
-    results = pipelines(batches, %{}, %{}, event)
+    {running, results} = Enum.reduce(batches, {%{}, %{}}, &start_pipeline(&1, &2, event))
+    results = await_pipelines(running, results)
     Enum.map(batches, fn {owner, _} -> {owner, Map.fetch!(results, owner)} end)
   end
 
-  defp pipelines(pending, running, results, event) do
-    {pending, running, results} = start_pipelines(pending, running, results, event)
+  defp await_pipelines(running, results) when map_size(running) == 0 do
+    results
+  end
 
-    if map_size(running) == 0 do
-      Enum.reduce(pending, results, fn {owner, ops}, results ->
-        Map.put(results, owner, errors(ops, {:error, :budget_exhausted}))
-      end)
+  defp await_pipelines(running, results) do
+    {reply, result} = await_pipeline(running)
+    handle = Map.fetch!(running, reply)
+    cleanup_call(handle)
+
+    responses =
+      case normalize_pipeline(result, length(handle.operations)) do
+        {:ok, responses} -> responses
+        {:error, _} = error -> errors(handle.operations, error)
+      end
+
+    # Operations refused at dispatch keep their error in place.
+    responses = Lists.unfilter(responses, handle.prepared, &ready?/1)
+    await_pipelines(Map.delete(running, reply), Map.put(results, handle.owner, responses))
+  end
+
+  defp start_pipeline({owner, operations}, {running, results}, event) do
+    prepared = Enum.map(operations, &prepare_operation/1)
+    ready = for {:ok, op} <- prepared, do: op
+
+    if ready == [] do
+      # Every operation was refused at dispatch, so its prepared error is its response.
+      {running, Map.put(results, owner, prepared)}
     else
-      {reply, result, completed} = await_pipeline(running)
-      handle = Map.fetch!(running, reply)
-      cleanup_call(handle)
-      result = normalize_pipeline(result, length(handle.operations))
-
-      Budget.settle(result, handle.owner, event, handle.started, handle.reserved, completed)
-
-      responses =
-        case result do
-          {:ok, responses} -> responses
-          {:error, _} = error -> errors(handle.operations, error)
-        end
-
-      # Operations refused at dispatch keep their error in place.
-      responses = Lists.unfilter(responses, handle.prepared, &ready?/1)
-
-      pipelines(
-        pending,
-        Map.delete(running, reply),
-        Map.put(results, handle.owner, responses),
-        event
-      )
-    end
-  end
-
-  defp start_pipelines([], running, results, _event) do
-    {[], running, results}
-  end
-
-  defp start_pipelines([{owner, operations} | rest] = pending, running, results, event) do
-    case Budget.reserve(event, owner) do
-      :exhausted ->
-        {pending, running, results}
-
-      :cooldown ->
-        results = Map.put(results, owner, errors(operations, {:error, :cooldown}))
-        start_pipelines(rest, running, results, event)
-
-      {:ok, started, reserved} ->
-        # Pending owners may wait for a reservation refund. Translate anchored
-        # expiries only when their pipeline is about to dispatch, never when it queues.
-        prepared = Enum.map(operations, &prepare_operation/1)
-        ready = for {:ok, op} <- prepared, do: op
-
-        if ready == [] do
-          # Every operation was refused at dispatch, so its prepared error is its response.
-          Budget.refund(event, reserved)
-          start_pipelines(rest, running, Map.put(results, owner, prepared), event)
-        else
-          # Budget's started and reserved are Clock microseconds, so their sum is
-          # this call's local dispatch deadline.
-          handle = start_call(owner, {:batch, ready}, event.store, started + reserved)
-
-          handle =
-            Map.merge(handle, %{
-              owner: owner,
-              operations: ready,
-              prepared: prepared,
-              started: started,
-              reserved: reserved,
-            })
-
-          start_pipelines(rest, Map.put(running, handle.reply, handle), results, event)
-        end
+      deadline = Clock.deadline(event.timeout_ms)
+      handle = start_call(owner, {:batch, ready}, event.store, deadline)
+      handle = Map.merge(handle, %{owner: owner, operations: ready, prepared: prepared})
+      {Map.put(running, handle.reply, handle), results}
     end
   end
 
@@ -128,7 +87,7 @@ defmodule Guardian.Counters.Transport do
     Enum.map(operations, fn _ -> error end)
   end
 
-  # Validate before admission; subtraction at dispatch must receive an integer.
+  # Validate before dispatch; the subtraction there must receive an integer.
   # Other operands remain Store's responsibility, including ordinary TTLs.
   defp anchored_expiry_valid?({:add, _, _, {:expires, expiry}}) do
     is_integer(expiry)
@@ -174,8 +133,8 @@ defmodule Guardian.Counters.Transport do
     monitors = Map.new(running, fn {reply, handle} -> {handle.monitor, reply} end)
 
     receive do
-      {reply, result, completed} when is_map_key(running, reply) ->
-        {reply, result, completed}
+      {reply, result} when is_map_key(running, reply) ->
+        {reply, result}
 
       # A guard exits only with its worker's crash; cleanup_call demonitors the rest.
       {:DOWN, monitor, :process, _, reason} when is_map_key(monitors, monitor) ->
@@ -183,7 +142,7 @@ defmodule Guardian.Counters.Transport do
     after
       Clock.remaining_ms(deadline) ->
         {reply, _} = Enum.min_by(running, fn {_, handle} -> handle.deadline end)
-        {reply, {:error, :timeout}, Clock.now()}
+        {reply, {:error, :timeout}}
     end
   end
 
@@ -293,7 +252,7 @@ defmodule Guardian.Counters.Transport do
       {:EXIT, ^worker, _} -> :ok
     end
 
-    send(reply, {reply, result, Clock.now()})
+    send(reply, {reply, result})
   end
 
   defp invoke(owner, operation, store, deadline) do
@@ -335,11 +294,7 @@ defmodule Guardian.Counters.Transport do
   @doc false
   def remote_operation(operation, store, duration_ms)
       when is_integer(duration_ms) and duration_ms > 0 do
-    if duration_ms <= Context.operation_ms() do
-      local_operation(operation, store, duration_ms, Clock.deadline(duration_ms))
-    else
-      {:error, :invalid_request}
-    end
+    local_operation(operation, store, duration_ms, Clock.deadline(duration_ms))
   end
 
   def remote_operation(_, _, _) do
@@ -361,7 +316,7 @@ defmodule Guardian.Counters.Transport do
 
   defp flush(reply) do
     receive do
-      {^reply, _, _} -> flush(reply)
+      {^reply, _} -> flush(reply)
     after
       0 -> :ok
     end

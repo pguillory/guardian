@@ -58,7 +58,7 @@ output would be untrustworthy.
 
 The [product spec's counter contract](../product/spec.md#514-counters) defines supported
 aggregates and missing results (item 1), typed groups (item 2), LAST and
-arrival-time buckets (item 3), failure handling and call budgets (items 5–6), and
+arrival-time buckets (item 3), failure handling and call timeouts (items 5–6), and
 state loss and eviction (item 7). Counters are advisory signals; keep node clocks
 synchronized for their arrival-time windows.
 

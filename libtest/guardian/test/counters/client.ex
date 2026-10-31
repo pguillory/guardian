@@ -26,7 +26,7 @@ defmodule Guardian.Test.Counters.Client do
 
   @doc """
   Loads the counter endpoint's call path and test doubles on this node. Peers load
-  code lazily, so call it on a fresh peer (over `:erpc`) before any budgeted call.
+  code lazily, so call it on a fresh peer (over `:erpc`) before any timed call.
   """
   def preload do
     for module <- [
@@ -61,15 +61,17 @@ defmodule Guardian.Test.Counters.Client do
   @ready_ms 20
   @ready_rounds 3
   @ready_wait_ms 10_000
+  # What the probe allows the remote store, well above the answer it expects.
+  @probe_duration_ms 1_000
 
   @doc """
   Readiness barrier for freshly started peer stores. A new peer loads code lazily
   and is still finishing its boot, so its first counter pipelines can exceed the
-  production 50 ms call budget under host load. This waits until each node answers
+  call timeout under host load. This waits until each node answers
   #{@ready_rounds} consecutive real owner pipelines (a get on a key no test uses)
   with `{:ok, [:not_found]}` within #{@ready_ms} ms, and raises once
   #{@ready_wait_ms} ms have passed for the whole set. It calls the remote endpoint
-  directly, so it never touches cooldown tables or batch budgets. It warms only the
+  directly. It warms only the
   peer side, and fast replies now do not guarantee fast replies under later load.
   """
   def await_ready(nodes, store \\ Guardian.Counters.Store) do
@@ -90,7 +92,7 @@ defmodule Guardian.Test.Counters.Client do
     end
 
     key = {{"readiness", "#{System.unique_integer([:positive])}", "probe"}, {}, 0}
-    args = [{:batch, [{:get, key}]}, store, Guardian.Counters.Context.operation_ms()]
+    args = [{:batch, [{:get, key}]}, store, @probe_duration_ms]
     started = System.monotonic_time(:microsecond)
 
     result =

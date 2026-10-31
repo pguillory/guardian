@@ -117,7 +117,7 @@ segments and rule files need no migration; see the
 
 The [counter client split](../changes/counter-client.md) also renames a peer RPC
 module. Upgrade and restart every machine before relying on distributed counters;
-mixed-version peer calls fail open with owner cooldown.
+mixed-version peer calls fail open.
 
 Later deploys run the same `fly deploy`. With one machine, each deploy briefly stops
 ingestion, because the volume attaches to only one machine: the old release stops

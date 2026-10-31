@@ -4,8 +4,7 @@ defmodule Guardian.Rules.Compiler do
   `apply/2`, which runs the table's dependency levels on a flattened row and returns
   the new row, plus `table/0` and `hash/0` (Publisher reuses a module whose hash is
   unchanged). Unresolved candidates return `:unresolved_plan`; a LOOKUP without a
-  bound target returns `:unbound_lookup`. `apply/1` creates a fresh event and batch
-  context.
+  bound target returns `:unbound_lookup`. `apply/1` creates a fresh event context.
 
   The module body comes only from the fixed template below: the plan's dependency
   levels, derived from its flat steps once at compile time, are escaped once as

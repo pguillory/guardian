@@ -45,8 +45,8 @@ checks that each file defines at most one module, counting nested `defmodule` an
 `defprotocol` but not quoted code or `defimpl`.
 Test files may still define small support modules inline.
 
-Give every alias its own line: `alias Guardian.Counters.Budget` and
-`alias Guardian.Counters.Clock`, never `alias Guardian.Counters.{Budget, Clock}`. Each
+Give every alias its own line: `alias Guardian.Counters.Store` and
+`alias Guardian.Counters.Clock`, never `alias Guardian.Counters.{Store, Clock}`. Each
 module's full name stays greppable, and adding or removing one alias is a one-line
 diff. Credo's `MultiAlias` check enforces this in the pre-commit hook (`mix credo`);
 `.credo.exs` enables only that check. Grouped `import` and `require` aren't checked,
@@ -215,8 +215,8 @@ answer, so a fake segment in an async test must answer `:schema` promptly, as
 
 Every module is `async: true` unless it touches something shared by the whole VM that
 can't be avoided: the OS environment, a connected peer node, the `:lifecycle` suite's
-stops, node-wide counter budgets, the rule server's
-published map or write lock, an invalid rule file every concurrent write would report, log capture that must see only its own events, or an
+stops, the rule server's published map or write lock, an invalid rule file every
+concurrent write would report, log capture that must see only its own events, or an
 application env setting the code reads instead of taking it as an argument (being
 retired: pass the setting to the function it applies to). Say which in a
 one-line comment above `use ExUnit.Case`. Suspending, restarting or scanning
@@ -226,8 +226,7 @@ Put new shared test infrastructure under `Guardian.Test.*` in
 `libtest/guardian/test/`, split by concern. Reuse what is there instead of writing a
 local copy: `Guardian.Test.Polling` for any wait (no sleep loops),
 `Guardian.Test.Tables.unique_table/1` for table names, `Guardian.Test.Cluster` for
-peers, and `Guardian.Test.Counters.Budget.healthy/2` for counter tests of results
-(options and a batch that match, since a default batch caps every call at 250 ms); see the
+peers; see the
 [test support namespace](docs/changes/test-support-namespace.md) for existing helpers
 and their concurrency requirements.
 

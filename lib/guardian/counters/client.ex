@@ -4,29 +4,23 @@ defmodule Guardian.Counters.Client do
   `Guardian.Counters.Execution`'s round loop, which doesn't know that operations are
   spread across owner nodes: only this module and below do.
 
-  Keep new_batch/0 outside replaceable rule workers and create one new_event/2
-  per event. Errors remain fixed atoms; Rules supplies aggregate defaults. Never
-  retry an uncertain mutation. Transport and Budget are internal collaborators.
+  Create one new_event/1 per event. Errors remain fixed atoms; Rules supplies aggregate
+  defaults. Never retry an uncertain mutation. Transport is an internal collaborator.
   """
-  alias Guardian.Counters.Budget
   alias Guardian.Counters.Context
   alias Guardian.Counters.Transport
   alias Guardian.Lists
 
-  @doc "A fresh per-batch allowance of failed-call wait time; see `Guardian.Counters.Budget.new_batch/0`."
-  @spec new_batch() :: Context.batch()
-  defdelegate new_batch(), to: Budget
-
-  @doc "Test options may replace the budgets or substitute members/store/cooldown table."
-  @spec new_event(Context.batch(), [Context.option()]) :: Context.t()
-  defdelegate new_event(batch, opts \\ []), to: Context, as: :new
+  @doc "Test options may replace the call timeout or substitute members/store."
+  @spec new_event([Context.option()]) :: Context.t()
+  defdelegate new_event(opts \\ []), to: Context, as: :new
 
   @doc """
   Runs one list of operations and returns one response per operation, in the same
   order. It routes each operation to its owner, groups them by owner and runs each
-  owner's pipeline concurrently, within the shared budgets. `Guardian.Lists.group/1`
+  owner's pipeline concurrently, each within the call timeout. `Guardian.Lists.group/1`
   is the one place that orders owners: it sorts them ascending, keeping each owner's
-  operations in input order, and that is the order they get their reservations.
+  operations in input order.
 
   A malformed operation's `{:error, :invalid_request}` is its response. Bad membership
   is a programming error and raises.

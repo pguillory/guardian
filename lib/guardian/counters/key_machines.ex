@@ -74,8 +74,7 @@ defmodule Guardian.Counters.KeyMachines do
     merged = Aggregation.merge(state.aggregation, prior, state.delta)
 
     cond do
-      # Preserve the old read/expiry/unchanged order; dispatch checks expiry again
-      # after any wait for the next owner reservation.
+      # Preserve the old read/expiry/unchanged order.
       state.expiry <= System.monotonic_time(:millisecond) ->
         {:done, {:error, :expired}}
 

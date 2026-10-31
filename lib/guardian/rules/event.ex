@@ -11,13 +11,13 @@ defmodule Guardian.Rules.Event do
 
   @type t :: %__MODULE__{arrival: Arrival.t(), counters: Context.t()}
 
-  @spec start(Arrival.t(), Context.batch(), [Context.option()]) :: t()
-  def start(%Arrival{} = arrival, batch, opts \\ []) do
-    %__MODULE__{arrival: arrival, counters: Client.new_event(batch, opts)}
+  @spec start(Arrival.t(), [Context.option()]) :: t()
+  def start(%Arrival{} = arrival, opts \\ []) do
+    %__MODULE__{arrival: arrival, counters: Client.new_event(opts)}
   end
 
   @spec new() :: t()
   def new do
-    start(Arrival.now(), Client.new_batch())
+    start(Arrival.now())
   end
 end

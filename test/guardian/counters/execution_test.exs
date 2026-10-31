@@ -1,10 +1,9 @@
 defmodule Guardian.Counters.ExecutionTest do
   @moduledoc """
-  Execution's round loop and level results, its buckets, expiries, CAS attempts and
-  budgets, through the real Client against a private store or a scripted
+  Execution's round loop and level results, its buckets, expiries and CAS attempts,
+  through the real Client against a private store or a scripted
   `Guardian.Test.Counters.ProbeStore`.
   """
-  # Every owner is this node, and budgets are per event, so nothing here is node-wide.
   use ExUnit.Case, async: true
   import Guardian.Counters.Execution
   alias Guardian.Aggregation
@@ -15,46 +14,24 @@ defmodule Guardian.Counters.ExecutionTest do
   alias Guardian.Counters.Machine
   alias Guardian.Counters.Store
   alias Guardian.Counters.TrackOperation
-  alias Guardian.Test.Counters.Budget, as: CounterBudgetHelper
   alias Guardian.Test.Counters.ProbeStore
 
   @sum Aggregation.fetch!("sum")
   @max Aggregation.fetch!("max")
 
-  # No test here depends on production's budgets. Events get the scaled budgets (1 s
-  # calls, a 10 s event) on a batch of five calls (`healthy_batch/0`), so healthy calls,
-  # including a cold first call, don't time out under host load and set a cooldown that
-  # fails later calls open. A response of {:error, :timeout} from a call that reserved
-  # at least 25 ms, or any {:error, :unavailable}, does set one.
   setup do
-    Guardian.Test.Counters.private_store(:counters_execution_test)
+    Guardian.Test.Counters.private_store()
   end
 
   defp tracked(operator, window_ms) do
     Definition.new({"events", "tracked", inspect(operator)}, operator, window_ms, 0)
   end
 
-  defp event(
-         store,
-         batch \\ healthy_batch(),
-         arrival \\ Arrival.now(),
-         opts \\ []
-       ) do
+  defp event(store, arrival \\ Arrival.now(), opts \\ []) do
     context =
-      Guardian.Counters.Client.new_event(
-        batch,
-        Guardian.Test.Counters.event_options(
-          store,
-          :counters_execution_test,
-          Keyword.merge(elem(CounterBudgetHelper.healthy(), 0), opts)
-        )
-      )
+      Guardian.Counters.Client.new_event(Guardian.Test.Counters.event_options(store, opts))
 
     %{arrival: arrival, context: context}
-  end
-
-  defp healthy_batch do
-    elem(CounterBudgetHelper.healthy(), 1)
   end
 
   defp context(store) do
@@ -150,7 +127,7 @@ defmodule Guardian.Counters.ExecutionTest do
     refute_receive {:round, _}
   end
 
-  test "no store call or budget for no machines or only routing errors" do
+  test "no store call for no machines or only routing errors" do
     context = context(scripted(fn _ -> :not_found end))
 
     assert run_state_machines([], context) == []
@@ -161,9 +138,6 @@ defmodule Guardian.Counters.ExecutionTest do
            |> Enum.map(& &1.result) == [{:error, :invalid_request}, {:error, :invalid_request}]
 
     refute_receive {:round, _}
-
-    assert CounterBudgetHelper.remaining_us(context.batch) ==
-             CounterBudgetHelper.healthy_allowance_us(:scaled, 5)
   end
 
   test "a raising callback raises" do
@@ -224,13 +198,11 @@ defmodule Guardian.Counters.ExecutionTest do
              context(ok)
            ) == [{:ok, 8}, {:ok, Aggregation.default(@sum)}, {:ok, 8}]
 
-    # A timed-out bucket and a malformed routing key default without an error. The short
-    # call keeps the timeout from setting a cooldown.
+    # A timed-out bucket and a malformed routing key default without an error.
     timeout = scripted(fn {:get, _} -> {:error, :timeout} end)
     missing = Aggregation.default(@sum)
 
-    timeout_event =
-      event(timeout, healthy_batch(), Arrival.now(), timeout_ms: 20)
+    timeout_event = event(timeout)
 
     assert run_counters(
              [
@@ -242,7 +214,7 @@ defmodule Guardian.Counters.ExecutionTest do
            ) == [{:ok, missing}, {:ok, missing}]
 
     # Membership routing cannot hash is a programming error.
-    raising = event(ok, healthy_batch(), Arrival.now(), members: [])
+    raising = event(ok, Arrival.now(), members: [])
 
     assert_raise FunctionClauseError, fn ->
       run_counters([lookup_op(sum)], raising.arrival, raising.context)
@@ -265,14 +237,14 @@ defmodule Guardian.Counters.ExecutionTest do
     assert lookup(
              definition,
              {},
-             event(store, healthy_batch(), arrival)
+             event(store, arrival)
            ) == current - first + 1
 
     assert track(
              definition,
              {},
              [],
-             event(store, healthy_batch(), arrival)
+             event(store, arrival)
            ) == current - first + 2
   end
 
@@ -286,7 +258,7 @@ defmodule Guardian.Counters.ExecutionTest do
              definition,
              {},
              [],
-             event(store, healthy_batch(), arrival)
+             event(store, arrival)
            ) == 0
 
     assert {:ok, %{keys: 0}} = Store.stats(server: store)
@@ -331,8 +303,6 @@ defmodule Guardian.Counters.ExecutionTest do
   test "lost races have three total attempts and uncertain writes are never retried" do
     parent = self()
 
-    # The timeout comes last because it sets a cooldown. A retry would then answer
-    # {:error, :cooldown} without reaching the probe, which the result below would catch.
     for failure <- [:not_stored, :timeout] do
       store =
         scripted(fn
@@ -485,7 +455,7 @@ defmodule Guardian.Counters.ExecutionTest do
              definition,
              {},
              [],
-             event(store, healthy_batch(), arrival)
+             event(store, arrival)
            ) == 1
 
     assert_receive {:ttl, first}
@@ -496,7 +466,7 @@ defmodule Guardian.Counters.ExecutionTest do
              definition,
              {},
              [],
-             event(store, healthy_batch(), older)
+             event(store, older)
            ) == 1
 
     assert_receive {:ttl, second}
@@ -535,19 +505,6 @@ defmodule Guardian.Counters.ExecutionTest do
     refute_receive {:get, _}, 10
   end
 
-  test "healthy large batches refund the budget and include every event", %{store: store} do
-    # A healthy call is refunded in full whatever it reserved, so the larger budget
-    # does not change what this checks.
-    definition = tracked({"count", 0}, 3_600_000)
-    batch = healthy_batch()
-
-    for n <- 1..300,
-        do: assert(track(definition, {}, [], event(store, batch)) == n)
-
-    assert CounterBudgetHelper.remaining_us(batch) ==
-             CounterBudgetHelper.healthy_allowance_us(:scaled, 5)
-  end
-
   test "concurrent native increments never omit the event's own mutation", %{store: store} do
     definition = tracked({"count", 0}, 3_600_000)
 
@@ -566,8 +523,6 @@ defmodule Guardian.Counters.ExecutionTest do
        %{
          store: store,
        } do
-    # A nil final lookup under production budgets was consistent with one call timing
-    # out at 50 ms and putting this node in cooldown, so the lookup failed open.
     definition = tracked({"sum", 1}, 3_600_000)
 
     values =

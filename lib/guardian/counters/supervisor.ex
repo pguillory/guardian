@@ -7,7 +7,7 @@ defmodule Guardian.Counters.Supervisor do
 
   @doc """
   Starts the supervisor, named `:name` (default `Guardian.Counters.Supervisor`).
-  `:store` and `:budget` are the option lists for those two children.
+  `:store` is the option list for its one child.
   """
   def start_link(opts \\ []) do
     Supervisor.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
@@ -19,7 +19,6 @@ defmodule Guardian.Counters.Supervisor do
       [
         Keyword.get(opts, :name, __MODULE__),
         opts |> Keyword.get(:store, []) |> Keyword.get(:name, Guardian.Counters.Store),
-        opts |> Keyword.get(:budget, []) |> Keyword.get(:name, Guardian.Counters.Budget),
       ],
       &is_pid(Process.whereis(&1))
     )
@@ -29,7 +28,6 @@ defmodule Guardian.Counters.Supervisor do
   def init(opts) do
     children = [
       {Guardian.Counters.Store, Keyword.get(opts, :store, [])},
-      {Guardian.Counters.Budget, Keyword.get(opts, :budget, [])},
     ]
 
     Supervisor.init(children, strategy: :one_for_one, max_restarts: 3, max_seconds: 5)

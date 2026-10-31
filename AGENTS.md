@@ -95,7 +95,7 @@ The runtime consists of Guardian.Rules.Server (loads the rule store first; a fai
 settings refuse startup),
 Guardian.Counters.Restarter
 (isolates and recovers Guardian.Counters.Supervisor, with node-local
-Guardian.Counters.Store and Guardian.Counters.Budget behind the bounded
+Guardian.Counters.Store behind the bounded
 Guardian.Counters.Client facade for TRACK/LOOKUP), Guardian.Storage, Guardian.SystemStats,
 Guardian.Web.QueryParseErrors (records query parse failures), Guardian.Web.QueryLog
 (records every API query in `queries`), Guardian.Web.IngestIdempotency (short-lived,

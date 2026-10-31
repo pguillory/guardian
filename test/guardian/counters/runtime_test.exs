@@ -5,12 +5,10 @@ defmodule Guardian.Counters.RuntimeTest do
   @names [
     :counter_runtime_supervisor,
     :counter_runtime_store,
-    :counter_runtime_budget,
   ]
   @counters [
     name: :counter_runtime_supervisor,
     store: [name: :counter_runtime_store],
-    budget: [name: :counter_runtime_budget],
   ]
 
   test "invalid configured store budget still refuses startup" do

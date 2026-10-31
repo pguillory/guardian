@@ -36,7 +36,7 @@ defmodule Guardian.Counters.Execution do
 
   @doc """
   One result per op, in order, as `{:ok, value}`. A failed bucket (timeout, unavailable,
-  cooldown, exhausted budget, expiry, invalid request) defaults its op to the operator's
+  expiry, invalid request) defaults its op to the operator's
   missing result. That is how an unreachable store fails open, by data; anything that
   raises here is a bug and takes the event's worker with it.
   """

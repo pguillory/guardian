@@ -1,5 +1,8 @@
 # Counter test budgets and peer readiness
 
+Superseded by [counter-budget-removal.md](counter-budget-removal.md): the budgets and
+their test seam are gone.
+
 The shared helpers named below now live under `Guardian.Test.*`; see
 [test support namespace](test-support-namespace.md) for the mapping.
 

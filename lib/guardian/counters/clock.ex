@@ -1,11 +1,6 @@
 defmodule Guardian.Counters.Clock do
   @moduledoc """
-  The local monotonic microsecond coordinate shared by Counters Context, Budget and
-  Transport.
-
-  Context's event deadline and operation timeout, Budget's reservations, settlement
-  timestamps and cooldowns, and Transport's dispatch deadlines (`started + reserved`)
-  are all instants or durations in this node's `System.monotonic_time(:microsecond)`.
+  The local monotonic microsecond coordinate of Transport's dispatch deadlines.
   Never send an instant to another node: remote endpoints receive a remaining duration
   in milliseconds and anchor it with `deadline/1` on their own clock. Store's
   `:deadline` option is a monotonic millisecond instant (`to_store_ms/1`), and its

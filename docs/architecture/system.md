@@ -79,8 +79,7 @@ Guardian.Application (one_for_one)
 ├── Guardian.Rules.Server                     loads the rule store, publishes compiled rules, reloads when a writer asks
 ├── Guardian.Counters.Restarter               trapping lifecycle owner; backs off subtree recovery
 │   └── Guardian.Counters.Supervisor (one_for_one)
-│       ├── Guardian.Counters.Store           ephemeral node-local ETS counter storage
-│       └── Guardian.Counters.Budget          failed-wait reservations and node-local cooldown
+│       └── Guardian.Counters.Store           ephemeral node-local ETS counter storage
 ├── Storage (supervisor, rest_for_one)
 │   ├── Guardian.Storage.Schema               per-table schema of loaded segments
 │   ├── Guardian.Storage.LoadedSegments       mmap'd segment files; loads all at boot, rescans each minute
@@ -110,8 +109,7 @@ Why this order:
    `:persistent_term`, so if it restarts, ingestion keeps the published rules and the
    new process reloads in the background instead of failing again.
 2. Guardian.Counters.Restarter starts after Guardian.Rules.Server and owns a linked counter supervisor
-   that starts Store with an empty public ETS table, then Budget with empty cooldown
-   ETS and membership monitoring. It does no loading and is independent of rule
+   that starts Store with an empty public ETS table. It does no loading and is independent of rule
    compilation and event storage. Invalid Store options still refuse startup. Storage
    starts next, and `LoadedSegments.init/1` loads every segment file on the
    volume before returning. Supervisors start children one at a time, so the HTTP
@@ -170,8 +168,8 @@ starts retry without crashing the owner, including when a prior owner's subtree
 still holds names; it never adopts an old generation. A recovery logs at info.
 On orderly shutdown Guardian.Application stops the stable owner, which synchronously stops its
 subtree before exiting; no counter failure is logged and no retry survives.
-The owner has an infinite shutdown budget for this cleanup, while its two leaf
-children each retain the default five-second budget.
+The owner has an infinite shutdown budget for this cleanup, while its leaf child
+retains the default five-second budget.
 
 ### 2.2 Native code
 
@@ -378,9 +376,8 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    Engine captures private Unix/monotonic arrival coordinates
    (`Guardian.Counters.Arrival`) before each event's validation; they are carried
    outside the row and never automatically stored.
-   Runner shares one Client batch budget across worker replacements and starts
-   each event's membership snapshot and counter phase on worker entry. Generated
-   modules accept this context through `apply/2`; `apply/1` creates a fresh event/batch.
+   Runner takes each event's membership snapshot on worker entry. Generated
+   modules accept this context through `apply/2`; `apply/1` creates a fresh event.
 5. Loading: at boot, on every write, when a writer asks a node to reload, and once in
    the background after the rules process restarts; nothing reads on a timer, because
    rules change only through writes. A failed reload is not retried, and the writer
@@ -432,7 +429,7 @@ Buckets retain the complete oldest intersecting interval (overcount bias).
 TTL durations decrease toward bucket_end+window, anchored to private monotonic
 arrival coordinates; network/queue transit can delay physical expiry. Only
 definite lost races retry (add found a row, cas found another token or no row),
-with three total attempts within Budget limits.
+with three total attempts.
 It adds no external service. SET/UNSET-only events capture private arrival/routing
 metadata but make no counter-store calls. Counter identities include table, output
 name and the SHA-256 of canonical TRACK source; LOOKUP plans bind target identities.
@@ -537,12 +534,8 @@ The budget excludes temporary copies, mailboxes and the rest of the VM. See
 each operation and groups the round by owner, sorting owners (the one place that orders
 them), and puts the responses back in order. It relies on
 internal `Guardian.Counters.Transport`, which owns routing, owner pipelines and bounded guard/worker dispatch (`dispatch/2`). Internal
-`Guardian.Counters.Budget`, independently supervised after Store inside the counter
-subtree, enforces event deadlines and owns failed-wait reservations and cooldown ETS
-lifecycle; its admission and settlement use atomics/ETS directly, never its mailbox. Client takes
-one connected-member snapshot per event, without Storage readiness RPCs. Its typed
-`Guardian.Counters.Context` captures the deadline before membership and carries the
-shared batch handle, operation allowance, cooldown table and store server.
+Client takes one connected-member snapshot per event, without Storage readiness RPCs. Its
+typed `Guardian.Counters.Context` carries the call timeout, members and store server.
 `Guardian.Rules.Event` carries it under counters, beside the event's
 `Guardian.Counters.Arrival` (private Unix/monotonic arrival coordinates); Runtime
 passes both, with the ops, to Execution, whose code names no Rules module.
@@ -567,32 +560,25 @@ drain before any TRACK level. Scalar work finishes before a level dispatches, an
 UNSETs remain last.
 
 Each round groups operations by owner into one Store.batch pipeline per owner, in
-input order;
-owners run concurrently within the reservation budget. Pending owners wait for
-any completed pipeline's refund instead of defaulting while allowances are merely
-reserved. With a small remaining allowance, a slow owner can delay pending owners
-until it completes or times out. A pipeline with any failed operation except a lost
-add or CAS race charges one
-owner wait, using its completion timestamp; healthy pipelines refund fully.
-Anchored bucket expiries become decreasing TTLs when each pipeline dispatches.
+input order; owners run concurrently, each within the call timeout. Anchored bucket
+expiries become decreasing TTLs when each pipeline dispatches.
 Remote operations call Store directly
 on that owner, preserving terms and opaque CAS tokens, never re-routing or failing
 over to another owner. The RPC entry point is
 `Guardian.Counters.Transport.remote_operation/3`, with the same batch terms and
 remaining-duration arguments. The former Cluster module is removed; multi-node
 rolling deploys across this split are unsupported. Mixed-version calls fail as
-unavailable, mark owner cooldown and use fail-open defaults until every node runs
+unavailable and use fail-open defaults until every node runs
 the same build. Booting peers without the endpoint also fail open.
 
-Runner calls `new_batch/0` outside workers and `new_event/2` on worker event entry.
-One event has a 100 ms wall-clock counter phase; operations use at most 50 ms and
-skip without dispatch below 10 ms remaining. A shared atomics handle reserves from
-250 ms of failed-call wait per batch, survives rule-worker replacement, and refunds
-healthy calls fully (including misses and lost add/CAS races). Failed calls refund unused
-allowance; a killed caller conservatively spends its outstanding reservation.
-This event wall-clock deadline is deliberately stricter than summing call time.
-Healthy calls can still accumulate latency across events; the batch allowance
-bounds failed waits, not the whole batch's duration.
+Runner calls `new_event/1` on worker event entry. Each call to an owner waits at most
+50 ms, and that is the only counter bound: a slow or stalled owner costs each event
+that needs it about 50 ms per dependency level (a failed bucket finishes its machine,
+so no further rounds follow). An owner answering just under 50 ms keeps machines alive
+through later rounds, up to six per machine, so about 300 ms a level. Runner's 1 s
+per-row limit stands behind it, and a row over the limit is refused. Across a large request this adds up: with a stalled,
+connected peer, about 50 ms times levels times rows, until the VM declares the peer
+down. One machine has no such wait, since its owner is local and Store is direct ETS.
 
 A local guard monitors the caller and links a worker that may block in distribution
 flow control. Both local and remote calls use the same bounded path. Deadline or
@@ -602,18 +588,12 @@ original deadline; remote endpoints translate remaining milliseconds to their ow
 monotonic clock. Transit before endpoint receipt and already dispatched mutations
 can outlive the wait; uncertain increments are never replayed.
 
-An independent public ETS table holds one-second cooldowns for suspect owners,
-including the local Store. Unavailability marks immediately; timeouts mark only
-with at least 25 ms allowance. Budget skips and definite Store errors never mark.
-Reads/cooldown updates never wait for the Budget GenServer. It monitors membership
-and prunes expired/departed entries, at least once per second; no user key goes in
-this map. Restarting Budget clears cooldowns; while absent, operations fail fast.
 Membership changes, divergent membership views, restarts, eviction and uncertain
 late writes can lose or split counts. Availability takes precedence over precision;
 there is no replication, migration or partition recovery protocol.
 
-`system_stats.counters_available` reports whether the counter supervisor, Store and
-Budget are registered. This samples presence without waiting for any process; it
+`system_stats.counters_available` reports whether the counter supervisor and Store are
+registered. This samples presence without waiting for any process; it
 is not a responsiveness probe. It becomes false during subtree downtime or a child
 restart and true after recovery. `/health` continues to depend only on Guardian.Storage.
 
@@ -1647,8 +1627,8 @@ segment files (`write_segment_file/2`), waits for a table's rows to reach disk
 Callers isolate observed processes, files, segments and tables; tests don't suspend
 or restart shared Storage processes. `Guardian.Test.Aggregation` supplies
 pure representative aggregate arguments. The counter test family lives under
-`Guardian.Test.Counters`: the module itself sets up a relaxed-budget store and event
-options for counter execution and rules tests (serial tests only);
+`Guardian.Test.Counters`: the module itself sets up a store and event options for
+counter execution and rules tests;
 `Guardian.Test.Counters.ProbeStore` is a scripted counter store and the mailbox batch
 adapter for probes; `Guardian.Test.Counters.Backend` is the test build's Transport
 backend.
@@ -1668,13 +1648,7 @@ partition lookup; GROUP BY's executor and routing tests share
 `Guardian.Query.Executor.group_by_partitions/0`.
 `Guardian.Test.Env` (in `libtest/guardian/test/`) puts `:guardian` application env for an
 `async: false` test, on this node or on named peers, and restores it when the test or a
-block ends; `Guardian.Test.Query.with_time_limit/2`,
-`Guardian.Test.Counters.Budget.relax/1` and `scale/1` delegate to it, for tests with no
-per-event path; `healthy/2` gives one event the same budgets with no node-wide setting.
-Every call is also capped by its batch's allowance (250 ms from `Client.new_batch/0`),
-so a test that checks results rather than budgets takes the options and a matching
-batch together from `healthy/2`; only tests of the 250 ms allowance keep production's
-batch.
+block ends; `Guardian.Test.Query.with_time_limit/2` delegates to it.
 `Guardian.Test.Polling` is the one polling helper (`eventually/3`, `value/3`,
 `assert_eventually/3`), `Guardian.Test.Tables.unique_table/1` the one unique table name,
 and `Guardian.Test.Cluster.bare_peer/1` starts a Storage-less peer with its cleanup.

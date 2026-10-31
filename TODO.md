@@ -585,9 +585,16 @@ privately, not in this repository.
       (`docs/changes/tests-single-layer.md`)
 - [ ] intercept-append-removal: remove `Guardian.Test.Segments.intercept_append/2` once
       `web/json_api_log_test` no longer uses it
-- [ ] counter-budget-seam-removal: remove the application-env budget seam, `relax/1`
-      and `scale/1`. End-to-end ingestion tests and peer owners have no per-call path;
-      the options need a decision (`docs/changes/counter-budget-options.md`)
+- [x] counter-budget-seam-removal: subsumed by counter-budget-removal, which removed the
+      seam with the budget (`docs/changes/counter-budget-removal.md`)
+- [x] counter-budget-removal: one per-call timeout replaces the batch allowance, event
+      deadline, cooldowns and the Budget process
+      (`docs/changes/counter-budget-removal.md`)
+- [ ] counter-peer-wait-bound: a real cluster may need to bound total waiting on a dead
+      peer, to be designed then. A stalled, connected peer can hold one ingest request
+      for about 50 ms times levels times rows until the VM declares it down, and a slow peer
+      that keeps ticking never is. A stall keeps every affected large request and its
+      parsed body alive at once.
 
 - [x] test-support-namespace: consolidate common helpers under `Guardian.Test.*` and
       split SQL, polling, process and segment helpers by concern without changing
