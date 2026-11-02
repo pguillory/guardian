@@ -15,7 +15,7 @@ the release. Licenses are as each package declares them on Hex.
 | bandit | 1.13.1 | MIT | release |
 | cors_plug | 3.0.3 | Apache-2.0 | release |
 | dns_cluster | 0.3.1 | MIT | release |
-| elixir_make | 0.10.0 | Apache-2.0 | build |
+| elixir_make | 0.10.1 | Apache-2.0 | build |
 | finch | 0.24.0 | MIT | release |
 | hpax | 1.1.0 | Apache-2.0 | release |
 | hypex | 1.1.1 | MIT | release |
@@ -69,5 +69,5 @@ release image (or from your OS for development) and linked at build time:
 | Elixir | Apache-2.0 | the standard library, bundled into the release |
 | OpenSSL (`libssl3t64`) | Apache-2.0 | the runtime's crypto |
 
-The image also downloads cloudflared 2026.10.6 (https://github.com/cloudflare/cloudflared,
+The image also downloads cloudflared 2026.10.7 (https://github.com/cloudflare/cloudflared,
 Apache-2.0), pinned by checksum, for the optional Cloudflare Tunnel connector.
