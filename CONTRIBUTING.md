@@ -213,8 +213,8 @@ that leaving it would slow later tests.
 
 Isolation stops at the all-table schema read. SHOW TABLES, DESC and the `schema` table
 ask every registered mutable segment for its schema and fail after 5 s without an
-answer, so a fake segment in an async test must answer `:schema` promptly, as
-`Guardian.Test.Segments.intercept_append/2`'s does, or be a dead PID.
+answer, so a fake segment registered in an async test must answer `:schema` promptly,
+or be a dead PID.
 
 Every module is `async: true` unless it touches something shared by the whole VM that
 can't be avoided: a connected peer node, the `:lifecycle` suite's stops (a VM-wide

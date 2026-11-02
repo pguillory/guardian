@@ -4,7 +4,9 @@ Status: in progress.
 
 Product spec impact: none. No statements change in `docs/product/overview.md` or
 `docs/product/spec.md`. Tests, test support (`libtest/`), CONTRIBUTING.md and TODO.md
-only; no `lib/` changes here (async-default-tests changed two signatures, see there).
+only; no `lib/` changes here (async-default-tests changed two signatures, see there),
+except that item 6's commit also removed test-only `lib/` functions and gave the key
+check its keys as an argument (TODO test-rules-cleanup, resolver-test-only-functions).
 
 ## Problem
 
@@ -80,6 +82,16 @@ category at a time, as Preston decides each.
    `:sys.get_status` in the formatted-status test; and the table-reference test's
    `GenServer.stop` of the store it started.
 
+6. QueryFailuresTest (`:cluster`) goes, with `Guardian.Test.Processes`, its only user:
+   "losing a machine mid-query fails the query instead of dropping its rows" froze a
+   segment on a peer with `:sys.suspend`, waited for a query's call to queue there,
+   then stopped the peer. That is the frozen-node category item 4 removed from
+   MetadataTest, and it cannot be written without the freeze: a peer stopped before
+   the query is disconnected, and left out by design. A layer down,
+   DistributedStream's ClusterTest still checks that a pipeline losing traffic between
+   worker nodes fails or completes but never loses rows, and Query.FailureTest the
+   "a machine disconnected during the query" message.
+
 Coverage given up:
 
 - Storage: the only behavioral check that a graceful MutableSegments or
@@ -101,6 +113,8 @@ Coverage given up:
 - A started peer that fails a schema lookup failing the statement with a node error
   (spec.md, clustering item 6), and, from the same setup, column-naming SELECTs and
   `count()` reading that peer's rows and a missing table answering `[]` and `[[0]]`.
+- A real `Guardian.Query.run/1` over a real segment failing with "a machine
+  disconnected during the query" when a peer stops mid-query (QueryFailuresTest).
 - Counters.Store: a sweep that needs several median-cutoff passes continuing at once
   rather than after its interval and ending under budget; an operation that raises
   mid-request, alone or in a batch, returning `{:error, :unavailable}` without

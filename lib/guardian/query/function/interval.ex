@@ -89,19 +89,4 @@ defmodule Guardian.Query.Function.Interval do
   defp leading_digits(_string, n) do
     n
   end
-
-  @doc "Formats seconds as a duration that `to_seconds/1` parses, such as `\"2h30m\"`."
-  def from_seconds(0) do
-    ""
-  end
-
-  def from_seconds(n) do
-    cond do
-      n >= @week -> "#{div(n, @week)}w" <> from_seconds(rem(n, @week))
-      n >= @day -> "#{div(n, @day)}d" <> from_seconds(rem(n, @day))
-      n >= @hour -> "#{div(n, @hour)}h" <> from_seconds(rem(n, @hour))
-      n >= @minute -> "#{div(n, @minute)}m" <> from_seconds(rem(n, @minute))
-      true -> "#{n}s"
-    end
-  end
 end

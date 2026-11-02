@@ -216,7 +216,7 @@ changes only the conn passed on: Bandit's own conn still holds the key and is at
 to its error-report metadata, which the default formatter Guardian uses does not print
 (no test checks this; logs are not scrubbed, CONTRIBUTING.md, "Logging"), and the JSON
 API's failure boundary answers with the conn it was called with.
-`Guardian.Web.Auth.identify_api_key/1` compares the supplied key with every
+`Guardian.Web.Auth.identify_api_key/2` compares the supplied key with every
 configured key, each with `byte_size(supplied) == byte_size(configured)` and
 `Plug.Crypto.secure_compare(supplied, configured)`, with no early return, and returns
 `{:ok, key}` or `{:error, :unauthorized}`. Boot guarantees the configured keys are

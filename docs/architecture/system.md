@@ -1611,10 +1611,9 @@ tests. Shared infrastructure lives under `Guardian.Test.*` in `libtest/guardian/
 `Guardian.Test.Query` resolves and runs SQL (`resolve_sql/1`, `run_sql/1`) and scopes
 query time limits (`with_time_limit/2`, serial tests only). `Guardian.Test.Polling`
 holds `eventually/2`.
-`Guardian.Test.Processes` observes queued calls on this node or peers (`:cluster`
-tests). `Guardian.Test.Segments` appends nested rows (`segment_append/2`), writes
-segment files (`write_segment_file/2`), persists a table's segments and waits for them
-(`await_persisted/1`) and injects one-call append replies (`intercept_append/2`).
+`Guardian.Test.Segments` appends nested rows (`segment_append/2`), writes
+segment files (`write_segment_file/2`), and persists a table's segments and waits for
+them (`await_persisted/1`).
 Callers isolate observed processes, files, segments and tables; tests don't suspend
 or restart shared Storage processes. `Guardian.Test.Aggregation` supplies
 pure representative aggregate arguments. The counter test family lives under

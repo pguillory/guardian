@@ -9,8 +9,8 @@ There is no HTTP query endpoint; queries run only through the MCP `query` tool.
 
 Both routers authenticate only through `Guardian.Web.Auth.check_conn/2`, which takes
 the access the request needs (`:ingest` or `:full`) and reads the first `x-api-key`
-header. `Guardian.Web.Auth.identify_api_key/1` compares the supplied key with every
-configured key (`:guardian, :ingest_api_key` and `:admin_api_key`; unset is nil) in
+header. `Guardian.Web.Auth.identify_api_key/2` compares the supplied key with every
+configured key (by default `:guardian, :ingest_api_key` and `:admin_api_key`; unset is nil) in
 constant time with no early return, so timing reveals neither how much of a guess is
 right nor which key matched. The ingest key grants `:ingest` only; the admin key
 grants `:full`. A key in the URL is never accepted: the query string is never

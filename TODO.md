@@ -388,12 +388,10 @@ privately, not in this repository.
 - [x] query-tidy: declare Query's public boundary, move `merge_take/4` to
       `Guardian.Lists`, and test a consumer's normal exit mid-pipeline
       (`docs/changes/query-tidy.md`)
-- [ ] resolver-test-only-functions: `Guardian.Query.Resolver.unresolve_statement_index/2,3`
-      has no caller outside tests, and the binary clause of `resolve_aliases/1` and the
-      public `resolve_show_desc/1` are reached only from tests or the module itself;
-      drop them or make them private, testing through `resolve/1`. Likewise
-      `Guardian.Query.Function.Interval.from_seconds/1` has no caller but its test;
-      drop it with its test
+- [x] resolver-test-only-functions: `Guardian.Query.Resolver.unresolve_statement_index`
+      and `resolve_aliases/1`'s SQL-text clause are gone, `resolve_aliases/1` and
+      `resolve_show_desc/1` are private and alias expansion is tested through
+      `resolve/1`; `Guardian.Query.Function.Interval.from_seconds/1` went with its test
 - [x] worker-error-collector-fail-closed: a query whose worker error collector is gone
       fails instead of reading as "no error", and a worker waits for its report's
       acknowledgement with no timeout, so a lost report cannot give a partial answer
@@ -566,6 +564,11 @@ privately, not in this repository.
 - [x] async-default-tests: the normal `mix test` is async by default; system-table,
       suspend and peek tests go, and stop/start promises move to the excluded
       `:lifecycle` suite (`docs/changes/async-default-tests.md`)
+- [x] test-rules-cleanup: QueryFailuresTest (a frozen peer segment) and
+      `Guardian.Test.Processes` go (`docs/changes/test-rules.md`, item 6); JSON API tests
+      stop checking what output leaves out; the key check takes the configured keys as
+      an argument, so its unset-key test runs async, and the tests that the removed
+      `GUARDIAN_API_KEY` setting grants nothing go with the sync module
 - [ ] test-settings-as-data: tests that put counter budgets in the application env
       keep their modules sync; each awaits Preston's decision
       (`docs/changes/async-default-tests.md`)
@@ -598,8 +601,8 @@ privately, not in this repository.
       (`docs/changes/counter-budget-options.md`)
 - [x] tests-single-layer: tests stay at one layer and out of internals
       (`docs/changes/tests-single-layer.md`)
-- [ ] intercept-append-removal: remove `Guardian.Test.Segments.intercept_append/2` once
-      `web/json_api_log_test` no longer uses it
+- [x] intercept-append-removal: `Guardian.Test.Segments.intercept_append/2` had no
+      callers left and is gone
 - [x] counter-budget-seam-removal: subsumed by counter-budget-removal, which removed the
       seam with the budget (`docs/changes/counter-budget-removal.md`)
 - [x] counter-budget-removal: one per-call timeout replaces the batch allowance, event

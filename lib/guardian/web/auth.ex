@@ -53,18 +53,22 @@ defmodule Guardian.Web.Auth do
   end
 
   @doc """
-  Says which configured key a supplied one is: `{:ok, :ingest | :admin}`
-  or `{:error, :unauthorized}`. Every configured key is compared in constant time,
-  with no early return, so timing reveals neither how much of a guess is right nor
-  which key matched. Boot guarantees the configured keys are distinct.
+  Says which of `configured` (default: the keys Guardian is configured with, an unset
+  one nil) a supplied key is: `{:ok, :ingest | :admin}` or `{:error, :unauthorized}`.
+  Every configured key is compared in constant time, with no early return, so timing
+  reveals neither how much of a guess is right nor which key matched. Boot guarantees
+  the configured keys are distinct.
   """
-  @spec identify_api_key(term()) :: {:ok, key()} | {:error, :unauthorized}
-  def identify_api_key(api_key) when is_binary(api_key) do
+  @spec identify_api_key(term(), [{key(), String.t() | nil}]) ::
+          {:ok, key()} | {:error, :unauthorized}
+  def identify_api_key(api_key, configured \\ configured_api_keys())
+
+  def identify_api_key(api_key, configured) when is_binary(api_key) do
     matches =
-      for {key, configured} <- configured_api_keys(), is_binary(configured) do
+      for {key, secret} <- configured, is_binary(secret) do
         {key,
-         byte_size(api_key) == byte_size(configured) and
-           Plug.Crypto.secure_compare(api_key, configured)}
+         byte_size(api_key) == byte_size(secret) and
+           Plug.Crypto.secure_compare(api_key, secret)}
       end
 
     # Boot refuses equal keys; should two ever match anyway (set at runtime), take
@@ -77,7 +81,7 @@ defmodule Guardian.Web.Auth do
 
   # Not a string (headers always are, but the function is public): reject it like a
   # wrong key rather than crashing (and printing it).
-  def identify_api_key(_api_key) do
+  def identify_api_key(_api_key, _configured) do
     {:error, :unauthorized}
   end
 

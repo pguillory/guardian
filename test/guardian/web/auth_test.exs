@@ -5,7 +5,7 @@ defmodule Guardian.Web.AuthTest do
   @admin_api_key Application.compile_env!(:guardian, :admin_api_key)
   @ingest_api_key Application.compile_env!(:guardian, :ingest_api_key)
 
-  test "identify_api_key/1 names the matching key without attaching an identity" do
+  test "identify_api_key names the matching key without attaching an identity" do
     assert identify_api_key(@admin_api_key) == {:ok, :admin}
     assert identify_api_key(@ingest_api_key) == {:ok, :ingest}
     assert identify_api_key("wrong") == {:error, :unauthorized}
@@ -13,6 +13,12 @@ defmodule Guardian.Web.AuthTest do
     assert identify_api_key(@admin_api_key <> "x") == {:error, :unauthorized}
     assert identify_api_key([@admin_api_key]) == {:error, :unauthorized}
     assert identify_api_key(%{"a" => @admin_api_key}) == {:error, :unauthorized}
+  end
+
+  test "an unset key matches nothing" do
+    configured = [ingest: nil, admin: @admin_api_key]
+    assert identify_api_key(@ingest_api_key, configured) == {:error, :unauthorized}
+    assert identify_api_key(@admin_api_key, configured) == {:ok, :admin}
   end
 
   test "check_conn/2 grants ingestion to both keys and full access to the admin key" do

@@ -123,7 +123,7 @@ defmodule Guardian.Query.Resolver do
     Enum.any?(select_exprs, &is_struct(&1, Splat))
   end
 
-  def resolve_show_desc(%ShowTablesStatement{}) do
+  defp resolve_show_desc(%ShowTablesStatement{}) do
     %SelectStatement{
       select_exprs: [
         %Identifier{name: "table"},
@@ -138,7 +138,7 @@ defmodule Guardian.Query.Resolver do
     }
   end
 
-  def resolve_show_desc(%DescStatement{expr: expr}) do
+  defp resolve_show_desc(%DescStatement{expr: expr}) do
     table =
       case expr do
         %Identifier{name: table} -> table
@@ -177,7 +177,7 @@ defmodule Guardian.Query.Resolver do
     }
   end
 
-  def resolve_show_desc(statement) do
+  defp resolve_show_desc(statement) do
     statement
   end
 
@@ -265,13 +265,7 @@ defmodule Guardian.Query.Resolver do
     |> Enum.sort()
   end
 
-  def resolve_aliases(source) when is_binary(source) do
-    {:ok, statements} = AST.parse_statements(source)
-    statements = Enum.map(statements, &resolve_aliases/1)
-    Enum.map_join(statements, ";\n", &AST.unparse/1)
-  end
-
-  def resolve_aliases(%SelectStatement{} = statement) do
+  defp resolve_aliases(%SelectStatement{} = statement) do
     select_expr_aliases =
       statement.select_exprs
       |> Enum.flat_map(fn
@@ -311,28 +305,7 @@ defmodule Guardian.Query.Resolver do
     statement
   end
 
-  def resolve_aliases(statement) do
+  defp resolve_aliases(statement) do
     statement
-  end
-
-  def unresolve_statement_index(query, statement_index) when is_binary(query) do
-    {:ok, statements} = AST.parse_statements(query)
-    unresolve_statement_index(statements, statement_index)
-  end
-
-  def unresolve_statement_index(statements, statement_index) when is_list(statements) do
-    unresolve_statement_index(statements, statement_index, 0)
-  end
-
-  def unresolve_statement_index([%LetStatement{} | statements], statement_index, unresolved_index) do
-    unresolve_statement_index(statements, statement_index, unresolved_index + 1)
-  end
-
-  def unresolve_statement_index(_statements, 0, unresolved_index) do
-    unresolved_index
-  end
-
-  def unresolve_statement_index([_ | statements], statement_index, unresolved_index) do
-    unresolve_statement_index(statements, statement_index - 1, unresolved_index + 1)
   end
 end

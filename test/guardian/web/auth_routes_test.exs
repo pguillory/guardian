@@ -3,8 +3,7 @@ defmodule Guardian.Web.AuthRoutesTest do
   # exact 401 and 403 responses, so how a key is accepted cannot drift between them.
   # Both requests need full access (a JSON path other than POST /send_events, and
   # /mcp), so the ingest key is forbidden on both.
-  # A key in the URL counts as no key at all. Tests that change the configured keys are
-  # in Guardian.Web.AuthSettingsTest.
+  # A key in the URL counts as no key at all.
   use ExUnit.Case, async: true
 
   @admin_api_key Application.compile_env!(:guardian, :admin_api_key)

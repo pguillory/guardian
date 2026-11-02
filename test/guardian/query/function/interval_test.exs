@@ -28,14 +28,4 @@ defmodule Guardian.Query.Function.IntervalTest do
 
     assert Interval.to_seconds("asdf") == :error
   end
-
-  test "from_seconds" do
-    assert Interval.from_seconds(0) == ""
-    assert Interval.from_seconds(1) == "1s"
-    assert Interval.from_seconds(60) == "1m"
-    assert Interval.from_seconds(3600) == "1h"
-    assert Interval.from_seconds(86400) == "1d"
-    assert Interval.from_seconds(604_800) == "1w"
-    assert Interval.from_seconds(1_389_722) == "2w2d2h2m2s"
-  end
 end
