@@ -4,6 +4,16 @@ Guardian is a self-hosted event store for you and your agents. Your applications
 it JSON events over HTTP, your agents ask questions of them in SQL over MCP, and rules
 can decide on each event as it arrives, sending the decision back to the application.
 
+Most services can see a problem, such as a script hammering an expensive endpoint, long
+before they can stop it, because stopping just that traffic means writing and shipping
+code in the middle of the incident. Guardian makes every event a potential enforcement
+hook: describe each request with the fields that matter, wire up a few generic
+responses once (block, slow down, serve from cache), and each later fix is a rule you
+write when you need it. Seeing, deciding and acting happen in one place, so the loop
+from noticing a problem to stopping it stays short. It fits where a wrong call is cheap
+and reversible, not exact billing, quotas or audit records.
+[Why Guardian](docs/why.md) makes the full case.
+
 There's nothing to design first. A table exists once something writes to it, any JSON
 object fits, nested objects become dotted columns (`user.plan`), and a new field is a
 new column. It's built for recent events: they expire after about 15 days (see

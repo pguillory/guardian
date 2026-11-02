@@ -447,6 +447,7 @@ privately, not in this repository.
 - [x] query-api-key-off: keys are accepted only in the `x-api-key` header;
       `GUARDIAN_ALLOW_QUERY_API_KEY` and `web_requests.auth_method` are gone
       (`docs/changes/query-api-key-off.md`)
+- [x] readme-why-synopsis: the README's opener summarizes `docs/why.md` and links it
 - [ ] reserve-builtin-tables: refuse built-in table names (`queries`, `web_requests`,
       `system_stats`, ...) on API ingest, so the ingest key cannot forge Guardian's
       own rows (`docs/changes/split-api-keys.md`)
