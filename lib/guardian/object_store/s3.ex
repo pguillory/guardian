@@ -187,6 +187,12 @@ defmodule Guardian.ObjectStore.S3 do
     :precondition_failed
   end
 
+  # Wrong credentials, or a key the bucket's policy doesn't allow this request. Rules
+  # retries boot on any failure, so this line is what says why Guardian isn't up.
+  defp status_error(status) when status in [401, 403] do
+    "store denied access (HTTP #{status}); check the access key, secret, bucket and permissions"
+  end
+
   defp status_error(status) do
     "store request failed (HTTP #{status})"
   end

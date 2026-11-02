@@ -26,7 +26,11 @@ defmodule Guardian.Application do
       Guardian.Cluster.discovery_child_spec(),
     ]
 
-    Supervisor.start_link(children, strategy: :one_for_one, name: __MODULE__)
+    with {:ok, _pid} = started <-
+           Supervisor.start_link(children, strategy: :one_for_one, name: __MODULE__) do
+      Logger.info("Guardian: started")
+      started
+    end
   end
 
   # Runs before the tree stops. Best effort and lock-free: a query that gets past the

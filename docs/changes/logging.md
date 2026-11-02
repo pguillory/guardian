@@ -53,7 +53,9 @@ API key once it passes; everything goes through Logger.
    line goes, and rescans log only files they skip. The startup notice about `.seg`
    files with unparseable names becomes a Logger warning, still once per start. The
    per-segment `Expiring` line goes with no replacement, so expiry leaves no text trace.
-   Bandit's own startup line says the web server is listening. The `nifs` make target
+   Bandit's own startup line says the web server is listening. (Since then
+   segments-load-at-startup removed the "loaded" line, and Guardian logs "Guardian:
+   started" once its supervision tree is up.) The `nifs` make target
    gets an empty recipe, so an up-to-date build prints nothing.
 
 2. Stop scrubbing. The `format_status/1` callbacks that redacted Rules.Server's,

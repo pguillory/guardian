@@ -64,6 +64,9 @@ privately, not in this repository.
       bucket (`docs/changes/object-store-local.md`)
 - [x] s3-write-deadline-check: expose the S3 write deadline and check that Rules'
       default save margin exceeds it (`docs/changes/s3-write-deadline-check.md`)
+- [x] store-denied-message: an S3 store answering 401 or 403 is reported as "store denied
+      access ... check the access key, secret, bucket and permissions", so a rule store
+      with wrong credentials says why boot keeps retrying
 - [x] local-store-lock-id: a local folder store's conditional puts are serialized
       per folder on this node; its lock had named the folder as the requester, so
       concurrent writers all held it at once (`docs/changes/local-store-lock-id.md`)
@@ -546,6 +549,8 @@ privately, not in this repository.
       line; the VM reads it from an owner-only file written from `RELEASE_COOKIE`
       (`docs/changes/release-cookie-file.md`)
 
+- [x] boot-started-line: Guardian logs "Guardian: started" once its supervision tree is
+      up, the end-of-boot line Storage's "loaded" line used to give
 - [ ] logging: text logs cover lifecycle only and errors mean work to do; IO.puts
       moves to Logger, scrubbing stops, and a passing `mix test` prints only dots and
       the summary (`docs/changes/logging.md`)

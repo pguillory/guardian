@@ -1507,7 +1507,7 @@ and Fly's defaults. The operational decisions:
    which current releases no longer read.
 3. Observing: the built-in tables (`system_stats`, `web_requests`, `web_responses`,
    `query_parse_errors`, `queries`) and stdout (on Fly, `fly logs` and `fly status`). Nothing
-   alerts. Text logs cover lifecycle only (starting, loaded, listening, stopping,
+   alerts. Text logs cover lifecycle only (starting, listening, started, stopping,
    stopped) and problems to fix; CONTRIBUTING.md's "Logging" section has the rules.
 4. Remote console: `bin/guardian remote` on the node (on Fly,
    `fly ssh console --pty -C "/app/bin/guardian remote"`; in Docker, `docker exec`)
