@@ -530,8 +530,8 @@ Counter-specific limits:
 - Nothing but each row's rule time limit bounds total counter waiting. With a stalled,
   connected peer, one ingest request can wait about 50 ms times levels times rows, which
   on a large batch is minutes, holding its idempotency claim meanwhile (TODO.md). That
-  makes MCP's 30 s call timeout and its error log of the call easier to reach, with an
-  admin key and a stalled peer: about 600 rows at one level.
+  makes MCP's 60 s call timeout and its error log of the call easier to reach, with an
+  admin key and a stalled peer: about 1,200 rows at one level.
 
 1. Regular expressions run in the VM, bounded but not cheap. `RLIKE` and `replace`
    run caller patterns on Erlang's `:re` (PCRE2, part of OTP), not in a NIF of
@@ -604,12 +604,13 @@ Counter-specific limits:
 3. MCP calls in one session are serialized. Anubis 2.x runs each session in its own
    process and each request in its own task, one request at a time per session, so a
    slow call holds up only later requests in its session; other sessions, and new ones,
-   are unaffected. Anubis's 30-second transport timeout abandons the caller's wait
-   without stopping the request, and the query, which started a little later, stops at
-   its own 30-second time limit. Resolving the query comes first and is not covered:
-   for each distinct table a `SELECT *` reads from, `Guardian.Query.Resolver` asks every
-   machine for that table's schema (`Guardian.Cluster.Metadata`, 60-second timeout), before
-   the handler rejects input with several statements. Other SELECTs make no lookup.
+   are unaffected. Anubis's transport timeout (60 seconds, set by the MCP router)
+   abandons the caller's wait without stopping the request; an ordinary query stops at
+   its own 30-second time limit first, and answers with that error. Resolving the
+   query comes first and is not covered: for each distinct table a `SELECT *` reads
+   from, `Guardian.Query.Resolver` asks every machine for that table's schema
+   (`Guardian.Cluster.Metadata`, 60-second timeout), before the handler rejects input
+   with several statements. Other SELECTs make no lookup.
    (`DESC`, `SHOW TABLES` and the `schema` table read the `schema` table, whose lookup
    runs inside the query and its limit.) Each lookup first asks every peer whether its
    Storage is ready, leaving out one that doesn't answer within 5 seconds; a ready
@@ -930,8 +931,8 @@ and errors still appear and mostly carry error structs, not message bodies, with
 exceptions read from Anubis's source. A request-validation error can quote the
 offending argument value, and a client-sent JSON-RPC response that answers no server
 request is logged whole (`unexpected_response`); both need the admin key. And when a
-request outlasts Anubis's 30-second call timeout, or its session exits mid-call, the
-transport logs the call's exit reason at `:error` (`session_call_failed`), which holds
+request outlasts Anubis's call timeout (60 seconds, set by the MCP router), or its
+session exits mid-call, the transport logs the call's exit reason at `:error` (`session_call_failed`), which holds
 the message (query SQL, events, rule source; `inspect/1` cuts very long values short)
 and every request header but the key. Logs are
 not scrubbed (CONTRIBUTING.md, "Logging"), so that line is kept as Anubis writes it,

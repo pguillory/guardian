@@ -12,9 +12,16 @@ defmodule Guardian.Web.MCP.Router do
 
   @session_header "mcp-session-id"
 
-  # Same body limit as the JSON API; Anubis's own transport timeout for reading it.
+  # Same body limit as the JSON API, read within 30 s.
   @max_body_bytes 8_000_000
   @read_timeout_ms 30_000
+
+  # How long Anubis waits for a call before answering with its own timeout error and
+  # logging the call at error. Anubis's default is 30 s, the same as a query's time
+  # limit, which starts a little later, so a query that ran out its time reached the
+  # client as Anubis's timeout instead of the query's own error. 60 s covers the
+  # query's limit plus an ordinary resolution.
+  @request_timeout_ms 60_000
 
   plug(:auth)
   plug(:reject_unknown_session)
@@ -251,6 +258,6 @@ defmodule Guardian.Web.MCP.Router do
 
   forward("/",
     to: Anubis.Server.Transport.StreamableHTTP.Plug,
-    init_opts: [server: Guardian.Web.MCP.Server]
+    init_opts: [server: Guardian.Web.MCP.Server, request_timeout: @request_timeout_ms]
   )
 end

@@ -103,10 +103,10 @@ Guardian is also a producer of its own tables:
    one tenant and one principal, this stores a caller's data for the same principal, not for
    someone else. These are the only tables that keep query text, but logs are not
    scrubbed. Production logs at info, so a request that succeeds within the MCP
-   library's 30-second timeout logs no MCP message, query text or event, apart from the
+   library's 60-second timeout logs no MCP message, query text or event, apart from the
    warnings described in the security architecture. An MCP call that outlives that
    timeout, or whose session exits mid-call, logs its message at error, even if the
-   call later succeeds (for example a query that runs out its 30 seconds, or a
+   call later succeeds (for example a query queued behind another in its session, or a
    slow `send_events` with its event values). An error line or crash report can show
    what the failing process held: query text, event values (before rules unset them),
    rule text or counter keys. Each router drops the request's API keys once they pass,
@@ -266,11 +266,11 @@ otherwise) and `id: null`; a body over 8 MB gets 413. The body is not logged.
 Guardian sends no MCP server `instructions`, so the `query` tool description carries
 the "what Guardian is" summary.
 
-Timeout: the MCP library gives each request 30 seconds (its default, which Guardian
-does not override), and a query may run for 30 seconds
-([section 7](#7-queries)). The two race: the query starts a little after the request,
-so a query that runs out its time usually reaches the client as the library's timeout
-error rather than the query's time-limit error. Either way the query stops at its
+Timeout: the MCP library gives each request 60 seconds, and a query may run for 30
+seconds ([section 7](#7-queries)), so a query that runs out its time gets its own
+time-limit error. The library's timeout can still come first for a request that
+waited behind an earlier one in its session, or for a `SELECT *` whose schema lookup
+waits on a machine that stopped answering (below). Either way the query stops at its
 limit. Resolving a `SELECT *` comes before that limit: to list each table's columns,
 Guardian asks every machine for that table's schema. A machine that doesn't say
 within 5 seconds whether it is ready is left out; one whose storage (such as a

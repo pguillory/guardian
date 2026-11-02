@@ -1148,7 +1148,7 @@ handing the request to Anubis's transport:
 Steps 2 and 4 to 7 keep the wire what Anubis 0.16 produced and depend on Anubis
 behavior (`lib/guardian/web/mcp/AGENTS.md`); recheck them on any upgrade.
 
-When a call outlasts Anubis's 30-second timeout or its session exits mid-call,
+When a call outlasts Anubis's call timeout or its session exits mid-call,
 Anubis logs the call's exit reason at error (`session_call_failed`), which holds the
 message and the request's headers, minus the key. Guardian does not rewrite it.
 
@@ -1164,9 +1164,11 @@ and 1.5 s, then the tool error says something else is editing the rules.
 A slow query holds up only later requests in its own session, for up to the 30-second
 query time limit (5.7) plus, for a `SELECT *`, the schema lookup that resolves the
 query before it (up to 60 seconds per table when a machine reports ready and then
-stops answering). Anubis's own 30-second timeout abandons the caller's wait without
-stopping the request; the query, which started a little later, stops at its limit. A client that cancels the request
-(`notifications/cancelled`) or deletes its session stops it: Anubis kills the request's
+stops answering). The router gives Anubis a 60-second call timeout, above the query's
+limit plus an ordinary resolution, so a query that runs out its time answers with its
+own error; Anubis's timeout, reached by a request queued behind another or a slow
+lookup, abandons the caller's wait without stopping the request. A client that
+cancels the request (`notifications/cancelled`) or deletes its session stops it: Anubis kills the request's
 task, and `Guardian.Query` kills a query whose caller dies. `send_events` runs in a
 `Guardian.Detached` worker, so its batch always completes, and rule writes complete
 inside `Guardian.Rules.Server`. Parse-error and query recording stay asynchronous, so a

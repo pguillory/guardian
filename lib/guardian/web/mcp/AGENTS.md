@@ -114,6 +114,11 @@ nothing. After a cancel or DELETE the session's next request can run while that 
 finishes. An HTTP timeout stops nothing: the request keeps running, and later requests
 in its session wait for it.
 
+The router passes Anubis's plug `request_timeout` (60 s), the wait before Anubis
+answers a call with its own timeout error. Keep it above the query time limit
+(`docs/changes/mcp-request-timeout.md`); the option on the server's child spec does
+not reach that wait.
+
 When a call times out or its session exits mid-call, Anubis logs the call's exit
 reason at error (`session_call_failed`), with the message and the request's
 headers (the router has already dropped the key). Logs are not scrubbed, so that line
