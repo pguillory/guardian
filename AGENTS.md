@@ -1,5 +1,11 @@
 # Guardian - AI Assistant Context
 
+## Public Repository
+
+This repository is public, so work here is done in public. Put no internal or proprietary
+information and no secrets in code, docs, commit messages, or test data. Scan a change for
+both before pushing anything new.
+
 ## Meta-Instructions
 
 "Remember": When the user says "remember [something]", save it in this file in the
