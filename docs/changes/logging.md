@@ -1,6 +1,6 @@
 # Logging
 
-Status: in progress.
+Status: done.
 
 Product spec impact: step 1 changes nothing. Step 2 replaces spec.md section 3.1's
 promises about query text in logs (item 2): before, "These are meant to be the only

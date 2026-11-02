@@ -550,7 +550,7 @@ privately, not in this repository.
 
 - [x] boot-started-line: Guardian logs "Guardian: started" once its supervision tree is
       up, the end-of-boot line Storage's "loaded" line used to give
-- [ ] logging: text logs cover lifecycle only and errors mean work to do; IO.puts
+- [x] logging: text logs cover lifecycle only and errors mean work to do; IO.puts
       moves to Logger, scrubbing stops, and a passing `mix test` prints only dots and
       the summary (`docs/changes/logging.md`)
 - [x] no-log-scrub-tests: no test checks what a log line leaves out; the routers
