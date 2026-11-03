@@ -68,9 +68,8 @@ Modules:
   Both list every object; Server and `Guardian.Rules.list_rules/1` apply the rule
   layout (`Guardian.Rules.RuleSet.parse_key/1`). The write lock is a
   `Guardian.ObjectStore.Lock`, tried once: a held lock returns `{:error, :busy}`, with
-  no retry in Rules (the MCP tools retry briefly). Holds the lock until every node has
-  reloaded (or the 10 s wait ends), and before saving asks every node's Server to run
-  `Publisher.purge_for/1`, queued behind any reload still pending there.
+  no retry in Rules (the MCP tools retry briefly). Before saving, asks every node's
+  Server to run `Publisher.purge_for/1`; releases the lock right after the save.
 
 ## Rules to keep
 

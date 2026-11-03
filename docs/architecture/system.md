@@ -372,14 +372,16 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    condition before saving, on every node: under the lock, each connected node's
    Server soft-purges what it would load for the new set's plan hashes
    (`Publisher.purge_for/1`), and any refusal fails the write with nothing saved.
-   Going through the Server queues the check behind any reload still pending there,
-   even one an earlier writer stopped waiting for: the reload broadcast is a
-   `GenServer.multi_call/4`, sent straight to each Server with no worker in between. A
-   node that doesn't answer in 10 s is not waited on; its own pre-load purge still
-   protects it, and if that fails it misses the reload. The lock is held until every
-   node has reloaded or the 10 s wait ends. Only the lock holder calls other Servers
-   and a reload calls none, so no two Servers wait on each other. No prior plans or
-   per-reload history are kept. Write admission compares only the stored sets'
+   The check runs in the Server, so it never interleaves with an activation there. A
+   node that doesn't answer in 10 s (or answers with an error) is not waited on; its
+   own pre-load purge still protects it, and if that fails it misses the reload and is
+   named as unconfirmed. The lock is released right after the save, so an earlier
+   write's reload can still reach a node after this write's check passed there; a
+   purge that then fails at this write's reload has the same outcome. A Server waiting
+   on a peer's Server (a check or a reload) while that peer waits on it, as when one
+   writer's broadcast meets the next writer's check, stalls both until the 10 s
+   timeout; the waiting writer then treats that node as not answering. No prior plans
+   or per-reload history are kept. Write admission compares only the stored sets'
    preparation errors.
 4. Running: `Guardian.Rules.Runner` runs a batch in the caller, one row at a time, with
    no time or memory limit; a raise fails the request. It reads the map per row.

@@ -551,14 +551,15 @@ UNSET password
    delete tries to take it, the operation fails without changing anything; the MCP
    tools try again for a few seconds, then report that something else is editing the
    rules. A lock left by an interrupted write expires within two minutes. Rules change
-   only through these writes; editing the store directly is not supported. The lock is
-   held until every connected machine has reloaded or 10 seconds have passed. A machine
+   only through these writes; editing the store directly is not supported. A machine
    that misses the reload keeps its rules until the next write or until it restarts.
    The write's reply names a connected machine that didn't confirm; one not connected
    at the time isn't named. A write that comes while an event on a connected machine
    is still running rules a previous change replaced (a matter of milliseconds) fails
-   with "rules changed too recently; try again" and changes nothing; a machine that
-   doesn't answer that check in time isn't waited on, and may instead miss the reload.
+   with "rules changed too recently; try again" and changes nothing. A machine that
+   doesn't answer that check within 10 seconds isn't waited on. A machine still
+   running replaced rules when the reload reaches it (one that didn't answer the
+   check, or that started after it) misses the reload instead.
 3. A local folder belongs to one machine: a cluster needs a bucket.
 4. A referenced TRACK cannot be deleted or changed to an incompatible grouping
    through a single-file write. Add a new named TRACK, retarget LOOKUPs to it, then

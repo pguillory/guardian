@@ -102,15 +102,7 @@ write lock, after admission (validation) succeeds:
    which runs `Publisher.purge_for/1`), soft-purges the modules it would itself load
    for those hashes, compared with its own published map. A node that missed an
    earlier reload thus checks what it would really load. Going through the Server
-   queues the check behind any activation still pending there, including a reload an
-   earlier writer stopped waiting for after 10 s (a call's timeout does not cancel
-   it), so no load can come between a node's passed check and this write's reload
-   there. For that, the reload broadcast sends straight to each Server
-   (`GenServer.multi_call/4`) rather than through `:erpc`, whose per-call worker
-   process could reach the Server after the next writer's check. Only a reload message
-   still in transit on a link stalled for over 10 s could arrive late; that node is in
-   practice not answering. Only the lock holder calls other Servers, and a reload
-   calls none, so no two Servers wait on each other. If any node answers that a purge
+   means the check never interleaves with an activation there. If any node answers that a purge
    failed, the write releases the lock and returns `{:error, "rules changed too
    recently; try again"}`: nothing was saved, and the purges that succeeded removed
    only code nothing was running. A node that does not answer within the reload
@@ -119,29 +111,35 @@ write lock, after admission (validation) succeeds:
    unconfirmed, like any missed reload. This is a fallback for availability (and for
    an older build mid-deploy); a crash in the purge on a peer is hidden the same way,
    still covered by that peer's pre-load purge.
-3. Save, activate locally, ask every connected node to reload, and only then (every
-   node answered, or 10 s passed) release the lock. Today the lock is released before
-   the local activation and broadcast; holding it keeps the next writer from starting
-   while this write's reloads are normally still running. Writers wait at most the
-   broadcast's 10 s longer; a contending writer gets
-   `:busy` (and the MCP tools retry) as now. Two side effects: a contending writer
-   now waits out up to that broadcast, longer than the MCP tools' few seconds of
-   retries, so it sees "something else is editing" more often; and if Server crashes
-   during the activation or broadcast, the lock stays held until its 120 s lease
-   expires, where before it was already released.
+3. Save, release the lock, activate locally and ask every connected node to reload
+   (`:erpc.multicall` of `Rules.reload/0`, up to 10 s), as before this change.
 
 So the guarantee is: a too-recent refusal happens before the save and changes nothing
 on any node. It covers every node that answered the purge. Residual cases, all
 already "a machine that misses the reload": a node that did not answer the purge
-within 10 s, or a node whose Server restarted between its check and this write's
-reload. Such a node's own
+within 10 s, a node whose Server restarted between its check and this write's reload,
+or a node where an earlier write's reload landed after this write's check (the lock
+is released at the save, so that reload can still be in flight). Such a node's own
 pre-load purge can fail; its reload then fails, it is named as unconfirmed, keeps its
 rules, and catches up at the next write, while the write itself succeeds. No retry is
-added.
+added. One writer's broadcast can also meet the next writer's check: each Server then
+waits on the other until the 10 s timeout, and the next writer treats that node as
+not answering (two overlapping broadcasts already did the same before this change).
 
-`Publisher` asserts `:code.atomic_load/1` returns `:ok`. A refusal is reachable only
-through a bug (something else loading rule modules); it crashes Server, and during a
-write, after the save, that leaves the lock held until its 120 s lease expires.
+`Publisher` asserts `:code.atomic_load/1` returns `:ok` with a plain pattern match. A
+refusal is reachable only through a bug (something else loading rule modules); it
+crashes Server, after the lock is released.
+
+### Revision: lock released at the save
+
+As first built, the write held the lock until every node had reloaded or 10 s
+passed, and the broadcast was a `GenServer.multi_call/4` straight to each Server, so
+that a reload an earlier writer stopped waiting for was queued on every node ahead of
+the next writer's check. Preston's decision: release the lock right after the save, as
+before; a node whose purge refuses only at the reload misses the reload and is named
+unconfirmed, like a slow node. Without the lock held through the broadcast, sending
+straight to each Server no longer orders anything, so the broadcast went back to
+`:erpc.multicall` of `Rules.reload/0`.
 
 The MCP tools do not retry the too-recent error (it is not `:busy`); the caller sees
 the message and can write again.
@@ -195,8 +193,10 @@ In 5.1.5: item 4's last two sentences (pool exhaustion) are removed, and item 2 
 a statement that a write coming while an event on a connected machine is still
 running the rules a previous change replaced (milliseconds) fails with "rules changed
 too recently; try again", changing nothing; a machine that doesn't answer that check
-in time is not waited on and may instead miss the reload. Item 2 also notes the lock
-is held until every machine has reloaded or 10 seconds have passed.
+in time is not waited on, and a machine still running replaced rules when the reload
+reaches it misses the reload instead. (As first built, item 2 also said the lock is
+held until every machine has reloaded or 10 seconds have passed; the revision above
+removed that.)
 
 Also changed by a test: counter_reload_test's "in-flight old modules keep old state"
 assertions go, since old code is no longer callable by name.

@@ -33,12 +33,14 @@ defmodule Guardian.Rules.Server do
   apply the change, reject it if it adds an error the stored set did not have
   (`Guardian.Rules.RuleSet.new_errors/2`), soft-purge the old code of the modules the
   write will load, here and on every connected node (up to 10 s), save the one file
-  (conditional on the ETag read, or on absence), publish here, ask every connected
-  node to reload (up to 10 s), then release. If any node still runs the old code of
+  (conditional on the ETag read, or on absence), release, publish here, then ask
+  every connected node to reload (up to 10 s). If any node still runs the old code of
   one of those modules, the write fails before the save with "rules changed too
-  recently; try again", having changed nothing on any node. A failed save releases
-  the lock too, and says the file may have been saved; if it was, the next reload
-  finds its ETag changed and activates it.
+  recently; try again", having changed nothing on any node. A node whose own purge
+  fails only at the reload (it started running old code after its check) keeps its
+  rules and is named as unconfirmed, like a node that missed the reload. A failed
+  save releases the lock too, and says the file may have been saved; if it was, the
+  next reload finds its ETag changed and activates it.
 
   The lock is tried once: if another writer holds it, or a lock left by an interrupted
   write has not yet expired (the 120 s lease), the write fails at once as `:busy`,
@@ -103,8 +105,8 @@ defmodule Guardian.Rules.Server do
 
   @doc false
   # A writer's pre-save check on this node (`Guardian.Rules.Publisher.purge_for/1`).
-  # Through this server, so it runs after any reload still pending here: a reload a
-  # previous writer stopped waiting for cannot load after the check passed.
+  # Through this server, so it compares with this node's published map between
+  # activations, never during one.
   def purge_for(hashes) do
     GenServer.call(__MODULE__, {:purge_for, hashes}, @reload_timeout_ms)
   end
@@ -362,6 +364,8 @@ defmodule Guardian.Rules.Server do
 
     case result do
       {:ok, etag} ->
+        release(lock)
+
         files =
           if source == :delete,
             do: Map.delete(files, key),
@@ -374,10 +378,6 @@ defmodule Guardian.Rules.Server do
           end
 
         unconfirmed = broadcast_reload()
-        # Held until every node has reloaded or the wait ended, so the next writer's
-        # check on a node comes after this write's reload there (it queues behind it
-        # on that node's server).
-        release(lock)
         unconfirmed = if local_error, do: [node() | unconfirmed], else: unconfirmed
 
         {{:ok, %{errors: Enum.map(errors, & &1.message), unconfirmed: unconfirmed}}, state}
@@ -403,24 +403,26 @@ defmodule Guardian.Rules.Server do
   end
 
   # Asks every other connected node to reload; returns the nodes that did not confirm.
-  # Sent straight to each node's server (no intermediate process, unlike :erpc), so a
-  # reload this writer stopped waiting for is already queued there before the next
-  # writer's check arrives.
   defp broadcast_reload do
-    {replies, bad_nodes} =
-      GenServer.multi_call(Node.list(), __MODULE__, :reload, @reload_timeout_ms)
+    nodes = Node.list()
 
-    failed = for {node, reply} <- replies, reply != :ok, do: node
-    bad_nodes ++ failed
+    nodes
+    |> :erpc.multicall(Rules, :reload, [], @reload_timeout_ms)
+    |> Enum.zip(nodes)
+    |> Enum.reject(fn {result, _node} -> result == {:ok, :ok} end)
+    |> Enum.map(fn {_result, node} -> node end)
   end
 
   # Before a save, each node soft-purges the old code of the modules it would load
   # for the new set, so a node still running old code refuses the write before
-  # anything changes anywhere. Only the lock holder calls other nodes' servers, and a
-  # reload calls none, so no two servers wait on each other. A node that does not
-  # answer (unreachable, slow, still busy with an earlier reload, or an older build
-  # mid-deploy) is not waited on: its own pre-load purge still protects it, and if
-  # that fails it is named as unconfirmed, like any missed reload.
+  # anything changes anywhere. A node that does not answer (unreachable, slow, still
+  # busy with an earlier reload, or an older build mid-deploy) is not waited on: its
+  # own pre-load purge still protects it, and if that fails it is named as
+  # unconfirmed, like any missed reload. The same holds for a node that passed but
+  # runs old code by its reload (an earlier write's reload landing after the check,
+  # since the lock is released at the save). A previous
+  # writer's server, still broadcasting, can be waiting on this one's reload while
+  # this one waits on its check: both wait out the 10 s timeout.
   defp purge_everywhere(hashes) do
     Publisher.purge_for(hashes) and
       Node.list()
