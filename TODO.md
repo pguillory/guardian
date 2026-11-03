@@ -712,3 +712,7 @@ privately, not in this repository.
 - [x] rule-lock-cluster-test: the rule write lock's busy case is tested in the cluster
       suite, with a peer's rule server holding the lock; no sync module is left in the
       default suite (`docs/changes/rule-lock-cluster-test.md`)
+- [x] temporaries-test-bounded-ingest: the reassembly-during-ingest test's writer can
+      get at most 1,000 rows ahead of its checks, so a loaded run makes two segments,
+      not ten that put GROUP BY workers over the test's 16 MiB heap limit; test only
+      (`docs/changes/temporaries-test-bounded-ingest.md`)

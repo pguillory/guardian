@@ -9,21 +9,34 @@ defmodule Guardian.Query.TemporariesTest do
   alias Guardian.Query.Evaluation.SegmentSnapshot
   alias Guardian.Storage.Column
 
+  # How far the ingest test's writer may get ahead of its checks, in rows.
+  @max_lead 1_000
+
   defp table do
     "temporaries_#{Base.encode16(:crypto.strong_rand_bytes(8), case: :lower)}"
   end
 
   # Appends row v, then the next, until it gets :stop, then tells the parent how many
-  # rows it wrote.
+  # rows it wrote. It never gets more than @max_lead acknowledged rows ahead of the
+  # count the latest check started from (progress index 3), and waits for the next
+  # check instead.
   defp append_until_stopped(table, progress, parent, v) do
-    :counters.add(progress, 1, 1)
-    :ok = Guardian.Storage.append(table, k: rem(v, 7), v: 1)
-    :counters.add(progress, 2, 1)
+    if :counters.get(progress, 2) - :counters.get(progress, 3) >= @max_lead do
+      receive do
+        :stop -> send(parent, {:written, v - 1})
+      after
+        1 -> append_until_stopped(table, progress, parent, v)
+      end
+    else
+      :counters.add(progress, 1, 1)
+      :ok = Guardian.Storage.append(table, k: rem(v, 7), v: 1)
+      :counters.add(progress, 2, 1)
 
-    receive do
-      :stop -> send(parent, {:written, v})
-    after
-      0 -> append_until_stopped(table, progress, parent, v + 1)
+      receive do
+        :stop -> send(parent, {:written, v})
+      after
+        0 -> append_until_stopped(table, progress, parent, v + 1)
+      end
     end
   end
 
@@ -85,19 +98,24 @@ defmodule Guardian.Query.TemporariesTest do
 
   test "reassembling queries during ingest see consistent results" do
     table = table()
-    # Index 1 counts appends started, index 2 appends acknowledged. A query sees every
-    # acknowledged row and none that was not started.
-    progress = :counters.new(2, [])
+    # Index 1 counts appends started, index 2 appends acknowledged, index 3 the
+    # acknowledged count the latest check started from. A query sees every acknowledged
+    # row and none that was not started.
+    progress = :counters.new(3, [])
     parent = self()
 
     # The writer keeps appending until a check has seen 20,000 rows, so the checks run
-    # during ingest, across a segment rollover, however fast the writer is.
+    # during ingest, across a segment rollover (16,384 rows). Held to @max_lead rows
+    # ahead of the checks, it stops within 20,000 plus two leads: two segments, the size
+    # the test's query heap limit allows for
+    # (docs/changes/temporaries-test-bounded-ingest.md).
     writer = spawn_link(fn -> append_until_stopped(table, progress, parent, 1) end)
 
     query = "select k, sum(v) from #{table} group by k having count(*) > 0"
 
     check = fn ->
       low = :counters.get(progress, 2)
+      :counters.put(progress, 3, low)
       rows = run_sql(query)
       high = :counters.get(progress, 1)
       keys = Enum.map(rows, &hd/1)
@@ -110,6 +128,7 @@ defmodule Guardian.Query.TemporariesTest do
     totals = Stream.repeatedly(check) |> Enum.take_while(&(&1 < 20_000))
     send(writer, :stop)
     assert_receive {:written, written}, 60_000
+    assert written <= 20_000 + 2 * @max_lead
     assert totals == Enum.sort(totals)
     assert check.() == written
     expected = 1..written |> Enum.frequencies_by(&rem(&1, 7)) |> Enum.map(fn {k, n} -> [k, n] end)
