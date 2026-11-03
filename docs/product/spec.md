@@ -467,11 +467,9 @@ UNSET password
    update between reads: this is a per-event barrier, not a global snapshot.
 4. A value a rule produces is validated like an incoming one; one that cannot be
    stored is dropped.
-5. Rules run outside the request, each event with a 1-second limit and the query heap
-   limit. Functions and operators give null rather than fail (section 7), so a
+5. Rules run in the request, one event after another, with no time or memory limit of
+   their own. Functions and operators give null rather than fail (section 7), so a
    statement fails only through a bug; that fails the whole request (section 5 item 6).
-   An event over a limit fails on its own, with an error naming the limit, and is not
-   stored; other events in the batch are unaffected.
 6. A table whose stored rules are invalid (using a function a newer build lacks, or
    left by a stalled write, section 12) fails its events with `rules for <table> are invalid`
    until fixed, at startup and after any reload alike; there are no last good rules.
@@ -521,10 +519,10 @@ UNSET password
    skips rules but returns only its receipt, without decision values (section 5).
    Eviction, overload, restart or another node can bypass receipt protection.
 6. Each call to a counter owner waits at most 50 ms. Nothing else bounds counter
-   waiting short of each row's rule time limit, so a slow or stalled owner can cost
-   50 ms per call across a whole request. There is no uncertain-write retry or owner
-   failover. Only definite CAS conflicts retry, at most three total attempts. SET/UNSET
-   keep their fail-closed behavior.
+   waiting, so a slow or stalled owner can cost 50 ms per call across a whole
+   request. There is no uncertain-write retry or owner failover. Only definite CAS
+   conflicts retry, at most three total attempts. SET/UNSET keep their fail-closed
+   behavior.
 7. State is ephemeral and advisory: restarts, eviction, membership changes,
    partitions and uncertain writes can lose or split counts (section 10). The
    resident counter memory target is GUARDIAN_COUNTER_MEMORY_MB, positive MiB, default

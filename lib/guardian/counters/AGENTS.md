@@ -74,12 +74,12 @@ backoff and process-presence stats remain as specified in system.md section 2.1.
    housekeeping use real time (`docs/changes/clock-as-data.md`).
    Store validates request options explicitly (`:invalid_request`). Only a store whose
    table is missing or not ready answers `:unavailable`; anything else raises, on the owner, and reaches
-   the rule worker as a crash. Transport's `route/2` checks
+   the rules' caller as a crash. Transport's `route/2` checks
    anchored add/increment/CAS expiries are integers before grouping or admission, so
    malformed expiries return `:invalid_request`.
    `dispatch/2` takes only operations `route/2` accepted, which `Client.batch/2`
    ensures. It rescues nothing: bad membership is a programming error that crashes the
-   rule worker. An owner that is unreachable fails open: Transport names what that
+   rules' caller. An owner that is unreachable fails open: Transport names what that
    means in `invoke` (timeout, down, or without this endpoint). Translate valid anchored expiries only at
    actual dispatch.
 
@@ -186,8 +186,7 @@ Floating-point rounding/cancellation, overflow and wrapping mixed with floats
 preclude universal associativity. Min/max share query ordering. Which side wins a tie
 (including equal integer/float values) is not a contract, and nothing may depend on
 bucket merge order (`docs/changes/counter-merge-order.md`). A merge
-that raises (top-N states with different n) crashes the rule worker and fails the
-request.
+that raises (top-N states with different n) fails the request.
 
 Bucket callers merge states, compare with the prior state using `===` to skip
 unchanged writes, then finish once. Count finishes raw; the int64 limit applies

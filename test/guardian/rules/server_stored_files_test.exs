@@ -64,6 +64,8 @@ defmodule Guardian.Rules.ServerStoredFilesTest do
 
     assert [{:error, message}] = Guardian.Engine.ingest_events(table, [%{}])
     assert message =~ "rules for #{table} are invalid"
+    assert message =~ "the event was not stored"
+    assert Guardian.Storage.dump_table(table) == []
 
     assert [{:ok, %{"x" => 1}}] = Guardian.Engine.ingest_events(other, [%{}])
     assert {:ok, [_]} = Guardian.Rules.list_rules(table)

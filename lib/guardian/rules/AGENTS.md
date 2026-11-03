@@ -54,8 +54,9 @@ Modules:
 - `Guardian.Rules.Event`: what a compiled module gets besides the row: the event's
   private `Guardian.Counters.Arrival` (Unix/monotonic arrival coordinates outside
   the row, which Engine captures before validation) and the typed Counters.Context
-  that Runner adds under Event.counters on worker entry.
-- `Guardian.Rules.Runner`: runs a batch in a worker under the heap limit, 1 s per event.
+  that Runner adds under Event.counters as each event's rules start.
+- `Guardian.Rules.Runner`: runs a batch's rules in the caller, one row at a time, with no
+  limit of its own.
 - `Guardian.Rules.Config`: chooses the store from the environment.
 - `Guardian.Rules.Server`: process, startup load, reload, locked writes and
   admission. Nothing re-reads the store on a timer: rules change only through writes,
@@ -78,18 +79,17 @@ Modules:
    create an atom from rule text, a table name or a store key.
 4. A failed store call is an error to the caller, with the lock released; only boot
    retries, and it retries any failure.
-5. An event over its limit tells the sender and logs nothing. Validation errors are
-   not logged: a message can quote rule text, and an invalid table already shows in
-   its events' error and the rule tools' replies, so don't add a log line for it.
-   The rule worker reports heap kills without the error_logger report. It catches no
-   raise: a rule crash fails the request. Guardian.Rules.Server's formatted status is
-   not redacted (CONTRIBUTING.md, "Logging"), and its callbacks crash as they are.
+5. Validation errors are not logged: a message can quote rule text, and an invalid
+   table already shows in its events' error and the rule tools' replies, so don't add
+   a log line for it. Runner catches no raise and limits nothing: a rule crash fails
+   the request. Guardian.Rules.Server's formatted status is not redacted
+   (CONTRIBUTING.md, "Logging"), and its callbacks crash as they are.
 6. Validation is whole-set and a write is refused only for errors it adds
    (`Guardian.Rules.RuleSet.new_errors/2`, ignoring lines), so broken sets stay repairable.
-7. Rules fail closed: a statement that raises fails the request, an event over its
-   time or heap limit fails the event; a table whose stored rules are invalid is
-   published as invalid (its events fail, other tables run) rather than refusing
-   startup. There are no switches for either (`docs/changes/ingest-rules.md`, open questions 1 and 2).
+7. Rules fail closed: a statement that raises fails the request; a table whose
+   stored rules are invalid is published as invalid (its events fail, other tables
+   run) rather than refusing startup. There are no switches for either
+   (`docs/changes/ingest-rules.md`, open questions 1 and 2).
 8. Statement words are contextual (see `lib/guardian/ast/AGENTS.md`).
 9. Whole-set preparation validates counter plans, orders expression dependencies
    with the LOOKUP barrier and binds definition identities.
@@ -117,5 +117,5 @@ change documents before changing any counter semantics.
 
 Tests use the one rule store, each on its own tables, through `Guardian.Test.Rules`:
 `with_rules/1` is async-safe on a test's own table, `plant_file/2` of an invalid file,
-`stop_server/0`, `restart_server/0` and `publish_module/2` require `async: false`, and
+`stop_server/0` and `restart_server/0` require `async: false`, and
 `compile_module/2` is async-safe for distinct probe modules.

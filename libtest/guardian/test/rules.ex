@@ -4,8 +4,8 @@ defmodule Guardian.Test.Rules do
   writes queue on the one `Guardian.Rules.Server`, so tests interleave as real callers
   do, and no two writers in this VM can meet at the store's lock. `plant_file/2` puts
   a file in the rule folder directly; an invalid one shows in every concurrent write's
-  reply, so such a test is `async: false`. `stop_server/0`, `restart_server/0` and
-  `publish_module/2` change what that server owns and require `async: false`.
+  reply, so such a test is `async: false`. `stop_server/0` and `restart_server/0`
+  change what that server owns and require `async: false`.
   `compile_module/2` is safe for async tests using distinct probe modules.
   """
 
@@ -89,15 +89,6 @@ defmodule Guardian.Test.Rules do
   defp terminate_server do
     _ = Supervisor.terminate_child(Guardian.Application, Guardian.Rules.Server)
     :persistent_term.erase({Guardian.Rules, :tables})
-  end
-
-  @doc "Puts a module straight into the published map for `table` until the test exits."
-  def publish_module(table, module) do
-    Guardian.Rules.publish(Map.put(Guardian.Rules.published() || %{}, table, module))
-
-    on_exit(fn ->
-      Guardian.Rules.publish(Map.delete(Guardian.Rules.published() || %{}, table))
-    end)
   end
 
   defdelegate unique_table(prefix), to: Guardian.Test.Tables

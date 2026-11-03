@@ -7,6 +7,9 @@ privately, not in this repository.
 
 ## Rules
 
+- [x] rules-in-process: rules run in the ingesting process with no per-event time or
+      memory limit and no worker restart; a failing rule fails the request
+      (`docs/changes/rules-in-process.md`)
 - [x] rules-no-poll: rules change only through the service, so the one-minute re-read
       and its log line are gone (`docs/changes/rules-no-poll.md`)
 - [ ] rules-reread-on-reconnect: for when a cluster is real. A machine that misses a

@@ -71,9 +71,8 @@ Events are inserted independently:
   why, and `return_keys: []` reports nothing.
 - If the table has [rules](../product/spec.md#51-rules), each event runs them first and
   the response shows the row as stored, so `return_keys` is how a sender reads a
-  computed field. An event whose rules ran over their time or memory limit, or on a
-  table whose rules are invalid, isn't stored and gets an error naming the table. A rule
-  that crashes fails the whole request.
+  computed field. An event on a table whose rules are invalid isn't stored and gets an
+  error naming the table. A rule that crashes fails the whole request.
 
 Table names must match `[a-z_][a-z0-9_]*`, be at most 64 characters, and exclude SQL
 keywords, `null`, `true`, `false`, `current_date`, `current_timestamp` and `schema`.

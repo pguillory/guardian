@@ -438,14 +438,11 @@ and no single request that takes the service down or destroys stored data.
    are stateless; TRACK/LOOKUP keep ephemeral counter state and can read a named
    counter on another table through bounded calls to Guardian peers, never an
    external runtime service.
-   Each event's rules run in a worker with the query heap limit and a 1-second
-   limit, outside the request process (for MCP, the request's task and its send_events worker). A
-   kill fails only that event and tells the sender; nothing is logged, and heap kills skip
-   the error_logger report. A statement that raises crashes the
-   worker and fails the whole request with a 500, and that failure's log lines can
-   show event values, such as a password an UNSET was meant to remove. Either way
-   rules fail closed (not stored), so a broken `UNSET password` does
-   not store the password.
+   Rules run in the ingesting process (for MCP, the request's send_events worker),
+   one event at a time, with no time or memory limit of their own. A statement that
+   raises fails the whole request with a 500, and that failure's log lines can show
+   event values, such as a password an UNSET was meant to remove. Rules fail closed
+   (not stored), so a broken `UNSET password` does not store the password.
 8. The rule store is read at boot, on writes and on reload, never per event, so
    the ingest path makes no rule-store/external-service calls (counter peer RPCs
    stay inside Guardian). Its S3 credentials stay out of
@@ -491,7 +488,7 @@ and no single request that takes the service down or destroys stored data.
    aliases and flushes replies. Remote endpoints translate remaining duration
    onto their own clocks; already dispatched mutations can still complete late.
    An unreachable owner's RPC failures become fixed error atoms; a raise on the owner
-   crashes the rule worker.
+   fails the request.
    Store has a disposable supervisor whose linked lifecycle owner
    traps its exits and retries with backoff; counter crash loops cannot exhaust
    Guardian.Application's restart intensity. The owner's down/recovery messages use only fixed
@@ -517,8 +514,8 @@ Counter-specific limits:
   can then fail open; it is an advisory signal, not a durable security limit.
 - Top-N counters have no cap on n. A huge n makes each event's reads and CAS writes
   proportional to n, and Store's payload check measures external size, which is
-  smaller than heap size, so a state Store accepts can still exceed the rule
-  worker's heap limit and fail the event rather than fail open. An n taken from an
+  smaller than heap size, so a state Store accepts can take far more memory in the
+  ingesting process. An n taken from an
   event field lets one event with a different n fail its whole request with a 500.
   Use a literal n.
 - UNSET is not counter-memory erasure. Avoid secret group keys and inputs to
@@ -527,11 +524,11 @@ Counter-specific limits:
   or appear in later computed fields. Distribution is fully trusted and unencrypted.
 - WHERE false/null preserves caller-supplied outputs. Apply a counter unconditionally
   or explicitly set the skipped output before trusting it as a decision.
-- Nothing but each row's rule time limit bounds total counter waiting. With a stalled,
-  connected peer, one ingest request can wait about 50 ms times levels times rows, which
-  on a large batch is minutes, holding its idempotency claim meanwhile (TODO.md). That
-  makes MCP's 60 s call timeout and its error log of the call easier to reach, with an
-  admin key and a stalled peer: about 1,200 rows at one level.
+- Nothing bounds total counter waiting. With a stalled, connected peer, one ingest
+  request can wait about 50 ms times levels times rows, which on a large batch is
+  minutes, holding its idempotency claim meanwhile (TODO.md). That makes MCP's 60 s
+  call timeout and its error log of the call easier to reach, with an admin key and a
+  stalled peer: about 1,200 rows at one level.
 
 1. Regular expressions run in the VM, bounded but not cheap. `RLIKE` and `replace`
    run caller patterns on Erlang's `:re` (PCRE2, part of OTP), not in a NIF of
@@ -542,8 +539,8 @@ Counter-specific limits:
    - CPU: every run carries `match_limit` 1,000,000, hitting which gives null for
      that value. The limit counts per start position, so a value can still cost
      seconds (`a*[^a]` on 40 KB of `a` took 2.7 s without tripping it); the 30-second
-     query time limit is the real bound. `:re` yields to the scheduler, so a long
-     match does not block one.
+     query time limit is the real bound for queries; rules have none. `:re` yields to
+     the scheduler, so a long match does not block one.
    - Native memory: PCRE2 keeps backtracking frames in malloc'd memory that the
      per-process heap limit does not see, and a frame grows with the pattern's
      capturing groups. Patterns may have at most 32 capturing groups (a parse error
@@ -643,8 +640,8 @@ Counter-specific limits:
    slow to flatten. Bounded by the 8 MB body limit per request.
 7. A segment that cannot write its file (5.1.6) loses its rows, acknowledged ones
    included; a full disk loses each segment as it fills.
-8. Rules (5.1.7): a rule set can cost up to a second of CPU per event, and a whole
-   batch runs its events in turn, so a key holder can slow ingestion of a table. The
+8. Rules (5.1.7): a rule set costs CPU on every event, with no per-event limit, and a
+   whole batch runs its events in turn, so a key holder can slow ingestion of a table. The
    write lock is a lease in the store, not a fence: a write that outlasts the
    two-minute lease, or a request the store applies after the writer abandoned it, can leave a stored set validation would have
    refused. Each node then fails that table's events from its next load until it is
@@ -987,7 +984,7 @@ Open gaps named above, by boundary:
 16. B7: caller data can reach stdout in failures outside the JSON application
     boundary and OTP crash reports, and the `referer` header is stored verbatim
     (4.1.3, 8).
-17. B3: rules can slow a table's ingestion by up to a second per event; the rule
+17. B3: rules can slow a table's ingestion, with no per-event limit; the rule
     write lock is a lease, not a fence; direct writers to the rule store bypass the
     API keys (5.2.8).
 18. B2: the ingest key can read counter values (and other rule outputs) for keys it

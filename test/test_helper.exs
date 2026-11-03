@@ -9,8 +9,8 @@
 ExUnit.start(exclude: [:large, :cluster, :lifecycle], assert_receive_timeout: 5_000)
 
 # Tests load code on first call, one module at a time through the code server. Under
-# async load that took a first MCP client past its 3 s start and a first rule past its
-# 1 s row limit, so everything loads here, before any test runs. Mix lists modules
+# async load that took a first MCP client past its 3 s start, so everything loads
+# here, before any test runs. Mix lists modules
 # that are not on disk, and a module that fails to load here just loads, or fails, as usual.
 _ =
   Application.started_applications()

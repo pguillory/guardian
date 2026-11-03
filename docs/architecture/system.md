@@ -201,7 +201,7 @@ POST /api/json/send_events or MCP send_events
   -> Guardian.Engine.ingest_events/2             table name check, then each event on its own
        -> Guardian.Storage.Flattening.flatten_event/1
        -> drop invalid values and over-long keys
-       -> Guardian.Rules.run_with_metadata/2, if rules exist (3.4): a worker, one outcome per event
+       -> Guardian.Rules.run_with_metadata/2, if rules exist (3.4): in the caller, one outcome per event
        -> drop invalid values the rules produced
        -> Guardian.Storage.append_flattened_result/2
             -> MutableSegments: pick the table's writable segment
@@ -358,25 +358,25 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    sources or diagnostics in its state. One `:persistent_term` map holds table to
    module, or `{:invalid, message}`. A reload compiles every changed table into free
    names first and publishes one new map only if all compiled, so a change is all or nothing on each
-   node. A module the map stops using is retired, then after 30 s (rows run under a
-   1 s limit) deleted and soft-purged; its name is reused only after the purge
+   node. A module the map stops using is retired, then after 30 s deleted and
+   soft-purged (a row runs its module only while reading the levels, and a module
+   still running blocks the soft purge); its name is reused only after the purge
    succeeds. On a restart the pool is rebuilt from what is loaded: published names
    stay reserved, other loaded names are retired (a name with only old code as
    already deleted, so it is only soft-purged). No prior plans or per-reload
    history are kept. Write admission compares only the stored sets' preparation
    errors.
-4. Running: `Guardian.Rules.Runner` runs a batch in a worker with the query heap limit (without
-   the error_logger report), sending each row's result back; a row over 1 s, or a
-   worker that dies, fails that row and a new worker continues. The worker reads the
-   map per row. `Guardian.Rules.Runtime` threads the flattened row, a flat map, through
-   the statements: reads and the evaluation context are the map itself, WHERE applies
+4. Running: `Guardian.Rules.Runner` runs a batch in the caller, one row at a time, with
+   no time or memory limit; a raise fails the request. It reads the map per row.
+   `Guardian.Rules.Runtime` threads the flattened row, a flat map, through the
+   statements: reads and the evaluation context are the map itself, WHERE applies
    when true, SET, TRACK and LOOKUP put one key and UNSET deletes one key, so a
    statement costs what it touches. SET/UNSET exceptions fail the event; counter
    exceptions supply aggregate defaults and continue, including final UNSETs.
    Engine captures private Unix/monotonic arrival coordinates
    (`Guardian.Counters.Arrival`) before each event's validation; they are carried
    outside the row and never automatically stored.
-   Runner takes each event's membership snapshot on worker entry. Generated
+   Runner takes each event's membership snapshot as its rules start. Generated
    modules accept this context through `apply/2`; `apply/1` creates a fresh event.
 5. Loading: at boot, on every write, when a writer asks a node to reload, and once in
    the background after the rules process restarts; nothing reads on a timer, because
@@ -463,8 +463,8 @@ skips states with no values, retaining signed-zero bits. All arithmetic, overflo
 and ordering logic lives in the shared modules. The registry's `finish` boundary
 nulls list results that storage cannot hold, leaving valid lists and all scalar
 results unchanged. A merge that raises (top-N states with different n) is a rule
-failure like any other: it crashes the rule worker and fails the request. These states are plain terms safe to copy through ETS
-and distribution; no resources or ownership transfer are involved. HLL registers
+failure like any other: it fails the request. These states are plain terms safe to
+copy through ETS and distribution; no resources or ownership transfer are involved. HLL registers
 have fixed size; arbitrary, min/max and the `_by` forms retain one input of
 variable byte size, the `_n` forms up to n of them, and count/avg exact integer
 sizes grow logarithmically with accumulated count/sum. State size is not an
@@ -571,14 +571,15 @@ rolling deploys across this split are unsupported. Mixed-version calls fail as
 unavailable and use fail-open defaults until every node runs
 the same build. Booting peers without the endpoint also fail open.
 
-Runner calls `new_event/1` on worker event entry. Each call to an owner waits at most
-50 ms, and that is the only counter bound: a slow or stalled owner costs each event
-that needs it about 50 ms per dependency level (a failed bucket finishes its machine,
-so no further rounds follow). An owner answering just under 50 ms keeps machines alive
-through later rounds, up to six per machine, so about 300 ms a level. Runner's 1 s
-per-row limit stands behind it, and a row over the limit is refused. Across a large request this adds up: with a stalled,
-connected peer, about 50 ms times levels times rows, until the VM declares the peer
-down. One machine has no such wait, since its owner is local and Store is direct ETS.
+Runner calls `new_event/1` as each event's rules start. Each call to an owner waits at
+most 50 ms, and that is the only counter bound: a slow or stalled owner costs each
+event that needs it about 50 ms per dependency level (a failed bucket finishes its
+machine, so no further rounds follow). An owner answering just under 50 ms keeps
+machines alive through later rounds, up to six per machine, so about 300 ms a level.
+Nothing bounds a row or a request. Across a large request this adds up: with a
+stalled, connected peer, about 50 ms times levels times rows, until the VM declares
+the peer down. One machine has no such wait, since its owner is local and Store is
+direct ETS.
 
 A local guard monitors the caller and links a worker that may block in distribution
 flow control. Both local and remote calls use the same bounded path. Deadline or
@@ -1394,7 +1395,7 @@ these except through the variables above:
 | `query_time_limit_ms` | 30,000 | `Guardian.Query.run/1` (`Guardian.Query.Limits`) |
 | `counter_memory_budget_bytes` | 64 MiB, overridden by `GUARDIAN_COUNTER_MEMORY_MB` | `Guardian.Counters.Store`: asynchronous resident counter memory target (3.5); a non-positive or non-integer value refuses startup |
 | `query_parse_errors_per_hour` | 60 | `Guardian.Web.QueryParseErrors` (tests raise it) |
-| `rules_time_limit_ms`, `rules_reclaim_after_ms` | 1,000; 30,000 | `lib/guardian/rules` (tests shorten them) |
+| `rules_reclaim_after_ms` | 30,000 | `lib/guardian/rules` (tests shorten it) |
 
 Constants in code that act like configuration: segment capacity 16,384 rows and 64 MiB
 budget and the 90 s shutdown budget (`Guardian.Storage.Segment`), 15-day retention
@@ -1592,7 +1593,7 @@ About 150 test files cover:
    `libtest/guardian/test/distributed_stream_stages.ex`, because test modules are not loaded
    there.
 5. Rules: the parser, whole-set validation, semantics through real ingestion, the
-   worker's limits, the server (repair, activation, the module pool), and a peer cluster sharing the rule
+   server (repair, activation, the module pool), and a peer cluster sharing the rule
    folder; the folder store and the key lock have their own tests, and the lock is raced
    across peers. Tests use one rule store, the folder in the run's fresh data directory,
    and each its own tables. S3 mode has no automated test: when `ObjectStore` changes, an
@@ -1651,8 +1652,9 @@ running server, leaving a previous failed start stopped until its outer cleanup
 restores the original working configuration.
 `Guardian.Test.Rules.compile_module/2` asserts successful compilation and
 registers module deletion and soft purge on exit; tests compiling distinct probe
-modules can use it asynchronously without touching the shared Rules server. Its `with_rules/1`, `restart_server/2`
-and `publish_module/2` helpers use shared Rules state and require serial tests.
+modules can use it asynchronously without touching the shared Rules server. Its
+`stop_server/0` and `restart_server/0` helpers change shared Rules state and require
+serial tests.
 Tests do not use `:global` names: `Guardian.Query.DistributedStream.ClusterTest`
 suspends `:global` and checks on teardown that it still registers names. A bare
 `assert_receive` waits up to 5 s

@@ -34,7 +34,7 @@
    two-minute lease can still land after another and leave a rule set that the check
    would have refused; each node then rejects the table's events from its next load
    until the rules are fixed.
-   Rules cost time on every event they run on (up to a second each), and a node that
+   Rules cost time on every event they run on, with no per-event limit, and a node that
    misses a write's reload (not connected yet, or the reload failed) keeps its rules
    until the next rule write or until it restarts.
 10. Counters are advisory and ephemeral. Buckets include the entire oldest

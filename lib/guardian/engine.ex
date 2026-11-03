@@ -45,7 +45,7 @@ defmodule Guardian.Engine do
   Ingests each event independently and returns one ordered outcome per input:
   `{:ok, row}` with the stored flat row (after the table's rules), or
   `{:error, message}` for an event that is not an object, a value Storage refuses, or
-  one the table's rules refuse (invalid rules, a rule over its time or heap limit).
+  one on a table whose rules are invalid.
   Those do not stop later events. Invalid tables raise before any event is processed,
   and anything unexpected raises or exits out of the batch: events already stored stay
   stored.
@@ -104,7 +104,7 @@ defmodule Guardian.Engine do
     {:error, "event is not a JSON object"}
   end
 
-  # Rules run on every event's validated row, in a worker (Guardian.Rules.Runner), after which
+  # Rules run on every event's validated row (Guardian.Rules.Runner), after which
   # the row they produced is validated the same way and stored. The stored row is the
   # result.
   defp ingest_with_rules(table, events) do

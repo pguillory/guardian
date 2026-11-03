@@ -24,12 +24,12 @@ Engine is Guardian's event-ingestion boundary.
 
 `ingest_events/2` runs the table's rules when it has any (`Guardian.Rules.lookup/1`): it
 captures private arrival coordinates before validating each event, hands valid rows
-and their metadata to `Guardian.Rules.run_with_metadata/2` (a worker, one outcome per row),
+and their metadata to `Guardian.Rules.run_with_metadata/2` (in the caller, one outcome per row),
 validates the row the rules produced the same way, and stores it; the stored row is
 the event's result. Metadata is never caller-controlled, a row field or stored automatically.
 The whole batch is prepared before execution; later rows can therefore reach rules
-after their counter window expires. An event over a rule limit, or on a table whose
-rules are invalid, is that event's `{:error, message}` and it is not stored; a rule
+after their counter window expires. An event on a table whose rules are invalid is
+that event's `{:error, message}` and it is not stored; a rule
 that raises fails the whole request. `ingest_event/2`
 and the `log_event` writers (Guardian's built-in tables) never run rules. Rule
 compilation and management live in `lib/guardian/rules`, not here. Keep Engine free of

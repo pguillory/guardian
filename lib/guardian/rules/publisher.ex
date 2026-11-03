@@ -8,8 +8,8 @@ defmodule Guardian.Rules.Publisher do
 
   Compiled modules are never reloaded in place: each change compiles into a free
   name of Compiler's pool. A module the published map stops using is retired,
-  and 30 s later (rows run under a 1 s limit, so no caller can still hold it)
-  deleted and soft-purged; its name returns to the pool only once the purge
+  and 30 s later (a row runs its module only while reading the levels, and a
+  module still running blocks the soft purge) deleted and soft-purged; its name returns to the pool only once the purge
   succeeds. On a restart, names in the published map are in use and any other
   loaded name is retired. No prior plans are kept: each activation publishes what
   the store holds now.

@@ -38,7 +38,7 @@ defmodule Guardian.Counters.Execution do
   One result per op, in order, as `{:ok, value}`. A failed bucket (timeout, unavailable,
   expiry, invalid request) defaults its op to the operator's
   missing result. That is how an unreachable store fails open, by data; anything that
-  raises here is a bug and takes the event's worker with it.
+  raises here is a bug and fails the event's request.
   """
   @spec run_counters([op()], Arrival.t(), Context.t()) :: [{:ok, term()}]
   def run_counters(ops, arrival, context) do

@@ -30,7 +30,7 @@ if config_env() == :test do
   config :guardian, Guardian.Counters.Transport, store_backend: Guardian.Test.Counters.Backend
 
   # Same kind of seam: a slow healthy call under host load must not silently give a
-  # default count, and this stays under Runner's 1 s row limit. Releases use 50 ms.
+  # default count. Releases use 50 ms.
   config :guardian, Guardian.Counters.Context, call_timeout_ms: 500
 
   # Same kind of seam: lets a test make the query path exit or throw, which nothing a
@@ -41,7 +41,7 @@ if config_env() == :test do
   config :guardian, query_parse_errors_per_hour: 1_000_000
 
   # The query heap limit (Guardian.Query.Limits.max_heap_mb/0) for the whole test run:
-  # query processes, pipeline workers, the large-value replace helper and rule workers.
+  # query processes, pipeline workers and the large-value replace helper.
   # Production's is the fixed 256 MiB default. 16 MiB is about the lowest the suite
   # passes under, with headroom (docs/changes/test-heap-limit.md). No test changes it.
   config :guardian, query_max_heap_mb: 16

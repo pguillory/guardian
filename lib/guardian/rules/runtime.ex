@@ -9,8 +9,8 @@ defmodule Guardian.Rules.Runtime do
     column it names. Columns beneath it are other columns.
   - WHERE applies a statement only when it evaluates to `true`.
 
-  Anything a statement raises crashes the rule worker (`Guardian.Rules.Runner`), which
-  fails the request. An unreachable counter store is not a failure here: Execution
+  Anything a statement raises fails the request (`Guardian.Rules.Runner` catches
+  nothing). An unreachable counter store is not a failure here: Execution
   answers its operator's missing result. Generated modules execute resolved counter
   plans through this same dispatcher.
   """

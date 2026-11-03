@@ -115,7 +115,7 @@ Event ingestion:
 ```text
 Guardian.Engine.ingest_events(table, events)
   -> validate storage-safe values
-  -> the table's rules (Guardian.Rules.Runner, in a worker), then validate their outputs
+  -> the table's rules (Guardian.Rules.Runner, in the caller), then validate their outputs
   -> Guardian.Storage.append(table, event)
 ```
 
