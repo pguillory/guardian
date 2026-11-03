@@ -7,6 +7,9 @@ privately, not in this repository.
 
 ## Rules
 
+- [x] rules-store-other-files: a `.gsql` object in the rule store at any other path
+      than `<table>/<name>.gsql` is fetched and is an error of no table
+      (`docs/changes/rules-store-other-files.md`)
 - [x] rules-module-per-table: each table's rules compile to one module named from
       the table, swapped in place after a soft purge; a write while old code still
       runs fails as "rules changed too recently" with nothing changed on any node; no

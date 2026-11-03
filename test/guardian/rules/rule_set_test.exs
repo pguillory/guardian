@@ -122,11 +122,11 @@ defmodule Guardian.Rules.RuleSetTest do
              "t/UPPER.gsql" => "",
              "t/big.gsql" => String.duplicate(" ", 64 * 1024 + 1),
              "t/c/d.gsql" => "",
-             "README.md" => "ignored",
-             "_write.lock" => "ignored",
+             "README.md" => "",
            }) == [
              "Bad/a.gsql: " <>
                Exception.message(%Guardian.Engine.InvalidTableNameError{table: "Bad"}),
+             "README.md: a rule file must be <table>/<name>.gsql",
              "t/UPPER.gsql: rule file names must match [a-z0-9_][a-z0-9_-]* and be at most 64 bytes",
              "t/a.gsql line 1: Expected field name, got =",
              "t/big.gsql: is over 65536 bytes",
@@ -147,16 +147,10 @@ defmodule Guardian.Rules.RuleSetTest do
     end
   end
 
-  test "a misnamed file in a table's folder is an error for that table" do
-    for table <- ["t", "queries"] do
-      validation =
-        validate(%{"#{table}/a.gsql" => "SET x = 1", "#{table}/A.gsql" => ""})
-
-      assert {:error, [%{file: file, kind: :path}]} = validation.tables[table]
-      assert file == "#{table}/A.gsql"
-    end
-
-    assert validate(%{"Bad/a.gsql" => ""}).tables == %{}
+  test "a misnamed file is an error of no table, and its folder's table keeps its rules" do
+    validation = validate(%{"t/a.gsql" => "SET x = 1", "t/A.gsql" => ""})
+    assert {:ok, _plan} = validation.tables["t"]
+    assert [%{file: "t/A.gsql", kind: :path, table: nil}] = validation.errors
   end
 
   test "deleting the first of three conflicting definitions adds no new error" do

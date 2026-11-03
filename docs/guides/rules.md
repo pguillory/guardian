@@ -98,11 +98,10 @@ With no rule settings, rules live in `<GUARDIAN_DATA_DIR>/rules`; `GUARDIAN_RULE
 moves them. Change rules through the MCP rule tools: editing the files directly is not
 supported. A file changed by hand is not noticed until the next load, and then it is
 checked like any write. If a table's rules fail the check, every node rejects that
-table's events until the rules are fixed. Any `.gsql` file in a table's folder counts,
-so a stray or misnamed one (`logins/README.gsql`) fails that table. A `.gsql` file anywhere else is
-reported as an error too: `logins/old/rate.gsql` fails `logins`, while `rate.gsql` at
-the top names no table, so it fails none. Other files are ignored, as are names
-starting with `.`. Every file in the folder is read on each load, and a folder with
+table's events until the rules are fixed. Any other `.gsql` file (a misnamed
+`logins/README.gsql`, `logins/old/rate.gsql`, `rate.gsql` at the top) is reported as an
+error in every write's reply, but fails no table. Other files are ignored, as are names
+starting with `.`. Every `.gsql` file in the folder is read on each load, and a folder with
 more than 20,000 entries fails to load, so keep only rules there: Guardian refuses to
 start if the folder is `GUARDIAN_DATA_DIR`, contains it, or is inside its `segments`
 folder.

@@ -36,26 +36,17 @@ defmodule Guardian.Rules.RuleSet do
   end
 
   @doc """
-  Classifies a store key: `{:ok, table, name}` for a valid rule file path,
-  `{:error, message}` for a `.gsql` key at an invalid path, `:ignore` for anything
-  else (such as the write lock).
+  Classifies a store key: `{:ok, table, name}` for a valid rule file path, otherwise
+  `{:error, message}`.
   """
   def parse_key(key) do
-    cond do
-      not String.ends_with?(key, ".gsql") ->
-        :ignore
-
-      true ->
-        case String.split(String.replace_suffix(key, ".gsql", ""), "/") do
-          [table, name] ->
-            case check_path(table, name) do
-              :ok -> {:ok, table, name}
-              {:error, message} -> {:error, message}
-            end
-
-          _ ->
-            {:error, "a rule file must be <table>/<name>.gsql"}
-        end
+    with true <- String.ends_with?(key, ".gsql"),
+         [table, name] <- String.split(String.replace_suffix(key, ".gsql", ""), "/"),
+         :ok <- check_path(table, name) do
+      {:ok, table, name}
+    else
+      {:error, message} -> {:error, message}
+      _ -> {:error, "a rule file must be <table>/<name>.gsql"}
     end
   end
 
@@ -187,18 +178,12 @@ defmodule Guardian.Rules.RuleSet do
 
   defp parse_file(key, source) do
     case parse_key(key) do
-      :ignore ->
-        {:error, nil, []}
-
       {:error, message} ->
-        # Attribute the error to the table the key names, if it names a valid one,
-        # so a misnamed file makes that table invalid rather than drop its rules.
-        table = path_table(key)
-        {:error, table, [error(key, nil, :path, message, message, table)]}
+        {:error, nil, [error(key, nil, :path, message, message, nil)]}
 
       {:ok, table, _name} ->
         cond do
-          source == :too_large or (is_binary(source) and byte_size(source) > @max_file_bytes) ->
+          is_binary(source) and byte_size(source) > @max_file_bytes ->
             {:error, table,
              [error(key, nil, :limit, "size", "is over #{@max_file_bytes} bytes", table)]}
 
@@ -208,15 +193,6 @@ defmodule Guardian.Rules.RuleSet do
           true ->
             parse_source(key, table, source)
         end
-    end
-  end
-
-  defp path_table(key) do
-    with [table | _] <- String.split(key, "/"),
-         true <- Guardian.Engine.valid_table_name?(table) do
-      table
-    else
-      _ -> nil
     end
   end
 

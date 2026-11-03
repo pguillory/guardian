@@ -65,8 +65,9 @@ Modules:
   which reload every connected node (`docs/changes/rules-no-poll.md`). Owns rule lock
   policy (key and lease). The store is a
   `Guardian.ObjectStore` (`lib/guardian/object_store/AGENTS.md`): S3 or a local folder.
-  Both list every object; Server and `Guardian.Rules.list_rules/1` apply the rule
-  layout (`Guardian.Rules.RuleSet.parse_key/1`). The write lock is a
+  Both list every object; Server reads only keys ending in `.gsql` (so never the
+  write lock), and `Guardian.Rules.list_rules/1` lists only rule file paths
+  (`Guardian.Rules.RuleSet.parse_key/1`). The write lock is a
   `Guardian.ObjectStore.Lock`, tried once: a held lock returns `{:error, :busy}`, with
   no retry in Rules (the MCP tools retry briefly). Before saving, asks every node's
   Server to run `Publisher.purge_for/1`; releases the lock right after the save.

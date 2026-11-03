@@ -206,7 +206,7 @@ defmodule Guardian.Rules.Server do
   defp read_set(state, attempts \\ 3) do
     with {:ok, objects} <- ObjectStore.list(state.store) do
       objects
-      |> Enum.filter(&(RuleSet.parse_key(&1.key) != :ignore))
+      |> Enum.filter(&String.ends_with?(&1.key, ".gsql"))
       |> Enum.reduce_while({:ok, %{}}, fn object, {:ok, files} ->
         case fetch(state, object) do
           {:ok, file} -> {:cont, {:ok, Map.put(files, object.key, file)}}
@@ -226,20 +226,12 @@ defmodule Guardian.Rules.Server do
     end
   end
 
-  defp fetch(state, %{key: key, etag: etag, size: size}) do
-    cached = Map.get(state.files, key)
-
-    cond do
-      cached != nil and cached.etag == etag ->
+  defp fetch(state, %{key: key, etag: etag}) do
+    case Map.get(state.files, key) do
+      %{etag: ^etag} = cached ->
         {:ok, cached}
 
-      match?({:error, _}, RuleSet.parse_key(key)) ->
-        {:ok, %{etag: etag, source: ""}}
-
-      size > RuleSet.max_file_bytes() ->
-        {:ok, %{etag: etag, source: :too_large}}
-
-      true ->
+      _ ->
         case ObjectStore.get(state.store, key, etag) do
           {:ok, source, _meta} -> {:ok, %{etag: etag, source: source}}
           {:error, reason} -> {:error, reason}

@@ -402,7 +402,8 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    the next one or at restart. The store is listed (a
    bucket under its prefix, or every file in a local folder through the generic
    `Guardian.ObjectStore.Local`); objects not ending in `.gsql` are ignored, a `.gsql`
-   object at any other path than `<table>/<name>.gsql` is a path error, and
+   object at any other path than `<table>/<name>.gsql` is a path error that belongs to
+   no table, and
    objects whose ETag changed are fetched with `If-Match` on the listed ETag (a change
    in between restarts the read). A table whose stored copy is invalid is published
    as invalid, at boot and on every reload alike.
