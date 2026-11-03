@@ -16,7 +16,10 @@ defmodule Guardian.Rules.StartupTest do
              {:invalid, "#{bad}/a.gsql line 1: Invalid function nosuch"}
 
     assert is_atom(Guardian.Rules.lookup(good))
-    assert [{:error, _}] = Guardian.Engine.ingest_events(bad, [%{}])
+    assert [{:error, message}] = Guardian.Engine.ingest_events(bad, [%{}])
+    assert message =~ "rules for #{bad} are invalid"
+    assert message =~ "the event was not stored"
+    assert Guardian.Storage.dump_table(bad) == []
   end
 
   test "invalid counter rules at boot invalidate only their table" do

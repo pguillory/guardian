@@ -61,15 +61,20 @@ as written.
      arrival metadata are stored exactly as sent (nothing added); `Guardian.Rules.run/2`
      runs rules directly.
    - The invalid-table test goes: making a table invalid needs `plant_file/2`
-     (`async: false`), and `server_stored_files_test.exs` already checks the same
-     thing (invalid table fails its events, another table still runs); it now also
-     checks that the event was not stored.
+     (`async: false`). `startup_test.exs` (a `:lifecycle` test) checks that an
+     invalid table at boot fails its events with that message and stores nothing.
    - The metadata test's check that a rule module receives an arrival time between
      before and after the call goes: it needs a probe module. `event_test.exs` covers
      Event carrying the arrival, and counter window tests depend on Engine's arrival.
 3. Deleted: `test/guardian/storage/segment_file_deletion_test.exs` (Preston's call: an
    undeletable segment file is a rare let-it-crash case that doesn't earn a
    synchronous test).
+4. `test/guardian/rules/server_stored_files_test.exs` goes. In its place,
+   `server_test.exs` (async) checks through the public API that a written rule is
+   read, listed and run; deleted, it is gone, and another table keeps its rules.
+   Preston's call: the planted-file cases the API can't produce (stray, misplaced,
+   misnamed and oversized files, broken stored sets) and the unreadable-folder test
+   go.
 
 ## Product spec impact
 

@@ -24,6 +24,26 @@ defmodule Guardian.Rules.ServerTest do
     assert Guardian.Rules.lookup(table) == nil
   end
 
+  test "a written rule is readable, listed and runs; deleted, it is gone" do
+    table = unique_table("rules_stored")
+    other = unique_table("rules_stored_other")
+    with_rules(%{"#{table}/a.gsql" => "SET x = 1", "#{other}/a.gsql" => "SET y = 2"})
+
+    assert Guardian.Rules.read_rule(table, "a") == {:ok, "SET x = 1"}
+    assert Guardian.Rules.list_rules(table) == {:ok, [%{table: table, name: "a", size: 9}]}
+    assert [{:ok, %{"x" => 1}}] = Guardian.Engine.ingest_events(table, [%{}])
+
+    assert {:ok, %{errors: []}} = Guardian.Rules.delete_rule(table, "a")
+
+    assert Guardian.Rules.read_rule(table, "a") == {:error, "no rule file #{table}/a.gsql"}
+    assert Guardian.Rules.list_rules(table) == {:ok, []}
+    assert Guardian.Engine.ingest_events(table, [%{}]) == [{:ok, %{}}]
+
+    # Other tables keep their rules.
+    assert Guardian.Rules.read_rule(other, "a") == {:ok, "SET y = 2"}
+    assert [{:ok, %{"y" => 2}}] = Guardian.Engine.ingest_events(other, [%{}])
+  end
+
   test "a published module carries its plan's table and hash, including regex and scalar literals" do
     table = unique_table("rules_metadata")
 
