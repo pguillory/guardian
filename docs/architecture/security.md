@@ -400,11 +400,15 @@ and no single request that takes the service down or destroys stored data.
    at most 64 bytes, which keeps a segment's temporary filename
    (`{table}.{32-character id}.seg.{n}.tmp`) inside the filesystem's 255-byte name
    limit. Queries do not open segment files by table name: they look up tables already
-   registered in memory. Nothing in `lib/` converts caller strings to atoms
-   (`String.to_atom` and friends do not appear), so the atom table cannot be exhausted
-   from input. Compiled rule modules take their names from a fixed pool of 1,024
-   (`Guardian.Rules.Compiler`), never from a table name or rule text, so editing rules any
-   number of times creates no new atoms. Rule file paths are checked
+   registered in memory. One place in `lib/` converts a string to an atom:
+   `Guardian.Rules.Compiler.module_name/1` names a table's compiled rules module from
+   the validated table name (`Guardian.Rules.Compiled.<table>`), never from rule text.
+   Only the admin key writes rules, editing a table's rules again reuses its atom, and
+   the atom table grows only with the distinct table names that valid rule writes
+   have named since the node started (the pre-save check creates the atom on every
+   node, even for a write then refused), and a deleted table keeps its module loaded,
+   idle, until restart. There is no fixed bound, but nothing the ingest key or a
+   query can reach. Rule file paths are checked
    (`Guardian.Rules.RuleSet.check_path/2`: a valid table name and `[a-z0-9_][a-z0-9_-]*`)
    before they reach the store, and the folder store (`Guardian.ObjectStore.Local`)
    refuses any key that is not a plain relative path (no empty, `.` or `..` segment,
@@ -413,9 +417,9 @@ and no single request that takes the service down or destroys stored data.
    are the folder owner's configuration, trusted like the folder itself.
 3. No dynamic code from input. Nothing in `lib/` evaluates code, runs shell
    commands, or decodes Erlang terms from input (`Code.eval`, `System.cmd`, `:os.cmd`,
-   and `binary_to_term` do not appear). Rules are compiled with `Module.create/3`, but
-   the module body is a fixed template (`Guardian.Rules.Compiler`): one `Guardian.Rules.Runtime.run/3`
-   call receives ordered typed steps with parsed ASTs as escaped literals, which the
+   and `binary_to_term` do not appear). Rules are compiled with `:compile.forms/2`, but
+   the module is a fixed template (`Guardian.Rules.Compiler`): one `Guardian.Rules.Runtime.run/3`
+   call receives ordered typed steps with parsed ASTs as literals, which the
    query engine's scalar evaluator interprets as it does query expressions. No rule
    text becomes code, and rules can call only the registered scalar functions.
 4. Value validation. `Guardian.Engine` drops values the column NIF cannot store (out-of-range
@@ -886,12 +890,12 @@ Where data goes:
    - Guardian.Rules.Server's state is not redacted: its formatted status and a crash
      report's state and last message can show the S3 secret and rule text (rules can
      hold secrets, such as a value a SET compares against). Compiled modules hold their execution
-     levels (typed steps, with canonical source and expression constants) as escaped
-     literal data, whose lifetime is bounded by the fixed module pool and normal code
-     reclamation. The
-     synchronous Rules.Publisher helper runs inside Server's callbacks; its state
-     holds only module names and retirement statuses, never sources, plans or
-     diagnostics, and a compile failure's log line names the table and failure kind,
+     levels (typed steps, with canonical source and expression constants) as
+     literal data. A change makes the previous version old code, which keeps its
+     literals until a later successful soft purge (normally at the table's following
+     change) or a restart; a deleted table's module stays loaded until restart. The
+     synchronous Rules.Publisher helper runs inside Server's callbacks and has no
+     state, and a compile failure's log line names the table and failure kind,
      no rule text. Raw module/process inspection remains privileged full-memory
      access. A callback that raises crashes as is, so a crash report can show rule
      text. `Guardian.Rules.Server.write/3` turns a

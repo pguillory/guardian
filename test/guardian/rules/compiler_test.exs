@@ -1,5 +1,6 @@
 defmodule Guardian.Rules.CompilerTest do
   use ExUnit.Case, async: true
+  import Guardian.Rules.Compiler, only: [module_name: 1, generated?: 1]
   import Guardian.Test.Rules, only: [compile_module: 2]
 
   alias Guardian.Rules.DependencyGraph
@@ -85,5 +86,15 @@ defmodule Guardian.Rules.CompilerTest do
     row = %{"untouched" => 1}
     assert apply(module, :apply, [row]) == row
     assert apply(module, :apply, [row, Event.new()]) == row
+  end
+
+  test "module names come from table names, distinct per table, under the generated prefix" do
+    assert module_name("orders") == :"Elixir.Guardian.Rules.Compiled.orders"
+    refute module_name("a_b") == module_name("ab")
+    assert generated?(module_name("orders"))
+    refute generated?(__MODULE__)
+    longest = String.duplicate("t", Guardian.Engine.max_table_name_bytes())
+    assert String.length(Atom.to_string(module_name(longest))) <= 255
+    assert_raise ArgumentError, fn -> module_name("Bad.Name") end
   end
 end

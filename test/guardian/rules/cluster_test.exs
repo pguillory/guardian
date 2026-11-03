@@ -77,4 +77,29 @@ defmodule Guardian.Rules.ClusterTest do
 
     assert [{:ok, %{"x" => 1}}] = peer_ingest(peer_node, table, [%{}])
   end
+
+  # Parks a process in rule code on the peer (see the server test of the same
+  # outcome for why).
+  test "a write refused by a peer still running the replaced rules changes nothing",
+       %{peer_node: peer_node} do
+    table = unique_table("rules_cluster_recent")
+    remove_on_exit(table)
+    parked = :erpc.call(peer_node, Guardian.Test.Rules, :park_in_rules_module, [table])
+    on_exit(fn -> send(parked, :release) end)
+    # This write replaces the peer's parked module, leaving the process in old code.
+    assert {:ok, %{unconfirmed: []}} = Guardian.Rules.write_rule(table, "a", "SET x = 1")
+
+    assert Guardian.Rules.write_rule(table, "a", "SET x = 2") ==
+             {:error, "rules changed too recently; try again"}
+
+    assert Guardian.Rules.read_rule(table, "a") == {:ok, "SET x = 1"}
+    assert [{:ok, %{"x" => 1}}] = Guardian.Engine.ingest_events(table, [%{}])
+    assert [{:ok, %{"x" => 1}}] = peer_ingest(peer_node, table, [%{}])
+
+    ref = Process.monitor(parked)
+    send(parked, :release)
+    assert_receive {:DOWN, ^ref, :process, ^parked, :normal}
+    assert {:ok, %{unconfirmed: []}} = Guardian.Rules.write_rule(table, "a", "SET x = 2")
+    assert [{:ok, %{"x" => 2}}] = peer_ingest(peer_node, table, [%{}])
+  end
 end

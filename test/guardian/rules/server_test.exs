@@ -63,14 +63,53 @@ defmodule Guardian.Rules.ServerTest do
              %{"message" => "secret", "x" => true, "y" => "yes"}
   end
 
-  test "an old module stays callable until it is reclaimed" do
-    table = unique_table("rules_hold")
+  test "a rewrite replaces the table's one module in place" do
+    table = unique_table("rules_swap")
+    on_exit(fn -> Guardian.Rules.delete_rule(table, "a") end)
     {:ok, _} = Guardian.Rules.write_rule(table, "a", "SET x = 0")
-    held = Guardian.Rules.lookup(table)
+    module = Guardian.Rules.lookup(table)
+    assert module == Guardian.Rules.Compiler.module_name(table)
     {:ok, _} = Guardian.Rules.write_rule(table, "a", "SET x = 1")
+    assert Guardian.Rules.lookup(table) == module
+    assert module.apply(%{}) == %{"x" => 1}
+  end
+
+  test "a table whose rules were all deleted runs new rules once written again" do
+    table = unique_table("rules_rewrite")
+    on_exit(fn -> Guardian.Rules.delete_rule(table, "b") end)
+    {:ok, _} = Guardian.Rules.write_rule(table, "a", "SET x = 0")
     {:ok, _} = Guardian.Rules.delete_rule(table, "a")
-    assert held.apply(%{}) == %{"x" => 0}
-    assert Guardian.Rules.lookup(table) == nil
+    assert Guardian.Engine.ingest_events(table, [%{}]) == [{:ok, %{}}]
+
+    {:ok, _} = Guardian.Rules.write_rule(table, "b", "SET y = 1")
+    assert [{:ok, %{"y" => 1} = row}] = Guardian.Engine.ingest_events(table, [%{}])
+    refute Map.has_key?(row, "x")
+  end
+
+  # The one test that parks a process inside rule code (CONTRIBUTING.md's testing
+  # philosophy otherwise keeps tests out of processes): rules finish in milliseconds,
+  # so nothing else can still be running a module's old code at the next write.
+  test "a write while an event runs the replaced rules changes nothing" do
+    table = unique_table("rules_too_recent")
+    on_exit(fn -> Guardian.Rules.delete_rule(table, "a") end)
+    parked = park_in_rules_module(table)
+    on_exit(fn -> send(parked, :release) end)
+    # This write replaces the parked module, leaving the process in old code.
+    {:ok, _} = Guardian.Rules.write_rule(table, "a", "SET x = 1")
+
+    assert Guardian.Rules.write_rule(table, "a", "SET x = 2") ==
+             {:error, "rules changed too recently; try again"}
+
+    assert Guardian.Rules.read_rule(table, "a") == {:ok, "SET x = 1"}
+    assert [{:ok, %{"x" => 1}}] = Guardian.Engine.ingest_events(table, [%{}])
+    # A write that leaves the table's rules unchanged loads nothing, so it goes through.
+    assert {:ok, _} = Guardian.Rules.write_rule(table, "a", "SET x = 1")
+
+    ref = Process.monitor(parked)
+    send(parked, :release)
+    assert_receive {:DOWN, ^ref, :process, ^parked, :normal}
+    assert {:ok, _} = Guardian.Rules.write_rule(table, "a", "SET x = 2")
+    assert [{:ok, %{"x" => 2}}] = Guardian.Engine.ingest_events(table, [%{}])
   end
 
   test "a failed save or delete is an error that says so and releases the lock" do

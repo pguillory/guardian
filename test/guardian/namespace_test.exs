@@ -16,7 +16,10 @@ defmodule Guardian.NamespaceTest do
     end
 
     for module <- external_implementations, do: assert(module in modules)
-    assert Guardian.Rules.Compiler.name(0) == Guardian.Rules.Compiled.M0
+
+    # Generated rule modules are named from tables under a prefix no source module uses.
+    assert Guardian.Rules.Compiler.module_name("t") == :"Elixir.Guardian.Rules.Compiled.t"
+    refute Enum.any?(modules, &Guardian.Rules.Compiler.generated?/1)
   end
 
   defp guardian_protocol_implementation?(module) do

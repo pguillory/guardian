@@ -1,131 +1,116 @@
 defmodule Guardian.Rules.Publisher do
   @moduledoc """
-  Internal synchronous owner of activation, publication and the generated-module
-  pool. Call only from Server's callbacks; Server forwards reclamation
-  messages and timers target that calling process. There is no separate process.
-  State contains only module atoms and retirement statuses, never sources, plans
-  or diagnostics.
+  Internal synchronous activation and publication, called only from Server's
+  callbacks (so only one process loads rule modules on a node). It holds no state.
 
-  Compiled modules are never reloaded in place: each change compiles into a free
-  name of Compiler's pool. A module the published map stops using is retired,
-  and 30 s later (a row runs its module only while reading the levels, and a
-  module still running blocks the soft purge) deleted and soft-purged; its name returns to the pool only once the purge
-  succeeds. On a restart, names in the published map are in use and any other
-  loaded name is retired. No prior plans are kept: each activation publishes what
-  the store holds now.
+  Each table has one module (`Guardian.Rules.Compiler.module_name/1`), replaced in
+  place by the VM's hot code swap. Loading a new version over a module that still has
+  old code would kill any process running that old code, so every module is first
+  soft-purged; if a process still runs its old code, nothing loads and the activation
+  fails as `{:error, too_recent_message()}`. A generated module is on a stack only
+  while a row reads its levels (`apply/2` tail-calls `Guardian.Rules.Runtime.run/3`),
+  so that takes two changes to a table milliseconds apart. A process holding only a
+  literal from old code does not block the purge.
+
+  A table whose rules are deleted or become invalid leaves the published map; its
+  module stays loaded, uncalled, so an event that read the map just before cannot find
+  it gone. Writing the table's rules again replaces it like any change. No prior plans
+  are kept: each activation publishes what the store holds now.
   """
 
   require Logger
 
   alias Guardian.Rules
+  alias Guardian.Rules.Compiler
 
-  @reclaim_after_ms 30_000
-  @reclaim_retry_ms 5_000
+  @too_recent "rules changed too recently; try again"
 
-  defstruct free: [], retired: %{}
-
-  # Rebuild on boot or Server restart. Published names remain reserved even while
-  # the store is unreachable; unpublished current or old code must retire first.
-  def new(published) do
-    in_use = published |> Map.values() |> Enum.filter(&is_atom/1) |> MapSet.new()
-    reserve_pool(%__MODULE__{}, in_use)
+  def too_recent_message do
+    @too_recent
   end
 
-  # Rebuilds the pool from what is loaded: names in use stay in use, any other loaded
-  # name (left by an earlier instance of this process) is retired, never reused while
-  # loaded; the rest are free. A name with only old code was already deleted, so it
-  # is retired as :deleted and reclamation only soft-purges it.
-  defp reserve_pool(state, in_use) do
-    retired =
-      for module <- Guardian.Rules.Compiler.names(),
-          module not in in_use,
-          status = retirement_status(module),
-          into: %{},
-          do: {module, status}
-
-    free =
-      Enum.reject(Guardian.Rules.Compiler.names(), &(&1 in in_use or Map.has_key?(retired, &1)))
-
-    Enum.each(Map.keys(retired), &schedule_reclaim(&1, @reclaim_after_ms))
-    %{state | free: free, retired: retired}
+  @doc """
+  `preparation`'s valid tables and their plan hashes: what `purge_for/1` needs, small
+  enough to send to every node.
+  """
+  def hashes(preparation) do
+    for {table, {:ok, plan}} <- preparation.tables, into: %{}, do: {table, plan.hash}
   end
 
-  defp retirement_status(module) do
-    cond do
-      :code.is_loaded(module) != false -> :pending
-      :erlang.check_old_code(module) -> :deleted
-      true -> nil
-    end
+  @doc """
+  Soft-purges the old code of every module that activating a set with these table
+  hashes would load on this node (its published module is missing or has another
+  hash), never killing a process. Returns whether all of them are free of old code.
+  Writers call it on every node before saving, so each node checks what it would
+  load, even one that missed an earlier reload.
+  """
+  def purge_for(hashes) do
+    hashes
+    |> Enum.reject(fn {table, hash} -> unchanged?(lookup(table), hash) end)
+    |> Enum.map(fn {table, _hash} -> Compiler.module_name(table) end)
+    |> purge()
+  end
+
+  defp purge(modules) do
+    Enum.all?(modules, &:code.soft_purge/1)
   end
 
   ## Activation
 
   # Publishes each table's result from whole-set preparation, at boot and on every
   # reload alike: a valid table runs its plan, an invalid one fails its events.
-  def activate(state, preparation) do
-    published = Rules.published() || %{}
+  # Nothing loads unless every changed table compiles and every purge succeeds.
+  def activate(preparation) do
     errors = Enum.sort_by(preparation.errors, &{&1.file, &1.line || 0, &1.kind})
+    to_load = plans_to_load(preparation)
 
-    {targets, to_compile} =
-      Enum.reduce(preparation.tables, {%{}, []}, fn {table, result}, {targets, to_compile} ->
-        current = Map.get(published, table)
+    with {:ok, binaries} <- compile_all(to_load, []),
+         :ok <- purge_all(binaries) do
+      load_all(binaries)
 
-        case result do
-          {:ok, plan} ->
-            if is_atom(current) and current != nil and current.hash() == plan.hash do
-              {Map.put(targets, table, current), to_compile}
-            else
-              {targets, [plan | to_compile]}
-            end
+      tables =
+        Map.new(preparation.tables, fn
+          {table, {:ok, _plan}} ->
+            {table, Compiler.module_name(table)}
 
-          {:error, table_errors} ->
-            {Map.put(targets, table, {:invalid, invalid_message(table_errors)}), to_compile}
-        end
-      end)
+          {table, {:error, table_errors}} ->
+            {table, {:invalid, invalid_message(table_errors)}}
+        end)
 
-    case compile_all(state, Enum.reverse(to_compile), []) do
-      {:ok, compiled, free} ->
-        tables =
-          Enum.reduce(compiled, targets, fn {plan, module}, acc ->
-            Map.put(acc, plan.table, module)
-          end)
-
-        Rules.publish(tables)
-
-        in_use = tables |> Map.values() |> Enum.filter(&is_atom/1) |> MapSet.new()
-
-        retiring =
-          published
-          |> Map.values()
-          |> Enum.filter(&(is_atom(&1) and &1 not in in_use))
-          |> Enum.uniq()
-
-        Enum.each(retiring, &schedule_reclaim(&1, @reclaim_after_ms))
-        retired = Enum.reduce(retiring, state.retired, &Map.put(&2, &1, :pending))
-
-        {:ok, %{state | free: free, retired: retired}, errors}
-
-      {:error, message} ->
-        {:error, message, errors}
+      Rules.publish(tables)
+      {:ok, errors}
+    else
+      {:error, message} -> {:error, message, errors}
     end
   end
 
-  defp compile_all(state, [], compiled) do
-    {:ok, compiled, state.free}
+  defp plans_to_load(preparation) do
+    for {table, {:ok, plan}} <- preparation.tables,
+        not unchanged?(lookup(table), plan.hash) do
+      plan
+    end
   end
 
-  defp compile_all(%{free: []}, [_ | _], compiled) do
-    discard(compiled)
-    {:error, "no free rule module names"}
+  defp lookup(table) do
+    Map.get(Rules.published() || %{}, table)
   end
 
-  defp compile_all(%{free: [module | free]} = state, [plan | plans], compiled) do
-    case Guardian.Rules.Compiler.compile(module, plan) do
-      :ok ->
-        compile_all(%{state | free: free}, plans, [{plan, module} | compiled])
+  defp unchanged?(current, hash) do
+    is_atom(current) and current != nil and current.hash() == hash
+  end
+
+  defp compile_all([], compiled) do
+    {:ok, Enum.reverse(compiled)}
+  end
+
+  defp compile_all([plan | plans], compiled) do
+    module = Compiler.module_name(plan.table)
+
+    case Compiler.compile(module, plan) do
+      {:ok, binary} ->
+        compile_all(plans, [{module, ~c"rules/#{plan.table}", binary} | compiled])
 
       {:error, kind} ->
-        discard([{plan, module} | compiled])
         message = "compiling the rules for #{plan.table} failed (#{kind})"
         # Only a bug gets here, and a write's reply names the node, not this message.
         Logger.error("Rules: #{message}")
@@ -133,48 +118,23 @@ defmodule Guardian.Rules.Publisher do
     end
   end
 
-  # Unloads modules that were compiled but never published (nothing has called them),
-  # so their names, still in the caller's free list, can be used again.
-  defp discard(compiled) do
-    Enum.each(compiled, fn {_plan, module} ->
-      :code.delete(module)
-      :code.purge(module)
-    end)
+  defp purge_all(binaries) do
+    if purge(Enum.map(binaries, fn {module, _filename, _binary} -> module end)),
+      do: :ok,
+      else: {:error, @too_recent}
+  end
+
+  # Switches every changed module at once. `atomic_load/1` refuses, rather than
+  # kills, a module with old code; nothing else loads rule modules and every one was
+  # just purged, so a refusal is a bug.
+  defp load_all(binaries) do
+    :ok = :code.atomic_load(binaries)
   end
 
   defp invalid_message([first | rest]) do
     case rest do
       [] -> first.message
       _ -> "#{first.message} (and #{length(rest)} more)"
-    end
-  end
-
-  ## Reclaiming retired modules
-
-  defp schedule_reclaim(module, @reclaim_after_ms) do
-    after_ms = Application.get_env(:guardian, :rules_reclaim_after_ms, @reclaim_after_ms)
-    Process.send_after(self(), {:reclaim, module}, after_ms)
-  end
-
-  defp schedule_reclaim(module, after_ms) do
-    Process.send_after(self(), {:reclaim, module}, after_ms)
-  end
-
-  def reclaim(state, module) do
-    case Map.get(state.retired, module) do
-      nil ->
-        state
-
-      status ->
-        # Delete once (making the code old), then soft-purge until no process runs it.
-        if status == :pending, do: :code.delete(module)
-
-        if :code.soft_purge(module) do
-          %{state | retired: Map.delete(state.retired, module), free: state.free ++ [module]}
-        else
-          schedule_reclaim(module, @reclaim_retry_ms)
-          %{state | retired: Map.put(state.retired, module, :deleted)}
-        end
     end
   end
 end

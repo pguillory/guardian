@@ -33,7 +33,7 @@ defmodule Guardian.Rules.CounterReloadTest do
     Enum.find(plan(files, table).steps, &(&1.kind == :track)).definition.identity
   end
 
-  test "valid edits switch target and dependent identities; in-flight old modules keep old state" do
+  test "valid edits switch target and dependent identities" do
     a = unique_table("live_target")
     b = unique_table("live_dependent")
 
@@ -44,25 +44,19 @@ defmodule Guardian.Rules.CounterReloadTest do
 
     load(files)
     old_files = files
-    old_a = Guardian.Rules.lookup(a)
-    old_b = Guardian.Rules.lookup(b)
     assert ingest(a)["hits"] == 1
     assert ingest(b)["prior"] == 1
 
     files = Map.put(files, "#{a}/r.gsql", "TRACK hits = sum(amount) LAST '1h'")
     load(files)
-    new_a = Guardian.Rules.lookup(a)
     new_b = Guardian.Rules.lookup(b)
-    refute new_a == old_a
-    refute new_b == old_b
+    assert Guardian.Rules.lookup(a).hash() == plan(files, a).hash
+    refute plan(files, b).hash == plan(old_files, b).hash
     assert new_b.hash() == plan(files, b).hash
     assert target(files, b).identity == identity(files, a)
     refute target(files, b).identity == target(old_files, b).identity
     assert ingest(b)["prior"] == nil
     assert ingest(a, %{"amount" => 7})["hits"] == 7
-    assert ingest(b)["prior"] == 7
-    assert old_a.apply(%{})["hits"] == 2
-    assert old_b.apply(%{})["prior"] == 2
     assert ingest(b)["prior"] == 7
 
     # Locations affect recompilation, but not the counter's definition identity.

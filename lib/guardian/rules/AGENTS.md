@@ -32,13 +32,15 @@ Modules:
   `Guardian.Rules.Resolution.hash_term/1` owns the target's struct-shaped hash
   input, under the frozen `Guardian.Rules.CounterDefinition` format tag; renaming
   that tag resets every dependent plan hash.
-- `Guardian.Rules.Publisher`: synchronous activation/publication and generated-module
-  pool ownership, called inside Server's callbacks. Publishes each table's current
-  preparation result; its state contains only free names and retired statuses,
-  never plans, sources or diagnostics. Reclamation timers target Server.
-- `Guardian.Rules.Compiler`: a plan into a generated module from a fixed template, with the
-  execution levels, derived from the flat steps at compile time, as one shared escaped
-  literal, plus `table/0` and `hash/0`. No rule text becomes code. Unresolved plans
+- `Guardian.Rules.Publisher`: synchronous activation/publication, called inside
+  Server's callbacks, with no state. Publishes each table's current preparation
+  result, replacing each changed table's module in place: compile all, soft-purge
+  all, `:code.atomic_load/1`, publish. `purge_for/1` is the pre-save check writers
+  run on every node.
+- `Guardian.Rules.Compiler`: a plan into a generated module's binary (not loaded) from a
+  fixed Erlang abstract-format template, with the execution levels, derived from the
+  flat steps at compile time, as one shared literal, plus `table/0` and `hash/0`.
+  `module_name/1` names each table's one module. No rule text becomes code. Unresolved plans
   and unbound LOOKUPs cannot compile.
 - `Guardian.Rules.Runtime`: the dispatcher called by generated modules (reads, SET, UNSET,
   failures), threading the flat row map through dependency levels. Internal
@@ -66,17 +68,21 @@ Modules:
   Both list every object; Server and `Guardian.Rules.list_rules/1` apply the rule
   layout (`Guardian.Rules.RuleSet.parse_key/1`). The write lock is a
   `Guardian.ObjectStore.Lock`, tried once: a held lock returns `{:error, :busy}`, with
-  no retry in Rules (the MCP tools retry briefly). Holds Publisher's pool value and forwards reclamation messages.
+  no retry in Rules (the MCP tools retry briefly). Holds the lock until every node has
+  reloaded (or the 10 s wait ends), and before saving asks every node's Server to run
+  `Publisher.purge_for/1`, queued behind any reload still pending there.
 
 ## Rules to keep
 
 1. Nothing reads the store per event. The ingest path sees only the published map.
-2. Never load a module name twice while anything can call it. Compile into a free
-   pool name, publish the whole map at once only after every changed table compiled,
-   and reclaim retired names only after the grace period and a successful
-   `:code.soft_purge/1`. Never `:code.purge/1` a published or retired module.
-3. Atoms stay bounded: module names come only from `Guardian.Rules.Compiler`'s pool. Never
-   create an atom from rule text, a table name or a store key.
+2. Never kill a process running rule code. Load a rule module only after a successful
+   `:code.soft_purge/1` of its old code, and only with `:code.atomic_load/1` (which
+   refuses old code rather than purging it); if a purge fails, load nothing. Never
+   `:code.purge/1` or `:code.load_binary/3` a rule module. Only Rules.Server loads
+   rule modules, and a write checks every node with `purge_for/1` before saving.
+3. Atoms grow only with table names: a table's module name comes only from
+   `Guardian.Rules.Compiler.module_name/1`, on a validated table name. Never create an
+   atom from rule text or a store key. A deleted table's module stays loaded, uncalled.
 4. A failed store call is an error to the caller, with the lock released; only boot
    retries, and it retries any failure.
 5. Validation errors are not logged: a message can quote rule text, and an invalid
@@ -118,4 +124,6 @@ change documents before changing any counter semantics.
 Tests use the one rule store, each on its own tables, through `Guardian.Test.Rules`:
 `with_rules/1` is async-safe on a test's own table, `plant_file/2` of an invalid file,
 `stop_server/0` and `restart_server/0` require `async: false`, and
-`compile_module/2` is async-safe for distinct probe modules.
+`compile_module/2` is async-safe for distinct probe modules, and
+`park_in_rules_module/1` (a process parked in a table's module, the one way to reach
+the too-recent refusal) for a test's own table.

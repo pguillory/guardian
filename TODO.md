@@ -7,6 +7,10 @@ privately, not in this repository.
 
 ## Rules
 
+- [x] rules-module-per-table: each table's rules compile to one module named from
+      the table, swapped in place after a soft purge; a write while old code still
+      runs fails as "rules changed too recently" with nothing changed on any node; no
+      module pool or reclamation (`docs/changes/rules-module-per-table.md`)
 - [x] rules-in-process: rules run in the ingesting process with no per-event time or
       memory limit and no worker restart; a failing rule fails the request
       (`docs/changes/rules-in-process.md`)

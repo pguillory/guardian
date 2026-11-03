@@ -14,7 +14,8 @@ defmodule Guardian.Rules do
   and `Guardian.Rules.Server` loads, reloads and writes, owning the rule store's
   lock policy (files are read and written through `Guardian.ObjectStore`, and the
   write lock is a `Guardian.ObjectStore.Lock`); its synchronous
-  `Guardian.Rules.Publisher` owns activation, publication and the module pool. See
+  `Guardian.Rules.Publisher` owns activation, publication and swapping each table's
+  one compiled module in place. See
   `docs/architecture/system.md` ("Rules") and `lib/guardian/rules/AGENTS.md`.
   """
 

@@ -23,18 +23,22 @@ defmodule Guardian.Rules.Server do
   reload or restart. Activation is the same as at startup: a table whose stored rules
   fail validation (or whose LOOKUP reads a counter of such a table) is published as
   invalid, with no last good rules kept. Nothing changes unless every changed table
-  compiles; then one map is published, switching every addition, change and deletion
-  at once.
+  compiles and every changed table's module soft-purges; then the modules load and
+  one map is published.
 
   ## Writes
 
   Under the store's write lock (a `Guardian.ObjectStore.Lock` on
   `lock_key/0`): read the whole set from the store,
   apply the change, reject it if it adds an error the stored set did not have
-  (`Guardian.Rules.RuleSet.new_errors/2`), save the one file (conditional on the ETag
-  read, or on absence), release, publish here, then ask every connected node to reload
-  (up to 10 s). A failed save releases the lock too, and says the file may have been
-  saved; if it was, the next reload finds its ETag changed and activates it.
+  (`Guardian.Rules.RuleSet.new_errors/2`), soft-purge the old code of the modules the
+  write will load, here and on every connected node (up to 10 s), save the one file
+  (conditional on the ETag read, or on absence), publish here, ask every connected
+  node to reload (up to 10 s), then release. If any node still runs the old code of
+  one of those modules, the write fails before the save with "rules changed too
+  recently; try again", having changed nothing on any node. A failed save releases
+  the lock too, and says the file may have been saved; if it was, the next reload
+  finds its ETag changed and activates it.
 
   The lock is tried once: if another writer holds it, or a lock left by an interrupted
   write has not yet expired (the 120 s lease), the write fails at once as `:busy`,
@@ -43,13 +47,12 @@ defmodule Guardian.Rules.Server do
   Outcomes: `{:ok, %{errors: remaining messages, unconfirmed: nodes}}`,
   `{:error, {:rejected, messages}}`, `{:error, :busy}`, or `{:error, message}`.
 
-  ## Module pool
+  ## Modules
 
-  `Guardian.Rules.Publisher` owns activation, publication and the module pool,
-  synchronously inside this server's callbacks. Server holds its pool value and
-  forwards reclamation messages. After a Server restart, Publisher reserves the
-  published modules' names; see its module documentation for the compilation and
-  reclamation lifecycle.
+  `Guardian.Rules.Publisher` owns activation and publication, synchronously inside
+  this server's callbacks, and keeps no state: each table has one module, replaced in
+  place (see its module documentation). A Server restart keeps the published map and
+  the loaded modules.
 
   ## Status and crash reports
 
@@ -98,6 +101,14 @@ defmodule Guardian.Rules.Server do
     GenServer.call(__MODULE__, :reload, @reload_timeout_ms)
   end
 
+  @doc false
+  # A writer's pre-save check on this node (`Guardian.Rules.Publisher.purge_for/1`).
+  # Through this server, so it runs after any reload still pending here: a reload a
+  # previous writer stopped waiting for cannot load after the check passed.
+  def purge_for(hashes) do
+    GenServer.call(__MODULE__, {:purge_for, hashes}, @reload_timeout_ms)
+  end
+
   @impl true
   def init(_opts) do
     case Guardian.Rules.Config.store() do
@@ -106,11 +117,11 @@ defmodule Guardian.Rules.Server do
         # `files` is the set last activated (also the fetch cache); `stale` means the
         # published rules may not match it, so the next reload activates whatever it
         # reads even if the ETags are unchanged.
-        state = %{store: store, files: %{}, stale: false, publisher: nil}
+        state = %{store: store, files: %{}, stale: false}
 
         case Rules.published() do
           nil -> boot(state)
-          published -> {:ok, restart(state, published)}
+          _published -> {:ok, restart(state)}
         end
 
       {:error, message} ->
@@ -121,11 +132,8 @@ defmodule Guardian.Rules.Server do
   defp boot(state) do
     case read_with_retry(state, 1_000) do
       {:ok, files} ->
-        preparation = prepare(sources(files))
-        state = %{state | publisher: Publisher.new(%{})}
-
-        case activate(state, preparation) do
-          {:ok, state, _errors} ->
+        case Publisher.activate(prepare(sources(files))) do
+          {:ok, _errors} ->
             table_count =
               Enum.count(Rules.published(), fn {_table, module} -> is_atom(module) end)
 
@@ -156,9 +164,9 @@ defmodule Guardian.Rules.Server do
     end
   end
 
-  defp restart(state, published) do
+  defp restart(state) do
     send(self(), :catch_up)
-    %{state | publisher: Publisher.new(published), stale: true}
+    %{state | stale: true}
   end
 
   @impl true
@@ -167,6 +175,10 @@ defmodule Guardian.Rules.Server do
       {:ok, state} -> {:reply, :ok, state}
       {:error, message, state} -> {:reply, {:error, message}, state}
     end
+  end
+
+  def handle_call({:purge_for, hashes}, _from, state) do
+    {:reply, Publisher.purge_for(hashes), state}
   end
 
   def handle_call({:write, table, name, source}, _from, state) do
@@ -182,10 +194,6 @@ defmodule Guardian.Rules.Server do
       {:ok, state} -> {:noreply, state}
       {:error, _message, state} -> {:noreply, state}
     end
-  end
-
-  def handle_info({:reclaim, module}, state) do
-    {:noreply, %{state | publisher: Publisher.reclaim(state.publisher, module)}}
   end
 
   ## Reading
@@ -252,8 +260,8 @@ defmodule Guardian.Rules.Server do
         if not state.stale and etags(files) == etags(state.files) do
           {:ok, state}
         else
-          case activate(state, prepare(sources(files))) do
-            {:ok, state, _errors} -> {:ok, %{state | files: files, stale: false}}
+          case Publisher.activate(prepare(sources(files))) do
+            {:ok, _errors} -> {:ok, %{state | files: files, stale: false}}
             {:error, message, _errors} -> {:error, message, state}
           end
         end
@@ -322,6 +330,10 @@ defmodule Guardian.Rules.Server do
             release(lock)
             {{:error, {:rejected, Enum.map(new_errors, & &1.message)}}, state}
 
+          not purge_everywhere(Publisher.hashes(validation)) ->
+            release(lock)
+            {{:error, Publisher.too_recent_message()}, state}
+
           true ->
             save(state, lock, key, source, files, validation)
         end
@@ -350,20 +362,22 @@ defmodule Guardian.Rules.Server do
 
     case result do
       {:ok, etag} ->
-        release(lock)
-
         files =
           if source == :delete,
             do: Map.delete(files, key),
             else: Map.put(files, key, %{etag: etag, source: source})
 
         {state, local_error, errors} =
-          case activate(state, validation) do
-            {:ok, state, errors} -> {%{state | files: files, stale: false}, nil, errors}
+          case Publisher.activate(validation) do
+            {:ok, errors} -> {%{state | files: files, stale: false}, nil, errors}
             {:error, message, errors} -> {%{state | stale: true}, message, errors}
           end
 
         unconfirmed = broadcast_reload()
+        # Held until every node has reloaded or the wait ended, so the next writer's
+        # check on a node comes after this write's reload there (it queues behind it
+        # on that node's server).
+        release(lock)
         unconfirmed = if local_error, do: [node() | unconfirmed], else: unconfirmed
 
         {{:ok, %{errors: Enum.map(errors, & &1.message), unconfirmed: unconfirmed}}, state}
@@ -389,21 +403,28 @@ defmodule Guardian.Rules.Server do
   end
 
   # Asks every other connected node to reload; returns the nodes that did not confirm.
+  # Sent straight to each node's server (no intermediate process, unlike :erpc), so a
+  # reload this writer stopped waiting for is already queued there before the next
+  # writer's check arrives.
   defp broadcast_reload do
-    nodes = Node.list()
+    {replies, bad_nodes} =
+      GenServer.multi_call(Node.list(), __MODULE__, :reload, @reload_timeout_ms)
 
-    nodes
-    |> :erpc.multicall(Rules, :reload, [], @reload_timeout_ms)
-    |> Enum.zip(nodes)
-    |> Enum.reject(fn {result, _node} -> result == {:ok, :ok} end)
-    |> Enum.map(fn {_result, node} -> node end)
+    failed = for {node, reply} <- replies, reply != :ok, do: node
+    bad_nodes ++ failed
   end
 
-  # Adopt Publisher's new pool only on success; failure leaves the pool unchanged.
-  defp activate(state, preparation) do
-    case Publisher.activate(state.publisher, preparation) do
-      {:ok, publisher, errors} -> {:ok, %{state | publisher: publisher}, errors}
-      {:error, message, errors} -> {:error, message, errors}
-    end
+  # Before a save, each node soft-purges the old code of the modules it would load
+  # for the new set, so a node still running old code refuses the write before
+  # anything changes anywhere. Only the lock holder calls other nodes' servers, and a
+  # reload calls none, so no two servers wait on each other. A node that does not
+  # answer (unreachable, slow, still busy with an earlier reload, or an older build
+  # mid-deploy) is not waited on: its own pre-load purge still protects it, and if
+  # that fails it is named as unconfirmed, like any missed reload.
+  defp purge_everywhere(hashes) do
+    Publisher.purge_for(hashes) and
+      Node.list()
+      |> :erpc.multicall(__MODULE__, :purge_for, [hashes], @reload_timeout_ms)
+      |> Enum.all?(&(&1 != {:ok, false}))
   end
 end

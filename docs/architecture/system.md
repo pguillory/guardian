@@ -343,35 +343,50 @@ the design and its reviews are `docs/changes/ingest-rules.md`).
    candidates have `resolved?: false`; only successful whole-set resolution marks
    them ready for compilation.
 2. Compilation: `Guardian.Rules.Compiler` turns a plan into a module from a fixed template,
-   calling `Guardian.Rules.Runtime.run/3` with dependency levels of typed steps as escaped literals
-   (expressions run through the scalar evaluator, `Guardian.Query.Eval` on an event map). Names
-   come from a pool of 1,024 (`Guardian.Rules.Compiled.M0`...), so atoms are bounded.
+   calling `Guardian.Rules.Runtime.run/3` with dependency levels of typed steps as literals
+   (expressions run through the scalar evaluator, `Guardian.Query.Eval` on an event map).
+   Each table has one module, named from the table (`Guardian.Rules.Compiled.<table>`,
+   `Compiler.module_name/1`): table names are dot-free, so names are distinct, the
+   prefix is reserved for generated modules, and at most 95 characters. Atoms grow
+   with the distinct tables that have had rules since the node started.
    Compiler independently refuses unresolved candidates and LOOKUPs without bound
    targets.
    A plan holds only its flat steps; Compiler derives the dependency levels from them
-   once at compile time and escapes them as one literal. A generated module also
-   has `table/0` and `hash/0`; Publisher reuses a module whose hash is unchanged.
-3. Publication: `Guardian.Rules.Publisher` owns activation, publication and the
-   generated-module pool, synchronously inside Server's callbacks. Server
-   keeps store reads, reload, locked writes and admission; it holds Publisher's
-   free/retired names and forwards reclamation messages. Publisher retains no plans,
-   sources or diagnostics in its state. One `:persistent_term` map holds table to
-   module, or `{:invalid, message}`. A reload compiles every changed table into free
-   names first and publishes one new map only if all compiled, so a change is all or nothing on each
-   node. A module the map stops using is retired, then after 30 s deleted and
-   soft-purged (a row runs its module only while reading the levels, and a module
-   still running blocks the soft purge); its name is reused only after the purge
-   succeeds. On a restart the pool is rebuilt from what is loaded: published names
-   stay reserved, other loaded names are retired (a name with only old code as
-   already deleted, so it is only soft-purged). No prior plans or per-reload
-   history are kept. Write admission compares only the stored sets' preparation
-   errors.
+   once at compile time and writes them as one literal in a fixed Erlang
+   abstract-format template, compiled to a binary without loading. A generated module
+   also has `table/0` and `hash/0`; Publisher reuses a module whose hash is unchanged.
+3. Publication: `Guardian.Rules.Publisher` owns activation and publication,
+   synchronously inside Server's callbacks, and has no state. Server keeps store
+   reads, reload, locked writes and admission. One `:persistent_term` map holds table
+   to module, or `{:invalid, message}`. A change replaces a table's module in place
+   with the VM's hot code swap: an activation compiles every changed table to a
+   binary, soft-purges each one's old code, loads them all at once
+   (`:code.atomic_load/1`) and publishes the new map, so a change is all or nothing on
+   each node. Loading over old code would kill a process still running it, so if a
+   soft purge fails nothing loads and the activation fails with "rules changed too
+   recently; try again". A row runs its module only while reading the levels
+   (`apply/2` tail-calls the runtime), so that takes two changes milliseconds apart. A
+   deleted or invalid table leaves the map but its module stays loaded, uncalled, so a
+   row that read the map just before cannot find it gone; new rules for the table
+   replace it. A Server restart keeps the map and modules. A write checks the same
+   condition before saving, on every node: under the lock, each connected node's
+   Server soft-purges what it would load for the new set's plan hashes
+   (`Publisher.purge_for/1`), and any refusal fails the write with nothing saved.
+   Going through the Server queues the check behind any reload still pending there,
+   even one an earlier writer stopped waiting for: the reload broadcast is a
+   `GenServer.multi_call/4`, sent straight to each Server with no worker in between. A
+   node that doesn't answer in 10 s is not waited on; its own pre-load purge still
+   protects it, and if that fails it misses the reload. The lock is held until every
+   node has reloaded or the 10 s wait ends. Only the lock holder calls other Servers
+   and a reload calls none, so no two Servers wait on each other. No prior plans or
+   per-reload history are kept. Write admission compares only the stored sets'
+   preparation errors.
 4. Running: `Guardian.Rules.Runner` runs a batch in the caller, one row at a time, with
    no time or memory limit; a raise fails the request. It reads the map per row.
    `Guardian.Rules.Runtime` threads the flattened row, a flat map, through the
    statements: reads and the evaluation context are the map itself, WHERE applies
    when true, SET, TRACK and LOOKUP put one key and UNSET deletes one key, so a
-   statement costs what it touches. SET/UNSET exceptions fail the event; counter
+   statement costs what it touches. SET/UNSET exceptions fail the request; counter
    exceptions supply aggregate defaults and continue, including final UNSETs.
    Engine captures private Unix/monotonic arrival coordinates
    (`Guardian.Counters.Arrival`) before each event's validation; they are carried
@@ -1345,7 +1360,7 @@ requests.
 ### Module namespace and restart compatibility
 
 All Guardian-owned modules and protocols live under `Guardian.*`, including
-`Guardian.Web.*` and the generated `Guardian.Rules.Compiled.*` pool. External
+`Guardian.Web.*` and the generated per-table `Guardian.Rules.Compiled.*` modules. External
 protocol implementations retain their protocol prefix (for example,
 `Enumerable.Guardian.Query.DistributedStream`). Native NIF entry points use the
 same Guardian module names. The Mix application and configuration namespace remain
@@ -1395,7 +1410,6 @@ these except through the variables above:
 | `query_time_limit_ms` | 30,000 | `Guardian.Query.run/1` (`Guardian.Query.Limits`) |
 | `counter_memory_budget_bytes` | 64 MiB, overridden by `GUARDIAN_COUNTER_MEMORY_MB` | `Guardian.Counters.Store`: asynchronous resident counter memory target (3.5); a non-positive or non-integer value refuses startup |
 | `query_parse_errors_per_hour` | 60 | `Guardian.Web.QueryParseErrors` (tests raise it) |
-| `rules_reclaim_after_ms` | 30,000 | `lib/guardian/rules` (tests shorten it) |
 
 Constants in code that act like configuration: segment capacity 16,384 rows and 64 MiB
 budget and the 90 s shutdown budget (`Guardian.Storage.Segment`), 15-day retention
@@ -1593,7 +1607,7 @@ About 150 test files cover:
    `libtest/guardian/test/distributed_stream_stages.ex`, because test modules are not loaded
    there.
 5. Rules: the parser, whole-set validation, semantics through real ingestion, the
-   server (repair, activation, the module pool), and a peer cluster sharing the rule
+   server (repair, activation, swapping a table's module, the too-recent refusal), and a peer cluster sharing the rule
    folder; the folder store and the key lock have their own tests, and the lock is raced
    across peers. Tests use one rule store, the folder in the run's fresh data directory,
    and each its own tables. S3 mode has no automated test: when `ObjectStore` changes, an

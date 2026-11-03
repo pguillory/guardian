@@ -6,14 +6,16 @@ defmodule Guardian.Test.Rules do
   a file in the rule folder directly; an invalid one shows in every concurrent write's
   reply, so such a test is `async: false`. `stop_server/0` and `restart_server/0`
   change what that server owns and require `async: false`.
-  `compile_module/2` is safe for async tests using distinct probe modules.
+  `compile_module/2` is safe for async tests using distinct probe modules, and
+  `park_in_rules_module/1` for async tests on their own tables.
   """
 
   import ExUnit.Callbacks, only: [on_exit: 1]
   import ExUnit.Assertions, only: [assert: 1]
 
   @doc """
-  Compiles a resolved plan and deletes and soft-purges its module when the test exits.
+  Compiles and loads a resolved plan as `module`, and deletes and soft-purges it when
+  the test exits.
   Safe for async tests when each test uses a distinct module.
   """
   def compile_module(module, plan) do
@@ -22,8 +24,41 @@ defmodule Guardian.Test.Rules do
       :code.soft_purge(module)
     end)
 
-    assert Guardian.Rules.Compiler.compile(module, plan) == :ok
+    assert {:ok, binary} = Guardian.Rules.Compiler.compile(module, plan)
+    assert {:module, ^module} = :code.load_binary(module, ~c"rules/#{plan.table}", binary)
     :ok
+  end
+
+  @doc """
+  Loads a module under `table`'s rules module name and parks a new process inside it,
+  returning the process once it is in. The table's next rule write replaces that
+  module, leaving the process in old code, which is the only way to reach the "rules
+  changed too recently" outcome: rules themselves finish in milliseconds. Send the
+  process `:release` to let it finish. Call it on a peer with `:erpc` to park the
+  process there. The table must have no rules loaded yet. The caller releases it
+  (an `on_exit` here would not work on a peer).
+  """
+  def park_in_rules_module(table) do
+    module = Guardian.Rules.Compiler.module_name(table)
+
+    body =
+      quote do
+        def park(parent) do
+          send(parent, {:parked, self()})
+
+          receive do
+            :release -> :ok
+          end
+        end
+      end
+
+    {:module, ^module, _binary, _} = Module.create(module, body, file: "parked", line: 1)
+    parent = self()
+    pid = spawn(fn -> module.park(parent) end)
+
+    receive do
+      {:parked, ^pid} -> pid
+    end
   end
 
   @doc "Writes rule files for a test and deletes them when it exits."
