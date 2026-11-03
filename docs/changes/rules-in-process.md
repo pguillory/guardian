@@ -75,6 +75,13 @@ as written.
    Preston's call: the planted-file cases the API can't produce (stray, misplaced,
    misnamed and oversized files, broken stored sets) and the unreadable-folder test
    go.
+5. `test/guardian/rules/counter_reload_test.exs` becomes async: its valid-edit and
+   migration tests write through the public API on their own tables, with no planted
+   files or forced reloads. Preston's call: its invalid stored-set cases (an invalid
+   target failing its dependents, an invalid dependent while its target changes) and
+   its `:lifecycle` boot-versus-reload test go, since the API can't store an invalid
+   file. The rule write lock test (`rules_tools_busy_test.exs`) is left as the only
+   synchronous module in the default suite.
 
 ## Product spec impact
 
