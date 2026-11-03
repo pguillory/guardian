@@ -14,7 +14,7 @@ defmodule Guardian.Test.Cluster do
 
   @doc """
   Starts one Storage peer and waits until it can participate in queries. Call from
-  `setup` or `setup_all`; returns the peer controller and node as test context.
+  `setup`, `setup_all` or a test; returns the peer controller and node as test context.
 
   On exit, stops the peer (also safe if the test stopped it), removes its data root,
   and stops distribution only if this call started it.

@@ -1611,7 +1611,7 @@ About 150 test files cover:
    there.
 5. Rules: the parser, whole-set validation, semantics through real ingestion, the
    server (repair, activation, swapping a table's module, the too-recent refusal), and a peer cluster sharing the rule
-   folder; the folder store and the key lock have their own tests, and the lock is raced
+   folder; the folder store and the key lock have their own tests, and the lock is raced and held
    across peers. Tests use one rule store, the folder in the run's fresh data directory,
    and each its own tables. S3 mode has no automated test: when `ObjectStore` changes, an
    agent checks it by hand (CONTRIBUTING.md). `Guardian.Test.Rules` plants files in the

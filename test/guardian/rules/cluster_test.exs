@@ -1,5 +1,5 @@
 defmodule Guardian.Rules.ClusterTest do
-  # Starts a peer node, so this module must not run concurrently with other tests.
+  # Starts peer nodes, so this module must not run concurrently with other tests.
   use ExUnit.Case, async: false
   @moduletag :cluster
   import Guardian.Test.Rules
@@ -13,6 +13,38 @@ defmodule Guardian.Rules.ClusterTest do
 
   defp peer_ingest(peer_node, table, events) do
     :erpc.call(peer_node, Guardian.Engine, :ingest_events, [table, events])
+  end
+
+  # The peer's rule server takes the write lock for a write on `table` and holds it:
+  # before saving, it asks every other node to clear old code for the new rules, and a
+  # second peer, whose rule server is suspended, does not answer for up to 10 s. Returns
+  # a function that resumes the second peer and returns the held write's result.
+  defp hold_write_lock(peer_node, table) do
+    %{peer_node: slow_node} = Guardian.Test.Cluster.single_peer()
+    :ok = :erpc.call(slow_node, Guardian.Test.Cluster, :start_rules, [rule_path("")])
+
+    Guardian.Test.Polling.eventually(fn ->
+      slow_node in :erpc.call(peer_node, Node, :list, [])
+    end)
+
+    slow_server = :erpc.call(slow_node, Process, :whereis, [Guardian.Rules.Server])
+    :ok = :erpc.call(slow_node, :sys, :suspend, [slow_server])
+
+    holder =
+      Task.async(fn ->
+        :erpc.call(peer_node, Guardian.Rules, :write_rule, [table, "a", "SET x = 1"])
+      end)
+
+    # The peer sends that request only while it holds the lock.
+    Guardian.Test.Polling.eventually(fn ->
+      {:messages, messages} = :erpc.call(slow_node, Process, :info, [slow_server, :messages])
+      Enum.any?(messages, &match?({:"$gen_call", _from, {:purge_for, _hashes}}, &1))
+    end)
+
+    fn ->
+      :ok = :erpc.call(slow_node, :sys, :resume, [slow_server])
+      Task.await(holder, 30_000)
+    end
   end
 
   test "a write reloads every node", %{peer_node: peer_node} do
@@ -61,6 +93,49 @@ defmodule Guardian.Rules.ClusterTest do
 
     assert Enum.count(results, &match?({:ok, _}, &1)) == 1
     assert Enum.count(results, loser?) == 1
+  end
+
+  test "a write while another node holds the write lock fails as busy and saves nothing",
+       %{peer_node: peer_node} do
+    held = unique_table("rules_held")
+    table = unique_table("rules_busy")
+    remove_on_exit(held)
+    remove_on_exit(table)
+    release = hold_write_lock(peer_node, held)
+
+    assert Guardian.Rules.write_rule(table, "a", "SET x = 1") == {:error, :busy}
+    assert Guardian.Rules.list_rules(table) == {:ok, []}
+
+    assert {:ok, _} = release.()
+    assert Guardian.Rules.list_rules(table) == {:ok, []}
+    assert {:ok, %{unconfirmed: []}} = Guardian.Rules.write_rule(table, "a", "SET x = 1")
+  end
+
+  test "a busy MCP rule write is reported once its retries run out", %{peer_node: peer_node} do
+    held = unique_table("mcp_rules_held")
+    table = unique_table("mcp_rules_busy")
+    remove_on_exit(held)
+    remove_on_exit(table)
+    Guardian.Test.Env.put(mcp_rule_busy_retry_delays_ms: [0, 0])
+    Guardian.Test.MCPClient.start()
+    release = hold_write_lock(peer_node, held)
+
+    {:ok, response} =
+      Guardian.Test.MCPClient.call_tool("write_rule", %{
+        "table" => table,
+        "name" => "a",
+        "source" => "SET x = 1",
+      })
+
+    assert response.result["isError"] == true
+    assert [%{"type" => "text", "text" => message}] = response.result["content"]
+
+    assert message ==
+             "something else is editing the rules, so nothing was changed; try again in a few " <>
+               "seconds (a lock left by an interrupted write expires within 2 minutes)"
+
+    assert {:ok, _} = release.()
+    assert Guardian.Rules.list_rules(table) == {:ok, []}
   end
 
   test "a node that missed a reload catches up at the next write", %{peer_node: peer_node} do

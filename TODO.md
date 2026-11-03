@@ -709,3 +709,6 @@ privately, not in this repository.
 - [x] async-rule-tests: rule tests that write rules, store events and run queries run
       async through the one rule server; what stays sync says why, and the rule time limit and a
       rule worker's crash have no test left (`docs/changes/async-rule-tests.md`)
+- [x] rule-lock-cluster-test: the rule write lock's busy case is tested in the cluster
+      suite, with a peer's rule server holding the lock; no sync module is left in the
+      default suite (`docs/changes/rule-lock-cluster-test.md`)
