@@ -132,4 +132,84 @@ defmodule Guardian.Cluster.MetadataTest do
       assert Enum.sort(run_sql("SELECT v FROM #{table}")) == [[1], [2]]
     end
   end
+
+  describe "a connected node that fails its readiness check" do
+    test "fails queries and lookups when it does not answer, until it answers again" do
+      %{peer_node: frozen_node} = Guardian.Test.Cluster.single_peer()
+      table = unique_table("cluster_metadata")
+      Guardian.Engine.ingest_events(table, [%{"v" => 1}])
+      ingest_on(frozen_node, table, [%{"v" => 2}])
+
+      # Freezing the node's OS process keeps its connection up (the tick timeout is far
+      # longer than this test), as for a machine stalled in a long pause.
+      os_pid = to_string(:erpc.call(frozen_node, :os, :getpid, []))
+      # Registered after the peer's own cleanup, so it runs first: a frozen peer can't stop.
+      on_exit(fn -> System.cmd("kill", ["-CONT", os_pid]) end)
+      {_, 0} = System.cmd("kill", ["-STOP", os_pid])
+
+      try do
+        # Through the query process (FROM) and the public error conversion.
+        assert {:error, message} = Guardian.Query.execute("SELECT v FROM #{table}")
+        assert message =~ "Temporarily unavailable"
+        assert message =~ "#{frozen_node} (it did not say within 5 seconds whether it is ready)"
+        assert message =~ "try again shortly"
+
+        # Through SELECT * resolution, and a lookup in the query process.
+        for sql <- ["SELECT * FROM #{table}", "SHOW TABLES"] do
+          error = assert_raise Guardian.Query.Error, fn -> run_sql(sql) end
+          assert error.message =~ "Temporarily unavailable: cluster node #{frozen_node}"
+        end
+
+        # A timeout, not a disconnect.
+        assert frozen_node in Node.list()
+      after
+        {_, 0} = System.cmd("kill", ["-CONT", os_pid])
+      end
+
+      Guardian.Test.Cluster.await_query_node(frozen_node)
+      assert Enum.sort(run_sql("SELECT v FROM #{table}")) == [[1], [2]]
+    end
+
+    test "fails queries and lookups when its check fails", %{peer_node: peer_node} do
+      # A node without Guardian's code: its readiness check raises.
+      {:ok, peer, broken_node} =
+        :peer.start(%{
+          name: :"guardian_peer_#{System.unique_integer([:positive])}",
+          args: [~c"-setcookie", Atom.to_charlist(Node.get_cookie())],
+        })
+
+      Guardian.Test.Cluster.stop_on_exit(peer)
+      assert broken_node in Node.list()
+
+      table = unique_table("cluster_metadata")
+      Guardian.Engine.ingest_events(table, [%{"v" => 1}])
+
+      assert {:error, message} = Guardian.Query.execute("SELECT v FROM #{table}")
+      assert message =~ "Temporarily unavailable"
+      assert message =~ "#{broken_node} (its readiness check failed: UndefinedFunctionError)"
+      assert message =~ "try again shortly"
+      refute message =~ to_string(peer_node)
+
+      for sql <- ["SELECT * FROM #{table}", "DESC #{table}"] do
+        error = assert_raise Guardian.Query.Error, fn -> run_sql(sql) end
+        assert error.message =~ "Temporarily unavailable: cluster node #{broken_node}"
+      end
+
+      :peer.stop(peer)
+      assert run_sql("SELECT v FROM #{table}") == [[1]]
+    end
+  end
+
+  test "a node that disconnects is left out" do
+    %{peer: peer, peer_node: gone_node} = Guardian.Test.Cluster.single_peer()
+    table = unique_table("cluster_metadata")
+    Guardian.Engine.ingest_events(table, [%{"v" => 1}])
+    ingest_on(gone_node, table, [%{"v" => 2, "w" => true}])
+    assert Enum.sort(run_sql("SELECT v FROM #{table}")) == [[1], [2]]
+
+    :peer.stop(peer)
+    refute gone_node in Node.list()
+    assert run_sql("SELECT v FROM #{table}") == [[1]]
+    assert run_sql("DESC #{table}") == [["v"]]
+  end
 end

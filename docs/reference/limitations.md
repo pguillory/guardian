@@ -13,7 +13,9 @@
    to 10 s for the tunnel connector to drain; Fly's `kill_timeout` is 150 s).
 4. Retention is fixed: persisted segments expire after 15 days.
 5. A query covers only the nodes connected when it runs. A node that's down or still
-   loading its segments is silently missing from results.
+   loading its segments is silently missing from results. A connected node that
+   doesn't answer whether it is ready within 5 seconds fails the query instead, with
+   an error saying to try again shortly.
 6. Memory isn't fully bounded. Results are capped at 10,000 rows but not in bytes, so
    10,000 rows of very large values are returned whole and answering takes several
    times the response's size in memory (a 380 MiB response peaked near 1.5 GB).

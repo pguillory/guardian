@@ -1297,9 +1297,13 @@ What clustering is used for:
 
 1. Queries: FROM fans out to `Guardian.Cluster.connected_nodes/0` and GROUP BY partitions span
    every node (section 5.4). `connected_nodes/0` is this node plus each peer in
-   `Node.list/0` whose `Guardian.Storage.ready?/0` answers `true` within 5 seconds: distribution
-   starts before Guardian's applications, so a booting peer is connected while it is
-   still loading segments, and asking it would fail every query. Partition workers never
+   `Node.list/0` whose `Guardian.Storage.ready?/0` answers `true`: distribution starts
+   before Guardian's applications, so a booting peer is connected while it is still
+   loading segments, and asking it would fail every query, so a peer that answers
+   `false` (or disconnects before answering) is left out. A peer that doesn't answer
+   within 5 seconds, or whose check fails, raises `Guardian.Query.Error` ("Temporarily
+   unavailable ... try again shortly") rather than being left out, so a stalled peer
+   fails the query or lookup instead of shortening its answer. Partition workers never
    read Storage, so they also run on a starting node.
 2. Metadata: `Guardian.Cluster.Metadata` calls every connected node with `:erpc.multicall`
    (60-second timeout) for its local schemas and adds them. If any node fails or times

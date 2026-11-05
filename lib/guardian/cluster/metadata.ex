@@ -8,7 +8,8 @@ defmodule Guardian.Cluster.Metadata do
   `Guardian.Storage.merge_schemas/2`. A column that holds ints on one node and strings on
   another is the same as a mixed column on one node; there is nothing to reconcile.
 
-  If any connected node fails or times out, the lookup raises `Guardian.Query.Error`
+  If any connected node fails or times out, here or in its readiness check
+  (`Guardian.Cluster.connected_nodes/0`), the lookup raises `Guardian.Query.Error`
   instead of returning partial metadata.
 
   Only connected nodes are asked. A node that is disconnected when the lookup runs is

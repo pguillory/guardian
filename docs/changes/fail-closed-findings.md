@@ -69,4 +69,5 @@ object has no age.
 `Guardian.Cluster.connected_nodes/0` leaves out a connected peer that does not say
 within 5 seconds whether its storage is ready. Whether that should fail the query
 instead is a cluster availability decision, recorded in TODO.md as
-`ready-check-timeout`.
+`ready-check-timeout`. It has since been made: such a peer now fails the query
+(`docs/changes/ready-check-timeout.md`).

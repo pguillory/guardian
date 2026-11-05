@@ -17,15 +17,63 @@ defmodule Guardian.Cluster do
 
   Erlang distribution comes up before Guardian's applications, so a booting peer is
   connected while it still loads segments. Asking it for schemas or segments then
-  fails, so it is left out until `Guardian.Storage.ready?/0` answers `true`, like a
-  peer that is not connected. A peer that fails or does not answer within
-  #{@ready_timeout} ms is left out as well.
+  fails, so it is left out while `Guardian.Storage.ready?/0` answers `false`, like a
+  peer that is not connected (or one that disconnects before it answers).
+
+  A connected peer that does not answer within #{@ready_timeout} ms, or whose check
+  fails, is not left out: leaving it out would return an answer missing its rows that
+  reads as complete. This raises `Guardian.Query.Error` instead, saying the peer is
+  temporarily unavailable and to try again shortly.
   """
   def connected_nodes do
     peers = Node.list()
     answers = :erpc.multicall(peers, Guardian.Storage, :ready?, [], @ready_timeout)
-    ready_peers = for {peer, {:ok, true}} <- Enum.zip(peers, answers), do: peer
-    [Node.self() | ready_peers]
+    answers = Enum.zip(peers, answers)
+
+    failures = for {peer, answer} <- answers, why = failure(answer), do: {peer, why}
+
+    if failures != [] do
+      raise Guardian.Query.Error, message: unavailable_message(failures)
+    end
+
+    [Node.self() | for({peer, {:ok, true}} <- answers, do: peer)]
+  end
+
+  # Why a readiness answer fails the query, or nil if it doesn't: ready, still
+  # starting (or stopping), or disconnected since `Node.list/0`.
+  defp failure({:ok, ready}) when is_boolean(ready) do
+    nil
+  end
+
+  # The peer disconnected before it answered: the disconnected case, which a query
+  # racing the disconnect could not tell apart.
+  defp failure({:error, {:erpc, :noconnection}}) do
+    nil
+  end
+
+  defp failure({:error, {:erpc, :timeout}}) do
+    "it did not say within #{div(@ready_timeout, 1000)} seconds whether it is ready"
+  end
+
+  defp failure({:error, {:exception, reason, stacktrace}}) do
+    "its readiness check failed: " <> Guardian.Failure.kind(:error, reason, stacktrace)
+  end
+
+  defp failure({:exit, {kind, reason}}) when kind in [:exception, :signal] do
+    "its readiness check failed: exit " <> Guardian.Failure.exit_kind(reason)
+  end
+
+  defp failure({:throw, _value}) do
+    "its readiness check failed: throw"
+  end
+
+  defp failure(_answer) do
+    "its readiness check failed"
+  end
+
+  defp unavailable_message(failures) do
+    nodes = Enum.map_join(failures, ", ", fn {peer, why} -> "#{peer} (#{why})" end)
+    "Temporarily unavailable: cluster node #{nodes}; try again shortly"
   end
 
   @doc """

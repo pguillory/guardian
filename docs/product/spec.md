@@ -272,8 +272,10 @@ time-limit error. The library's timeout can still come first for a request that
 waited behind an earlier one in its session, or for a `SELECT *` whose schema lookup
 waits on a machine that stopped answering (below). Either way the query stops at its
 limit. Resolving a `SELECT *` comes before that limit: to list each table's columns,
-Guardian asks every machine for that table's schema. A machine that doesn't say
-within 5 seconds whether it is ready is left out; one whose storage (such as a
+Guardian asks every machine for that table's schema. A connected machine that
+doesn't say within 5 seconds whether it is ready, or fails to, fails the lookup with
+an error saying it is temporarily unavailable and to try again shortly
+([section 10](#10-clustering-and-deployment) item 6); one whose storage (such as a
 table's in-memory segment) doesn't answer for 5 seconds fails the lookup; and
 Guardian waits at most 60 seconds for each machine's answer, per table. Other
 SELECTs need no lookup. (`DESC`, `SHOW TABLES` and the `schema` table collect their
@@ -339,8 +341,9 @@ Every write path (HTTP, MCP, and Guardian's own `system_stats` and request loggi
 goes through the same validation and storage.
 
 1. Table check first: An invalid table name rejects the whole request.
-2. Independent events: Each event is validated and stored on its own; a failure never
-   stops later events, and there is no batch atomicity.
+2. Independent events: Each event is validated and stored on its own; an event
+   Guardian refuses never stops later events, and there is no batch atomicity. An
+   unexpected failure is different: it fails the whole request (item 6).
 3. Objects only: A non-object item fails with `event is not a JSON object`.
 4. Drop, don't fail: Within an object, any value that cannot be stored is dropped and
    the rest of the event is stored. Dropped values include integers outside 64-bit
@@ -739,9 +742,13 @@ the shipped surface:
    unseen and the rows are returned. A query that reads a
    segment while it is being written to its file waits for the write and returns the
    same rows. A failure while a query runs never produces a
-   partial answer, and slow steps are waited for, up to the time limit. Rows a
-   machine isn't serving when the query starts are a different matter: they're
-   silently missing from the answer (section 12).
+   partial answer, and slow steps are waited for, up to the time limit. Before it
+   reads a table, a query asks every connected machine whether it is ready; one that
+   doesn't say within 5 seconds, or fails to, fails the query with an error saying it
+   is temporarily unavailable and to try again shortly. Rows a machine isn't serving when
+   the query starts (disconnected, or still starting) are a different matter: they're
+   silently missing from the answer ([section 10](#10-clustering-and-deployment)
+   item 6, section 12).
    A machine that has started to stop refuses new queries with an error saying to
    retry. This is best effort, so a query still running as it stops can fail.
    Querying a table that does not exist is not an error: it behaves like an empty
@@ -917,16 +924,20 @@ Product-level behavior:
    requests (on Fly, Fly's proxy) spreads writes across nodes. Every query and schema
    lookup fans out to all connected nodes, so adding nodes needs no client change.
 6. A node that is disconnected, or still starting (loading its stored events after
-   a boot or a storage restart), is silently missing from query results. A started
-   node that fails a schema lookup (`SHOW TABLES`, `DESC`, the `schema` table,
-   `SELECT *`) fails the statement with a node error. Once a query is running, any
-   failure on any node (an expression error, a crashed query worker, a node that
-   disconnects or loses traffic to another node) fails the whole query with an
+   a boot or a storage restart), is silently missing from query results. Every query
+   and schema lookup first asks each connected node whether it is ready; a connected
+   node that doesn't say within 5 seconds, or fails to, fails the statement with an
+   error saying it is temporarily unavailable and to try again shortly, rather than
+   being left out. A started node that fails a schema lookup (`SHOW TABLES`, `DESC`, the
+   `schema` table, `SELECT *`) fails the statement with a node error. Once a query is
+   running, any failure on any node (an expression error, a crashed query worker, a node
+   that disconnects or loses traffic to another node) fails the whole query with an
    error. It never returns a partial answer because of such a failure, except that a
-   query without `ORDER BY` that already has its `LIMIT` rows (10,000 without one)
-   stops reading and misses a later failure. Rows a machine isn't serving are silently
-   missing (section 12). A segment that stops answering holds a query that scans it
-   until the query's time limit.
+   query without `ORDER BY` that already has its `LIMIT` rows (10,000 without one) stops
+   reading and misses a later failure. Rows a started machine isn't serving (a segment
+   file that won't load or a crashed persisted segment) are silently missing (section
+   12). A segment that stops answering holds a query that scans it until the query's
+   time limit.
 7. Single-node deploys stop ingestion briefly; producers must retry. Multi-node
    deploys on Fly, set up as the Fly guide's Scaling section describes, roll one
    machine at a time and wait for each to load its segments: ingestion continues on

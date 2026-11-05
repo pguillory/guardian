@@ -614,9 +614,9 @@ Counter-specific limits:
    with several statements. Other SELECTs make no lookup.
    (`DESC`, `SHOW TABLES` and the `schema` table read the `schema` table, whose lookup
    runs inside the query and its limit.) Each lookup first asks every peer whether its
-   Storage is ready, leaving out one that doesn't answer within 5 seconds; a ready
-   machine whose Storage schema or in-memory segment doesn't answer fails the lookup
-   after 5 seconds. So one MCP query holds its session for up to 30 seconds plus, per
+   Storage is ready, failing the lookup as temporarily unavailable if one doesn't
+   answer within 5 seconds; a ready machine whose Storage schema or in-memory segment
+   doesn't answer fails the lookup after 5 seconds. So one MCP query holds its session for up to 30 seconds plus, per
    table a `SELECT *` names, up to 5 seconds when a machine doesn't answer at all, or
    up to 60 seconds when a machine reports ready and then stops answering; a slow
    `send_events` holds it until it finishes unless the client cancels it (the write
@@ -696,7 +696,10 @@ Invariants and argument:
    peer in `Node.list()` that answers `Guardian.Storage.ready?/0` with `true`, with no name or
    deployment allowlist). Counter routing instead uses this node plus `Node.list()`
    without Storage readiness checks (5.1.9), so a visible non-Guardian peer can own
-   keys that then fail open. Membership is therefore exactly invariants 1 and 2.
+   keys that then fail open. A connected non-Guardian peer whose readiness check fails
+   (it lacks Guardian's code) fails every query and schema lookup as temporarily
+   unavailable rather than being skipped: a denial of service inside the existing
+   trust boundary, not a new one. Membership is therefore exactly invariants 1 and 2.
 4. A misnamed node fails at boot rather than silently never joining: with
    `DNS_CLUSTER_QUERY` set, `Guardian.Cluster.discovery_child_spec/2` refuses a node whose host
    is not an IP literal, is loopback, or is not written exactly as `:inet.ntoa/1`

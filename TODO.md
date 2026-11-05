@@ -367,9 +367,8 @@ privately, not in this repository.
       `FROM '_stream'`, also through LET) and a LET function given the wrong number of
       arguments are query errors, not internal ones; a LET name standing for `*` labels
       each column with its name instead of one label for all of them
-- [ ] statement-node-set: compute a statement's node set once, so a hung peer's 5 s
-      readiness check is paid once per query and a `SELECT *`'s resolve and FROM see
-      the same nodes
+- [ ] statement-node-set: compute a statement's node set once, so the readiness check
+      runs once per query and a `SELECT *`'s resolve and FROM see the same nodes
 - [x] json-query-error-responses: obsolete; split-api-keys removed JSON `/query`
       (`docs/changes/split-api-keys.md`)
 - [x] not-in: `x NOT IN [...]` did not parse (only `NOT x IN [...]`); it is now the
@@ -406,15 +405,6 @@ privately, not in this repository.
       fails instead of reading as "no error", and a worker waits for its report's
       acknowledgement with no timeout, so a lost report cannot give a partial answer
       (`docs/changes/fail-closed-findings.md`)
-- [ ] ready-check-timeout: `Guardian.Cluster.connected_nodes/0` silently leaves out a
-      connected peer that does not answer the 5-second readiness check (or fails it),
-      from every query and schema lookup, so a query returns 200 missing that peer's
-      rows. The spec states this only for `SELECT *` resolution (section 4's timeout
-      paragraph); section 10 item 6 covers only disconnected and still-starting nodes.
-      Options: (a) fail closed: a connected peer that times out or errors fails the
-      query or lookup with a node error, while not-ready and disconnected peers stay
-      left out, with matching spec changes; (b) keep dropping it for availability and
-      say so in section 10 item 6. A cluster availability decision for the maintainer
 
 ## Interfaces and operations
 
