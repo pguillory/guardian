@@ -515,6 +515,9 @@ privately, not in this repository.
 - [x] dep-pass-2026-11: routine dependency pass: cloudflared 2026.10.7 and elixir_make
       0.10.1; nimble_options, peri, hypex, Elixir 1.20 and OTP 29 are held back
       (`docs/changes/dep-pass-2026-11.md`)
+- [x] dep-pass-2026-11-09: routine dependency pass: the Debian base to trixie-20261104
+      and nimble_options 1.2.0; peri, hypex, Elixir 1.20 and OTP 29 are held back
+      (`docs/changes/dep-pass-2026-11-09.md`)
 - [x] mcp-serialized-tool-calls: upgrade Anubis to 2.2 so MCP sessions run
       independently, keeping the wire callers see
       (`docs/changes/mcp-serialized-tool-calls.md`)

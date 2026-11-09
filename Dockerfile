@@ -13,7 +13,7 @@
 
 ARG ELIXIR_VERSION=1.19.7
 ARG OTP_VERSION=28.5.0.8
-ARG DEBIAN_VERSION=trixie-20261027-slim
+ARG DEBIAN_VERSION=trixie-20261104-slim
 
 # Set by BuildKit for the target platform: selects the cloudflared stage below.
 ARG TARGETARCH

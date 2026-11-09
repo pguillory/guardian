@@ -22,7 +22,7 @@ the release. Licenses are as each package declares them on Hex.
 | jason | 1.4.5 | Apache-2.0 | release |
 | mime | 2.0.7 | Apache-2.0 | release |
 | mint | 1.11.0 | Apache-2.0 | release |
-| nimble_options | 1.1.1 | Apache-2.0 | release |
+| nimble_options | 1.2.0 | Apache-2.0 | release |
 | nimble_pool | 1.1.0 | Apache-2.0 | release |
 | peri | 0.11.3 | MIT | release |
 | plug | 1.20.3 | Apache-2.0 | release |
