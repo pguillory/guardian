@@ -1180,6 +1180,16 @@ dispatches `send_events` itself so mixed batches reach Engine unchanged. `write_
 and `delete_rule` are the one place a busy rule write lock is retried: after 0.5, 1
 and 1.5 s, then the tool error says something else is editing the rules.
 
+For a session whose client declared the MCP Apps extension
+(`io.modelcontextprotocol/ui` with `text/html;profile=mcp-app`), the server also
+registers the `ui://guardian/query-results` resource, adds `_meta.ui.resourceUri` to
+the `query` tool and `_meta.ui.visibility: ["model"]` to every tool, and each query result gets `_meta["guardian/html"]`, a table
+`Guardian.Web.MCP.ResultsView` renders on the server (at most 300 rows and 100 KiB of
+row markup). The resource is a static page whose one inline script, allowed by hash
+in its own CSP, swaps that HTML in when the host passes it the result
+([security section 4.7](security.md#47-the-query-results-view)). Other sessions see
+none of it.
+
 A slow query holds up only later requests in its own session, for up to the 30-second
 query time limit (5.7) plus, for a `SELECT *`, the schema lookup that resolves the
 query before it (up to 60 seconds per table when a machine reports ready and then

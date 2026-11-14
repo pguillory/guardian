@@ -41,9 +41,10 @@ defmodule Guardian.Test.MCPHTTP do
 
   @doc """
   Opens a session the way a minimal MCP client does (initialize with protocol
-  2025-03-26, then notifications/initialized) and returns its ID.
+  2025-03-26, then notifications/initialized) and returns its ID. `capabilities` are
+  the client capabilities it declares.
   """
-  def open_session(client_name \\ "mcp-http-test") do
+  def open_session(client_name \\ "mcp-http-test", capabilities \\ %{}) do
     conn =
       request(:post, %{
         jsonrpc: "2.0",
@@ -51,7 +52,7 @@ defmodule Guardian.Test.MCPHTTP do
         method: "initialize",
         params: %{
           protocolVersion: "2025-03-26",
-          capabilities: %{},
+          capabilities: capabilities,
           clientInfo: %{name: client_name, version: "1"},
         },
       })

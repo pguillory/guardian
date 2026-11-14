@@ -527,6 +527,9 @@ privately, not in this repository.
 - [x] mcp-request-timeout: MCP calls wait 60 s, above the 30 s query limit, so a query
       that runs out its time answers with its own error instead of Anubis's timeout and
       its error log line (`docs/changes/mcp-request-timeout.md`)
+- [x] mcp-app-query-results: MCP App hosts show `query` results as a server-rendered
+      table; other clients see exactly what they saw before
+      (`docs/changes/mcp-app-query-results.md`)
 - [ ] mcp-compile-time-components: define the MCP tools and resource as compile-time
       components and drop the per-request registration. send_events still needs its
       own dispatch clause (typed validation rejects mixed batches), and the component

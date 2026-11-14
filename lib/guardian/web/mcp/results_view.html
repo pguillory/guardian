@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src '@SCRIPT_HASH@'; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<meta name="color-scheme" content="light dark">
+<title>Guardian query results</title>
+<style>
+:root {
+  color-scheme: light dark;
+  --color-background-primary: light-dark(#ffffff, #1f2023);
+  --color-background-secondary: light-dark(#e9ecf2, #2a2c31);
+  --color-text-primary: light-dark(#171717, #ececec);
+  --color-text-secondary: light-dark(#5f6368, #a3a6ad);
+  --color-text-danger: light-dark(#b3261e, #f2b8b5);
+  --color-text-success: light-dark(#1e7d32, #8fd19e);
+  --color-text-info: light-dark(#3f3fd1, #a9b4ff);
+  --color-border-primary: light-dark(#9aa3b5, #4a4e57);
+  --font-sans: system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --guardian-header-background: light-dark(#75839e, #3d475a);
+  --guardian-header-text: #ffffff;
+}
+html, body {
+  margin: 0;
+  background: transparent;
+  color: var(--color-text-primary);
+  font: 13px/1.4 var(--font-sans);
+}
+#results { padding: 8px; }
+.note, .summary { margin: 0 0 6px; color: var(--color-text-secondary); }
+.sql {
+  margin: 0 0 6px;
+  font: 12px/1.4 var(--font-mono);
+  color: var(--color-text-secondary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.error { margin: 0; color: var(--color-text-danger); white-space: pre-wrap; }
+.scroll { overflow-x: auto; }
+table { border-collapse: collapse; }
+th, td {
+  text-align: left;
+  vertical-align: top;
+  border: 1px solid var(--color-border-primary);
+  padding: 3px 6px;
+  white-space: pre;
+  background: var(--color-background-primary);
+}
+th {
+  background: var(--guardian-header-background);
+  color: var(--guardian-header-text);
+  font-weight: normal;
+}
+td.null { color: var(--color-text-secondary); font-style: italic; }
+td.false { color: var(--color-text-danger); }
+td.true { color: var(--color-text-success); }
+td.number { color: var(--color-text-info); text-align: right; }
+td.list { font-family: var(--font-mono); }
+</style>
+</head>
+<body>
+<div id="results"><p class="note">Waiting for the query to finish.</p></div>
+<script>@SCRIPT@</script>
+</body>
+</html>

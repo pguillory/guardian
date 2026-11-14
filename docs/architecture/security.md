@@ -378,6 +378,42 @@ Gaps:
    releases no longer read. Rolling back that far means setting that key again and
    moving callers to it first.
 
+### 4.7 The query results view
+
+MCP App hosts render the `query` tool's results view (spec section 4.2), which puts
+event data, written by anyone holding either key, into a page shown to the admin
+key's user. A script that ran in that page could ask the host to call Guardian's
+tools over the host's own MCP connection, `write_rule` and `send_events` included,
+so the view must never run anything but its own script. What holds:
+
+1. Every value, column label, SQL text and error message is HTML-escaped in
+   `Guardian.Web.MCP.ResultsView` (`Plug.HTML`), and the fragment holds no attributes
+   built from data. Tests parse the fragment and check that hostile values come back
+   as text, with no element.
+2. The view's page carries its own Content Security Policy: `default-src 'none'`;
+   `script-src` allowing only its one inline script by SHA-256 hash, computed at
+   compile time; `style-src 'unsafe-inline'`; `base-uri 'none'`; `form-action 'none'`.
+   Inline event handlers and injected scripts don't run even if escaping failed. This
+   was checked once by hand in headless Chromium, not in the suite: an `onerror`
+   handler in swapped-in markup ran without the policy and was blocked with it. The
+   host's own policy applies on top.
+3. For an App host session, every tool carries `_meta.ui.visibility: ["model"]`. The
+   view calls no tools, and the MCP Apps spec requires a host to refuse a view's call
+   to a tool whose visibility lacks `"app"`, so even a script that ran in the view
+   couldn't reach `write_rule` or `send_events` through a host that follows the spec.
+4. The page makes no network requests and calls no tools: it only answers the host's
+   handshake and swaps in the HTML the host passes it. No key or other credential is
+   ever in the page or in a result.
+5. The view exists only for sessions whose client declared the MCP Apps extension;
+   other sessions' tool lists, resource lists and results are unchanged.
+
+Gaps: the view relies on the host's sandbox (a separate origin, per the MCP Apps
+spec) to keep it from the host's own page. A host that adds its own scripts to the
+view's document would find them blocked by the view's policy, which breaks that host's
+view but exposes nothing. One that rewrote the document and dropped its `<head>` would
+drop the view's policy too, leaving escaping and visibility; hosts following the spec
+load the HTML as served.
+
 ## 5. B3: Key holder to query engine and storage
 
 Guarantee: there is no confidentiality boundary here, because every full-access key
@@ -1003,7 +1039,8 @@ Open gaps named above, by boundary:
 
 ## 10. How this was checked
 
-Written from the code: the routers, `Guardian.Web.Auth`, `Guardian.Web.Logger`, `Guardian.Web.QueryParseErrors`,
+Written from the code: the routers, `Guardian.Web.Auth`, `Guardian.Web.MCP.ResultsView`
+and its page's script, `Guardian.Web.Logger`, `Guardian.Web.QueryParseErrors`,
 `Guardian.Web.QueryLog`, `Guardian.Engine`, `lib/guardian/rules`, `Guardian.Cluster`, `Guardian.Query.Limits`, `config/runtime.exs`,
 `rel/env.sh.eex`, `bin/fly-start`, `Dockerfile`, and the Fly guide in this repository,
 and the pinned dependencies `cors_plug` 3.0.3, `anubis_mcp` 2.2.0, `req` 0.7.5 and `req_s3` 0.2.5. Query

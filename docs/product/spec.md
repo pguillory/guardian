@@ -242,6 +242,22 @@ authenticated like the JSON API but only with a full-access key: the ingest key 
    crashed", and the session continues. A `send_events` or `write_rule` that fails this
    way may have stored events (section 5 item 6) or saved the rule.
 
+Results view: a client that declares the MCP Apps extension
+(`io.modelcontextprotocol/ui`, with `text/html;profile=mcp-app` among its
+`mimeTypes`) in its `initialize` capabilities also gets a read-only table of `query`
+results, which App hosts show beside the result. For that session only, the `query`
+tool carries `_meta.ui.resourceUri` `ui://guardian/query-results`, every tool carries
+`_meta.ui.visibility: ["model"]` (the view may call none of them), that resource is
+listed and readable (a static HTML page), and each `query` result, success or tool
+error, carries `_meta["guardian/html"]`: the SQL and either a row count and a table
+of the rows in column order, or the error message. The table shows at most 300 rows
+and 100 KiB of row markup, and says when it shows fewer rows than the result has;
+values, column labels and the error message are cut at 1,000 characters, and the
+SQL at 2,000. The result's content, what the model reads, is
+the same as for any other client and is never cut. The view makes no requests and
+calls no tools. Every other client's tool list, resource list and results are
+unchanged.
+
 Protocol version: Guardian speaks MCP protocol version 2025-03-26 and answers every
 `initialize` with it, whatever version the client asks for; it ignores the
 `MCP-Protocol-Version` header.
@@ -971,7 +987,8 @@ These are deliberately absent.
 7. No automatically stored server-side timestamps or IDs (private counter arrival
    metadata is described in section 5). Deduplication is limited to short-lived,
    best-effort idempotency-key receipts ([section 5](#5-ingestion)).
-8. No web UI.
+8. No web UI. MCP App hosts can show `query` results as a table (section 4.2), but
+   Guardian serves no web pages.
 
 ## 12. Known gaps
 

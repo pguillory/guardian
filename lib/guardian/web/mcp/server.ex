@@ -14,6 +14,8 @@ defmodule Guardian.Web.MCP.Server do
   ## Resources
 
   - `guardian://query-language` - The full query language reference (Markdown)
+  - `ui://guardian/query-results` - The query results view, only for clients that
+    declare the MCP Apps extension (`Guardian.Web.MCP.ResultsView`)
 
   ## Authentication
 
@@ -32,13 +34,18 @@ defmodule Guardian.Web.MCP.Server do
     capabilities: [:tools, :resources],
     protocol_versions: ["2025-03-26"]
 
+  alias Anubis.Server.Frame
   alias Anubis.Server.Response
+  alias Guardian.Web.MCP.ResultsView
 
   @rule_busy_retry_delays_ms [500, 1_000, 1_500]
   @query_language_uri "guardian://query-language"
   @query_language_path Path.join(__DIR__, "query_language.md")
   @external_resource @query_language_path
   @query_language File.read!(@query_language_path)
+  @ui_extension "io.modelcontextprotocol/ui"
+  @results_view_uri ResultsView.uri()
+  @results_view_meta %{"ui" => %{"prefersBorder" => true}}
 
   @query_description """
   Guardian is a schemaless event store: tables of JSON events, queried with a \
@@ -157,21 +164,71 @@ defmodule Guardian.Web.MCP.Server do
       description: "Full syntax reference for the query tool",
       mime_type: "text/markdown"
     )
+    |> register_results_view()
+  end
+
+  # The query tool's MCP App view exists only for a session whose client declared the
+  # MCP Apps extension with its HTML type. Every other session's tools/list,
+  # resources/list and query results stay exactly as they were before the view.
+  defp register_results_view(frame) do
+    if app_host?(frame) do
+      register_resource(frame, @results_view_uri,
+        name: "query-results",
+        title: "Guardian query results",
+        description: "Table view of the query tool's results, for MCP App hosts",
+        mime_type: ResultsView.mime_type(),
+        meta: @results_view_meta
+      )
+    else
+      frame
+    end
+  end
+
+  defp app_host?(frame) do
+    case Frame.client_extension(frame, @ui_extension) do
+      %{"mimeTypes" => types} when is_list(types) -> ResultsView.mime_type() in types
+      _ -> false
+    end
   end
 
   # Anubis 2.x adds `"$schema"` (JSON Schema 2020-12) to every tool's inputSchema;
-  # Guardian's tools/list has never had it, so it is removed. Runs for tools/list and
-  # tools/call alike; validation does not read the advertised schema.
+  # Guardian's tools/list has never had it, so it is removed. For an App host each tool
+  # also gets its `_meta.ui` (app_tool_meta/1). Runs for tools/list and tools/call
+  # alike; validation does not read the advertised schema.
   @impl true
-  def server_tools(tools, _frame) do
+  def server_tools(tools, frame) do
+    app_host? = app_host?(frame)
+
     Enum.map(tools, fn tool ->
-      %{tool | input_schema: Map.delete(tool.input_schema, "$schema")}
+      tool = %{tool | input_schema: Map.delete(tool.input_schema, "$schema")}
+      if app_host?, do: %{tool | meta: app_tool_meta(tool.name)}, else: tool
     end)
+  end
+
+  # For an App host: the query tool names its view, and every tool is visible to the
+  # model only. The view calls no tools, so a host following the spec refuses any tool
+  # call from it, a layer beside the view's escaping and CSP.
+  defp app_tool_meta("query") do
+    %{"ui" => %{"resourceUri" => @results_view_uri, "visibility" => ["model"]}}
+  end
+
+  defp app_tool_meta(_name) do
+    %{"ui" => %{"visibility" => ["model"]}}
   end
 
   @impl true
   def handle_resource_read(@query_language_uri, frame) do
     {:reply, Response.resource() |> Response.text(@query_language), frame}
+  end
+
+  # Registered, so readable, only on App host sessions (register_results_view/1).
+  def handle_resource_read(@results_view_uri, frame) do
+    response =
+      Response.resource()
+      |> Response.text(ResultsView.shell())
+      |> Response.meta(@results_view_meta)
+
+    {:reply, response, frame}
   end
 
   # Anubis's default schema validation returns protocol errors and rejects whole
@@ -250,12 +307,30 @@ defmodule Guardian.Web.MCP.Server do
             |> Map.new()
           end)
 
-        response = Response.tool() |> Response.json(result)
+        response =
+          Response.tool()
+          |> Response.json(result)
+          |> with_view(frame, fn -> ResultsView.fragment(sql, columns, rows) end)
+
         {:reply, response, frame}
 
       {:error, message} ->
-        response = Response.tool() |> Response.error(message)
+        response =
+          Response.tool()
+          |> Response.error(message)
+          |> with_view(frame, fn -> ResultsView.error_fragment(sql, message) end)
+
         {:reply, response, frame}
+    end
+  end
+
+  # For an App host, the result also carries its rendered table in _meta, which hosts
+  # pass to the view and not to the model. The content above is unchanged.
+  defp with_view(response, frame, render) do
+    if app_host?(frame) do
+      Response.meta(response, %{ResultsView.html_key() => render.()})
+    else
+      response
     end
   end
 

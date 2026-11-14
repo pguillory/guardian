@@ -94,4 +94,5 @@ build's `Guardian.Test.Web.QueryBackend` stands in for `Guardian.Query` at compi
 recorders write is not tested (CONTRIBUTING.md, "Testing philosophy").
 
 The MCP server exposes `query`, `send_events`, and the rule tools `list_rules`,
-`read_rule`, `write_rule` and `delete_rule` (through `Guardian.Rules`).
+`read_rule`, `write_rule` and `delete_rule` (through `Guardian.Rules`). For MCP App
+hosts it also serves the query results view (`lib/guardian/web/mcp/AGENTS.md`).

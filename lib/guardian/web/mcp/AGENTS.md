@@ -26,6 +26,28 @@ Guardian's MCP endpoint exposes these tools:
   reference's Ingest rules section.
   TRACK/LOOKUP outputs use return_keys; completed keyed retries return only receipts.
 
+The query results view (MCP Apps, `Guardian.Web.MCP.ResultsView`,
+`docs/changes/mcp-app-query-results.md`) exists only for a session whose client
+declared `io.modelcontextprotocol/ui` with `text/html;profile=mcp-app` among its
+`mimeTypes`. For that session the `query` tool carries `_meta.ui.resourceUri`, every
+tool carries `_meta.ui.visibility: ["model"]` (`server_tools/2`; the view calls no
+tools, so hosts refuse its calls), the
+`ui://guardian/query-results` resource is registered, and each query result, success
+or error, adds `_meta["guardian/html"]`. Every other session's tools/list,
+resources/list and results must stay byte for byte what they were
+(`test/guardian/web/mcp/app_view_test.exs`). Rules for the view:
+
+- The result's content is the same for every client. Never put the view's data in
+  `structuredContent`: Claude Code gives it to the model instead of the content, and
+  2025-03-26 has no such field.
+- HTML is rendered on the server, in Elixir, escaping every value with `Plug.HTML`.
+  The page's one script (`results_view.js`) only talks to the host and swaps that HTML
+  in; it makes no network requests and calls no tools. The page's own CSP allows that
+  script by a hash computed at compile time, so don't add another script, inline
+  handler or external resource without revisiting `docs/architecture/security.md`
+  section 4.7.
+- Keep the fragment well-formed XML: the tests parse it with `:xmerl`.
+
 The `query` description summarizes the language, its unsupported syntax, the untyped
 data model, and the timestamp convention. The resource `guardian://query-language`
 serves `query_language.md`, the full reference. When syntax, functions, or aggregates
