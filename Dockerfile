@@ -27,15 +27,15 @@ ARG RUNNER_IMAGE="debian:${DEBIAN_VERSION}"
 # sets the mode itself. The version and hashes are written here, not as build args, so
 # they change together: a bump edits all of these lines.
 FROM scratch AS cloudflared-amd64
-ADD --checksum=sha256:51f7c68b57ed7269164075d7e789efce5b59355982f06392deeb037d982a51fd \
+ADD --checksum=sha256:97bb3b02d23a5980fc9c15a1a270e692da1923f103f920d5b16d4931d5ab55e7 \
   --chmod=0755 \
-  https://github.com/cloudflare/cloudflared/releases/download/2026.11.0/cloudflared-linux-amd64 \
+  https://github.com/cloudflare/cloudflared/releases/download/2026.11.1/cloudflared-linux-amd64 \
   /cloudflared
 
 FROM scratch AS cloudflared-arm64
-ADD --checksum=sha256:abe54a006acf9faf2d19ee9d953cb0d0804e92f59c5382a162e57b84d086f56f \
+ADD --checksum=sha256:b155cec3e48e489cfb8e5c602769fb8c771083018d8881d68b4d18a791567c5a \
   --chmod=0755 \
-  https://github.com/cloudflare/cloudflared/releases/download/2026.11.0/cloudflared-linux-arm64 \
+  https://github.com/cloudflare/cloudflared/releases/download/2026.11.1/cloudflared-linux-arm64 \
   /cloudflared
 
 FROM cloudflared-${TARGETARCH} AS cloudflared

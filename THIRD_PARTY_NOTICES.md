@@ -12,25 +12,25 @@ the release. Licenses are as each package declares them on Hex.
 | Package | Version | License | Used in |
 | --- | --- | --- | --- |
 | anubis_mcp | 2.2.0 | LGPL-3.0 | release |
-| bandit | 1.13.1 | MIT | release |
+| bandit | 1.15.0 | MIT | release |
 | cors_plug | 3.0.3 | Apache-2.0 | release |
 | dns_cluster | 0.3.1 | MIT | release |
 | elixir_make | 0.10.1 | Apache-2.0 | build |
-| finch | 0.24.0 | MIT | release |
+| finch | 0.25.0 | MIT | release |
 | hpax | 1.1.0 | Apache-2.0 | release |
 | hypex | 1.1.1 | MIT | release |
 | jason | 1.4.5 | Apache-2.0 | release |
 | mime | 2.0.7 | Apache-2.0 | release |
 | mint | 1.11.0 | Apache-2.0 | release |
 | nimble_options | 1.2.0 | Apache-2.0 | release |
-| nimble_pool | 1.1.0 | Apache-2.0 | release |
+| nimble_pool | 1.2.0 | Apache-2.0 | release |
 | peri | 0.11.3 | MIT | release |
-| plug | 1.20.3 | Apache-2.0 | release |
-| plug_crypto | 2.2.0 | Apache-2.0 | release |
+| plug | 1.20.4 | Apache-2.0 | release |
+| plug_crypto | 2.2.1 | Apache-2.0 | release |
 | req | 0.7.5 | Apache-2.0 | release |
 | req_s3 | 0.2.5 | Apache-2.0 | release |
 | superlist | 0.1.5 | MIT | release |
-| telemetry | 1.4.2 | Apache-2.0 | release |
+| telemetry | 1.4.3 | Apache-2.0 | release |
 | thousand_island | 1.6.0 | MIT | release |
 | uuid | 1.1.8 | Apache-2.0 | release |
 | websock | 0.5.3 | MIT | release |
@@ -69,5 +69,5 @@ release image (or from your OS for development) and linked at build time:
 | Elixir | Apache-2.0 | the standard library, bundled into the release |
 | OpenSSL (`libssl3t64`) | Apache-2.0 | the runtime's crypto |
 
-The image also downloads cloudflared 2026.11.0 (https://github.com/cloudflare/cloudflared,
+The image also downloads cloudflared 2026.11.1 (https://github.com/cloudflare/cloudflared,
 Apache-2.0), pinned by checksum, for the optional Cloudflare Tunnel connector.

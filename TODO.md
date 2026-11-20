@@ -521,6 +521,10 @@ privately, not in this repository.
 - [x] dep-pass-2026-11-16: routine dependency pass: cloudflared 2026.11.0; bandit,
       telemetry and nimble_pool releases too new to take, and peri, hypex, Elixir 1.20
       and OTP 29 held back (`docs/changes/dep-pass-2026-11-16.md`)
+- [x] dep-pass-2026-11-20: routine dependency pass: plug 1.20.4 (multipart advisory,
+      not reachable), bandit 1.15.0, finch 0.25.0, nimble_pool 1.2.0, telemetry 1.4.3
+      and cloudflared 2026.11.1; peri, hypex, Elixir 1.20 and OTP 29 held back
+      (`docs/changes/dep-pass-2026-11-20.md`)
 - [x] mcp-serialized-tool-calls: upgrade Anubis to 2.2 so MCP sessions run
       independently, keeping the wire callers see
       (`docs/changes/mcp-serialized-tool-calls.md`)
